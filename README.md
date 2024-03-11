@@ -1,5 +1,5 @@
 # lolice
 
-my on premise gke cluster
+my on premise k8s cluster
 
 ![my cluster](cluster.jpg)
