@@ -4,7 +4,7 @@
 
 ```
 kubectl create secret generic awssm-secret \
-  -n default \
+  -n external-secrets \
   --from-literal=access-key=***** \
   --from-literal=secret-access-key='******'
 ```
