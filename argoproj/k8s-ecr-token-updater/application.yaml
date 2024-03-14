@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: k8s-ecr-token-updater
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/boxp/lolice.git
+    targetRevision: main
+    path: argoproj/k8s-ecr-token-updater
+  destination:
+    server: 'https://kubernetes.default.svc' 
+    namespace: k8s-ecr-token-updater 
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
