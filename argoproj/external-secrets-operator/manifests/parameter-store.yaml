@@ -13,8 +13,10 @@ spec:
       auth:
         secretRef:
           accessKeyIDSecretRef:
+            namespace: external-secrets
             name: awssm-secret
             key: access-key
           secretAccessKeySecretRef:
+            namespace: external-secrets
             name: awssm-secret
             key: secret-access-key
