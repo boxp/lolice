@@ -11,7 +11,7 @@ spec:
     path: argoproj/k8s-ecr-token-updater
   destination:
     server: 'https://kubernetes.default.svc' 
-    namespace: k8s-ecr-token-updater 
+    namespace: k8s-ecr-token-updater
   syncPolicy:
     automated:
       prune: true
