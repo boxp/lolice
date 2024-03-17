@@ -9,6 +9,6 @@ spec:
   selector:
     app: palserver
   ports:
-  - protocol: udp
+  - protocol: UDP
     port: 8211
     targetPort: 8211
