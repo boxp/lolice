@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ecr-registry-helper-cm
+  namespace: k8s-ecr-token-updater
+data:
+  AWS_REGION: "ap-northeast-1" # Replace with your ECR region
+  DOCKER_SECRET_NAME: regcred # Replace with your desired ECR token secret name
