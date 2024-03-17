@@ -10,7 +10,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: local-storage
   local:
-    path: /mnt/disks/vol1
+    path: /mnt/k8s-disks/vol1
   nodeAffinity:
     required:
       nodeSelectorTerms:
