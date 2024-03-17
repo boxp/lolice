@@ -37,10 +37,9 @@ spec:
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
-            required:
-              nodeSelectorTerms:
-              - matchExpressions:
-                - key: kubernetes.io/hostname
-                  operator: In
-                  values:
-                  - golyat-1
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - golyat-1
