@@ -29,7 +29,7 @@ spec:
             memory: 24Gi
           requests: 
             cpu: 1000m
-            memory: 16Gi
+            memory: 8Gi
       volumes:
       - name: saved-volume
         persistentVolumeClaim:
