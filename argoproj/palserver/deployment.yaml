@@ -34,12 +34,11 @@ spec:
       - name: saved-volume
         persistentVolumeClaim:
           claimName: palserver-saved-claim
-      affinity:
-        nodeAffinity:
-          required:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                - golyat-1
+      nodeAffinity:
+        required:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+              - golyat-1
