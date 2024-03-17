@@ -20,7 +20,7 @@ metadata:
 subjects:
 - kind: ServiceAccount
   name: sa-default # Replace with your service account name if different
-  namespace: default 
+  namespace: k8s-ecr-token-updater
   apiGroup: ""
 roleRef:
   kind: Role
