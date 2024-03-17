@@ -17,7 +17,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: palserver
-        image: asia-northeast1-docker.pkg.dev/boxp-tk/palserver/palserver:2024-02-07-001
+        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/palserver:sha256:d5d1275322b020a7366874d16656e27d4d2c161c24a9f3628503b408a0b5887a
         ports:
         - containerPort: 8211
         volumeMounts:
