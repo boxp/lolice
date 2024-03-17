@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: https://github.com/boxp/lolice.git
     targetRevision: main
-    path: argoproj/palsrerver
+    path: argoproj/palserver
   destination:
     server: 'https://kubernetes.default.svc' 
     namespace: palserver
