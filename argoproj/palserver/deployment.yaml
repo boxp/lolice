@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: palserver
+  namespace: palserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: palserver
+  template:
+    metadata:
+      labels:
+        app: palserver
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+      - name: palserver
+        image: asia-northeast1-docker.pkg.dev/boxp-tk/palserver/palserver:2024-02-07-001
+        ports:
+        - containerPort: 8211
+        volumeMounts:
+        - name: saved-volume
+          mountPath: /home/nonroot/PalServer/Pal/Saved
+        resources:
+          limits:
+            cpu: 3500m
+            memory: 24Gi
+          requests: 
+            cpu: 1000m
+            memory: 16Gi
+      volumes:
+      - name: saved-volume
+        persistentVolumeClaim:
+          claimName: palserver-saved-claim
+      affinity:
+        nodeAffinity:
+          required:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - golyat-1
