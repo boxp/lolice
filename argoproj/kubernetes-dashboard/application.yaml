@@ -9,6 +9,9 @@ spec:
     - repoURL: https://kubernetes.github.io/dashboard
       targetRevision: 7.1.2
       chart: kubernetes-dashboard
+    - repoURL: https://github.com/boxp/lolice.git
+      targetRevision: main
+      path: argoproj/kubernetes-dashboard/manifests
   destination:
     server: 'https://kubernetes.default.svc' 
     namespace: kube-dashboard
