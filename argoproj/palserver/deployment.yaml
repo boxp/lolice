@@ -20,6 +20,7 @@ spec:
         image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/palserver:latest
         ports:
         - containerPort: 8211
+          protocol: UDP
         volumeMounts:
         - name: saved-volume
           mountPath: /home/nonroot/PalServer/Pal/Saved
