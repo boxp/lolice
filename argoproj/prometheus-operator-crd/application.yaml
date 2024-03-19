@@ -14,7 +14,7 @@ spec:
       targetRevision: release-0.13
     - path: argoproj/prometheus-operator-crd
       repoURL: https://github.com/boxp/lolice
-      targetRevision: master
+      targetRevision: main
   syncPolicy:
     automated:
       prune: true
