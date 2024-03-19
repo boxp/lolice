@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus-operator-crd
+  namespace: argocd
+spec:
+  destination:
+    namespace: observation
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    path: 'manifests/setup'
+    repoURL: https://github.com/prometheus-operator/kube-prometheus
+    targetRevision: release-0.13
+  syncPolicy:
+    automated:
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      - Replace=true
