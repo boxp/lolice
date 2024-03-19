@@ -8,10 +8,13 @@ spec:
     namespace: observation
     server: https://kubernetes.default.svc
   project: default
-  source:
-    path: 'manifests/setup'
-    repoURL: https://github.com/prometheus-operator/kube-prometheus
-    targetRevision: release-0.13
+  sources:
+    - path: 'manifests/setup'
+      repoURL: https://github.com/prometheus-operator/kube-prometheus
+      targetRevision: release-0.13
+    - path: argoproj/prometheus-operator-crd
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: master
   syncPolicy:
     automated:
       prune: true
