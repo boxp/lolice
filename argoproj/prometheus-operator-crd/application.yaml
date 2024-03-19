@@ -11,7 +11,7 @@ spec:
   sources:
     - path: 'manifests/setup'
       repoURL: https://github.com/prometheus-operator/kube-prometheus
-      targetRevision: master
+      targetRevision: main
     - path: argoproj/prometheus-operator-crd
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
