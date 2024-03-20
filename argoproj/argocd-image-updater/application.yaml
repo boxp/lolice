@@ -11,7 +11,7 @@ spec:
   sources:
     - path: manifests
       repoURL: https://github.com/argoproj-labs/argocd-image-updater
-      targetRevision: main
+      targetRevision: master
     - path: argoproj/argocd-image-updater
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
