@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-image-updater
+  namespace: argocd
+spec:
+  destination:
+    namespace: argocd
+    server: https://kubernetes.default.svc
+  project: default
+  sources:
+    - path: manifests
+      repoURL: https://github.com/argoproj-labs/argocd-image-updater
+      targetRevision: main
+    - path: argoproj/argocd-image-updater
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+  syncPolicy:
+    automated:
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
