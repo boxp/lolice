@@ -4,3 +4,4 @@ metadata:
   name: argocd-image-updater-config
 data:
   log.level: debug
+  pullsecret: argocd/regcred
