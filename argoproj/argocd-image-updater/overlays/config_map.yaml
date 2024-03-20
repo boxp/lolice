@@ -4,4 +4,10 @@ metadata:
   name: argocd-image-updater-config
 data:
   log.level: debug
-  pullsecret: argocd/regcred
+  registries.conf: |
+    registries:
+    - name: My ECR
+      api_url: https://839695154978.dkr.ecr.ap-northeast-1.amazonaws.com
+      prefix: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com
+      ping: no
+      credentials: pullsecret:argocd/regcred
