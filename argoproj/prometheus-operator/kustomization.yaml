@@ -1,5 +1,5 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-- github.com/prometheus-operator/kube-prometheus/manifests?ref=main
+- git@github.com:github.com/prometheus-operator/kube-prometheus.git/manifests?ref=main
 - application.yaml

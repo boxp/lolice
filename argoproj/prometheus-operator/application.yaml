@@ -8,10 +8,10 @@ spec:
     namespace: observation
     server: https://kubernetes.default.svc
   project: default
-  sources:
-    - path: argoproj/prometheus-operator
-      repoURL: https://github.com/boxp/lolice
-      targetRevision: main
+  source:
+    path: argoproj/prometheus-operator
+    repoURL: https://github.com/boxp/lolice
+    targetRevision: main
   syncPolicy:
     automated:
       prune: true
