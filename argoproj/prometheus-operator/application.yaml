@@ -9,9 +9,6 @@ spec:
     server: https://kubernetes.default.svc
   project: default
   sources:
-    - path: 'manifests/'
-      repoURL: https://github.com//prometheus-operator/kube-prometheus
-      targetRevision: main
     - path: argoproj/prometheus-operator
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
