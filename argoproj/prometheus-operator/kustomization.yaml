@@ -16,3 +16,6 @@ patches:
       - op: add
         path: /spec/loadBalancerIP
         value: 192.168.10.96
+      - op: replace
+        path: /spec/ports/0/targetPort
+        value: 80
