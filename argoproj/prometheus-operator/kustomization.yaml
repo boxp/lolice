@@ -3,3 +3,16 @@ kind: Kustomization
 resources:
 - github.com/prometheus-operator/kube-prometheus?ref=main
 - application.yaml
+
+patches:
+  - target:
+      version: v1
+      kind: Service
+      name: grafana
+    patch: |-
+      - op: add
+        path: /spec/type
+        value: LoadBalancer
+      - op: add
+        path: /spec/loadBalancerIP
+        value: 192.168.10.96
