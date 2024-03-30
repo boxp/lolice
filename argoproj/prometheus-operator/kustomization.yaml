@@ -15,7 +15,7 @@ patches:
         value: LoadBalancer
       - op: add
         path: /spec/loadBalancerIP
-        value: 192.168.10.96
+        value: 192.168.10.95
       - op: replace
         path: /spec/ports/0/targetPort
         value: 3000
