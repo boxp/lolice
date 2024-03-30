@@ -5,7 +5,7 @@ metadata:
   namespace: argocd
   annotations:
     argocd-image-updater.argoproj.io/image-list = my-image=839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/palserver
-    argocd-image-updater.argoproj.io/my-image.update-strategy = latest
+    argocd-image-updater.argoproj.io/my-image.update-strategy = newest-build
     argocd-image-updater.argoproj.io/write-back-method = argocd
 spec:
   project: default
