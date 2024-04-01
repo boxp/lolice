@@ -12,6 +12,5 @@ spec:
     app.kubernetes.io/part-of: kube-prometheus
   ports:
   - name: http
-    protocol: TCP
     port: 80
     targetPort: http
