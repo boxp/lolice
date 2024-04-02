@@ -4,6 +4,7 @@ resources:
 - github.com/prometheus-operator/kube-prometheus?ref=main
 - application.yaml
 - grafana-lb.yaml
+- external-secret.yaml
 
 # patches:
 #   - target:
