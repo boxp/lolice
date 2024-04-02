@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: cloudflared
-        image: docker.io/cloudflare/cloudflared:latest
+        image: docker.io/cloudflare/cloudflared:1517-bb29a0e19437
         args:
         - tunnel
         # Points cloudflared to the config file, which configures what
