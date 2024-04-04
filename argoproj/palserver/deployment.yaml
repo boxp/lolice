@@ -17,7 +17,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: palserver
-        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/palserver:latest
+        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/palserver:a1475970bfd9050f180d7d76cc280dabad937f16
         ports:
         - containerPort: 8211
           protocol: UDP
