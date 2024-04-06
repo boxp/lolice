@@ -4,7 +4,7 @@ metadata:
   name: palserver
   namespace: palserver
 spec:
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app: palserver
