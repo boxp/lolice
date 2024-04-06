@@ -1,0 +1,3 @@
+- op: add
+  path: "/metadata/labels/checksum-secret"
+  value: "{{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}"
