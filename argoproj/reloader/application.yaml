@@ -9,6 +9,9 @@ spec:
     server: https://kubernetes.default.svc
   project: default
   sources:
+    - repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+      ref: lolice
     - repoURL: https://stakater.github.io/stakater-charts
       targetRevision: 1.0.79
       chart: reloader
@@ -18,7 +21,6 @@ spec:
     - path: argoproj/reloader
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
-      ref: lolice
   syncPolicy:
     automated:
       prune: true
