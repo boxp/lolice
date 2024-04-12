@@ -3,4 +3,4 @@ kind: Deployment
 metadata:
   name: argocd-image-updater
   annotations:
-    secret.reloader.stakater.com/reload: "regcred-secret"
+    secret.reloader.stakater.com/reload: "regcred"
