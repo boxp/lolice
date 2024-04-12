@@ -14,10 +14,11 @@ spec:
       chart: reloader
       helm:
         valueFiles:
-          - values.yaml
+          - $lolice/values.yaml
     - path: argoproj/reloader
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
+      ref: lolice
   syncPolicy:
     automated:
       prune: true
