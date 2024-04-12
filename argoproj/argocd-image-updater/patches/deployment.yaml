@@ -1,0 +1,3 @@
+- op: add
+  path: "/metadata/annotations/secret.reloader.stakater.com/reload"
+  value: "regcred"
