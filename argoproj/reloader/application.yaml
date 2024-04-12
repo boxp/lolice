@@ -14,7 +14,7 @@ spec:
       chart: reloader
       helm:
         valueFiles:
-          - $lolice/values.yaml
+          - $lolice/argoproj/reloader/values.yaml
     - path: argoproj/reloader
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
