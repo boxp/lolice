@@ -10,8 +10,8 @@ spec:
   project: default
   sources:
     - repoURL: https://stakater.github.io/stakater-charts
-      targetRevision: v1.0.78
-      chart: stakater/reloader
+      targetRevision: 1.0.79
+      chart: reloader
       helm:
         valueFiles:
           - values.yaml
