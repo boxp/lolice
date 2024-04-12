@@ -4,3 +4,4 @@ resources:
 - github.com/argoproj-labs/argocd-image-updater/manifests/base?ref=master
 patchesStrategicMerge:
 - overlays/deployment.yaml
+- overlays/configmap.yaml
