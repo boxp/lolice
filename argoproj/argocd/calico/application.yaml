@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: calico
+  namespace: argocd
+spec:
+  destination:
+    namespace: tigera-operator
+    server: https://kubernetes.default.svc
+  project: default
+  sources:
+    - repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+      ref: lolice
+    - repoURL: https://docs.tigera.io/calico/charts
+      targetRevision: v3.27.3
+      chart: projectcalico/tigera-operator
+      helm:
+        valueFiles:
+          - $lolice/argoproj/calico/values.yaml
+    - path: argoproj/calico
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+  syncPolicy:
+    automated:
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
