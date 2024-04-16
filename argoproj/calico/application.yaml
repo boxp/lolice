@@ -13,7 +13,7 @@ spec:
       targetRevision: main
       ref: lolice
     - repoURL: https://docs.tigera.io/calico/charts
-      targetRevision: v3.27.3
+      targetRevision: 3.27.3
       chart: projectcalico/tigera-operator
       helm:
         valueFiles:
