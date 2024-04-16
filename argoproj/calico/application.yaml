@@ -12,9 +12,9 @@ spec:
     - repoURL: https://github.com/boxp/lolice
       targetRevision: main
       ref: lolice
-    - repoURL: https://docs.tigera.io/calico/charts
+    - repoURL: https://projectcalico.docs.tigera.io/charts
       targetRevision: 3.27.3
-      chart: projectcalico/tigera-operator
+      chart: tigera-operator
       helm:
         valueFiles:
           - $lolice/argoproj/calico/values.yaml
