@@ -5,7 +5,6 @@ resources:
 - application.yaml
 - grafana-lb.yaml
 - external-secret.yaml
-- cloudflared-configmap.yaml
 - cloudflared-deployment.yaml
 
 # patches:
