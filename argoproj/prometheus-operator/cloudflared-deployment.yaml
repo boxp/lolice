@@ -21,9 +21,9 @@ spec:
         # Points cloudflared to the config file, which configures what
         # cloudflared will actually do. This file is created by a ConfigMap
         # below.
+        - run
         - --token
         - $TUNNEL_TOKEN
-        - run
         livenessProbe:
           httpGet:
             # Cloudflared has a /ready endpoint which returns 200 if and only if
