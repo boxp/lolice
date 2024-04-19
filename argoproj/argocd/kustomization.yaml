@@ -5,7 +5,7 @@ resources:
 - cloudflared-deployment.yaml
 - external-secret.yaml
 patchesStrategicMerge:
-# - overlays/argocd-server-service.yaml
+- overlays/argocd-server-service.yaml
 - overlays/argocd-redis-network-policy.yaml
 - overlays/argocd-repo-server-network-policy.yaml
 - overlays/argocd-server-network-policy.yaml
