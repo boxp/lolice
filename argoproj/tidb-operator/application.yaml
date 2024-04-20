@@ -17,7 +17,7 @@ spec:
       chart: tidb-operator
       helm:
         valueFiles:
-          - $lolice/argoproj/tidb-admin/values.yaml
+          - $lolice/argoproj/tidb-operator/values.yaml
     - path: argoproj/tidb-admin
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
