@@ -12,7 +12,7 @@ spec:
     - repoURL: https://github.com/boxp/lolice
       targetRevision: main
       ref: lolice
-    - repoURL: https://https://charts.pingcap.org
+    - repoURL: https://charts.pingcap.org
       targetRevision: 1.5.3
       chart: tidb-operator
       helm:
