@@ -18,7 +18,7 @@ spec:
       helm:
         valueFiles:
           - $lolice/argoproj/tidb-operator/values.yaml
-    - path: argoproj/tidb-admin
+    - path: argoproj/tidb-operator
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
   syncPolicy:
