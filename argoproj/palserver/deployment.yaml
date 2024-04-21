@@ -24,6 +24,8 @@ spec:
         volumeMounts:
         - name: saved-volume
           mountPath: /home/nonroot/PalServer/Pal/Saved
+        - name: saved-volume-v2
+          mountPath: /home/nonroot/PalServer/Pal/Saved-v2
         resources:
           limits:
             cpu: 3500m
@@ -35,6 +37,9 @@ spec:
       - name: saved-volume
         persistentVolumeClaim:
           claimName: palserver-saved-claim
+      - name: saved-volume-v2
+        persistentVolumeClaim:
+          claimName: palserver-saved-claim-v2
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
