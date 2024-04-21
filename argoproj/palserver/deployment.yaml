@@ -14,7 +14,7 @@ spec:
         app: palserver
     spec:
       securityContext:
-        fsGroup: 1000
+        fsGroup: 65532
       containers:
       - name: palserver
         image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/palserver:a1475970bfd9050f180d7d76cc280dabad937f16
