@@ -13,6 +13,9 @@ spec:
         values: |
           preUpgradeChecker:
             jobEnabled: false
+    - path: argoproj/longhorn
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: main
   destination:
     server: https://kubernetes.default.svc
     namespace: longhorn-system
