@@ -13,8 +13,6 @@ spec:
     repoURL: https://github.com/boxp/lolice
     targetRevision: main
   syncPolicy:
-    automated:
-      prune: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

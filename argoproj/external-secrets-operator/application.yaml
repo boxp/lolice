@@ -17,5 +17,4 @@ spec:
     namespace: external-secrets 
   syncPolicy:
     automated:
-      prune: true
       selfHeal: true

@@ -18,7 +18,6 @@ spec:
     namespace: palserver
   syncPolicy:
     automated:
-      prune: true
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
