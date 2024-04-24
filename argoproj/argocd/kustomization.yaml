@@ -9,3 +9,4 @@ patchesStrategicMerge:
 - overlays/argocd-repo-server-network-policy.yaml
 - overlays/argocd-server-network-policy.yaml
 - overlays/argocd-cmd-params-cm.yaml
+- overlays/argocd-cm.yaml
