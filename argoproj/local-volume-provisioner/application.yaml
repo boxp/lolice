@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: local-volume-provisioner
+  namespace: argocd
+spec:
+  destination:
+    namespace: kube-system
+    server: https://kubernetes.default.svc
+  project: default
+  sources:
+    - path: argoproj/local-volume-provisioner
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+
