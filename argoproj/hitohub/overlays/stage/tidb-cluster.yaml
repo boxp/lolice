@@ -15,7 +15,8 @@ spec:
     baseImage: pingcap/pd
     maxFailoverCount: 0
     replicas: 1
-    storageClassName: ssd-storage
+    # if storageClassName is not set, the default Storage Class of the Kubernetes cluster will be used
+    # storageClassName: local-storage
     requests:
       storage: "1Gi"
     config: {}
@@ -27,7 +28,8 @@ spec:
     # to configure a short timeout
     evictLeaderTimeout: 1m
     replicas: 1
-    storageClassName: ssd-storage
+    # if storageClassName is not set, the default Storage Class of the Kubernetes cluster will be used
+    # storageClassName: local-storage
     requests:
       storage: "10Gi"
     config:
