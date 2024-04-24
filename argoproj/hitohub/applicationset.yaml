@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: hitohub
+  namespace: argocd
+spec:
+  generators:
+  - git:
+      repoURL: https://github.com/boxp/lolice.git
+      revision: HEAD
+      files:
+      - path: "argoproj/hitohub/overlays/**/config.json"
+  template:
+    metadata:
+      name: '{{env}}-hitohub'
+    spec:
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+      project: default
+      source:
+        repoURL: https://github.com/boxp/lolice.git
+        targetRevision: HEAD
+        path: "argoproj/hitohub/overlays/{{env}}"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{env}}-hitohub"
