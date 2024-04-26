@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: vr-match-back-end
+  name: hitohub-back-end
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: vr-match-back-end
+      app: hitohub-back-end
   template:
     metadata:
       labels:
-        app: vr-match-back-end
+        app: hitohub-back-end
     spec:
       containers:
-      - name: vr-match-back-end
+      - name: hitohub-back-end
         image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-backend-stage:835bde4f63333c4c302602a79f57525de7966677
         ports:
         - containerPort: 8080
