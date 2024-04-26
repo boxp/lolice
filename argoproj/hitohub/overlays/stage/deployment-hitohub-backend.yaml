@@ -21,4 +21,4 @@ spec:
         - configMapRef:
             name: hitohub-cm
         - secretRef:
-            name: hitohub-secrets
+            name: hitohub-secret
