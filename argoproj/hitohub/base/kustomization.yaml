@@ -5,3 +5,5 @@ resources:
 - configmap.yaml
 - deployment-hitohub-backend.yaml
 - service-hitohub-backend.yaml
+- deployment-hitohub-frontend.yaml
+- service-hitohub-frontend.yaml
