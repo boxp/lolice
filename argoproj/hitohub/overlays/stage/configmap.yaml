@@ -4,14 +4,14 @@ metadata:
   name: hitohub-cm
 data:
   # backend
-  VR_MATCH_CLIENT_ORIGIN: "https://hitohub.b0xp.io"
+  VR_MATCH_CLIENT_ORIGIN: "https://hitohub-stage.b0xp.io"
   VR_MATCH_MYSQL_DBNAME: "vr_match"
   VR_MATCH_MYSQL_USER: "root"
   VR_MATCH_MYSQL_HOSTNAME: "tidb-cluster-tidb"
   VR_MATCH_MYSQL_PORT: "4000"
   VR_MATCH_CLOUD_STORAGE_BUCKET_NAME: "vr-match-staging"
   # frontend
-  API_ENDPOINT: "https://api-hitohub.b0xp.io"
+  API_ENDPOINT: "https://api-hitohub-stage.b0xp.io"
   FIREBASE_AUTH_DOMAIN: "vr-match.firebaseapp.com"
   FIREBASE_DATABASE_URL: "https://vr-match.firebaseio.com"
   FIREBASE_PROJECT_ID: "vr-match"
