@@ -26,7 +26,7 @@ spec:
               - -c
               - |-
                 ECR_TOKEN="$(aws ecr get-login-password --region ${AWS_REGION})"
-                for val in palserver argocd
+                for val in palserver argocd stage-hitohub
                 do
                 NAMESPACE_NAME=$val
                 kubectl delete secret --ignore-not-found $DOCKER_SECRET_NAME -n $NAMESPACE_NAME
