@@ -1,3 +1,6 @@
 resources:
 - tidb-cluster.yaml
 - external-secret-tidb-secret.yaml
+- external-secret-hitohub.yaml
+- configmap.yaml
+- deployment-hitohub-backend.yaml

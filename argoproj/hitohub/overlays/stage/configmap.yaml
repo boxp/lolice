@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hitohub-cm
+data:
+  VR_MATCH_CLIENT_ORIGIN: "https://hitohub.b0xp.io"
+  VR_MATCH_MYSQL_DBNAME: "vr_match"
+  VR_MATCH_MYSQL_USER: "root"
+  VR_MATCH_CLOUD_STORAGE_BUCKET_NAME: "vr-match-staging"

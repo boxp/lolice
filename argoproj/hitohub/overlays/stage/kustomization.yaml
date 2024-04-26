@@ -3,3 +3,5 @@ resources:
 patchesStrategicMerge:
 - tidb-cluster.yaml
 - external-secret-tidb-secret.yaml
+- configmap.yaml
+- deployment-hitohub-backend.yaml
