@@ -6,3 +6,4 @@ patchesStrategicMerge:
 - external-secret-hitohub.yaml
 - configmap.yaml
 - deployment-hitohub-backend.yaml
+- service-hitohub-backend.yaml
