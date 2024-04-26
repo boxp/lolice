@@ -7,3 +7,4 @@ resources:
 - service-hitohub-backend.yaml
 - deployment-hitohub-frontend.yaml
 - service-hitohub-frontend.yaml
+- deployment-cloudflared.yaml
