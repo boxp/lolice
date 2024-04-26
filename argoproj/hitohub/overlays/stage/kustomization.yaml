@@ -2,3 +2,4 @@ resources:
 - ../../base
 patchesStrategicMerge:
 - tidb-cluster.yaml
+- external-secret-tidb-secret.yaml
