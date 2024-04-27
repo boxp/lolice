@@ -5,3 +5,4 @@ resources:
 patchesStrategicMerge:
 - overlays/deployment.yaml
 - overlays/configmap.yaml
+- overlays/external-secret-repo.yaml
