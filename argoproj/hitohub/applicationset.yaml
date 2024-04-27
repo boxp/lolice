@@ -6,7 +6,7 @@ metadata:
 spec:
   generators:
   - git:
-      repoURL: https://github.com/boxp/lolice.git
+      repoURL: git@github.com:boxp/lolice.git
       revision: HEAD
       files:
       - path: "argoproj/hitohub/overlays/**/config.json"
@@ -28,7 +28,7 @@ spec:
           - ServerSideApply=true
       project: default
       source:
-        repoURL: https://github.com/boxp/lolice.git
+        repoURL: git@github.com:boxp/lolice.git
         targetRevision: HEAD
         path: "argoproj/hitohub/overlays/{{env}}"
       destination:
