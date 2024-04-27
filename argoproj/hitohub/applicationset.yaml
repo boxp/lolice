@@ -14,7 +14,7 @@ spec:
     metadata:
       name: '{{env}}-hitohub'
       annotations:
-        argocd-image-updater.argoproj.io/image-list: "frontend=839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-frontend-{{env}},backend=839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-backend-{{env}}"
+        argocd-image-updater.argoproj.io/image-list: "backend=839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-backend-{{env}},frontend=839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-frontend-{{env}}"
         argocd-image-updater.argoproj.io/frontend.update-strategy: "newest-build"
         argocd-image-updater.argoproj.io/backend.update-strategy: "newest-build"
         argocd-image-updater.argoproj.io/write-back-method: "argocd"
