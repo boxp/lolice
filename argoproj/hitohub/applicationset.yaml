@@ -30,7 +30,7 @@ spec:
       project: default
       source:
         repoURL: https://github.com/boxp/lolice.git
-        targetRevision: HEAD
+        targetRevision: main
         path: "argoproj/hitohub/overlays/{{env}}"
         kustomize:
           version: v3.5.4
