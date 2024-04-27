@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: hitohub-back-end
-        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-backend-stage:	ca960a5b70110a2a9913a8199756966d5e3efc06
+        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-backend-stage:ca960a5b70110a2a9913a8199756966d5e3efc06
         ports:
         - containerPort: 8080
         envFrom:
