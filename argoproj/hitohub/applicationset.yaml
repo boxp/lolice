@@ -32,8 +32,6 @@ spec:
         repoURL: https://github.com/boxp/lolice.git
         targetRevision: main
         path: "argoproj/hitohub/overlays/{{env}}"
-        kustomize:
-          version: v3.5.4
       destination:
         server: https://kubernetes.default.svc
         namespace: "{{env}}-hitohub"
