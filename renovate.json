@@ -4,6 +4,6 @@
     "config:recommended"
   ],
   "kubernetes": {
-    "fileMatch": ["^config/.*\\.yaml$"]
+    "fileMatch": ["^argoproj/**/.*\\.yaml$"]
   }
 }
