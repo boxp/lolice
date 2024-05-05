@@ -3,7 +3,7 @@
   "extends": [
     "config:recommended"
   ],
-  "some-new-manager": {
-    "enabled": true
+  "kubernetes": {
+    "fileMatch": ["^config/.*\\.yaml$"]
   }
 }
