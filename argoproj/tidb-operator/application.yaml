@@ -13,7 +13,7 @@ spec:
       targetRevision: main
       ref: lolice
     - repoURL: https://charts.pingcap.org
-      targetRevision: 1.5.3
+      targetRevision: 1.6.0
       chart: tidb-operator
       helm:
         valueFiles:
