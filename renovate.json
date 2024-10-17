@@ -5,6 +5,7 @@
     "fileMatch": ["\\.yaml$"],
     "packageRules": [
       {
+        "matchManagers": ["kubernetes"],
         "matchStrings": [
           "image:\\s*docker\\.io/cloudflare/cloudflared:(?<version>[\\w.-]+)"
         ],
