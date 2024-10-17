@@ -1,9 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
-  ],
+  "extends": ["config:recommended"],
   "kubernetes": {
     "fileMatch": ["\\.yaml$"]
-  }
+  },
+  "major": {
+    "automerge": false
+  },
+  "automerge": true,
+  "platformAutomerge": true
 }
