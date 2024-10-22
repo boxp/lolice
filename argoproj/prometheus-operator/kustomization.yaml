@@ -1,7 +1,7 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-- github.com/prometheus-operator/kube-prometheus?ref=main
+- github.com/prometheus-operator/kube-prometheus?ref=release-0.14
 - application.yaml
 - grafana-lb.yaml
 - external-secret.yaml
