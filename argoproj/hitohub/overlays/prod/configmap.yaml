@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hitohub-cm
+data:
+  # backend
+  VR_MATCH_CLIENT_ORIGIN: "https://hitohub.b0xp.io"
+  VR_MATCH_MYSQL_DBNAME: "vr_match"
+  VR_MATCH_MYSQL_USER: "root"
+  VR_MATCH_MYSQL_HOSTNAME: "tidb-cluster-tidb"
+  VR_MATCH_MYSQL_PORT: "4000"
+  VR_MATCH_CLOUD_STORAGE_BUCKET_NAME: "vr-match-prod"
+  # frontend
+  API_ENDPOINT: "https://api-hitohub.b0xp.io"
+  FIREBASE_AUTH_DOMAIN: "vr-match-prod.firebaseapp.com"
+  FIREBASE_DATABASE_URL: "https://vr-match-prod.firebaseio.com"
+  FIREBASE_PROJECT_ID: "vr-match-prod"
+  FIREBASE_STORAGE_BUCKET: "vr-match-prod.appspot.com"
+  FIREBASE_MESSAGING_SENDER_ID: "886666292987"
+  FIREBASE_APP_ID: "1:886666292987:web:be12e53c9c16f381"
+  GOOGLE_ANALYTICS_TRACKING_ID: "UA-38081475-5"
