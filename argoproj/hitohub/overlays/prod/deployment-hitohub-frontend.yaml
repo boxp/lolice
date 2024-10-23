@@ -24,7 +24,7 @@ spec:
             topologyKey: "kubernetes.io/hostname"
       containers:
       - name: hitohub-frontend
-        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-frontend-prod:ca2cdd01f95fd8ad24ce4146837d809d636006c2
+        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-frontend-prod:11d2dd00d5d4357322051745a30f61ac6ae0f9f7
         ports:
         - containerPort: 3000
         envFrom:
