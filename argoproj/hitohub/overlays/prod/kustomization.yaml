@@ -5,11 +5,11 @@ resources:
 - application.yaml
 patchesStrategicMerge:
 - tidb-cluster.yaml
-# - external-secret-tidb-secret.yaml
-# - external-secret-hitohub.yaml
-# - configmap.yaml
-# - deployment-hitohub-backend.yaml
-# - service-hitohub-backend.yaml
-# - deployment-hitohub-frontend.yaml
-# - service-hitohub-frontend.yaml
-# - deployment-cloudflared.yaml
+- external-secret-tidb-secret.yaml
+- external-secret-hitohub.yaml
+- configmap.yaml
+- deployment-hitohub-backend.yaml
+- service-hitohub-backend.yaml
+- deployment-hitohub-frontend.yaml
+- service-hitohub-frontend.yaml
+- deployment-cloudflared.yaml
