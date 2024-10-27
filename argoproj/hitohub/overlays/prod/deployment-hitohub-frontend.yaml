@@ -12,16 +12,6 @@ spec:
       labels:
         app: hitohub-frontend
     spec:
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchExpressions:
-              - key: app
-                operator: In
-                values:
-                - hitohub-frontend
-            topologyKey: "kubernetes.io/hostname"
       containers:
       - name: hitohub-frontend
         image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-frontend-prod:11d2dd00d5d4357322051745a30f61ac6ae0f9f7
