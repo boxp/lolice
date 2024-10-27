@@ -13,7 +13,7 @@ spec:
       targetRevision: main
       ref: lolice
     - repoURL: https://kubernetes-sigs.github.io/descheduler
-      targetRevision: 0.31.0
+      targetRevision: v0.31.0
       chart: descheduler
       helm:
         valueFiles:
