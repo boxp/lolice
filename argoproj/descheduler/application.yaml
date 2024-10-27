@@ -5,7 +5,7 @@ metadata:
   namespace: argocd
 spec:
   destination:
-    namespace: descheduler
+    namespace: kube-system
     server: https://kubernetes.default.svc
   project: default
   sources:
@@ -13,12 +13,12 @@ spec:
       targetRevision: main
       ref: lolice
     - repoURL: https://kubernetes-sigs.github.io/descheduler
-      targetRevision: v0.31.0
+      targetRevision: 0.31.0
       chart: descheduler
       helm:
-        versions: v3
+        version: v3
         valueFiles:
-          - $lolice/argoproj/descheduler/values.yaml
+          - $lolice/argoproj/descheduler/helm/values.yaml
     - path: argoproj/descheduler
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
