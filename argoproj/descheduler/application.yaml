@@ -16,6 +16,7 @@ spec:
       targetRevision: v0.31.0
       chart: descheduler
       helm:
+        versions: v3
         valueFiles:
           - $lolice/argoproj/descheduler/values.yaml
     - path: argoproj/descheduler
