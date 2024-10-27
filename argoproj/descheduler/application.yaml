@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: descheduler
+  namespace: argocd
+spec:
+  destination:
+    namespace: descheduler
+    server: https://kubernetes.default.svc
+  project: default
+  sources:
+    - repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+      ref: lolice
+    - repoURL: https://kubernetes-sigs.github.io/descheduler
+      targetRevision: 0.31.0
+      chart: descheduler
+      helm:
+        valueFiles:
+          - $lolice/argoproj/descheduler/values.yaml
+    - path: argoproj/descheduler
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - Replace=true
+      - ServerSideApply=true
