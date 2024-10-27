@@ -6,12 +6,22 @@ spec:
   selector:
     matchLabels:
       app: cloudflared
-  replicas: 1 # You could also consider elastic scaling for this deployment
+  replicas: 3 # You could also consider elastic scaling for this deployment
   template:
     metadata:
       labels:
         app: cloudflared
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - cloudflared
+            topologyKey: "kubernetes.io/hostname"
       containers:
       - name: cloudflared
         image: docker.io/cloudflare/cloudflared:1517-bb29a0e19437
