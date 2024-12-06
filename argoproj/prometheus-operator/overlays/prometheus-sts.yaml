@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: prometheus-k8s
+  namespace: monitoring
+spec:
+  volumeClaimTemplates:
+    - metadata:
+        name: prometheus-k8s-db
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 50Gi
+  template:
+    spec:
+      volumes:
+        - name: prometheus-k8s-db
+          persistentVolumeClaim:
+            claimName: prometheus-pvc

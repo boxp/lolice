@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: alertmanager-main
+  namespace: monitoring
+spec:
+  volumeClaimTemplates:
+    - metadata:
+        name: alertmanager-main-db
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 1Gi
+  template:
+    spec:
+      volumes:
+        - name: alertmanager-main-db
+          persistentVolumeClaim:
+            claimName: alertmanager-pvc
