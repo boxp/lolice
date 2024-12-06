@@ -15,4 +15,4 @@ spec:
         storageClassName: longhorn
         selector:
           matchLabels:
-            app: prometheus-pvc
+            name: prometheus-pvc

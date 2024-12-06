@@ -15,5 +15,5 @@ spec:
         storageClassName: longhorn
         selector:
           matchLabels:
-            app: alertmanager-pvc
+            name: alertmanager-pvc
 
