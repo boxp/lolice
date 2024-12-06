@@ -6,5 +6,8 @@ resources:
 - grafana-lb.yaml
 - external-secret.yaml
 - cloudflared-deployment.yaml
+- alertmanager-pvc.yaml
+- grafana-pvc.yaml
+- prometheus-pvc.yaml
 patchesStrategicMerge:
 - overlays/network-policy-grafana.yaml
