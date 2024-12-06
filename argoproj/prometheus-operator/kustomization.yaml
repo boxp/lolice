@@ -11,3 +11,6 @@ resources:
 - prometheus-pvc.yaml
 patchesStrategicMerge:
 - overlays/network-policy-grafana.yaml
+- overlays/alertmanager-sts.yaml
+- overlays/prometheus-sts.yaml
+- overlays/grafana-deployment.yaml
