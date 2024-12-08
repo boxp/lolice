@@ -4,6 +4,7 @@ metadata:
   name: main
   namespace: monitoring
 spec:
+  replicas: 1
   storage:
     volumeClaimTemplate:
       spec:
@@ -13,7 +14,4 @@ spec:
           requests:
             storage: 1Gi
         storageClassName: longhorn
-        selector:
-          matchLabels:
-            name: alertmanager-pvc
 
