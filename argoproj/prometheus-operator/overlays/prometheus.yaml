@@ -4,6 +4,7 @@ metadata:
   name: k8s
   namespace: monitoring
 spec:
+  replicas: 1
   storage:
     volumeClaimTemplate:
       spec:
@@ -13,6 +14,3 @@ spec:
           requests:
             storage: 50Gi
         storageClassName: longhorn
-        selector:
-          matchLabels:
-            name: prometheus-pvc
