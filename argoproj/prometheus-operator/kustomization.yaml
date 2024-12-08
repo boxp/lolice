@@ -12,6 +12,7 @@ patchesStrategicMerge:
 - overlays/alertmanager.yaml
 - overlays/prometheus.yaml
 - overlays/grafana.yaml
+- overlays/grafana-config.yaml
 patchesJson6902:
 - target:
       group: apps
