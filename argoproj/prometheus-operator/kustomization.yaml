@@ -21,4 +21,4 @@ patchesJson6902:
       kind: Deployment
       name: grafana
       namespace: monitoring
-    path: patches/grafana-remove-empty-dir.yaml
+  path: patches/grafana-remove-empty-dir.yaml
