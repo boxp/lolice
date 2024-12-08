@@ -9,4 +9,4 @@ stringData:
     default_timezone = JST
 
     [database] 
-    type = mysql
+    type = sqlite3
