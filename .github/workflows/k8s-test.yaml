@@ -1,26 +1,3 @@
-
-はい、GitHub OIDCエンドポイントを使ったGitHub Actions (GHA) の実装は可能です。GitHubは、OIDCを使ってOIDCトークンをCloudflareに直接送信する方法をサポートしています。
-
-この方法では、GitHub Secretsを使わず、GitHub OIDCトークンをCloudflareに直接送信し、Kubernetes APIに安全にアクセスできるようになります。
-
-概要
-OIDCの直接使用: GitHubのOIDCエンドポイント (https://token.actions.githubusercontent.com) からIDトークンを取得します。
-Cloudflare Accessのポリシー: Cloudflare Accessは、GitHub OIDCトークンのsub（クレーム）に基づいてアクセスを許可します。
-Kubernetes APIへのアクセス: Kubernetes Cluster APIにGETリクエストを送信し、Podのリストを取得します。
-全体のフロー
-GitHub OIDCトークンの取得
-GitHubが提供するOIDCトークンエンドポイント（https://token.actions.githubusercontent.com）を使用して、IDトークンを生成します。
-Cloudflare Accessでの認証
-Cloudflare Accessは、GitHub ActionsのOIDCトークンを認証し、リクエストを通過させます。
-Kubernetes APIへのリクエスト
-取得したトークンを使って、Kubernetes Cluster APIにGETリクエストを送信し、Pod情報を取得します。
-1. GitHub Actionsのワークフローファイル
-ファイル名: .github/workflows/get-pods-oidc.yml
-
-yaml
-コードをコピーする
-name: Get Kubernetes Pods via OIDC
-
 on:
   push:
     branches:
