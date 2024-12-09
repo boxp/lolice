@@ -1,0 +1,30 @@
+name: test k8s
+on:
+  push:
+    branches:
+      - '**'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Authenticate with Cloudflare
+        run: |
+          ID_TOKEN=$(curl -H "Metadata-Flavor: Google" \
+                      -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+                      -X POST "https://YOUR-CLOUDFLARE-API-ENDPOINT/tokens" \
+                      --data '{ "claims": { "sub": "repo:boxp/lolice:ref:refs/heads/*" } }')
+
+          echo "ID_TOKEN=$ID_TOKEN" >> $GITHUB_ENV
+
+      - name: Call the Kubernetes API
+        run: |
+          curl -H "Authorization: Bearer $ID_TOKEN" \
+               -X GET "https://k8s.b0xp.io/api/v1/namespaces/default/pods"
