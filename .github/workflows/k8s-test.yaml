@@ -1,30 +1,84 @@
-name: test k8s
+
+はい、GitHub OIDCエンドポイントを使ったGitHub Actions (GHA) の実装は可能です。GitHubは、OIDCを使ってOIDCトークンをCloudflareに直接送信する方法をサポートしています。
+
+この方法では、GitHub Secretsを使わず、GitHub OIDCトークンをCloudflareに直接送信し、Kubernetes APIに安全にアクセスできるようになります。
+
+概要
+OIDCの直接使用: GitHubのOIDCエンドポイント (https://token.actions.githubusercontent.com) からIDトークンを取得します。
+Cloudflare Accessのポリシー: Cloudflare Accessは、GitHub OIDCトークンのsub（クレーム）に基づいてアクセスを許可します。
+Kubernetes APIへのアクセス: Kubernetes Cluster APIにGETリクエストを送信し、Podのリストを取得します。
+全体のフロー
+GitHub OIDCトークンの取得
+GitHubが提供するOIDCトークンエンドポイント（https://token.actions.githubusercontent.com）を使用して、IDトークンを生成します。
+Cloudflare Accessでの認証
+Cloudflare Accessは、GitHub ActionsのOIDCトークンを認証し、リクエストを通過させます。
+Kubernetes APIへのリクエスト
+取得したトークンを使って、Kubernetes Cluster APIにGETリクエストを送信し、Pod情報を取得します。
+1. GitHub Actionsのワークフローファイル
+ファイル名: .github/workflows/get-pods-oidc.yml
+
+yaml
+コードをコピーする
+name: Get Kubernetes Pods via OIDC
+
 on:
   push:
     branches:
-      - '**'
+      - '**'  # すべてのブランチが対象
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write  # GitHub OIDCトークンを取得するための権限
+  contents: read   # リポジトリのコンテンツ読み取り権限
 
 jobs:
-  deploy:
+  get-pods:
     runs-on: ubuntu-latest
+
+    env:
+      CLOUDFLARE_TUNNEL_URL: "https://k8s.b0xp.io"  # Kubernetes APIのURL
+      K8S_NAMESPACE: "argocd"  # KubernetesのNamespace
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Authenticate with Cloudflare
+      - name: Authenticate and obtain OIDC token
+        id: auth
         run: |
-          ID_TOKEN=$(curl -H "Metadata-Flavor: Google" \
-                      -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
-                      -X POST "https://YOUR-CLOUDFLARE-API-ENDPOINT/tokens" \
-                      --data '{ "claims": { "sub": "repo:boxp/lolice:ref:refs/heads/*" } }')
+          echo "Authenticating with GitHub OIDC to obtain ID token..."
+          
+          # GitHub OIDCトークンの取得
+          OIDC_TOKEN=$(curl -s -H "Authorization: Bearer $ACTIONS_ID_TOKEN" \
+                        "https://token.actions.githubusercontent.com/.well-known/openid-configuration")
 
-          echo "ID_TOKEN=$ID_TOKEN" >> $GITHUB_ENV
+          echo "OIDC Token Configuration:"
+          echo $OIDC_TOKEN | jq
 
-      - name: Call the Kubernetes API
+          # ここで実際にIDトークンを取得
+          ID_TOKEN=$(curl -s -X POST "https://token.actions.githubusercontent.com/token" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "client_id=sigstore" \
+            --data-urlencode "grant_type=client_credentials" \
+            --data-urlencode "audience=cloudflare" \
+            | jq -r '.id_token')
+
+          if [ -z "$ID_TOKEN" ]; then
+            echo "ERROR: Failed to retrieve OIDC token."
+            exit 1
+          fi
+
+          echo "ID_TOKEN=$ID_TOKEN" >> $GITHUB_ENV  # ID_TOKENをエクスポート
+
+      - name: Get Kubernetes Pods from API
         run: |
-          curl -H "Authorization: Bearer $ID_TOKEN" \
-               -X GET "https://k8s.b0xp.io/api/v1/namespaces/default/pods"
+          echo "Fetching pods from Kubernetes API at $CLOUDFLARE_TUNNEL_URL..."
+          
+          # Kubernetes APIのGETリクエスト
+          API_URL="$CLOUDFLARE_TUNNEL_URL/api/v1/namespaces/$K8S_NAMESPACE/pods"
+          
+          RESPONSE=$(curl -s -X GET $API_URL \
+            -H "Authorization: Bearer $ID_TOKEN" \
+            -H "Accept: application/json")
+          
+          echo "Response from API:"
+          echo $RESPONSE | jq
