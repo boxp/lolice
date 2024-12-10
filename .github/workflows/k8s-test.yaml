@@ -35,4 +35,5 @@ jobs:
             -H "Accept: application/json")
           
           echo "Response from API:"
+          echo $RESPONSE
           echo $RESPONSE | jq
