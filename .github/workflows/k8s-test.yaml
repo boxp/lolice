@@ -1,0 +1,39 @@
+name: Get Kubernetes Pods via Service Token
+
+on:
+  push:
+    branches:
+      - '**'  # すべてのブランチが対象
+
+permissions:
+  contents: read  # リポジトリのコンテンツの読み取り権限
+
+jobs:
+  get-pods:
+    runs-on: ubuntu-latest
+
+    env:
+      CLOUDFLARE_TUNNEL_URL: "https://k8s.b0xp.io"  # Kubernetes APIのURL
+      K8S_NAMESPACE: "argocd"  # KubernetesのNamespace
+      CLOUDFLARE_SERVICE_TOKEN_ID: ${{ secrets.CLOUDFLARE_SERVICE_TOKEN_ID }}  # Service TokenのID
+      CLOUDFLARE_SERVICE_TOKEN_SECRET: ${{ secrets.CLOUDFLARE_SERVICE_TOKEN_SECRET }}  # Service TokenのSecret
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Get Kubernetes Pods from API
+        run: |
+          echo "Fetching pods from Kubernetes API at $CLOUDFLARE_TUNNEL_URL..."
+
+          # Kubernetes APIのGETリクエスト
+          API_URL="$CLOUDFLARE_TUNNEL_URL/api/v1/namespaces/$K8S_NAMESPACE/pods"
+          
+          RESPONSE=$(curl -s -X GET $API_URL \
+            -H "CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_SERVICE_TOKEN_ID }}" \
+            -H "CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_SERVICE_TOKEN_SECRET }}" \
+            -H "Accept: application/json")
+          
+          echo "Response from API:"
+          echo $RESPONSE
+          echo $RESPONSE | jq
