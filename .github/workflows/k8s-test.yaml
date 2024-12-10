@@ -4,7 +4,7 @@ on:
       - '**'  # すべてのブランチが対象
 
 permissions:
-  id-token: write  # GitHub OIDCトークンを取得するための権限
+  id-token: write  # GitHub OIDCトークンの取得に必要な権限
   contents: read   # リポジトリのコンテンツ読み取り権限
 
 jobs:
@@ -12,8 +12,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      CLOUDFLARE_TUNNEL_URL: "https://k8s.b0xp.io"  # Kubernetes APIのURL
-      K8S_NAMESPACE: "argocd"  # KubernetesのNamespace
+      CLOUDFLARE_TUNNEL_URL: "https://k8s-api.your-domain.com"  # Kubernetes APIのURL
+      K8S_NAMESPACE: "default"  # KubernetesのNamespace
 
     steps:
       - name: Checkout repository
@@ -22,34 +22,24 @@ jobs:
       - name: Authenticate and obtain OIDC token
         id: auth
         run: |
-          echo "Authenticating with GitHub OIDC to obtain ID token..."
-          
-          # GitHub OIDCトークンの取得
-          OIDC_TOKEN=$(curl -s -H "Authorization: Bearer $ACTIONS_ID_TOKEN" \
-                        "https://token.actions.githubusercontent.com/.well-known/openid-configuration")
+          echo "Requesting OIDC token from GitHub..."
 
-          echo "OIDC Token Configuration:"
-          echo $OIDC_TOKEN | jq
-
-          # ここで実際にIDトークンを取得
-          ID_TOKEN=$(curl -s -X POST "https://token.actions.githubusercontent.com/token" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            --data-urlencode "client_id=sigstore" \
-            --data-urlencode "grant_type=client_credentials" \
-            --data-urlencode "audience=cloudflare" \
-            | jq -r '.id_token')
+          # GitHubが提供する環境変数を使用して、OIDCトークンを取得
+          ID_TOKEN=$(curl -s -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r '.value')
 
           if [ -z "$ID_TOKEN" ]; then
             echo "ERROR: Failed to retrieve OIDC token."
             exit 1
           fi
 
-          echo "ID_TOKEN=$ID_TOKEN" >> $GITHUB_ENV  # ID_TOKENをエクスポート
+          echo "OIDC Token retrieved successfully."
+          echo "ID_TOKEN=$ID_TOKEN" >> $GITHUB_ENV  # ID_TOKENを環境変数にエクスポート
 
       - name: Get Kubernetes Pods from API
         run: |
           echo "Fetching pods from Kubernetes API at $CLOUDFLARE_TUNNEL_URL..."
-          
+
           # Kubernetes APIのGETリクエスト
           API_URL="$CLOUDFLARE_TUNNEL_URL/api/v1/namespaces/$K8S_NAMESPACE/pods"
           
