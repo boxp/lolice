@@ -1,11 +1,12 @@
+name: Get Kubernetes Pods via Service Token
+
 on:
   push:
     branches:
       - '**'  # すべてのブランチが対象
 
 permissions:
-  id-token: write  # GitHub OIDCトークンの取得に必要な権限
-  contents: read   # リポジトリのコンテンツ読み取り権限
+  contents: read  # リポジトリのコンテンツの読み取り権限
 
 jobs:
   get-pods:
@@ -14,27 +15,26 @@ jobs:
     env:
       CLOUDFLARE_TUNNEL_URL: "https://k8s.b0xp.io"  # Kubernetes APIのURL
       K8S_NAMESPACE: "argocd"  # KubernetesのNamespace
+      CLOUDFLARE_SERVICE_TOKEN_ID: ${{ secrets.CLOUDFLARE_SERVICE_TOKEN_ID }}  # Service TokenのID
+      CLOUDFLARE_SERVICE_TOKEN_SECRET: ${{ secrets.CLOUDFLARE_SERVICE_TOKEN_SECRET }}  # Service TokenのSecret
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Authenticate and obtain OIDC token
+      - name: Authenticate with Service Token
         id: auth
         run: |
-          echo "Requesting OIDC token from GitHub..."
+          echo "Authenticating with Cloudflare using Service Token..."
 
-          # GitHubが提供する環境変数を使用して、OIDCトークンを取得
-          ID_TOKEN=$(curl -s -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r '.value')
-
-          if [ -z "$ID_TOKEN" ]; then
-            echo "ERROR: Failed to retrieve OIDC token."
+          if [ -z "$CLOUDFLARE_SERVICE_TOKEN_ID" ] || [ -z "$CLOUDFLARE_SERVICE_TOKEN_SECRET" ]; then
+            echo "ERROR: Service Token ID or Secret is missing."
             exit 1
           fi
 
-          echo "OIDC Token retrieved successfully."
-          echo "ID_TOKEN=$ID_TOKEN" >> $GITHUB_ENV  # ID_TOKENを環境変数にエクスポート
+          # Base64エンコードしたトークンを作成
+          SERVICE_TOKEN=$(echo -n "$CLOUDFLARE_SERVICE_TOKEN_ID:$CLOUDFLARE_SERVICE_TOKEN_SECRET" | base64)
+          echo "SERVICE_TOKEN=$SERVICE_TOKEN" >> $GITHUB_ENV
 
       - name: Get Kubernetes Pods from API
         run: |
@@ -44,7 +44,7 @@ jobs:
           API_URL="$CLOUDFLARE_TUNNEL_URL/api/v1/namespaces/$K8S_NAMESPACE/pods"
           
           RESPONSE=$(curl -s -X GET $API_URL \
-            -H "Authorization: Bearer $ID_TOKEN" \
+            -H "Authorization: Basic $SERVICE_TOKEN" \
             -H "Accept: application/json")
           
           echo "Response from API:"
