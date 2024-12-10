@@ -21,21 +21,7 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-
-      - name: Authenticate with Service Token
-        id: auth
-        run: |
-          echo "Authenticating with Cloudflare using Service Token..."
-
-          if [ -z "$CLOUDFLARE_SERVICE_TOKEN_ID" ] || [ -z "$CLOUDFLARE_SERVICE_TOKEN_SECRET" ]; then
-            echo "ERROR: Service Token ID or Secret is missing."
-            exit 1
-          fi
-
-          # Base64エンコードしたトークンを作成
-          SERVICE_TOKEN=$(echo -n "$CLOUDFLARE_SERVICE_TOKEN_ID:$CLOUDFLARE_SERVICE_TOKEN_SECRET" | base64)
-          echo "SERVICE_TOKEN=$SERVICE_TOKEN" >> $GITHUB_ENV
-
+        
       - name: Get Kubernetes Pods from API
         run: |
           echo "Fetching pods from Kubernetes API at $CLOUDFLARE_TUNNEL_URL..."
@@ -44,7 +30,8 @@ jobs:
           API_URL="$CLOUDFLARE_TUNNEL_URL/api/v1/namespaces/$K8S_NAMESPACE/pods"
           
           RESPONSE=$(curl -s -X GET $API_URL \
-            -H "Authorization: Basic $SERVICE_TOKEN" \
+            -H "CF-Access-Client-Id: ${{ secrets.CLOUDFLARE_SERVICE_TOKEN_ID }}" \
+            -H "CF-Access-Client-Secret: ${{ secrets.CLOUDFLARE_SERVICE_TOKEN_SECRET }}" \
             -H "Accept: application/json")
           
           echo "Response from API:"
