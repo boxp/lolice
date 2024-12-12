@@ -18,6 +18,11 @@ spec:
       helm:
         valueFiles:
           - $lolice/argoproj/obsidian-self-live-sync/values.yaml
+        parameters: 
+          - name: allowAdminParty
+            value: true
+          - name: couchdbConfig.couchdb.uuid
+            value: 2065a0188aef41ada18cced5b83bdaa4
     - path: argoproj/obsidian-self-live-sync
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
