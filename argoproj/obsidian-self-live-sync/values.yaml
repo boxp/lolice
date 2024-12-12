@@ -293,4 +293,4 @@ placementConfig:
   enabled: false
   image:
     repository: caligrafix/couchdb-autoscaler-placement-manager
-    tag: 0.1.0
+    tag: 0.3.0
