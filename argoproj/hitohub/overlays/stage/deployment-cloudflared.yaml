@@ -21,7 +21,7 @@ spec:
         # In a k8s environment, the metrics server needs to listen outside the pod it runs on. 
         # The address 0.0.0.0:2000 allows any pod in the namespace.
         - --metrics
-        - node-exporter.monitoring.svc.cluster.local:2000
+        - 0.0.0.0:2000
         - run
         - --token
         - $(TUNNEL_TOKEN)
