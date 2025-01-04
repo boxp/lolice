@@ -13,3 +13,4 @@ patchesStrategicMerge:
 - deployment-hitohub-frontend.yaml
 - service-hitohub-frontend.yaml
 - deployment-cloudflared.yaml
+- service-cloudflared-metrics.yaml
