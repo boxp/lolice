@@ -7,6 +7,7 @@ resources:
 - external-secret.yaml
 - cloudflared-deployment.yaml
 - grafana-pvc.yaml
+- scrape-config.yaml
 patchesStrategicMerge:
 - overlays/network-policy-grafana.yaml
 - overlays/network-policy-prometheus-k8s.yaml
