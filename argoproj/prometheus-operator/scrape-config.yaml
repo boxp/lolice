@@ -10,4 +10,4 @@ spec:
     - labels:
         job: stage-hitohub-cloudflared
       targets:
-        - hitohub-cloudflaerd-metrics.stage-hitohub.svc.cluster.local:2000
+        -  hitohub-cloudflared-metrics.stage-hitohub.svc.cluster.local:2000
