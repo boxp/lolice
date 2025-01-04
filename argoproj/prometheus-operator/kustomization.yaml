@@ -9,6 +9,7 @@ resources:
 - grafana-pvc.yaml
 patchesStrategicMerge:
 - overlays/network-policy-grafana.yaml
+- overlays/network-policy-prometheus-k8s.yaml
 - overlays/alertmanager.yaml
 - overlays/prometheus.yaml
 - overlays/grafana.yaml
