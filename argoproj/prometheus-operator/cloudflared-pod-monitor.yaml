@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: cloudflared-pod-monitor
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: cloudflared
+  namespaceSelector:
+    matchNames:
+      - default
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 15s
+      path: /metrics
