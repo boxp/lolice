@@ -9,6 +9,8 @@ resources:
 - grafana-pvc.yaml
 - scrape-config.yaml
 - cloudflared-pod-monitor.yaml
+- pod-monitor-role.yaml
+- pod-monitor-role-binding.yaml
 patchesStrategicMerge:
 - overlays/network-policy-grafana.yaml
 - overlays/network-policy-prometheus-k8s.yaml
