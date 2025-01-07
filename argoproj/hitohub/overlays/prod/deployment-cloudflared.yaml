@@ -15,6 +15,9 @@ spec:
       containers:
       - name: cloudflared
         image: docker.io/cloudflare/cloudflared:1517-bb29a0e19437
+        ports:
+          - name: metrics
+            containerPort: 2000
         imagePullPolicy: IfNotPresent
         args:
         - tunnel
