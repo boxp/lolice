@@ -9,7 +9,8 @@ spec:
   selector:
     matchLabels:
       app: cloudflared
-  namespaceSelector.any: true
+  namespaceSelector:
+    any: true
   podMetricsEndpoints:
     - port: metrics
       interval: 15s
