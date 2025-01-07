@@ -12,6 +12,6 @@ spec:
   namespaceSelector:
     any: true
   podMetricsEndpoints:
-    - port: metrics
+    - port: 2000
       interval: 15s
       path: /metrics
