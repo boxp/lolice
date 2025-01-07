@@ -7,13 +7,6 @@ metadata:
     prometheus: system-monitoring-prometheus
 spec:
   staticConfigs:
-    - job_name: "cloudflared"
-      kubernetes_sd_configs:
-        - role: pod
-      relabel_configs:
-        - source_labels: [__meta_kubernetes_pod_label_app]
-          regex: "cloudflared"
-          action: keep
     - labels:
         job: stage-hitohub-cloudflared
       targets:
