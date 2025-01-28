@@ -1,0 +1,42 @@
+name: Kubernetes Manifest Validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [ 'opened', 'edited' ]
+
+env:
+  KUBERNETES_VERSION: "1.32"
+
+jobs:
+  validate-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Git
+        uses: actions/checkout@v4
+      
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x ./kubectl
+          sudo mv ./kubectl /usr/local/bin/kubectl
+      
+      - name: Validate manifests
+        run: |
+          # Find all YAML files in the repository
+          find . -type f -name "*.yaml" -not \( -path "*/.git/*" \) | xargs kubectl validate --schema-file /usr/local/kubectl-schemas/v1.25.0/manifest-schema.json
+      
+      - name: Post comment
+        uses: peter-evans/create-or-update-comment@v1
+        with:
+          body: |
+            Kubernetes manifest validation results:
+            ====
+            **Validation Results:**
+            {{ if eq (outputs.validation-results) "success" }}
+            **Success:** All manifests are valid!
+            {{ else }}
+            **Failure:** Some manifests need to be fixed. Details:
+            {{ outputs.validation-errors }}
+            {{ end }}
