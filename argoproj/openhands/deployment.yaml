@@ -76,7 +76,7 @@ spec:
             echo "Warning: hosts.node file not found"
           fi
           # OpenHandsの通常の起動コマンドを実行
-          echo "Starting OpenHands with docker-entrypoint.sh"
+          echo "Starting OpenHands with entrypoint.sh"
           exec /app/entrypoint.sh
       volumes:
       - name: docker-sock
