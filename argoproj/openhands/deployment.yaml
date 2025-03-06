@@ -20,9 +20,9 @@ spec:
         - /bin/sh
         - -c
         - |
-          # ConfigMapからノードIPを取得して/etc/hosts.nodeに書き込む
+          # ConfigMapからノードIPを取得して/etc/hosts.configディレクトリ内のファイルに書き込む
           echo "Setting up host.docker.internal to point to node IP: ${NODE_IP}"
-          echo "${NODE_IP} host.docker.internal" > /etc/hosts.node
+          echo "${NODE_IP} host.docker.internal" > /etc/hosts.config/hosts.node
         env:
         - name: NODE_IP
           valueFrom:
@@ -31,7 +31,7 @@ spec:
               key: golyat-1-ip
         volumeMounts:
         - name: hosts-file
-          mountPath: /etc/hosts.node
+          mountPath: /etc/hosts.config
       containers:
       - name: openhands
         image: docker.all-hands.dev/all-hands-ai/openhands:0.27
@@ -55,7 +55,7 @@ spec:
         - name: workspace
           mountPath: /opt/workspace_base
         - name: hosts-file
-          mountPath: /etc/hosts.openhands
+          mountPath: /etc/hosts.config
         resources:
           requests:
             memory: "2Gi"
@@ -69,11 +69,21 @@ spec:
         - -c
         - |
           # ホストファイルを/etc/hostsにコピー
-          if [ -f /etc/hosts.openhands ]; then
-            cat /etc/hosts.openhands >> /etc/hosts
+          if [ -f /etc/hosts.config/hosts.node ]; then
+            cat /etc/hosts.config/hosts.node >> /etc/hosts
+            echo "Added host.docker.internal mapping to /etc/hosts"
+          else
+            echo "Warning: hosts.node file not found"
           fi
           # OpenHandsの通常の起動コマンドを実行
-          exec /usr/local/bin/docker-entrypoint.sh
+          if [ -x /usr/local/bin/docker-entrypoint.sh ]; then
+            echo "Starting OpenHands with docker-entrypoint.sh"
+            exec /usr/local/bin/docker-entrypoint.sh
+          else
+            echo "Starting OpenHands with default entrypoint"
+            # OpenHandsのデフォルトのエントリポイントを実行
+            exec node /app/index.js
+          fi
       volumes:
       - name: docker-sock
         hostPath:
