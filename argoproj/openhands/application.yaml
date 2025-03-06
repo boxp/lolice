@@ -17,3 +17,10 @@ spec:
       - CreateNamespace=true
       - Replace=true
       - ServerSideApply=true 
+    automated:
+      prune: true
+      selfHeal: true
+      pruneResources: true
+      allowEmpty: true
+      prunePropagationPolicy: foreground
+      pruneResourcePolicy: foreground
