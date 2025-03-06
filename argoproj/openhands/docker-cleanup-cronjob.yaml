@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: docker-cleanup
+  namespace: openhands
+spec:
+  schedule: "0 0 * * *"  # 毎日午前0時に実行
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: docker-cleanup
+            image: docker:cli
+            command:
+            - /bin/sh
+            - -c
+            - |
+              docker system prune -af --volumes
+            volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+          volumes:
+          - name: docker-sock
+            hostPath:
+              path: /var/run/docker.sock
+              type: Socket
+          nodeSelector:
+            kubernetes.io/hostname: golyat-1
+          restartPolicy: OnFailure 
