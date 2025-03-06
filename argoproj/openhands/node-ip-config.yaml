@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: node-ip-config
+  namespace: openhands
+  annotations:
+    description: "golyat-1ノードのIPアドレスを保持するConfigMap"
+data:
+  # 注意: このIPアドレスは実際のgolyat-1ノードのIPアドレスに置き換えてください
+  # 以下のコマンドで取得できます:
+  # kubectl get nodes golyat-1 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'
+  golyat-1-ip: "10.0.0.5"  # 実際のgolyat-1ノードのIPアドレスに変更してください 

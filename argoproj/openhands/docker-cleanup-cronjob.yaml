@@ -16,7 +16,10 @@ spec:
             - /bin/sh
             - -c
             - |
+              echo "Starting Docker cleanup process on golyat-1 node"
+              # 未使用のDockerリソースを削除
               docker system prune -af --volumes
+              echo "Docker cleanup completed"
             volumeMounts:
             - name: docker-sock
               mountPath: /var/run/docker.sock

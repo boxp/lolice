@@ -13,6 +13,25 @@ spec:
       labels:
         app: openhands
     spec:
+      initContainers:
+      - name: setup-host-docker-internal
+        image: busybox:latest
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # ConfigMapからノードIPを取得して/etc/hosts.nodeに書き込む
+          echo "Setting up host.docker.internal to point to node IP: ${NODE_IP}"
+          echo "${NODE_IP} host.docker.internal" > /etc/hosts.node
+        env:
+        - name: NODE_IP
+          valueFrom:
+            configMapKeyRef:
+              name: node-ip-config
+              key: golyat-1-ip
+        volumeMounts:
+        - name: hosts-file
+          mountPath: /etc/hosts.node
       containers:
       - name: openhands
         image: docker.all-hands.dev/all-hands-ai/openhands:0.27
@@ -24,7 +43,10 @@ spec:
         - name: WORKSPACE_MOUNT_PATH
           value: /opt/workspace_base
         - name: HOST_DOCKER_INTERNAL
-          value: "127.0.0.1"
+          valueFrom:
+            configMapKeyRef:
+              name: node-ip-config
+              key: golyat-1-ip
         volumeMounts:
         - name: docker-sock
           mountPath: /var/run/docker.sock
@@ -32,6 +54,8 @@ spec:
           mountPath: /.openhands-state
         - name: workspace
           mountPath: /opt/workspace_base
+        - name: hosts-file
+          mountPath: /etc/hosts.openhands
         resources:
           requests:
             memory: "2Gi"
@@ -39,10 +63,17 @@ spec:
           limits:
             memory: "4Gi"
             cpu: "1000m"
-      hostAliases:
-      - ip: "127.0.0.1"
-        hostnames:
-        - "host.docker.internal"
+        # コンテナ起動時にホストファイルをコピー
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # ホストファイルを/etc/hostsにコピー
+          if [ -f /etc/hosts.openhands ]; then
+            cat /etc/hosts.openhands >> /etc/hosts
+          fi
+          # OpenHandsの通常の起動コマンドを実行
+          exec /usr/local/bin/docker-entrypoint.sh
       volumes:
       - name: docker-sock
         hostPath:
@@ -54,6 +85,8 @@ spec:
       - name: workspace
         persistentVolumeClaim:
           claimName: openhands-data
+      - name: hosts-file
+        emptyDir: {}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
