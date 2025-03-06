@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openhands
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/boxp/lolice
+    targetRevision: main
+    path: argoproj/openhands
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openhands
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - Replace=true
+      - ServerSideApply=true 
