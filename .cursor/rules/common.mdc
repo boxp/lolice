@@ -1,0 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+タスクを実行する前に、必ずこれらのファイルを全て読むこと
+
+- @doc/project-structure.md
