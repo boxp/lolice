@@ -20,7 +20,3 @@ spec:
     automated:
       prune: true
       selfHeal: true
-      pruneResources: true
-      allowEmpty: true
-      prunePropagationPolicy: foreground
-      pruneResourcePolicy: foreground
