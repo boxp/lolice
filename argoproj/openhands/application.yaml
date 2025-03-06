@@ -3,10 +3,6 @@ kind: Application
 metadata:
   name: openhands
   namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-options: ServerSideApply=true
-    # host.docker.internal解決問題に対処済み
-    # Docker環境のクリーンアップCronJobを追加
 spec:
   project: default
   source:
