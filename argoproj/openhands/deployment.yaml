@@ -45,7 +45,7 @@ spec:
         - name: AWS_DEFAULT_REGION
           value: "us-west-2"
         - name: BEDROCK_MODEL_ID
-          value: "anthropic.claude-3-7-sonnet-20250219-v1:0"
+          value: "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         volumeMounts:
         - name: docker-sock
           mountPath: /var/run/docker.sock
