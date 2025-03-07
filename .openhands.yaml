@@ -1,0 +1,16 @@
+version: 1.0
+
+agent:
+  name: OpenHands
+  documentation:
+    required_reading:
+      - path: doc/project-structure.md
+        description: "プロジェクト構造の理解に必要な重要ドキュメント"
+        enforce: true
+        validation:
+          type: pre_task
+          message: |
+            タスクを実行する前に、以下のドキュメントを必ず読んでください：
+            doc/project-structure.md
+
+            このドキュメントには、プロジェクトの重要な構造情報が含まれています。
