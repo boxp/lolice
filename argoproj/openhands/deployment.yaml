@@ -23,7 +23,7 @@ spec:
         - name: SANDBOX_RUNTIME_CONTAINER_IMAGE
           value: docker.all-hands.dev/all-hands-ai/runtime:0.27-nikolaik
         - name: SANDBOX_LOCAL_RUNTIME_URL
-          value: http://10.0.0.5
+          value: http://127.0.0.1
         # 注意: このIPアドレスは実際のgolyat-1ノードのIPアドレスに置き換えてください
         # 以下のコマンドで取得できます:
         # kubectl get nodes golyat-1 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'
