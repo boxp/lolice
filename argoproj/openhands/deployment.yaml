@@ -38,10 +38,10 @@ spec:
           mountPath: /opt/workspace_base
         resources:
           requests:
-            memory: "2Gi"
+            memory: "1Gi"
             cpu: "500m"
           limits:
-            memory: "4Gi"
+            memory: "1Gi"
             cpu: "1000m"
       volumes:
       - name: docker-sock
