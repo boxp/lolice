@@ -29,6 +29,23 @@ spec:
         # kubectl get nodes golyat-1 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'
         - name: WORKSPACE_MOUNT_PATH
           value: /opt/workspace_base
+        # AWS Bedrock関連の環境変数
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: bedrock-credentials
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bedrock-credentials
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_REGION
+          value: "us-west-2"
+        - name: AWS_DEFAULT_REGION
+          value: "us-west-2"
+        - name: BEDROCK_MODEL_ID
+          value: "anthropic.claude-3-7-sonnet-20250219-v1:0"
         volumeMounts:
         - name: docker-sock
           mountPath: /var/run/docker.sock
