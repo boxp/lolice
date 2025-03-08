@@ -36,6 +36,12 @@ jobs:
           curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
           sudo install -m 555 kustomize /usr/local/bin/kustomize
           rm kustomize
+          
+          # Helmのインストール
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh
+          ./get_helm.sh
+          rm get_helm.sh
       
       - name: Extract applications and check for changes
         id: get-apps
