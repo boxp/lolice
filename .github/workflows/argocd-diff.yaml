@@ -9,6 +9,11 @@ on:
 jobs:
   argocd-diff:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -27,23 +32,26 @@ jobs:
           sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
           rm argocd-linux-amd64
           
-          # ArgoCD CLIで一度だけログイン
-          ARGOCD_SERVER="${{ secrets.ARGOCD_SERVER_URL }}"
-          ARGOCD_AUTH_TOKEN="${{ secrets.ARGOCD_AUTH_TOKEN }}"
-          CF_ACCESS_CLIENT_ID="${{ secrets.ARGOCD_API_TOKEN_ID }}"
-          CF_ACCESS_CLIENT_SECRET="${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
+          # kustomizeのインストール
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo install -m 555 kustomize /usr/local/bin/kustomize
+          rm kustomize
           
-          echo "Logging in to ArgoCD..."
-          argocd login "$ARGOCD_SERVER" \
-            --auth-token "$ARGOCD_AUTH_TOKEN" \
-            --grpc-web \
-            --insecure \
-            --headers "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
-          echo "Login successful"
+          # Helmのインストール
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh
+          ./get_helm.sh
+          rm get_helm.sh
       
       - name: Extract applications and check for changes
         id: get-apps
+        env:
+          ARGOCD_SERVER: "${{ vars.ARGOCD_SERVER_URL }}"
+          ARGOCD_AUTH_TOKEN: "${{ secrets.ARGOCD_AUTH_TOKEN }}"
+          CF_ACCESS_CLIENT_ID: "${{ secrets.ARGOCD_API_TOKEN_ID }}"
+          CF_ACCESS_CLIENT_SECRET: "${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
         run: |
+
           # application.yamlファイルを探し、アプリケーション名とパスのマッピングを作成
           echo "Finding all application.yaml files..."
           
@@ -82,8 +90,25 @@ jobs:
                 echo '```diff' >> app_diff_results.md
                 
                 # Diffを取得（既にログイン済み）
-                if ! argocd app diff "$APP_NAME" --local "$CURRENT_DIR" >> app_diff_results.md 2>&1; then
-                  echo "Error getting diff for $APP_NAME" >> app_diff_results.md
+                REPO_ROOT=$(pwd)
+                set +e  # エラーが発生してもスクリプトを終了しないようにする
+                argocd app diff "argocd/$APP_NAME" \
+                  --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+                  --grpc-web \
+                  --insecure \
+                  --local-repo-root "$REPO_ROOT" \
+                  --local "$REPO_ROOT/$CURRENT_DIR" >> app_diff_results.md 2>&1
+                DIFF_EXIT_CODE=$?
+                set -e  # エラー時にスクリプトを終了する設定に戻す
+                
+                # exit codeに基づいて適切なメッセージを追加
+                if [ $DIFF_EXIT_CODE -eq 0 ]; then
+                  echo "✅ 差分なし" >> app_diff_results.md
+                elif [ $DIFF_EXIT_CODE -eq 1 ]; then
+                  echo "ℹ️ 上記の差分が見つかりました" >> app_diff_results.md
+                elif [ $DIFF_EXIT_CODE -eq 2 ]; then
+                  echo "❌ エラーが発生しました" >> app_diff_results.md
+                  exit 1
                 fi
                 
                 echo '```' >> app_diff_results.md
