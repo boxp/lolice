@@ -85,6 +85,7 @@ jobs:
                 
                 # Diffを取得（既にログイン済み）
                 REPO_ROOT=$(pwd)
+                set +e  # エラーが発生してもスクリプトを終了しないようにする
                 argocd app diff "argocd/$APP_NAME" \
                   --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
                   --grpc-web \
@@ -92,6 +93,7 @@ jobs:
                   --local-repo-root "$REPO_ROOT" \
                   --local "$REPO_ROOT/$CURRENT_DIR" >> app_diff_results.md 2>&1
                 DIFF_EXIT_CODE=$?
+                set -e  # エラー時にスクリプトを終了する設定に戻す
                 
                 # exit codeに基づいて適切なメッセージを追加
                 if [ $DIFF_EXIT_CODE -eq 0 ]; then
@@ -100,7 +102,6 @@ jobs:
                   echo "ℹ️ 上記の差分が見つかりました" >> app_diff_results.md
                 elif [ $DIFF_EXIT_CODE -eq 2 ]; then
                   echo "❌ エラーが発生しました" >> app_diff_results.md
-                  # 本当のエラー（exit code 2）の場合のみ、ステップを失敗させる
                   exit 1
                 fi
                 
