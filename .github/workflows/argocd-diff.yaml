@@ -85,13 +85,21 @@ jobs:
                 
                 # Diffを取得（既にログイン済み）
                 REPO_ROOT=$(pwd)
-                if ! argocd app diff "argocd/$APP_NAME" \
+                argocd app diff "argocd/$APP_NAME" \
                   --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
                   --grpc-web \
                   --insecure \
                   --local-repo-root "$REPO_ROOT" \
-                  --local "$REPO_ROOT/$CURRENT_DIR" >> app_diff_results.md 2>&1; then
-                  echo "Error getting diff for $APP_NAME" >> app_diff_results.md
+                  --local "$REPO_ROOT/$CURRENT_DIR" >> app_diff_results.md 2>&1
+                DIFF_EXIT_CODE=$?
+                
+                # exit codeに基づいて適切なメッセージを追加
+                if [ $DIFF_EXIT_CODE -eq 0 ]; then
+                  echo "✅ 差分なし" >> app_diff_results.md
+                elif [ $DIFF_EXIT_CODE -eq 1 ]; then
+                  echo "ℹ️ 上記の差分が見つかりました" >> app_diff_results.md
+                elif [ $DIFF_EXIT_CODE -eq 2 ]; then
+                  echo "❌ エラーが発生しました" >> app_diff_results.md
                 fi
                 
                 echo '```' >> app_diff_results.md
