@@ -34,10 +34,9 @@ jobs:
           CF_ACCESS_CLIENT_SECRET="${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
           
           echo "Logging in to ArgoCD..."
-          argocd --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-            login "$ARGOCD_SERVER" \
+          argocd login "$ARGOCD_SERVER" \
             --auth-token "$ARGOCD_AUTH_TOKEN" \
-            --grpc-web
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" 
           echo "Login successful"
       
       - name: Extract applications and check for changes
