@@ -11,4 +11,5 @@ data:
     # アプリケーションの参照のみ許可し、同期権限は明示的に拒否
     p, role:github-actions, applications, get, */*, allow
     p, role:github-actions, clusters, get, */*, allow
+    p, role:github-actions, projects, get, */*, allow
     g, github-actions, role:github-actions 
