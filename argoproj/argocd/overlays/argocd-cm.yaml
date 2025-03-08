@@ -12,3 +12,6 @@ data:
       - "*"
       namespaces:
       - "*-hitohub"
+  # GitHub Actions用のAPIアクセス専用アカウント
+  # apiKey - API Key生成機能を有効化
+  accounts.github-actions: apiKey
