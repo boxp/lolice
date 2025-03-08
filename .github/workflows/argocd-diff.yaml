@@ -30,11 +30,13 @@ jobs:
           # ArgoCD CLIで一度だけログイン
           ARGOCD_SERVER="${{ vars.ARGOCD_SERVER_URL }}"
           ARGOCD_AUTH_TOKEN="${{ secrets.ARGOCD_AUTH_TOKEN }}"
+          ARGOCD_USERNAME="${{ vars.ARGOCD_USERNAME }}"
           CF_ACCESS_CLIENT_ID="${{ secrets.ARGOCD_API_TOKEN_ID }}"
           CF_ACCESS_CLIENT_SECRET="${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
           
           echo "Logging in to ArgoCD..."
           argocd login "$ARGOCD_SERVER" \
+            --username $ARGOCD_USERNAME \
             --auth-token "$ARGOCD_AUTH_TOKEN" \
             --grpc-web \
             --insecure \
