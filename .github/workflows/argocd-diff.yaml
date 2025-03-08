@@ -28,7 +28,7 @@ jobs:
           rm argocd-linux-amd64
           
           # ArgoCD CLIで一度だけログイン
-          ARGOCD_SERVER="${{ secrets.ARGOCD_SERVER_URL }}"
+          ARGOCD_SERVER="${{ vars.ARGOCD_SERVER_URL }}"
           ARGOCD_AUTH_TOKEN="${{ secrets.ARGOCD_AUTH_TOKEN }}"
           CF_ACCESS_CLIENT_ID="${{ secrets.ARGOCD_API_TOKEN_ID }}"
           CF_ACCESS_CLIENT_SECRET="${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
