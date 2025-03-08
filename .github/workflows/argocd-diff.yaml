@@ -12,46 +12,104 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # 完全な履歴を取得してdiffが正確に取れるようにする
       
-      - name: Get modified applications
+      - name: Setup environment and ArgoCD CLI
+        run: |
+          # PRで変更されたファイルを取得
+          git fetch origin main
+          git diff --name-only origin/main..HEAD > changed_files.txt
+          cat changed_files.txt
+          
+          # ArgoCD CLIのインストール
+          curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+          rm argocd-linux-amd64
+          
+          # ArgoCD CLIで一度だけログイン
+          ARGOCD_SERVER="${{ secrets.ARGOCD_SERVER_URL }}"
+          ARGOCD_AUTH_TOKEN="${{ secrets.ARGOCD_AUTH_TOKEN }}"
+          CF_ACCESS_CLIENT_ID="${{ secrets.ARGOCD_API_TOKEN_ID }}"
+          CF_ACCESS_CLIENT_SECRET="${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
+          
+          echo "Logging in to ArgoCD..."
+          argocd login "$ARGOCD_SERVER" \
+            --auth-token "$ARGOCD_AUTH_TOKEN" \
+            --grpc-web \
+            --insecure \
+            --headers "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET"
+          echo "Login successful"
+      
+      - name: Extract applications and check for changes
         id: get-apps
         run: |
-          CHANGED_APPS=$(find argoproj -type f -name "*.yaml" -o -name "*.yml" | grep -v "kustomization" | awk -F/ '{print $2}' | sort | uniq)
-          echo "apps=$CHANGED_APPS" >> $GITHUB_OUTPUT
-      
-      - name: Get ArgoCD diff
-        env:
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER_URL }}
-          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.ARGOCD_API_TOKEN_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.ARGOCD_API_TOKEN_SECRET }}
-        run: |
-          for APP in ${{ steps.get-apps.outputs.apps }}; do
-            echo "### アプリケーション: $APP の差分" >> diff_output.md
-            echo '```diff' >> diff_output.md
+          # application.yamlファイルを探し、アプリケーション名とパスのマッピングを作成
+          echo "Finding all application.yaml files..."
+          
+          # 出力ファイルの初期化
+          echo "" > app_diff_results.md
+          
+          # PRで変更されたファイルを含むディレクトリを特定
+          CHANGED_DIRS=$(cat changed_files.txt | grep -E "^argoproj/" | xargs -I{} dirname {} | sort | uniq)
+          
+          # アプリケーション情報を収集
+          declare -A APP_INFO
+          while IFS= read -r app_file; do
+            APP_DIR=$(dirname "$app_file")
+            APP_NAME=$(grep -E "name: " "$app_file" | head -1 | awk '{print $2}')
             
-            DIFF_OUTPUT=$(curl -s -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-                          -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-                          -H "Authorization: Bearer $ARGOCD_AUTH_TOKEN" \
-                          "$ARGOCD_SERVER/api/v1/applications/$APP/manifests" | jq -r '.')
-            
-            if [ -z "$DIFF_OUTPUT" ]; then
-              echo "No diff found or error occurred" >> diff_output.md
-            else
-              echo "$DIFF_OUTPUT" >> diff_output.md
+            if [ -n "$APP_NAME" ]; then
+              APP_INFO["$APP_DIR"]="$APP_NAME"
+              echo "Found application: $APP_NAME in $APP_DIR"
             fi
-            
-            echo '```' >> diff_output.md
-            echo "" >> diff_output.md
+          done < <(find argoproj -name "application.yaml")
+          
+          # 変更があったアプリケーションのdiffを取得
+          FOUND_CHANGES=false
+          for dir in $CHANGED_DIRS; do
+            # ディレクトリツリーを上に遡って最も近いapplication.yamlを持つディレクトリを探す
+            CURRENT_DIR=$dir
+            while [[ "$CURRENT_DIR" == argoproj* ]]; do
+              if [ -n "${APP_INFO[$CURRENT_DIR]}" ]; then
+                APP_NAME="${APP_INFO[$CURRENT_DIR]}"
+                echo "Changes detected for application: $APP_NAME (in $CURRENT_DIR)"
+                FOUND_CHANGES=true
+                
+                # Diffの結果を追記
+                echo "### アプリケーション: $APP_NAME の差分" >> app_diff_results.md
+                echo "パス: $CURRENT_DIR" >> app_diff_results.md
+                echo '```diff' >> app_diff_results.md
+                
+                # Diffを取得（既にログイン済み）
+                if ! argocd app diff "$APP_NAME" --local "$CURRENT_DIR" >> app_diff_results.md 2>&1; then
+                  echo "Error getting diff for $APP_NAME" >> app_diff_results.md
+                fi
+                
+                echo '```' >> app_diff_results.md
+                echo "" >> app_diff_results.md
+                break  # 最も近いapplication.yamlが見つかったらループを抜ける
+              fi
+              
+              # 親ディレクトリに移動
+              CURRENT_DIR=$(dirname "$CURRENT_DIR")
+            done
           done
           
+          # 変更がない場合のメッセージ
+          if [ "$FOUND_CHANGES" = false ]; then
+            echo "### 変更されたアプリケーションはありません" > app_diff_results.md
+          fi
+          
+          echo "has_changes=$FOUND_CHANGES" >> $GITHUB_OUTPUT
+      
       - name: Comment PR
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const diffOutput = fs.readFileSync('diff_output.md', 'utf8');
+            const diffOutput = fs.readFileSync('app_diff_results.md', 'utf8');
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
