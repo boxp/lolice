@@ -79,7 +79,7 @@ jobs:
                 echo '```diff' >> app_diff_results.md
                 
                 # Diffを取得（既にログイン済み）
-                if ! argocd app diff "$APP_NAME" --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" --grpc-web --insecure --server-side-generate --local "$CURRENT_DIR" >> app_diff_results.md 2>&1; then
+                if ! argocd app diff "$APP_NAME" --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" --grpc-web --insecure --local "$CURRENT_DIR" >> app_diff_results.md 2>&1; then
                   echo "Error getting diff for $APP_NAME" >> app_diff_results.md
                 fi
                 
