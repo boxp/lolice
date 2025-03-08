@@ -7,7 +7,6 @@ resources:
 - base/github-actions-rbac.yaml
 - base/external-secrets.yaml
 - base/cloudflared-api.yaml
-- base/network-policy.yaml
 patchesStrategicMerge:
 - overlays/argocd-redis-network-policy.yaml
 - overlays/argocd-repo-server-network-policy.yaml
