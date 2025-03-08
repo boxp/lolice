@@ -32,7 +32,8 @@ jobs:
         env:
           ARGOCD_SERVER: "${{ vars.ARGOCD_SERVER_URL }}"
           ARGOCD_AUTH_TOKEN: "${{ secrets.ARGOCD_AUTH_TOKEN }}"
-          ARGOCD_OPTS: "--header \"CF-Access-Client-Id: ${{ secrets.ARGOCD_API_TOKEN_ID }},CF-Access-Client-Secret: ${{ secrets.ARGOCD_API_TOKEN_SECRET }}\" --grpcweb --insecure"
+          CF_ACCESS_CLIENT_ID: "${{ secrets.ARGOCD_API_TOKEN_ID }}"
+          CF_ACCESS_CLIENT_SECRET: "${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
         run: |
 
           # application.yamlファイルを探し、アプリケーション名とパスのマッピングを作成
@@ -73,7 +74,7 @@ jobs:
                 echo '```diff' >> app_diff_results.md
                 
                 # Diffを取得（既にログイン済み）
-                if ! argocd app diff "$APP_NAME" --local "$CURRENT_DIR" >> app_diff_results.md 2>&1; then
+                if ! argocd app diff "$APP_NAME" --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" --grpcweb --insecure --local "$CURRENT_DIR" >> app_diff_results.md 2>&1; then
                   echo "Error getting diff for $APP_NAME" >> app_diff_results.md
                 fi
                 
