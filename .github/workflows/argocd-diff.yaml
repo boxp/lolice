@@ -9,6 +9,11 @@ on:
 jobs:
   argocd-diff:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      repository-projects: write
+      id-token: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
