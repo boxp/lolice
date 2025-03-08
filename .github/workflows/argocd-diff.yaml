@@ -100,6 +100,8 @@ jobs:
                   echo "ℹ️ 上記の差分が見つかりました" >> app_diff_results.md
                 elif [ $DIFF_EXIT_CODE -eq 2 ]; then
                   echo "❌ エラーが発生しました" >> app_diff_results.md
+                  # 本当のエラー（exit code 2）の場合のみ、ステップを失敗させる
+                  exit 1
                 fi
                 
                 echo '```' >> app_diff_results.md
