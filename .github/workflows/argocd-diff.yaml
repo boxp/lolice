@@ -32,9 +32,7 @@ jobs:
         env:
           ARGOCD_SERVER: "${{ vars.ARGOCD_SERVER_URL }}"
           ARGOCD_AUTH_TOKEN: "${{ secrets.ARGOCD_AUTH_TOKEN }}"
-          ARGOCD_OPTS: "--header \"CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET\" --grpcweb --insecure"
-          CF_ACCESS_CLIENT_ID: "${{ secrets.ARGOCD_API_TOKEN_ID }}"
-          CF_ACCESS_CLIENT_SECRET: "${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
+          ARGOCD_OPTS: "--header \"CF-Access-Client-Id: ${{ secrets.ARGOCD_API_TOKEN_ID }},CF-Access-Client-Secret: ${{ secrets.ARGOCD_API_TOKEN_SECRET }}\" --grpcweb --insecure"
         run: |
 
           # application.yamlファイルを探し、アプリケーション名とパスのマッピングを作成
