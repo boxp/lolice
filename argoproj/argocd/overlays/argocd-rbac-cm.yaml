@@ -10,5 +10,4 @@ data:
     # GitHub Actions用アカウントに対するポリシー設定
     # アプリケーションの参照のみ許可し、同期権限は明示的に拒否
     p, role:github-actions, applications, get, */*, allow
-    p, role:github-actions, applications, sync, */*, deny
     g, github-actions, role:github-actions 
