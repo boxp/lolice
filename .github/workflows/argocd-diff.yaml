@@ -26,26 +26,16 @@ jobs:
           curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
           sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
           rm argocd-linux-amd64
-          
-          # ArgoCD CLIで一度だけログイン
-          ARGOCD_SERVER="${{ vars.ARGOCD_SERVER_URL }}"
-          ARGOCD_AUTH_TOKEN="${{ secrets.ARGOCD_AUTH_TOKEN }}"
-          ARGOCD_USERNAME="${{ vars.ARGOCD_USERNAME }}"
-          CF_ACCESS_CLIENT_ID="${{ secrets.ARGOCD_API_TOKEN_ID }}"
-          CF_ACCESS_CLIENT_SECRET="${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
-          
-          echo "Logging in to ArgoCD..."
-          argocd login "$ARGOCD_SERVER" \
-            --username $ARGOCD_USERNAME \
-            --auth-token "$ARGOCD_AUTH_TOKEN" \
-            --grpc-web \
-            --insecure \
-            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" 
-          echo "Login successful"
       
       - name: Extract applications and check for changes
         id: get-apps
         run: |
+          ARGOCD_SERVER="${{ vars.ARGOCD_SERVER_URL }}"
+          ARGOCD_AUTH_TOKEN="${{ secrets.ARGOCD_AUTH_TOKEN }}"
+          ARGOCD_OPTS="--header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET --grpcweb --insecure"
+          CF_ACCESS_CLIENT_ID="${{ secrets.ARGOCD_API_TOKEN_ID }}"
+          CF_ACCESS_CLIENT_SECRET="${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
+
           # application.yamlファイルを探し、アプリケーション名とパスのマッピングを作成
           echo "Finding all application.yaml files..."
           
