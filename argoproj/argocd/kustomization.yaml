@@ -4,6 +4,9 @@ resources:
 - github.com/argoproj/argo-cd/manifests/base?ref=v2.14.4
 - cloudflared-deployment.yaml
 - external-secret.yaml
+- base/github-actions-rbac.yaml
+- base/external-secrets.yaml
+- base/cloudflared-api.yaml
 patchesStrategicMerge:
 - overlays/argocd-redis-network-policy.yaml
 - overlays/argocd-repo-server-network-policy.yaml
