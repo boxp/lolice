@@ -1,0 +1,47 @@
+name: Validate Kubernetes Manifests
+
+on:
+  push:
+    branches: [ '**' ]
+  pull_request:
+    branches: [ '**' ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Check if manifests directory exists
+        id: check_manifests
+        run: |
+          if [ -d "manifests" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install kubeval
+        if: steps.check_manifests.outputs.exists == 'true'
+        run: |
+          curl -Lo kubeval https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64
+          chmod +x kubeval
+          sudo mv kubeval /usr/local/bin/
+
+      - name: Validate Kubernetes manifests
+        if: steps.check_manifests.outputs.exists == 'true'
+        run: |
+          files=$(find manifests -type f \( -name "*.yaml" -o -name "*.yml" \))
+          if [ -z "$files" ]; then
+            echo "No YAML files found in manifests"
+            exit 0
+          fi
+          for file in $files; do
+            echo "Validating $file"
+            kubeval --strict "$file"
+          done
+
+      - name: Warn if manifests directory does not exist
+        if: steps.check_manifests.outputs.exists == 'false'
+        run: echo "manifests directory not found, skipping Kubernetes manifest validation."
