@@ -93,6 +93,7 @@ jobs:
                 REPO_ROOT=$(pwd)
                 set +e  # エラーが発生してもスクリプトを終了しないようにする
                 argocd app diff "argocd/$APP_NAME" \
+                  --loglevel error \
                   --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
                   --grpc-web \
                   --insecure \
