@@ -49,3 +49,10 @@ jobs:
       - name: Warn if manifests directory does not exist
         if: steps.check_manifests.outputs.exists == 'false'
         run: echo "argoproj directory not found, skipping Kubernetes manifest validation."
+
+      - name: Upload kubeval output
+        if: steps.check_manifests.outputs.exists == 'true'
+        uses: actions/upload-artifact@v3
+        with:
+          name: kubeval_output
+          path: kubeval_output.txt
