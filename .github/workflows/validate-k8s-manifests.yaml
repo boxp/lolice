@@ -29,6 +29,7 @@ jobs:
         run: |
           echo "Installing kubeval using apt-get"
           sudo apt-get update
+          sudo apt-get install -y kubectl
           sudo apt-get install -y kubeval
 
       - name: Validate Kubernetes manifests
