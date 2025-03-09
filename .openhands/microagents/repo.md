@@ -109,28 +109,7 @@ query {
 5. ステータスを分析して結果を報告します
 6. 失敗している場合は、詳細なログを取得して問題を分析します
 
-## コマンド例
 
-GitHub CLIを使用する場合:
-```bash
-# PRの一覧を表示
-gh pr list
-
-# 特定のPRの詳細を表示
-gh pr view {PR_NUMBER}
-
-# CIステータスの確認
-gh pr checks {PR_NUMBER}
-
-# ワークフロー実行の一覧
-gh run list --limit 10
-
-# 特定のワークフロー実行の詳細
-gh run view {RUN_ID}
-
-# ワークフロー実行のログをダウンロード
-gh run download {RUN_ID}
-```
 
 ## CI失敗時の対応
 
