@@ -96,7 +96,6 @@ jobs:
                 # 注: "local diff without --server-side-generate is deprecated"の警告を抑制しています
                 # これはArgoCD側のバグのためです。--server-side-generateオプションを--grpc-webと併用するとエラーが発生します
                 # 関連issue: https://github.com/argoproj/argo-cd/discussions/13302
-
                 argocd app diff "argocd/$APP_NAME" \
                   --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
                   --grpc-web \
