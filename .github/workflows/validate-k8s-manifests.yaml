@@ -16,7 +16,7 @@ jobs:
       - name: Check if manifests directory exists
         id: check_manifests
         run: |
-          if [ -d "manifests" ]; then
+          if [ -d "argoproj" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
@@ -32,7 +32,7 @@ jobs:
       - name: Validate Kubernetes manifests
         if: steps.check_manifests.outputs.exists == 'true'
         run: |
-          files=$(find manifests -type f \( -name "*.yaml" -o -name "*.yml" \))
+          files=$(find argoproj -type f \( -name "*.yaml" -o -name "*.yml" \))
           if [ -z "$files" ]; then
             echo "No YAML files found in manifests"
             exit 0
@@ -44,4 +44,4 @@ jobs:
 
       - name: Warn if manifests directory does not exist
         if: steps.check_manifests.outputs.exists == 'false'
-        run: echo "manifests directory not found, skipping Kubernetes manifest validation."
+        run: echo "argoproj directory not found, skipping Kubernetes manifest validation."
