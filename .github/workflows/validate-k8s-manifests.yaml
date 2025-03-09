@@ -39,7 +39,7 @@ jobs:
           fi
           for file in $files; do
             echo "Validating $file"
-            kubeval --strict "$file"
+            /usr/local/bin/kubeval --strict "$file"
           done
 
       - name: Warn if manifests directory does not exist
