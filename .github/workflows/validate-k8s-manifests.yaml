@@ -28,6 +28,7 @@ jobs:
           curl -Lo kubeval https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64
           chmod +x kubeval
           sudo mv kubeval /usr/local/bin/
+          ls -l /usr/local/bin/kubeval
 
       - name: Validate Kubernetes manifests
         if: steps.check_manifests.outputs.exists == 'true'
