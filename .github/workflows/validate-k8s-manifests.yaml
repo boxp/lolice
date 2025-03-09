@@ -74,7 +74,8 @@ jobs:
               echo "```" >> $VALIDATION_RESULTS
               
               # kustomizeでビルドしてkubeconformで検証
-              RESULT=$(kustomize build $DIR 2>&1 | kubeconform \
+echo "Running command: kustomize build $DIR 2>&1 | kubeconform -summary -verbose -schema-location default -schema-location \"https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json\" -output json 2>&1"
+              RESULT=$(kustomize build $DIR 2>&1 | sed "$ s/$$//" | kubeconform \
                 -summary \
                 -verbose \
                 -schema-location default \
@@ -111,12 +112,12 @@ jobs:
               # ディレクトリ内のYAMLファイルを検証
               YAML_FILES=$(find $DIR -name "*.yaml" -o -name "*.yml")
               if [ -n "$YAML_FILES" ]; then
-                RESULT=$(echo "$YAML_FILES" | xargs kubeconform \
+                RESULT=$(echo "$YAML_FILES" | xargs -I {} sh -c 'sed "$$ s/$$//" {} | kubeconform \
                   -summary \
                   -verbose \
                   -schema-location default \
                   -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
-                  -output json 2>&1 || true)
+                  -output json 2>&1' || true)
                 
                 echo "$RESULT" >> $VALIDATION_RESULTS
                 
