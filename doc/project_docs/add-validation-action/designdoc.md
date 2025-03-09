@@ -5,7 +5,10 @@
 
 ## トリガー
 - プルリクエスト作成時、およびpushイベント時に実行される
+  The action will be triggered on `pull_request` events, specifically when a pull request is opened, synchronized, or reopened.
 - CIパイプラインの一部として動作する
+  The workflow will have a single job called `validate`.
+  The job will run on the latest version of Ubuntu.
 
 ## 主な処理手順
 1. リポジトリのチェックアウト
@@ -22,3 +25,7 @@
 
 ## 補足
 - kubevalのバージョンは、最新のリリースを使用する方針。ただし、必要に応じて固定バージョンへの変更が検討される
+
+   - 対象ディレクトリ: argoproj
+5. 結果の報告
+   - 検証に失敗した場合は、エラーメッセージを表示する
