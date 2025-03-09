@@ -92,13 +92,17 @@ jobs:
                 # Diffを取得（既にログイン済み）
                 REPO_ROOT=$(pwd)
                 set +e  # エラーが発生してもスクリプトを終了しないようにする
+                # 特定のwarningメッセージのみをフィルタリング
+                # 注: "local diff without --server-side-generate is deprecated"の警告を抑制しています
+                # これはArgoCD側のバグのためです。--server-side-generateオプションを--grpc-webと併用するとエラーが発生します
+                # 関連issue: https://github.com/argoproj/argo-cd/discussions/13302
+
                 argocd app diff "argocd/$APP_NAME" \
-                  --loglevel error \
                   --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
                   --grpc-web \
                   --insecure \
                   --local-repo-root "$REPO_ROOT" \
-                  --local "$REPO_ROOT/$CURRENT_DIR" >> app_diff_results.md 2>&1
+                  --local "$REPO_ROOT/$CURRENT_DIR" 2> >(grep -v "local diff without --server-side-generate is deprecated" >&2) >> app_diff_results.md
                 DIFF_EXIT_CODE=$?
                 set -e  # エラー時にスクリプトを終了する設定に戻す
                 
