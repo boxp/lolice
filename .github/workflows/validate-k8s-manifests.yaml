@@ -37,6 +37,7 @@ jobs:
             echo "No YAML files found in manifests"
             exit 0
           fi
+          echo "Found files: $files"
           for file in $files; do
             echo "Validating $file"
             /usr/local/bin/kubeval --strict "$file"
