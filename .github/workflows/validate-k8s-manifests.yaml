@@ -27,12 +27,9 @@ jobs:
       - name: Install kubeval
         if: steps.check_manifests.outputs.exists == 'true'
         run: |
-          echo "Adding /usr/local/bin to PATH"
-          echo "::add-path::/usr/local/bin"
-          curl -Lo kubeval https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64
-          chmod +x kubeval
-          sudo mv kubeval /usr/local/bin/
-          ls -l /usr/local/bin/kubeval
+          echo "Installing kubeval using apt-get"
+          sudo apt-get update
+          sudo apt-get install -y kubeval
 
       - name: Validate Kubernetes manifests
         if: steps.check_manifests.outputs.exists == 'true'
@@ -45,7 +42,7 @@ jobs:
           echo "Found files: $files"
           for file in $files; do
             echo "Validating $file"
-            /usr/local/bin/kubeval --strict "$file"
+            kubeval --strict "$file"
           done
 
       - name: Warn if manifests directory does not exist
