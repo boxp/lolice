@@ -5,6 +5,9 @@ metadata:
   namespace: openhands
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
+
   selector:
     matchLabels:
       app: openhands
