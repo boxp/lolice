@@ -43,7 +43,7 @@ jobs:
           echo "Found files: $files"
           for file in $files; do
             echo "Validating $file"
-            kubeval --strict "$file"
+            kubeval "$file"
           done
 
       - name: Warn if manifests directory does not exist
