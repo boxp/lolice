@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "kubernetes": { "fileMatch": ["\\.yaml$", "!argoproj/openhands/deployment.yaml"] },
+  "kubernetes": { "fileMatch": ["\\.yaml$"] },
   "customManagers": [
     {
       "customType": "regex",
@@ -15,7 +15,6 @@
       "currentValueTemplate": "{{currentValue}}"
     }
   ],
-  
   "major": { "automerge": false },
   "automerge": true,
   "platformAutomerge": true
