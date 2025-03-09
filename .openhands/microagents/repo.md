@@ -18,7 +18,7 @@ triggers:
 Before starting any task, you MUST read and understand the project structure described in `doc/project-structure.md`.
 Additionally, you MUST read and understand the project specification described in `doc/project-spec.md`.
 This file contains important information about the project's organization, dependencies, and coding conventions.
-Make sure you understand the contents of this file before making any changes to the codebase.
+Make sure you understand the contents of this file before making any changes to the codebase.\n必ず日本語で受け答えしてください
 
 # GitHubのCIステータスチェッカー
 
@@ -131,4 +131,4 @@ query {
 
 4. **依存関係の問題**:
    - バージョン不一致や欠落パッケージを確認
-   - 依存関係グラフの整合性を検証\n必ず日本語で受け答えしてください
+   
