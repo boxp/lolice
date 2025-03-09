@@ -25,6 +25,8 @@ jobs:
       - name: Install kubeval
         if: steps.check_manifests.outputs.exists == 'true'
         run: |
+          echo "Adding /usr/local/bin to PATH"
+          echo "::add-path::/usr/local/bin"
           curl -Lo kubeval https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64
           chmod +x kubeval
           sudo mv kubeval /usr/local/bin/
