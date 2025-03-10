@@ -67,7 +67,7 @@
       "customType": "regex",
       "fileMatch": ["argoproj/openhands/deployment.yaml"],
       "matchStrings": [
-        "value:\\s*docker\\.all-hands\\.dev/all-hands-ai/runtime:(?<currentValue>[\\d.]+)-nikolaik"
+        "SANDBOX_RUNTIME_CONTAINER_IMAGE[\\s\\S]*?value:\\s*docker\\.all-hands\\.dev/all-hands-ai/runtime:(?<currentValue>[\\d.]+)-nikolaik"
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "docker.all-hands.dev/all-hands-ai/runtime",
