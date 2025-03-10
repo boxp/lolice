@@ -7,6 +7,7 @@ spec:
   replicas: 1
   strategy:
     type: Recreate
+
   selector:
     matchLabels:
       app: openhands
@@ -15,91 +16,64 @@ spec:
       labels:
         app: openhands
     spec:
+      hostNetwork: true
       containers:
-        # dindサイドカーを追加
-        - name: dind-daemon
-          image: docker:28.0.1-dind
-          env:
-            - name: DOCKER_TLS_CERTDIR
-              value: ""
-          securityContext:
-            privileged: true
-          resources:
-            requests:
-              memory: "2Gi"
-              cpu: "500m"
-            limits:
-              memory: "2Gi"
-              cpu: "1000m"
-          # ライフサイクルフックで起動順を制御
-          lifecycle:
-            postStart:
-              exec:
-                command:
-                  - "sh"
-                  - "-c"
-                  - |
-                    echo "Waiting for Docker daemon to be ready..."
-                    until docker info; do
-                      echo "Docker daemon not ready yet, sleeping..."
-                      sleep 1
-                    done
-                    echo "Docker daemon is ready."
-        # OpenHandsコンテナは変更
-        - name: openhands
-          image: docker.all-hands.dev/all-hands-ai/openhands:0.28
-          ports:
-            - containerPort: 3000
-          env:
-            - name: SANDBOX_RUNTIME_CONTAINER_IMAGE
-              value: docker.all-hands.dev/all-hands-ai/runtime:0.27-nikolaik
-            # DOCKER_HOSTを内部のDinDコンテナに向ける
-            - name: DOCKER_HOST
-              value: "tcp://localhost:2375"
-            - name: WORKSPACE_MOUNT_PATH
-              value: /opt/workspace_base
-            # AWS Parameter Reader関連の環境変数
-            - name: AWS_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: parameter-reader-credentials
-                  key: AWS_ACCESS_KEY_ID
-            - name: AWS_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: parameter-reader-credentials
-                  key: AWS_SECRET_ACCESS_KEY
-            - name: AWS_REGION
-              value: "asia-northeast-1"
-            - name: AWS_DEFAULT_REGION
-              value: "asia-northeast-1"
-            - name: BEDROCK_MODEL_ID
-              value: "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
-          volumeMounts:
-            - name: openhands-state
-              mountPath: /.openhands-state
-            - name: workspace
-              mountPath: /opt/workspace_base
-          resources:
-            requests:
-              memory: "1Gi"
-              cpu: "500m"
-            limits:
-              memory: "1Gi"
-              cpu: "1000m"
-      # host.docker.internalの名前解決のためのhostAliases
-      hostAliases:
-        - ip: "127.0.0.1"
-          hostnames:
-            - "host.docker.internal"
-      volumes:
+      - name: openhands
+        image: docker.all-hands.dev/all-hands-ai/openhands:0.28
+        ports:
+        - containerPort: 3000
+        env:
+        - name: SANDBOX_RUNTIME_CONTAINER_IMAGE
+          value: docker.all-hands.dev/all-hands-ai/runtime:0.27-nikolaik
+        - name: SANDBOX_LOCAL_RUNTIME_URL
+          value: http://127.0.0.1
+        # 注意: このIPアドレスは実際のgolyat-1ノードのIPアドレスに置き換えてください
+        # 以下のコマンドで取得できます:
+        # kubectl get nodes golyat-1 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'
+        - name: WORKSPACE_MOUNT_PATH
+          value: /opt/workspace_base
+        # AWS Parameter Reader関連の環境変数
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: parameter-reader-credentials
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: parameter-reader-credentials
+              key: AWS_SECRET_ACCESS_KEY
+        - name: AWS_REGION
+          value: "asia-northeast-1"
+        - name: AWS_DEFAULT_REGION
+          value: "asia-northeast-1"
+        - name: BEDROCK_MODEL_ID
+          value: "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+        volumeMounts:
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
         - name: openhands-state
-          persistentVolumeClaim:
-            claimName: openhands-state-pvc
+          mountPath: /.openhands-state
         - name: workspace
-          persistentVolumeClaim:
-            claimName: openhands-data
-      # 当面はノード固定を維持
+          mountPath: /opt/workspace_base
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+      volumes:
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+      - name: openhands-state
+        persistentVolumeClaim:
+          claimName: openhands-state-pvc
+      - name: workspace
+        persistentVolumeClaim:
+          claimName: openhands-data
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -109,3 +83,4 @@ spec:
                 operator: In
                 values:
                 - golyat-1 
+
