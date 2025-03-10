@@ -16,16 +16,18 @@ spec:
             - /bin/sh
             - -c
             - |
-              echo "Starting Docker cleanup for OpenHands DinD container"
-              # DinDコンテナ内部の未使用Dockerリソースを削除
-              # OpenHandsポッドの名前を動的に取得
-              OPENHANDS_POD=$(kubectl get pods -n openhands -l app=openhands -o jsonpath='{.items[0].metadata.name}')
-              if [ -n "$OPENHANDS_POD" ]; then
-                echo "Found OpenHands pod: $OPENHANDS_POD"
-                kubectl exec -n openhands $OPENHANDS_POD -c dind-daemon -- docker system prune -af --volumes
-                echo "Docker cleanup completed for pod $OPENHANDS_POD"
-              else
-                echo "No OpenHands pod found"
-              fi
-          serviceAccountName: docker-cleanup-sa  # 追加：クリーンアップ用のサービスアカウント
+              echo "Starting Docker cleanup process on golyat-1 node"
+              # 未使用のDockerリソースを削除
+              docker system prune -af --volumes
+              echo "Docker cleanup completed"
+            volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+          volumes:
+          - name: docker-sock
+            hostPath:
+              path: /var/run/docker.sock
+              type: Socket
+          nodeSelector:
+            kubernetes.io/hostname: golyat-1
           restartPolicy: OnFailure 
