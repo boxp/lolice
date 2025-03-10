@@ -65,17 +65,22 @@
     {
       "description": "Specific runtime image with nikolaik tag",
       "customType": "regex",
-      "fileMatch": ["\\.yaml$"],
+      "fileMatch": ["argoproj/openhands/deployment.yaml"],
       "matchStrings": [
-        "value:\\s*docker\\.all-hands\\.dev/all-hands-ai/runtime:(?<version>[\\d.]+)-nikolaik"
+        "value:\\s*docker\\.all-hands\\.dev/all-hands-ai/runtime:(?<currentValue>[\\d.]+)-nikolaik"
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "docker.all-hands.dev/all-hands-ai/runtime",
-      "versioningTemplate": "docker",
-      "currentValueTemplate": "{{currentValue}}"
+      "versioningTemplate": "docker"
     }
   ],
   "major": { "automerge": false },
   "automerge": true,
-  "platformAutomerge": true
+  "platformAutomerge": true,
+  "hostRules": [
+    {
+      "matchHost": "docker.all-hands.dev",
+      "hostType": "docker"
+    }
+  ]
 }
