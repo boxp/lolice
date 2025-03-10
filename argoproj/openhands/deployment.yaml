@@ -44,9 +44,9 @@ spec:
               name: parameter-reader-credentials
               key: AWS_SECRET_ACCESS_KEY
         - name: AWS_REGION
-          value: "us-west-2"
+          value: "asia-northeast-1"
         - name: AWS_DEFAULT_REGION
-          value: "us-west-2"
+          value: "asia-northeast-1"
         - name: BEDROCK_MODEL_ID
           value: "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         volumeMounts:
