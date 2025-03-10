@@ -15,35 +15,26 @@
       "currentValueTemplate": "{{currentValue}}"
     },
     {
+      "description": "OpenHands container image",
       "customType": "regex",
-      "fileMatch": ["\\.yaml$"],
+      "fileMatch": ["argoproj/openhands/.*\\.yaml$"],
       "matchStrings": [
-        "value:\\s*docker.all-hands.dev/all-hands-ai/runtime:(?<version>[\\w.-]+(?:-nikolaik)?)"
+        "image:\\s*docker\\.all-hands\\.dev/all-hands-ai/openhands:(?<version>[\\w.-]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "docker.all-hands.dev/all-hands-ai/openhands",
+      "versioningTemplate": "docker",
+      "currentValueTemplate": "{{currentValue}}"
+    },
+    {
+      "description": "OpenHands runtime container image in environment variable",
+      "customType": "regex",
+      "fileMatch": ["argoproj/openhands/.*\\.yaml$"],
+      "matchStrings": [
+        "name:\\s*SANDBOX_RUNTIME_CONTAINER_IMAGE[\\s\\S]*?value:\\s*docker\\.all-hands\\.dev/all-hands-ai/runtime:(?<version>[\\w.-]+(?:-nikolaik)?)"
       ],
       "datasourceTemplate": "docker",
       "depNameTemplate": "docker.all-hands.dev/all-hands-ai/runtime",
-      "versioningTemplate": "docker",
-      "currentValueTemplate": "{{currentValue}}"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": ["\\.yaml$"],
-      "matchStrings": [
-        "image:\\s*docker.all-hands.dev/all-hands-ai/([^:\\s]+):(?<version>[\\w.-]+(?:-[\\w]+)?)"
-      ],
-      "datasourceTemplate": "docker",
-      "depNameTemplate": "docker.all-hands.dev/all-hands-ai/$1",
-      "versioningTemplate": "docker",
-      "currentValueTemplate": "{{currentValue}}"
-    },
-    {
-      "customType": "regex",
-      "fileMatch": ["\\.yaml$"],
-      "matchStrings": [
-        "value:\\s*docker.all-hands.dev/all-hands-ai/([^:\\s]+):(?<version>[\\w.-]+(?:-[\\w]+)?)"
-      ],
-      "datasourceTemplate": "docker",
-      "depNameTemplate": "docker.all-hands.dev/all-hands-ai/$1",
       "versioningTemplate": "docker",
       "currentValueTemplate": "{{currentValue}}"
     }
