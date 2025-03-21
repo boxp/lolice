@@ -14,12 +14,7 @@
       "versioningTemplate": "docker",
       "currentValueTemplate": "{{currentValue}}"
     }
-  ],
-  "packageRules": [
-    {
-      "matchPackagePatterns": ["docker.all-hands.dev/all-hands-ai/openhands"],
-      "enabled": false
-    }
+
   ],
   "major": { "automerge": false },
   "automerge": true,
