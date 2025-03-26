@@ -24,7 +24,7 @@ spec:
         - containerPort: 3000
         env:
         - name: SANDBOX_RUNTIME_CONTAINER_IMAGE
-          value: docker.all-hands.dev/all-hands-ai/runtime:0.29.1-nikolaik
+          value: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/openhands-runtime:41e379330403af0ac6a89713bb1995b27caf564f
         - name: SANDBOX_LOCAL_RUNTIME_URL
           value: http://127.0.0.1
         # 注意: このIPアドレスは実際のgolyat-1ノードのIPアドレスに置き換えてください
