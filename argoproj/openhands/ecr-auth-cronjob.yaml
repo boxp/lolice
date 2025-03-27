@@ -17,7 +17,7 @@ spec:
             kubernetes.io/hostname: golyat-1  # OpenHandsが実行されるノードを指定
           containers:
           - name: ecr-auth-updater
-            image: docker:20.10-dind  # Dockerコマンドを含むイメージに変更
+            image: docker:28.0-dind  # Dockerコマンドを含むイメージに変更
             securityContext:
               privileged: true  # Docker socketにアクセスするために必要
             envFrom:
