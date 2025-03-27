@@ -45,9 +45,26 @@ spec:
                 if [ -d "/host-docker" ]; then
                   # ディレクトリが存在しない場合は作成
                   mkdir -p /host-docker
+                  
                   # 認証情報ファイルをコピー
                   cp -f /root/.docker/config.json /host-docker/config.json
-                  echo "ホスト側の認証情報ファイルを更新しました: /home/boxp/.docker/config.json"
+                  
+                  # boxpユーザーのUID/GIDを取得（ホストから）
+                  BOXP_UID=$(grep boxp /etc/passwd | cut -d: -f3)
+                  BOXP_GID=$(grep boxp /etc/passwd | cut -d: -f4)
+                  
+                  # UIDが見つからない場合は一般的なユーザーのUID/GIDを使用
+                  if [ -z "$BOXP_UID" ]; then
+                    BOXP_UID=1000
+                    BOXP_GID=1000
+                  fi
+                  
+                  # 所有権を変更
+                  chown ${BOXP_UID}:${BOXP_GID} /host-docker/config.json
+                  # パーミッションを設定（ユーザーのみ読み書き可能）
+                  chmod 600 /host-docker/config.json
+                  
+                  echo "ホスト側の認証情報ファイルを更新し、権限を設定しました: /home/boxp/.docker/config.json (${BOXP_UID}:${BOXP_GID})"
                 fi
                 
                 echo "OpenHands ホストECR認証情報の更新が完了しました"
@@ -56,6 +73,8 @@ spec:
                 echo "認証情報ファイルの内容確認:"
                 cat /root/.docker/config.json
                 if [ -f "/host-docker/config.json" ]; then
+                  echo "ホスト側の認証情報ファイル情報:"
+                  ls -la /host-docker/config.json
                   echo "ホスト側の認証情報ファイル内容:"
                   cat /host-docker/config.json
                 else
@@ -66,6 +85,9 @@ spec:
               mountPath: /var/run/docker.sock
             - name: host-docker-config
               mountPath: /host-docker
+            - name: host-etc
+              mountPath: /etc
+              readOnly: true
           volumes:
           - name: docker-sock
             hostPath:
@@ -74,5 +96,9 @@ spec:
           - name: host-docker-config
             hostPath:
               path: /home/boxp/.docker
+              type: Directory
+          - name: host-etc
+            hostPath:
+              path: /etc
               type: Directory
           restartPolicy: OnFailure 
