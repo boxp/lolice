@@ -17,7 +17,7 @@ spec:
             kubernetes.io/hostname: golyat-1  # OpenHandsが実行されるノードを指定
           containers:
           - name: ecr-auth-updater
-            image: omarxs/awskctl:v1.0  # k8s-ecr-token-updaterと同じイメージ
+            image: docker:20.10-dind  # Dockerコマンドを含むイメージに変更
             securityContext:
               privileged: true  # Docker socketにアクセスするために必要
             envFrom:
@@ -27,9 +27,12 @@ spec:
             - name: AWS_REGION
               value: "ap-northeast-1"
             command:
-              - /bin/bash
+              - /bin/sh
               - -c
               - |-
+                # AWS CLIをインストール
+                apk add --no-cache aws-cli
+                
                 echo "OpenHands ホストECR認証情報を更新しています..."
                 # ECRログイン情報を取得
                 ECR_TOKEN="$(aws ecr get-login-password --region ${AWS_REGION})"
