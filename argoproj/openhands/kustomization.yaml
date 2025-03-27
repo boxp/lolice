@@ -9,4 +9,5 @@ resources:
   - docker-cleanup-cronjob.yaml
   - external-secret.yaml
   - cloudflared-deployment.yaml
-  - pvc.yaml 
+  - pvc.yaml
+  - ecr-auth-cronjob.yaml 
