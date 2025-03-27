@@ -37,15 +37,17 @@ spec:
                 # ECRログイン情報を取得
                 ECR_TOKEN="$(aws ecr get-login-password --region ${AWS_REGION})"
                 
-                # ホストのDockerに認証情報を設定
-                # ホストの.dockerディレクトリに直接書き込むように設定
+                # コンテナ内のDockerに認証情報を設定
                 mkdir -p /root/.docker
                 docker login --username AWS --password ${ECR_TOKEN} https://${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
                 
-                # ホスト側のrootユーザーの.dockerディレクトリにも設定を反映
+                # ホスト側のboxpユーザーの.dockerディレクトリに設定を反映
                 if [ -d "/host-docker" ]; then
+                  # ディレクトリが存在しない場合は作成
+                  mkdir -p /host-docker
+                  # 認証情報ファイルをコピー
                   cp -f /root/.docker/config.json /host-docker/config.json
-                  echo "ホスト側の認証情報ファイルを更新しました"
+                  echo "ホスト側の認証情報ファイルを更新しました: /home/boxp/.docker/config.json"
                 fi
                 
                 echo "OpenHands ホストECR認証情報の更新が完了しました"
@@ -56,6 +58,8 @@ spec:
                 if [ -f "/host-docker/config.json" ]; then
                   echo "ホスト側の認証情報ファイル内容:"
                   cat /host-docker/config.json
+                else
+                  echo "警告: ホスト側の認証情報ファイルが見つかりません"
                 fi
             volumeMounts:
             - name: docker-sock
@@ -69,6 +73,6 @@ spec:
               type: Socket
           - name: host-docker-config
             hostPath:
-              path: /root/.docker
+              path: /home/boxp/.docker
               type: Directory
           restartPolicy: OnFailure 
