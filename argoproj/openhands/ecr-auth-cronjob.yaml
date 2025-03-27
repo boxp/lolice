@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: openhands-ecr-auth-updater
+  namespace: openhands
+spec:
+  schedule: "0 */10 * * *"  # k8s-ecr-token-updaterと同じスケジュール（10時間ごと）
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: default
+          hostPID: true
+          hostNetwork: true
+          nodeSelector:
+            kubernetes.io/hostname: golyat-1  # OpenHandsが実行されるノードを指定
+          containers:
+          - name: ecr-auth-updater
+            image: omarxs/awskctl:v1.0  # k8s-ecr-token-updaterと同じイメージ
+            securityContext:
+              privileged: true  # Docker socketにアクセスするために必要
+            envFrom:
+              - secretRef:
+                  name: aws-credentials  # ECR認証用のAWS認証情報
+            env:
+            - name: AWS_REGION
+              value: "ap-northeast-1"
+            command:
+              - /bin/bash
+              - -c
+              - |-
+                echo "OpenHands ホストECR認証情報を更新しています..."
+                # ECRログイン情報を取得
+                ECR_TOKEN="$(aws ecr get-login-password --region ${AWS_REGION})"
+                
+                # ホストのDockerに認証情報を設定
+                docker login --username AWS --password ${ECR_TOKEN} https://${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                
+                echo "OpenHands ホストECR認証情報の更新が完了しました"
+            volumeMounts:
+            - name: docker-sock
+              mountPath: /var/run/docker.sock
+          volumes:
+          - name: docker-sock
+            hostPath:
+              path: /var/run/docker.sock
+              type: Socket
+          restartPolicy: OnFailure 
