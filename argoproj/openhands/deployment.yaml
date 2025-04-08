@@ -19,12 +19,12 @@ spec:
       hostNetwork: true
       containers:
       - name: openhands
-        image: docker.all-hands.dev/all-hands-ai/openhands:0.31.0
+        image: docker.all-hands.dev/all-hands-ai/openhands:0.30.1
         ports:
         - containerPort: 3000
         env:
         - name: SANDBOX_RUNTIME_CONTAINER_IMAGE
-          value: docker.all-hands.dev/all-hands-ai/runtime:0.31.0-nikolaik
+          value: docker.all-hands.dev/all-hands-ai/runtime:0.30.1-nikolaik
         - name: SANDBOX_LOCAL_RUNTIME_URL
           value: http://127.0.0.1
         # 注意: このIPアドレスは実際のgolyat-1ノードのIPアドレスに置き換えてください
