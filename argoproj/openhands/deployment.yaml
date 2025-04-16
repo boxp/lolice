@@ -19,7 +19,7 @@ spec:
       hostNetwork: true
       containers:
       - name: openhands
-        image: docker.all-hands.dev/all-hands-ai/openhands:0.32.0
+        image: docker.all-hands.dev/all-hands-ai/openhands:4ec16f3c2ef76865e64cec10a949ccbf92e542e1
         ports:
         - containerPort: 3000
         env:
