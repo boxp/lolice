@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-servicemonitor-binding
+  labels:
+    app.kubernetes.io/part-of: kube-prometheus # 他のリソースと合わせる
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-servicemonitor-role
+subjects:
+- kind: ServiceAccount
+  name: prometheus-k8s
+  namespace: monitoring
