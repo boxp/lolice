@@ -17,6 +17,7 @@ spec:
         app: openhands
     spec:
       hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       containers:
       - name: openhands
         image: docker.all-hands.dev/all-hands-ai/openhands:0.38.0
