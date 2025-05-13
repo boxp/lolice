@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8s-mcp-server-sa
+  namespace: openhands
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: openhands
+  name: k8s-mcp-server-reader-role
+rules:
+- apiGroups: ["", "apps", "batch", "extensions", "networking.k8s.io", "storage.k8s.io", "apiextensions.k8s.io", "rbac.authorization.k8s.io", "admissionregistration.k8s.io", "autoscaling", "policy"] # Add more API groups as needed, or "*" for all
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: k8s-mcp-server-reader-rolebinding
+  namespace: openhands
+subjects:
+- kind: ServiceAccount
+  name: k8s-mcp-server-sa
+  namespace: openhands
+roleRef:
+  kind: Role
+  name: k8s-mcp-server-reader-role
+  apiGroup: rbac.authorization.k8s.io
