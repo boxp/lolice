@@ -10,3 +10,6 @@ resources:
   - external-secret.yaml
   - cloudflared-deployment.yaml
   - pvc.yaml
+  - k8s-mcp-server-rbac.yaml
+  - k8s-mcp-server-deployment.yaml
+  - k8s-mcp-server-service.yaml
