@@ -10,7 +10,7 @@ metadata:
   namespace: openhands
   name: k8s-mcp-server-reader-role
 rules:
-- apiGroups: ["", "apps", "batch", "extensions", "networking.k8s.io", "storage.k8s.io", "apiextensions.k8s.io", "rbac.authorization.k8s.io", "admissionregistration.k8s.io", "autoscaling", "policy"] # Add more API groups as needed, or "*" for all
+- apiGroups: ["*"]
   resources: ["*"]
   verbs: ["get", "list", "watch"]
 ---
