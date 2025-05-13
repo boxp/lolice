@@ -30,14 +30,12 @@ spec:
           value: "3001"
         # Add readiness and liveness probes for better reliability
         readinessProbe:
-          httpGet:
-            path: /sse # This is a guess, actual health check endpoint might differ
+          tcpSocket:
             port: http-sse
           initialDelaySeconds: 10
           periodSeconds: 5
         livenessProbe:
-          httpGet:
-            path: /sse # This is a guess, actual health check endpoint might differ
+          tcpSocket:
             port: http-sse
           initialDelaySeconds: 30
           periodSeconds: 10
