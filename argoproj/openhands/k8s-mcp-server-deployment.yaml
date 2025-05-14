@@ -28,6 +28,8 @@ spec:
           value: "1"
         - name: PORT
           value: "3001"
+        - name: DEBUG
+          value: "*"
         # Add readiness and liveness probes for better reliability
         readinessProbe:
           tcpSocket:
