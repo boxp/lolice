@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: cloudflared
-        image: docker.io/cloudflare/cloudflared:2025.4.2
+        image: docker.io/cloudflare/cloudflared:2025.5.0
         ports:
           - name: metrics
             containerPort: 2000
