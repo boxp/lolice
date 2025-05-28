@@ -18,28 +18,41 @@ spec:
         app: ark-server
     spec:
       securityContext:
-        fsGroup: 25000
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
       containers:
       - name: ark-server
-        image: mschnitzer/asa-linux-server
+        image: sknnr/ark-ascended-server:latest
         ports:
         - name: game-port
-          containerPort: 7777 # ASA_START_PARAMSで指定されるポートと一致させる
+          containerPort: 7777
           protocol: UDP
         - name: rcon-port
-          containerPort: 27020 # ASA_START_PARAMSで指定されるポートと一致させる
+          containerPort: 27020
           protocol: TCP
         env:
-        - name: ASA_START_PARAMS
+        - name: SERVER_MAP
+          value: "TheIsland_WP"
+        - name: SESSION_NAME
+          value: "onitiku-server"
+        - name: SERVER_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: ark-server-generated-config # ExternalSecretで作成されるSecret名
-              key: asa_start_params # Secret内のキー名
-        - name: ENABLE_DEBUG
-          value: "1"
+              name: ark-server-generated-config
+              key: server_password
+        - name: SERVER_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ark-server-generated-config
+              key: admin_password
+        - name: GAME_PORT
+          value: "7777"
+        - name: RCON_PORT
+          value: "27020"
         volumeMounts:
         - name: ark-data
-          mountPath: /home/gameserver
+          mountPath: /home/steam/ark/ShooterGame/Saved
         resources:
           requests:
             memory: "13Gi"
