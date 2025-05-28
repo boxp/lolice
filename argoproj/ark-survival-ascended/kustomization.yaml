@@ -4,7 +4,7 @@ kind: Kustomization
 namespace: ark-survival-ascended
 
 resources:
-  - application-ark-survival-ascended.yaml
+  - application.yaml
   - namespace.yaml
   - external-secret.yaml
   - pvc.yaml
