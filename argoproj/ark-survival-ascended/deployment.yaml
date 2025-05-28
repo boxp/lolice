@@ -19,7 +19,7 @@ spec:
         fsGroup: 25000
       containers:
       - name: ark-server
-        image: mschnitzer/ark-survival-ascended-linux-container-image
+        image: docker.io/mschnitzer/ark-survival-ascended-linux-container-image
         ports:
         - name: game-port
           containerPort: 7777 # ASA_START_PARAMSで指定されるポートと一致させる
