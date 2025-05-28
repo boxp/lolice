@@ -35,6 +35,8 @@ spec:
             secretKeyRef:
               name: ark-server-generated-config # ExternalSecretで作成されるSecret名
               key: asa_start_params # Secret内のキー名
+        - name: ENABLE_DEBUG
+          value: "1"
         volumeMounts:
         - name: ark-data
           mountPath: /home/gameserver
