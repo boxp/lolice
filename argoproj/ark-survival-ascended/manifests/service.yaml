@@ -4,7 +4,8 @@ metadata:
   name: ark-server-service
   namespace: ark-survival-ascended
 spec:
-  type: ClusterIP # 内部IPアクセス用
+  type: LoadBalancer
+  loadBalancerIP: 192.168.10.94 # 指定された固定IP
   selector:
     app: ark-server
   ports:
