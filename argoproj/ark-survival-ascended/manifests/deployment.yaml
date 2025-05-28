@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ark-server
+  namespace: ark-survival-ascended
+  labels:
+    app: ark-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ark-server
+  template:
+    metadata:
+      labels:
+        app: ark-server
+    spec:
+      securityContext:
+        fsGroup: 25000
+      containers:
+      - name: ark-server
+        image: mschnitzer/ark-survival-ascended-linux-container-image
+        ports:
+        - name: game-port
+          containerPort: 7777 # ASA_START_PARAMSで指定されるポートと一致させる
+          protocol: UDP
+        - name: rcon-port
+          containerPort: 27020 # ASA_START_PARAMSで指定されるポートと一致させる
+          protocol: TCP
+        env:
+        - name: ASA_START_PARAMS
+          valueFrom:
+            secretKeyRef:
+              name: ark-server-generated-config # ExternalSecretで作成されるSecret名
+              key: asa_start_params # Secret内のキー名
+        volumeMounts:
+        - name: ark-data
+          mountPath: /home/gameserver
+        resources:
+          requests:
+            memory: "13Gi"
+            cpu: "2000m"
+          limits:
+            memory: "16Gi"
+            cpu: "4000m"
+      volumes:
+      - name: ark-data
+        persistentVolumeClaim:
+          claimName: ark-server-data-claim
