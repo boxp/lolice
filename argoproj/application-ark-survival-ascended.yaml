@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ark-survival-ascended
+  namespace: argocd # ArgoCDがインストールされているNamespace
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io # アプリケーション削除時にリソースも削除する
+spec:
+  project: default # ArgoCDのプロジェクト名 (loliceプロジェクト用のものが別途あればそれに変更)
+  source:
+    repoURL: https://github.com/boxp/lolice.git # このリポジトリのURL
+    path: argoproj/ark-survival-ascended/manifests # kustomization.yamlがあるディレクトリ
+    targetRevision: HEAD # デプロイするブランチやタグ (HEADは最新コミット)
+  destination:
+    server: https://kubernetes.default.svc # デプロイ先のKubernetes APIサーバー
+    namespace: ark-survival-ascended # デプロイ先のNamespace (manifests内で定義したもの)
+  syncPolicy:
+    automated:
+      prune: true # ArgoCDが管理外のリソースを削除する
+      selfHeal: true # Driftしたリソースを自動修復する
+    syncOptions:
+    - CreateNamespace=true # Namespaceが存在しない場合に作成する

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ark-server-data-claim
+  namespace: ark-survival-ascended
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: longhorn # loliceプロジェクトで利用しているStorageClass
+  resources:
+    requests:
+      storage: 10Gi
