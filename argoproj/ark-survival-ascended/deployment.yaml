@@ -28,6 +28,9 @@ spec:
         - name: game-port
           containerPort: 7777
           protocol: UDP
+        - name: query-port
+          containerPort: 27015
+          protocol: UDP
         - name: rcon-port
           containerPort: 27020
           protocol: TCP
@@ -36,11 +39,11 @@ spec:
           value: "TheIsland_WP"
         - name: SESSION_NAME
           value: "onitiku-server"
-        # - name: SERVER_PASSWORD
-        #   valueFrom:
-        #     secretKeyRef:
-        #       name: ark-server-generated-config
-        #       key: server_password
+        - name: SERVER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: ark-server-generated-config
+              key: server_password
         - name: SERVER_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
@@ -48,6 +51,8 @@ spec:
               key: admin_password
         - name: GAME_PORT
           value: "7777"
+        - name: QUERY_PORT
+          value: "27015"
         - name: RCON_PORT
           value: "27020"
         volumeMounts:

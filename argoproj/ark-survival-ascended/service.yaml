@@ -13,6 +13,10 @@ spec:
     protocol: UDP
     port: 7777
     targetPort: game-port # DeploymentのcontainerPort名に合わせる
+  - name: query-port
+    protocol: UDP
+    port: 27015
+    targetPort: query-port # DeploymentのcontainerPort名に合わせる
   - name: rcon-port
     protocol: TCP
     port: 27020
