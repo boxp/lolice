@@ -39,11 +39,11 @@ spec:
           value: "TheIsland_WP"
         - name: SESSION_NAME
           value: "onitiku-server"
-        - name: SERVER_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: ark-server-generated-config
-              key: server_password
+        # - name: SERVER_PASSWORD
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: ark-server-generated-config
+        #       key: server_password
         - name: SERVER_ADMIN_PASSWORD
           valueFrom:
             secretKeyRef:
