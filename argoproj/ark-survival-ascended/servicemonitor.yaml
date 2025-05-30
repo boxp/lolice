@@ -1,0 +1,84 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ark-server-metrics
+  namespace: ark-survival-ascended
+  labels:
+    app: ark-server
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: ark-server
+  endpoints:
+  - port: ark-metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+  - port: a2s-metrics
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ark-server-alerts
+  namespace: ark-survival-ascended
+  labels:
+    app: ark-server
+    prometheus: kube-prometheus
+spec:
+  groups:
+  - name: ark-server.rules
+    rules:
+    # サーバーダウン検知
+    - alert: ARKServerDown
+      expr: up{job="ark-server-service"} == 0
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "ARK Server is down"
+        description: "ARK Server has been down for more than 2 minutes"
+    
+    # プレイヤー数監視
+    - alert: ARKHighPlayerCount
+      expr: ark_a2s_player_count > 15
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High player count on ARK server"
+        description: "ARK server has {{ $value }} players (threshold: 15)"
+    
+    # メモリ使用量監視
+    - alert: ARKHighMemoryUsage
+      expr: (container_memory_usage_bytes{pod=~"ark-server.*", container="ark-server"} / container_spec_memory_limit_bytes{pod=~"ark-server.*", container="ark-server"}) * 100 > 90
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "ARK Server high memory usage"
+        description: "ARK Server memory usage is above 90%: {{ $value }}%"
+    
+    # CPU使用量監視
+    - alert: ARKHighCPUUsage
+      expr: rate(container_cpu_usage_seconds_total{pod=~"ark-server.*", container="ark-server"}[5m]) * 100 > 80
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "ARK Server high CPU usage"
+        description: "ARK Server CPU usage is above 80%: {{ $value }}%"
+    
+    # ディスク使用量監視
+    - alert: ARKHighDiskUsage
+      expr: (1 - (node_filesystem_avail_bytes{mountpoint="/home/steam/ark/ShooterGame/Saved"} / node_filesystem_size_bytes{mountpoint="/home/steam/ark/ShooterGame/Saved"})) * 100 > 85
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "ARK Server high disk usage"
+        description: "ARK Server disk usage is above 85%: {{ $value }}%" 

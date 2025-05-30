@@ -16,6 +16,10 @@ spec:
     metadata:
       labels:
         app: ark-server
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
     spec:
       securityContext:
         runAsUser: 10000
@@ -58,9 +62,13 @@ spec:
           value: "27015"
         - name: RCON_PORT
           value: "27020"
+        - name: EXTRA_ARGS
+          value: "-servergamelog -servergamelogincludetribelogs -ServerRCONOutputTribeLogs"
         volumeMounts:
         - name: ark-data
           mountPath: /home/steam/ark/ShooterGame/Saved
+        - name: shared-logs
+          mountPath: /shared/logs
         resources:
           requests:
             memory: "13Gi"
@@ -68,7 +76,64 @@ spec:
           limits:
             memory: "16Gi"
             cpu: "4000m"
+      - name: ark-metrics-collector
+        image: python:3.9-slim
+        ports:
+        - name: ark-metrics
+          containerPort: 5000
+          protocol: TCP
+        env:
+        - name: POLL_INTERVAL
+          value: "10"
+        - name: LOG_FILE_PATH
+          value: "/shared/logs/ShooterGame.log"
+        - name: METRICS_COLLECTOR_PORT
+          value: "5000"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          pip install ark-metrics-collector
+          cat > /tmp/config.yaml << EOF
+          poll_interval: 10
+          log_file_path: "/shared/logs/ShooterGame.log"
+          metrics_collector_port: 5000
+          EOF
+          ark-metrics-collector --config=/tmp/config.yaml
+        volumeMounts:
+        - name: shared-logs
+          mountPath: /shared/logs
+          readOnly: true
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      - name: a2s-exporter
+        image: armsnyder/a2s-exporter:latest
+        ports:
+        - name: a2s-metrics
+          containerPort: 9841
+          protocol: TCP
+        env:
+        - name: A2S_EXPORTER_QUERY_ADDRESS
+          value: "localhost:27015"
+        - name: A2S_EXPORTER_PORT
+          value: "9841"
+        - name: A2S_EXPORTER_NAMESPACE
+          value: "ark_a2s"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
       volumes:
       - name: ark-data
         persistentVolumeClaim:
           claimName: ark-server-data-claim
+      - name: shared-logs
+        emptyDir: {}
