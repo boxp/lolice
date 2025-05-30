@@ -3,10 +3,6 @@ kind: Service
 metadata:
   name: ark-server-service
   namespace: ark-survival-ascended
-  annotations:
-    prometheus.io/scrape: "true"
-    prometheus.io/port: "5000"
-    prometheus.io/path: "/metrics"
 spec:
   type: LoadBalancer
   loadBalancerIP: 192.168.10.29
@@ -29,12 +25,3 @@ spec:
     protocol: TCP
     port: 27020
     targetPort: rcon-port # DeploymentのcontainerPort名に合わせる
-  # 監視用ポートを追加
-  - name: ark-metrics
-    protocol: TCP
-    port: 5000
-    targetPort: ark-metrics
-  - name: a2s-metrics
-    protocol: TCP
-    port: 9841
-    targetPort: a2s-metrics
