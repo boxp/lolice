@@ -77,7 +77,7 @@ spec:
             memory: "16Gi"
             cpu: "4000m"
       - name: ark-metrics-collector
-        image: python:3.9-slim
+        image: python:3.13-slim
         ports:
         - name: ark-metrics
           containerPort: 5000
