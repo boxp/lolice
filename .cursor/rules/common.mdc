@@ -1,7 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 タスクを実行する前に、必ずこれらのファイルを全て読むこと
 
