@@ -10,7 +10,7 @@ spec:
   configUpdateStrategy: RollingUpdate
   discovery: {}
   helper:
-    image: alpine:3.21.3
+    image: alpine:3.22.0
   pd:
     baseImage: pingcap/pd
     maxFailoverCount: 3  # フェイルオーバーを許容するための設定
