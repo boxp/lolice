@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: boxp-home
+spec:
+  selector:
+    matchLabels:
+      app: cloudflared
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+      - name: cloudflared
+        image: docker.io/cloudflare/cloudflared:latest
+        ports:
+          - name: metrics
+            containerPort: 2000
+        imagePullPolicy: IfNotPresent
+        args:
+        - tunnel
+        - --metrics
+        - 0.0.0.0:2000
+        - run
+        - --token
+        - $(TUNNEL_TOKEN)
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 2000
+          failureThreshold: 1
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        env:
+          - name: TUNNEL_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: tunnel-credentials
+                key: tunnel-token
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi 
