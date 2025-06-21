@@ -15,18 +15,17 @@ spec:
     spec:
       containers:
       - name: cloudflared
-        image: docker.io/cloudflare/cloudflared:2025.6.1
+        image: docker.io/cloudflare/cloudflared:latest
         ports:
           - name: metrics
             containerPort: 2000
         imagePullPolicy: IfNotPresent
         args:
         - tunnel
-        - --no-autoupdate
         - --metrics
         - 0.0.0.0:2000
-        - --loglevel
-        - debug
+        - --protocol
+        - http2
         - run
         - --token
         - $(TUNNEL_TOKEN)
@@ -34,35 +33,19 @@ spec:
           httpGet:
             path: /ready
             port: 2000
-          failureThreshold: 5
-          initialDelaySeconds: 60
-          periodSeconds: 60
-          timeoutSeconds: 15
-        readinessProbe:
-          httpGet:
-            path: /ready
-            port: 2000
-          failureThreshold: 5
-          initialDelaySeconds: 45
-          periodSeconds: 30
-          timeoutSeconds: 10
+          failureThreshold: 1
+          initialDelaySeconds: 10
+          periodSeconds: 10
         env:
           - name: TUNNEL_TOKEN
             valueFrom:
               secretKeyRef:
                 name: tunnel-credentials
                 key: tunnel-token
-          - name: GOMAXPROCS
-            value: "2"
         resources:
           requests:
-            cpu: 200m
-            memory: 256Mi
+            cpu: 100m
+            memory: 128Mi
           limits:
-            cpu: 500m
-            memory: 512Mi
-        securityContext:
-          allowPrivilegeEscalation: false
-          runAsUser: 65532
-          runAsGroup: 65532
-          readOnlyRootFilesystem: false 
+            cpu: 200m
+            memory: 256Mi 
