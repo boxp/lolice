@@ -6,7 +6,8 @@ metadata:
   labels:
     app.kubernetes.io/name: ark-discord-bot
     app.kubernetes.io/managed-by: argocd
-  imagePullSecrets: regcred
+  imagePullSecrets: 
+  - name: regcred
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
