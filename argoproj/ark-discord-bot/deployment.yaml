@@ -94,20 +94,15 @@ spec:
           runAsUser: 10000
           runAsGroup: 10000
           allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: true
+          readOnlyRootFilesystem: false
           capabilities:
             drop:
             - ALL
         volumeMounts:
         - name: tmp
           mountPath: /tmp
-        - name: logs
-          mountPath: /app/logs
       volumes:
       - name: tmp
         emptyDir:
           sizeLimit: "100Mi"
-      - name: logs
-        emptyDir:
-          sizeLimit: "1Gi"
       restartPolicy: Always
