@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ark-discord-bot
+  labels:
+    app.kubernetes.io/name: ark-discord-bot
+    app.kubernetes.io/managed-by: argocd
