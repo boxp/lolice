@@ -11,10 +11,9 @@ metadata:
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   name: ark-discord-bot
-  namespace: ark-survival-ascended
   labels:
     app.kubernetes.io/name: ark-discord-bot
     app.kubernetes.io/managed-by: argocd
@@ -36,16 +35,15 @@ rules:
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
   name: ark-discord-bot
-  namespace: ark-survival-ascended
   labels:
     app.kubernetes.io/name: ark-discord-bot
     app.kubernetes.io/managed-by: argocd
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: Role
+  kind: ClusterRole
   name: ark-discord-bot
 subjects:
 - kind: ServiceAccount
