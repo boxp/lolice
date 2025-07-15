@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: ServiceAccount
+imagePullSecrets: 
+- name: regcred
 metadata:
   name: ark-discord-bot
   namespace: ark-discord-bot
   labels:
     app.kubernetes.io/name: ark-discord-bot
     app.kubernetes.io/managed-by: argocd
-  imagePullSecrets: 
-  - name: regcred
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
