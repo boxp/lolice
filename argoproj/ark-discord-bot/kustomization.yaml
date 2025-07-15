@@ -12,5 +12,5 @@ resources:
   - deployment.yaml
 
 images:
-- name: ghcr.io/boxp/ark-discord-bot
-  newTag: v2.0
+- name: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-discord-bot
+  newTag: latest

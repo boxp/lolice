@@ -29,7 +29,7 @@ spec:
         fsGroup: 10000
       containers:
       - name: ark-discord-bot
-        image: ghcr.io/boxp/ark-discord-bot:v2.0
+        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-discord-bot:latest
         imagePullPolicy: Always
         envFrom:
         - configMapRef:
