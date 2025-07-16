@@ -18,9 +18,6 @@ spec:
       helm:
         valueFiles:
           - $lolice/argoproj/calico/values.yaml
-    - path: argoproj/calico
-      repoURL: https://github.com/boxp/lolice
-      targetRevision: main
   syncPolicy:
     automated:
       prune: true

@@ -19,9 +19,6 @@ spec:
         version: v3
         valueFiles:
           - $lolice/argoproj/descheduler/helm/values.yaml
-    - path: argoproj/descheduler
-      repoURL: https://github.com/boxp/lolice
-      targetRevision: main
   syncPolicy:
     syncOptions:
       - CreateNamespace=true
