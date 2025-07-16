@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/boxp/lolice.git
+    # 注意: pathは当初argoproj/argocd-appsを予定していたが、
+    # kustomize v5.0.0以降のセキュリティポリシーにより、
+    # kustomization.yamlが親ディレクトリのファイルを参照できないため、
+    # kustomization.yamlをargoproj/に配置し、pathもargoprojに変更
+    path: argoproj
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false  # 重要: 既存リソースを削除しない
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=false
