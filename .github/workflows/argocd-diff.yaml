@@ -84,20 +84,8 @@ jobs:
                 echo "Changes detected for application: $APP_NAME (in $CURRENT_DIR)"
                 FOUND_CHANGES=true
                 
-                # App of Appsで管理されているか確認
-                RELATIVE_APP_PATH="$CURRENT_DIR/application.yaml"
-                APP_IN_KUSTOMIZE=$(grep -c "$RELATIVE_APP_PATH" argoproj/argocd-apps/kustomization.yaml 2>/dev/null || echo "0")
-                
-                if [ "$APP_IN_KUSTOMIZE" -gt 0 ]; then
-                  MANAGEMENT_TYPE="App of Apps管理"
-                elif argocd app get "argocd/$APP_NAME" > /dev/null 2>&1; then
-                  MANAGEMENT_TYPE="直接管理"
-                else
-                  MANAGEMENT_TYPE="新規アプリケーション"
-                fi
-                
                 # Diffの結果を追記
-                echo "### アプリケーション: $APP_NAME の差分 ($MANAGEMENT_TYPE)" >> app_diff_results.md
+                echo "### アプリケーション: $APP_NAME の差分" >> app_diff_results.md
                 echo "パス: $CURRENT_DIR" >> app_diff_results.md
                 echo '```diff' >> app_diff_results.md
                 
