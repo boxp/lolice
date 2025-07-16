@@ -278,6 +278,18 @@ done
    - 実際の実装: `path: argoproj`
    - 理由: kustomization.yamlの配置場所変更に伴う調整
 
+**詳細な理由:**
+kustomize v5.0.0以降では、セキュリティポリシーにより、kustomization.yamlが配置されているディレクトリの親ディレクトリのファイルを参照することができません。
+
+当初の設計では：
+- `argoproj/argocd-apps/kustomization.yaml`から`../ark-discord-bot/application.yaml`のように参照
+- しかし、これは`argoproj/argocd-apps/`の親ディレクトリ（`argoproj/`）のファイルを参照することになり、セキュリティエラーが発生
+
+解決策として：
+- kustomization.yamlを`argoproj/`に配置することで、同一ディレクトリ内のファイルを参照
+- App of Appsのソースパスも`argoproj`に変更してkustomization.yamlの場所と一致させる
+- これにより`argocd-image-updater/application.yaml`のような相対パスで参照可能に
+
 3. **パスの生成方法**
    - 相対パス（`../`）から絶対パス（`argoproj/`から見た相対パス）に変更
    - kustomizeのセキュリティ制約に対応
