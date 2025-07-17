@@ -3,6 +3,7 @@ kind: Kustomization
 
 namespace: ark-discord-bot
 resources:
+  - application.yaml
   - namespace.yaml
   - external-secret.yaml
   - configmap.yaml
