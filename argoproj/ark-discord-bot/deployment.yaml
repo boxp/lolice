@@ -28,8 +28,8 @@ spec:
         runAsGroup: 10000
         fsGroup: 10000
       containers:
-      - name: ark-discord-bot # an alias
-        image: boxp/ark-discord-bot:v0.0.1_test
+      - name: bot
+        image: bot:v0.0.1_test
         imagePullPolicy: Always
         envFrom:
         - configMapRef:
