@@ -5,12 +5,20 @@ metadata:
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: bot=boxp/ark-discord-bot
+    argocd-image-updater.argoproj.io/bot.update-strategy: semver
+    argocd-image-updater.argoproj.io/bot.allow-tags: "re:^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    argocd-image-updater.argoproj.io/write-back-method: argocd
 spec:
   project: default
   source:
     repoURL: https://github.com/boxp/lolice.git
     path: argoproj/ark-discord-bot
     targetRevision: HEAD
+    kustomize:
+      images:
+        - bot:v0.0.1_test
   destination:
     server: https://kubernetes.default.svc
     namespace: ark-discord-bot

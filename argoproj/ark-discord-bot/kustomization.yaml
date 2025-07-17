@@ -2,9 +2,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 namespace: ark-discord-bot
-
+images:
+  - name: bot
+    newName: boxp/ark-discord-bot
+    newTag: v0.0.1
 resources:
-  - application.yaml
   - namespace.yaml
   - external-secret.yaml
   - configmap.yaml
