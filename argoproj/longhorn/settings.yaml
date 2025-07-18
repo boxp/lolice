@@ -1,0 +1,36 @@
+# Longhornフェイルオーバー改善設定
+# ノード障害時の自動フェイルオーバーを改善するための設定
+apiVersion: longhorn.io/v1beta1
+kind: Setting
+metadata:
+  name: node-down-pod-deletion-policy
+  namespace: longhorn-system
+value: "delete-both-statefulset-and-deployment-pod"
+---
+apiVersion: longhorn.io/v1beta1
+kind: Setting
+metadata:
+  name: auto-delete-pod-when-volume-detached-unexpectedly
+  namespace: longhorn-system
+value: "true"
+---
+apiVersion: longhorn.io/v1beta1
+kind: Setting
+metadata:
+  name: detach-manually-attached-volumes-when-cordoned
+  namespace: longhorn-system
+value: "true"
+---
+apiVersion: longhorn.io/v1beta1
+kind: Setting
+metadata:
+  name: replica-soft-anti-affinity
+  namespace: longhorn-system
+value: "true"
+---
+apiVersion: longhorn.io/v1beta1
+kind: Setting
+metadata:
+  name: replica-auto-balance
+  namespace: longhorn-system
+value: "least-effort"
