@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: kube-dashboard
+spec:
+  selector:
+    matchLabels:
+      app: cloudflared
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+      - name: cloudflared
+        image: docker.io/cloudflare/cloudflared:2025.7.0
+        ports:
+          - name: metrics
+            containerPort: 2000
+        imagePullPolicy: IfNotPresent
+        args:
+        - tunnel
+        - --metrics
+        - 0.0.0.0:2000
+        - run
+        - --token
+        - $(TUNNEL_TOKEN)
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 2000
+          failureThreshold: 1
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        env:
+          - name: TUNNEL_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: tunnel-credentials
+                key: tunnel-token
