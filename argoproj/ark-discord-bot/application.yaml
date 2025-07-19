@@ -15,9 +15,6 @@ spec:
     repoURL: https://github.com/boxp/lolice.git
     path: argoproj/ark-discord-bot
     targetRevision: HEAD
-    kustomize:
-      images:
-        - bot:v0.0.1_test
   destination:
     server: https://kubernetes.default.svc
     namespace: ark-discord-bot
