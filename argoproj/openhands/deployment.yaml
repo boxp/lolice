@@ -31,7 +31,7 @@ spec:
         # 注意: このIPアドレスは実際のgolyat-1ノードのIPアドレスに置き換えてください
         # 以下のコマンドで取得できます:
         # kubectl get nodes golyat-1 -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'
-        - name: RUNTIME_MOUNT/my/host/dir:/workspace:rw
+        - name: RUNTIME_MOUNT
           value: /opt/workspace_base:/workspace:rw
         # AWS Parameter Reader関連の環境変数
         - name: AWS_ACCESS_KEY_ID
