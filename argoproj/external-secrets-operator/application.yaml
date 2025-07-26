@@ -7,7 +7,7 @@ spec:
   project: default
   sources:
     - repoURL: https://charts.external-secrets.io
-      targetRevision: 0.9.13
+      targetRevision: 0.18.2
       chart: external-secrets
     - repoURL: https://github.com/boxp/lolice.git
       targetRevision: main
