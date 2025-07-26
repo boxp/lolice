@@ -74,7 +74,8 @@ jobs:
                   "env": {
                     "OPENAI_API_KEY": "${{ secrets.CLAUDE_CODE_OPENAI_TOKEN }}",
                     "SEARCH_CONTEXT_SIZE": "medium",
-                    "REASONING_EFFORT": "medium"
+                    "REASONING_EFFORT": "medium",
+                    "OPENAI_API_TIMEOUT": "60000"
                   },
                   "timeout": 600000
                 }
