@@ -23,3 +23,4 @@ resources:
 - prometheus-operator/application.yaml
 - reloader/application.yaml
 - tidb-operator/application.yaml
+- kube-vip/application.yaml
