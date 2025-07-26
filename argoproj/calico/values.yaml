@@ -17,13 +17,14 @@ installation:
   calicoNetwork:
     nodeAddressAutodetectionV4:
       firstFound: true
-    linuxDataplane: BPF
 
 apiServer:
   enabled: true
 
 defaultFelixConfiguration:
-  enabled: false
+  enabled: true
+  spec:
+    nftablesMode: Enabled
 
 certs:
   node:
