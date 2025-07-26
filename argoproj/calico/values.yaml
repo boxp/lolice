@@ -16,8 +16,7 @@ installation:
   imagePullSecrets: []
   calicoNetwork:
     nodeAddressAutodetectionV4:
-      cidrs:
-      - "192.168.10.0/24"
+      firstFound: true
 
 apiServer:
   enabled: true
