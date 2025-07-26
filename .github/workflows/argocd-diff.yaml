@@ -140,9 +140,40 @@ jobs:
             const fs = require('fs');
             const diffOutput = fs.readFileSync('app_diff_results.md', 'utf8');
             
+            function truncateContent(content) {
+              const maxLength = 65000; // GitHubの制限65536文字より少し小さく設定
+              const header = "## ArgoCD Diff Result\n\n";
+              
+              if ((header + content).length <= maxLength) {
+                return header + content;
+              }
+              
+              // 文字数制限を超える場合の処理
+              const truncationMessage = "\n\n---\n⚠️ **diff出力が長すぎるため、一部内容を省略しました**\n\n";
+              const footer = "\n\n💡 完全なdiffを確認するには、ローカルで `argocd app diff` を実行してください。";
+              
+              // ヘッダー、省略メッセージ、フッターの文字数を計算
+              const overhead = header.length + truncationMessage.length + footer.length;
+              const availableLength = maxLength - overhead;
+              
+              // コンテンツを前半と後半に分割
+              const frontLength = Math.floor(availableLength * 0.4);
+              const backLength = Math.floor(availableLength * 0.4);
+              const omittedLength = content.length - frontLength - backLength;
+              
+              const frontPart = content.substring(0, frontLength);
+              const backPart = content.substring(content.length - backLength);
+              
+              const omittedMessage = `\n\n📝 **省略された内容**: ${omittedLength.toLocaleString()}文字\n\n`;
+              
+              return header + frontPart + truncationMessage + omittedMessage + backPart + footer;
+            }
+            
+            const finalBody = truncateContent(diffOutput);
+            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## ArgoCD Diff Result\n${diffOutput}`
-            }); 
+              body: finalBody
+            });
