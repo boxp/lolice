@@ -23,8 +23,7 @@ apiServer:
 
 defaultFelixConfiguration:
   enabled: true
-  spec:
-    nftablesMode: Enabled
+  nftablesMode: Enabled
 
 certs:
   node:
