@@ -1,11 +1,19 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "kubernetes": { "fileMatch": ["\\.yaml$"] },
+  "extends": [
+    "config:recommended"
+  ],
+  "kubernetes": {
+    "managerFilePatterns": [
+      "/\\.yaml$/"
+    ]
+  },
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": ["\\.yaml$"],
+      "managerFilePatterns": [
+        "/\\.yaml$/"
+      ],
       "matchStrings": [
         "image:\\s*docker\\.io/cloudflare/cloudflared:(?<version>[\\w.-]+)"
       ],
@@ -14,9 +22,10 @@
       "versioningTemplate": "docker",
       "currentValueTemplate": "{{currentValue}}"
     }
-
   ],
-  "major": { "automerge": false },
+  "major": {
+    "automerge": false
+  },
   "automerge": true,
   "platformAutomerge": true
 }
