@@ -17,6 +17,7 @@ installation:
   calicoNetwork:
     nodeAddressAutodetectionV4:
       firstFound: true
+    linuxDataplane: BPF
 
 apiServer:
   enabled: true
