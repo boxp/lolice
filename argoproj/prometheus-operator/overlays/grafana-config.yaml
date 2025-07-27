@@ -10,3 +10,7 @@ stringData:
 
     [database] 
     type = sqlite3
+
+    [server]
+    domain = grafana.b0xp.io
+    root_url = https://grafana.b0xp.io/
