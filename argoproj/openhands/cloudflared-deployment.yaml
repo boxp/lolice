@@ -13,12 +13,6 @@ spec:
       labels:
         app: cloudflared
     spec:
-      securityContext:
-        sysctls:
-        - name: net.core.rmem_max
-          value: "7340032"
-        - name: net.core.wmem_max
-          value: "7340032"
       containers:
       - name: cloudflared
         image: docker.io/cloudflare/cloudflared:latest
@@ -29,6 +23,8 @@ spec:
         - tunnel
         - --metrics
         - 0.0.0.0:2000
+        - --max-upload-bytes
+        - "104857600"
         - run
         - --token
         - $(TUNNEL_TOKEN)
