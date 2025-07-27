@@ -21,5 +21,3 @@ spec:
   podMonitorSelector:
     matchLabels:
       release: prometheus
-  nodeSelector:
-    kubernetes.io/hostname: golyat-1
