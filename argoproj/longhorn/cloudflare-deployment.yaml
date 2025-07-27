@@ -12,6 +12,12 @@ spec:
       labels:
         app: cloudflared
     spec:
+      securityContext:
+        sysctls:
+        - name: net.core.rmem_max
+          value: "7340032"
+        - name: net.core.wmem_max
+          value: "7340032"
       containers:
       - name: cloudflared
         image: docker.io/cloudflare/cloudflared:1517-bb29a0e19437
