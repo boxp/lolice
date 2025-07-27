@@ -6,6 +6,8 @@ metadata:
 spec:
   template:
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: golyat-1
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
