@@ -21,11 +21,11 @@ spec:
             containerPort: 2000
         args:
         - tunnel
+        - run
+        - --protocol
+        - http2
         - --metrics
         - 0.0.0.0:2000
-        - --max-upload-bytes
-        - "104857600"
-        - run
         - --token
         - $(TUNNEL_TOKEN)
         livenessProbe:
