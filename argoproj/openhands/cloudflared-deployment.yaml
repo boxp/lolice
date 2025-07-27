@@ -13,12 +13,6 @@ spec:
       labels:
         app: cloudflared
     spec:
-      securityContext:
-        sysctls:
-        - name: net.core.rmem_max
-          value: "7340032"
-        - name: net.core.wmem_max
-          value: "7340032"
       containers:
       - name: cloudflared
         image: docker.io/cloudflare/cloudflared:latest
@@ -27,9 +21,11 @@ spec:
             containerPort: 2000
         args:
         - tunnel
+        - run
+        - --protocol
+        - http2
         - --metrics
         - 0.0.0.0:2000
-        - run
         - --token
         - $(TUNNEL_TOKEN)
         livenessProbe:
