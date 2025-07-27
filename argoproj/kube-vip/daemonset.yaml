@@ -1,91 +1,18 @@
----
-# shanghai-1用 (eth0インターフェース)
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: kube-vip-ds-shanghai-1
+  name: kube-vip-ds
   namespace: kube-system
 spec:
   selector:
     matchLabels:
-      app: kube-vip-shanghai-1
+      app: kube-vip
   template:
     metadata:
       labels:
-        app: kube-vip-shanghai-1
+        app: kube-vip
     spec:
       serviceAccountName: kube-vip
-      nodeSelector:
-        kubernetes.io/hostname: shanghai-1
-      tolerations:
-      - operator: Exists
-      hostNetwork: true
-      containers:
-      - name: kube-vip
-        image: ghcr.io/kube-vip/kube-vip:v0.9.2
-        imagePullPolicy: Always
-        args: ["manager"]
-        securityContext:
-          capabilities:
-            add: ["NET_ADMIN", "NET_RAW", "SYS_TIME"]
-        env:
-        - name: vip_arp
-          value: "true"
-        - name: port
-          value: "6443"
-        - name: vip_interface
-          value: "eth0"
-        - name: vip_cidr
-          value: "32"
-        - name: dns_mode
-          value: "first"
-        - name: cp_enable
-          value: "true"
-        - name: cp_namespace
-          value: "kube-system"
-        - name: svc_enable
-          value: "true"
-        - name: svc_leasename
-          value: "plndr-svcs-lock"
-        - name: vip_leaderelection
-          value: "true"
-        - name: vip_leasename
-          value: "plndr-cp-lock"
-        - name: vip_leaseduration
-          value: "5"
-        - name: vip_renewdeadline
-          value: "3"
-        - name: vip_retryperiod
-          value: "1"
-        - name: address
-          value: "192.168.10.99"
-        - name: prometheus_server
-          value: ":2112"
----
-# shanghai-2とshanghai-3用 (end0インターフェース)
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: kube-vip-ds-shanghai-23
-  namespace: kube-system
-spec:
-  selector:
-    matchLabels:
-      app: kube-vip-shanghai-23
-  template:
-    metadata:
-      labels:
-        app: kube-vip-shanghai-23
-    spec:
-      serviceAccountName: kube-vip
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values: ["shanghai-2", "shanghai-3"]
       tolerations:
       - operator: Exists
       hostNetwork: true
