@@ -15,7 +15,7 @@ installation:
   # Example: --set installation.imagePullSecrets[0].name=my-existing-secret
   imagePullSecrets: []
   calicoNetwork:
-    linuxDataplane: Iptables
+    linuxDataplane: Nftables
     nodeAddressAutodetectionV4:
       cidrs:
       - "192.168.10.0/24"
