@@ -45,7 +45,7 @@ spec:
           protocol: TCP
         env:
         - name: SERVER_MAP
-          value: "TheIsland_WP"
+          value: "Ragnarok_WP"
         - name: SESSION_NAME
           value: "onitiku-server"
         # - name: SERVER_PASSWORD
