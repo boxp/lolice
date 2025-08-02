@@ -14,6 +14,7 @@ installation:
   #
   # Example: --set installation.imagePullSecrets[0].name=my-existing-secret
   imagePullSecrets: []
+  registry: quay.io
   calicoNetwork:
     linuxDataplane: Iptables
     nodeAddressAutodetectionV4:
