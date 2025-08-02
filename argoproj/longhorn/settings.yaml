@@ -48,7 +48,7 @@ kind: Setting
 metadata:
   name: backup-target
   namespace: longhorn-system
-value: "s3://longhorn-backup@ap-northeast-1/"
+value: "s3://boxp-longhorn-backup@ap-northeast-1/"
 ---
 apiVersion: longhorn.io/v1beta1
 kind: Setting
