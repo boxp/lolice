@@ -19,6 +19,11 @@ installation:
     nodeAddressAutodetectionV4:
       cidrs:
       - "192.168.10.0/24"
+    ipPools:
+    - cidr: 192.178.0.0/16
+      encapsulation: VXLAN
+      natOutgoing: Enabled
+      nodeSelector: all()
 
 apiServer:
   enabled: true
