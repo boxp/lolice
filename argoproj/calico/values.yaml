@@ -25,7 +25,8 @@ apiServer:
 
 defaultFelixConfiguration:
   enabled: true
-  nftablesMode: Enabled
+  nftablesMode: Disabled
+  iptablesBackend: legacy
 
 certs:
   node:
