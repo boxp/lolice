@@ -24,7 +24,7 @@ spec:
       dnsPolicy: ClusterFirst
       containers:
       - name: ark-server
-        image: docker.io/sknnr/ark-ascended-server:latest
+        image: docker.io/sknnr/ark-ascended-server:v1.5.2
         ports:
         - name: game-port
           containerPort: 7777
