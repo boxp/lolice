@@ -22,6 +22,8 @@ spec:
         runAsGroup: 10000
         fsGroup: 10000
       dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: docker-hub-regcred
       containers:
       - name: ark-server
         image: docker.io/sknnr/ark-ascended-server:v1.5.2
