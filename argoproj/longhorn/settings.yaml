@@ -34,3 +34,10 @@ metadata:
   name: replica-auto-balance
   namespace: longhorn-system
 value: "least-effort"
+---
+apiVersion: longhorn.io/v1beta1
+kind: Setting
+metadata:
+  name: storage-class-reclaim-policy
+  namespace: longhorn-system
+value: "Retain"
