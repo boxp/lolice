@@ -21,6 +21,11 @@ spec:
         runAsUser: 10000
         runAsGroup: 10000
         fsGroup: 10000
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+          - 8.8.8.8
+          - 8.8.4.4
       containers:
       - name: ark-server
         image: sknnr/ark-ascended-server:latest
