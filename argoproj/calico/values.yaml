@@ -16,7 +16,6 @@ installation:
   imagePullSecrets: []
   calicoNetwork:
     linuxDataplane: Nftables
-    linuxPolicySetupTimeoutSeconds: null
     nodeAddressAutodetectionV4:
       cidrs:
       - "192.168.10.0/24"
