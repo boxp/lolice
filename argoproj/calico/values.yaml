@@ -15,7 +15,7 @@ installation:
   # Example: --set installation.imagePullSecrets[0].name=my-existing-secret
   imagePullSecrets: []
   calicoNetwork:
-    linuxDataplane: Nftables
+    linuxDataplane: Iptables
     nodeAddressAutodetectionV4:
       cidrs:
       - "192.168.10.0/24"
@@ -25,8 +25,9 @@ apiServer:
 
 defaultFelixConfiguration:
   enabled: true
-  nftablesMode: Enabled
-  iptablesBackend: auto
+  nftablesMode: Disabled
+  iptablesBackend: Legacy
+  mtuIfacePattern: "en.*"
 
 certs:
   node:
@@ -79,7 +80,7 @@ dnsConfig: {}
 # Image and registry configuration for the tigera/operator pod.
 tigeraOperator:
   image: tigera/operator
-  version: v1.38.3
+  version: v1.38.4
   registry: quay.io
 calicoctl:
   image: docker.io/calico/ctl
