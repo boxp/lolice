@@ -14,9 +14,8 @@ installation:
   #
   # Example: --set installation.imagePullSecrets[0].name=my-existing-secret
   imagePullSecrets: []
-  registry: quay.io
   calicoNetwork:
-    linuxDataplane: Iptables
+    linuxDataplane: Nftables
     nodeAddressAutodetectionV4:
       cidrs:
       - "192.168.10.0/24"
@@ -26,10 +25,8 @@ apiServer:
 
 defaultFelixConfiguration:
   enabled: true
-  nftablesMode: Disabled
+  nftablesMode: Enabled
   iptablesBackend: auto
-  vxlanMTU: 1410
-  mtuIfacePattern: "^(enp3s0|end0)$"
 
 certs:
   node:
@@ -41,6 +38,11 @@ certs:
     cert:
     commonName:
     caBundle:
+
+
+# Whether or not the tigera/operator should manange CustomResourceDefinitions
+# needed to run itself and Calico. If disabled, you must manage these resources out-of-band.
+manageCRDs: true
 
 # Resource requests and limits for the tigera/operator pod.
 resources: {}
@@ -71,14 +73,17 @@ podAnnotations: {}
 # Custom labels for the tigera/operator pod.
 podLabels: {}
 
+# Custom DNS configuration for the tigera/operator pod.
+dnsConfig: {}
+
 # Image and registry configuration for the tigera/operator pod.
 tigeraOperator:
   image: tigera/operator
-  version: v1.36.2
+  version: v1.38.3
   registry: quay.io
 calicoctl:
   image: docker.io/calico/ctl
-  tag: v3.29.1
+  tag: v3.30.2
 
 kubeletVolumePluginPath: /var/lib/kubelet
 
