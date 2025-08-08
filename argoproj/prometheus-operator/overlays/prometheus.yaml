@@ -13,7 +13,7 @@ spec:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 75Gi
+            storage: 60Gi
         storageClassName: longhorn
   scrapeConfigSelector:
     matchLabels:
