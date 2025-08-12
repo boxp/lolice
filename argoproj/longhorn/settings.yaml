@@ -7,35 +7,35 @@ metadata:
   namespace: longhorn-system
 value: "delete-both-statefulset-and-deployment-pod"
 ---
-apiVersion: longhorn.io/v1beta1
+apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: auto-delete-pod-when-volume-detached-unexpectedly
   namespace: longhorn-system
 value: "true"
 ---
-apiVersion: longhorn.io/v1beta1
+apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: detach-manually-attached-volumes-when-cordoned
   namespace: longhorn-system
 value: "true"
 ---
-apiVersion: longhorn.io/v1beta1
+apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: replica-soft-anti-affinity
   namespace: longhorn-system
 value: "true"
 ---
-apiVersion: longhorn.io/v1beta1
+apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: replica-auto-balance
   namespace: longhorn-system
 value: "least-effort"
 ---
-apiVersion: longhorn.io/v1beta1
+apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: storage-class-reclaim-policy
@@ -43,14 +43,14 @@ metadata:
 value: "Retain"
 ---
 # S3バックアップ設定
-apiVersion: longhorn.io/v1beta1
+apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: backup-target
   namespace: longhorn-system
 value: "s3://boxp-longhorn-backup@ap-northeast-1/"
 ---
-apiVersion: longhorn.io/v1beta1
+apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: backup-target-credential-secret
