@@ -1,6 +1,6 @@
 # Longhornフェイルオーバー改善設定
 # ノード障害時の自動フェイルオーバーを改善するための設定
-apiVersion: longhorn.io/v1beta1
+apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: node-down-pod-deletion-policy
