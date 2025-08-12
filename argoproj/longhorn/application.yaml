@@ -13,7 +13,13 @@ spec:
         values: |
           preUpgradeChecker:
             jobEnabled: false
-          defaultSettings.defaultReplicaCount: 2
+          defaultSettings:
+            defaultReplicaCount: 2
+            backupTarget: "s3://boxp-longhorn-backup@ap-northeast-1/"
+            backupTargetCredentialSecret: "longhorn-backup-secret"
+          global:
+            storageClass:
+              reclaimPolicy: "Retain"
           metrics:
             serviceMonitor:
               enabled: true

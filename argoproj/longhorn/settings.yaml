@@ -34,25 +34,3 @@ metadata:
   name: replica-auto-balance
   namespace: longhorn-system
 value: "least-effort"
----
-apiVersion: longhorn.io/v1beta2
-kind: Setting
-metadata:
-  name: storage-class-reclaim-policy
-  namespace: longhorn-system
-value: "Retain"
----
-# S3バックアップ設定
-apiVersion: longhorn.io/v1beta2
-kind: Setting
-metadata:
-  name: backup-target
-  namespace: longhorn-system
-value: "s3://boxp-longhorn-backup@ap-northeast-1/"
----
-apiVersion: longhorn.io/v1beta2
-kind: Setting
-metadata:
-  name: backup-target-credential-secret
-  namespace: longhorn-system
-value: "longhorn-backup-secret"
