@@ -5,7 +5,7 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
-  retention: 62d
+  retention: 31d
   storage:
     volumeClaimTemplate:
       spec:
