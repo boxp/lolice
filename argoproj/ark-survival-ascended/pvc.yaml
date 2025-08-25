@@ -9,4 +9,4 @@ spec:
   storageClassName: longhorn # loliceプロジェクトで利用しているStorageClass
   resources:
     requests:
-      storage: 50Gi
+      storage: 40Gi
