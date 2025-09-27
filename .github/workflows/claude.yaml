@@ -34,7 +34,7 @@ jobs:
 
       - name: Run Claude Code
         id: claude
-        uses: anthropics/claude-code-action@838d4d9d253b2e6d2e4a5cdfe89d02851fe66ca8 # beta
+        uses: anthropics/claude-code-action@00391ab25e8203ff1dd563e4b7026a9586b4f407 # beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
