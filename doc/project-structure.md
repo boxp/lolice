@@ -15,9 +15,6 @@ loliceプロジェクトは、オンプレミスのKubernetesクラスタを管�
 │   └── workflows/           # GitHub Actions ワークフロー
 │       └── argocd-diff.yaml
 ├── .gitignore               # Gitの除外ファイル設定
-├── .openhands/              # OpenHands AI 設定 (開発環境依存)
-│   └── microagents/
-│       └── repo.md
 ├── LICENSE                  # ライセンスファイル
 ├── README.md                # プロジェクトの概要説明
 ├── argoproj/                # ArgoCD関連のマニフェストディレクトリ
@@ -32,7 +29,6 @@ loliceプロジェクトは、オンプレミスのKubernetesクラスタを管�
 │   ├── kubernetes-dashboard/ # Kubernetes Dashboardのマニフェスト
 │   ├── local-volume-provisioner/ # ローカルボリュームプロビジョナーのマニフェスト
 │   ├── longhorn/            # Longhornストレージのマニフェスト
-│   ├── openhands/           # OpenHands AI アプリケーションのマニフェスト
 │   ├── palserver/           # PALサーバーのマニフェスト
 │   ├── prometheus-operator/ # Prometheus Operatorのマニフェスト
 │   ├── prometheus-operator-crd/ # Prometheus Operator CRDのマニフェスト
@@ -56,7 +52,7 @@ loliceプロジェクトは、オンプレミスのKubernetesクラスタを管�
 GitHub Actions ワークフロー (`workflows/`) や Dependabot (`dependabot.yml`) の設定ファイルを含むディレクトリです。
 
 ### argoproj/
-ArgoCDを使用したGitOpsのためのマニフェストファイルが格納されています。各サブディレクトリには、ArgoCD自身、Calico、Prometheus、OpenHands AIなど、異なるアプリケーションやサービスのマニフェストファイルが含まれています。
+ArgoCDを使用したGitOpsのためのマニフェストファイルが格納されています。各サブディレクトリには、ArgoCD自身、Calico、Prometheusなど、異なるアプリケーションやサービスのマニフェストファイルが含まれています。
 
 ### doc/
 プロジェクトに関するドキュメントが格納されています。プロジェクト構造 (`project-structure.md`)、プロジェクト仕様 (`project-spec.md`)、その他のドキュメント (`project_doc/`) が含まれています。

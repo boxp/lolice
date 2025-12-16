@@ -20,7 +20,6 @@ lolice/
     ├── kubernetes-dashboard/ # Kubernetes Dashboardのマニフェスト
     ├── local-volume-provisioner/ # ローカルボリュームプロビジョナーのマニフェスト
     ├── longhorn/        # Longhornのマニフェスト
-    ├── openhands/       # Openhandsのマニフェスト
     ├── palserver/       # Palserverのマニフェスト
     ├── prometheus-operator/ # Prometheus Operatorのマニフェスト
     ├── prometheus-operator-crd/ # Prometheus Operator CRDのマニフェスト
