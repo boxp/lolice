@@ -34,3 +34,19 @@ metadata:
   name: replica-auto-balance
   namespace: longhorn-system
 value: "least-effort"
+---
+# Orphan PVC自動削除設定
+# 孤立したリソースを自動的に削除
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: orphan-resource-auto-deletion
+  namespace: longhorn-system
+value: "true"
+---
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: orphan-resource-auto-deletion-grace-period
+  namespace: longhorn-system
+value: "86400"  # 24時間（秒単位）
