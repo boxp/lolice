@@ -26,7 +26,7 @@ spec:
       - name: regcred
       containers:
       - name: ark-server
-        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-ascended-server:3d8882b1ca8cbc58b58a625e048731591eccddaa
+        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-ascended-server:f1e12967d44d32ebd6bbda757cb4adc5eb72078b
         securityContext:
           runAsNonRoot: true
           allowPrivilegeEscalation: false
