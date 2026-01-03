@@ -3,6 +3,8 @@ kind: Application
 metadata:
   name: ark-survival-ascended
   namespace: argocd # ArgoCDがインストールされているNamespace
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: ark-server=839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-ascended-server
   finalizers:
     - resources-finalizer.argocd.argoproj.io # アプリケーション削除時にリソースも削除する
 spec:

@@ -7,7 +7,6 @@ resources:
   - application.yaml
   - namespace.yaml
   - external-secret.yaml
-  - docker-hub-secret.yaml
   - pvc.yaml
   - deployment.yaml
   - service.yaml
