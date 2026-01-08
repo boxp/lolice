@@ -52,7 +52,7 @@ jobs:
           # assignee_trigger: "claude-bot"
           
           # Optional: Allow Claude to run specific commands
-          allowed_tools: mcp__o3__o3-search
+          allowed_tools: Bash(git add:*),Bash(git commit:*),Bash(git push:*),Read,Edit,Write,WebSearch,WebFetch,mcp__o3__o3-search
           
           # Optional: Add custom instructions for Claude to customize its behavior for your project
           custom_instructions: |
