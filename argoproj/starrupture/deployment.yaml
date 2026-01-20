@@ -21,8 +21,6 @@ spec:
         ports:
         - containerPort: 7777
           protocol: UDP
-        - containerPort: 7777
-          protocol: TCP
         env:
         - name: SERVER_PORT
           value: "7777"
@@ -42,12 +40,3 @@ spec:
       - name: saved-volume
         persistentVolumeClaim:
           claimName: starrupture-saved-claim
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                - golyat-1
