@@ -18,6 +18,7 @@ resources:
 - local-volume-provisioner/application.yaml
 - longhorn/application.yaml
 - palserver/application.yaml
+- starrupture/application.yaml
 - prometheus-operator-crd/application.yaml
 - prometheus-operator/application.yaml
 - reloader/application.yaml

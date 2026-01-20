@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: starrupture
+  namespace: starrupture
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: starrupture
+  template:
+    metadata:
+      labels:
+        app: starrupture
+    spec:
+      containers:
+      - name: starrupture
+        image: struppinet/starrupture-dedicated-server:latest
+        ports:
+        - containerPort: 7777
+          protocol: UDP
+        - containerPort: 7777
+          protocol: TCP
+        env:
+        - name: SERVER_PORT
+          value: "7777"
+        - name: USE_DSSETTINGS
+          value: "true"
+        volumeMounts:
+        - name: saved-volume
+          mountPath: /home/container/server_files/StarRupture/Saved/SaveGames
+        resources:
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 2Gi
+      volumes:
+      - name: saved-volume
+        persistentVolumeClaim:
+          claimName: starrupture-saved-claim
