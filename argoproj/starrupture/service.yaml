@@ -9,6 +9,11 @@ spec:
   selector:
     app: starrupture
   ports:
-  - protocol: UDP
+  - name: game-udp
+    protocol: UDP
+    port: 7777
+    targetPort: 7777
+  - name: game-tcp
+    protocol: TCP
     port: 7777
     targetPort: 7777

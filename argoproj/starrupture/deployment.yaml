@@ -21,6 +21,8 @@ spec:
         ports:
         - containerPort: 7777
           protocol: UDP
+        - containerPort: 7777
+          protocol: TCP
         env:
         - name: SERVER_PORT
           value: "7777"
