@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: starrupture
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/boxp/lolice.git
+    targetRevision: main
+    path: argoproj/starrupture
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: starrupture
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
