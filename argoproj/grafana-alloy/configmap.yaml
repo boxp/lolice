@@ -87,17 +87,9 @@ data:
       stage.cri {}
 
       // Drop empty log lines
-      stage.match {
-        selector = "{}"
-        stage.drop {
-          expression = "^\\s*$"
-        }
-      }
-
-      // Add timestamp processing
-      stage.timestamp {
-        source = "time"
-        format = "RFC3339Nano"
+      stage.drop {
+        drop_counter_reason = "empty_line"
+        expression          = "^\\s*$"
       }
     }
 
