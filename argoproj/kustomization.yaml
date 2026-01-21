@@ -20,6 +20,8 @@ resources:
 - palserver/application.yaml
 - prometheus-operator-crd/application.yaml
 - prometheus-operator/application.yaml
+- loki/application.yaml
+- grafana-alloy/application.yaml
 - reloader/application.yaml
 - tidb-operator/application.yaml
 - kube-vip/application.yaml
