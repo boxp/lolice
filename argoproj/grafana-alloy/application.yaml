@@ -6,33 +6,15 @@ metadata:
 spec:
   project: default
   sources:
+    - repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+      ref: lolice
     - repoURL: https://grafana.github.io/helm-charts
       targetRevision: 0.12.0
       chart: alloy
       helm:
-        values: |
-          alloy:
-            configMap:
-              create: false
-              name: alloy-config
-              key: config.alloy
-          controller:
-            type: daemonset
-            tolerations:
-              - effect: NoSchedule
-                operator: Exists
-            nodeSelector: {}
-          serviceMonitor:
-            enabled: true
-            labels:
-              release: prometheus-operator
-          resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
-              memory: 512Mi
+        valueFiles:
+          - $lolice/argoproj/grafana-alloy/helm/values.yaml
     - path: argoproj/grafana-alloy
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
