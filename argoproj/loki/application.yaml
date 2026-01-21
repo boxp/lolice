@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+      ref: lolice
+    - repoURL: https://grafana.github.io/helm-charts
+      targetRevision: 6.29.0
+      chart: loki
+      helm:
+        valueFiles:
+          - $lolice/argoproj/loki/helm/values.yaml
+    - path: argoproj/loki
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

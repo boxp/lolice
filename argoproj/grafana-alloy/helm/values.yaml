@@ -1,0 +1,22 @@
+alloy:
+  configMap:
+    create: false
+    name: alloy-config
+    key: config.alloy
+controller:
+  type: daemonset
+  tolerations:
+    - effect: NoSchedule
+      operator: Exists
+  nodeSelector: {}
+serviceMonitor:
+  enabled: true
+  labels:
+    release: prometheus-operator
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
