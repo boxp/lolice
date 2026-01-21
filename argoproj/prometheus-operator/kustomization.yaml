@@ -13,9 +13,9 @@ resources:
 - pod-monitor-role-binding.yaml
 - prometheus-servicemonitor-role.yaml
 - prometheus-servicemonitor-role-binding.yaml
-- grafana-datasource-loki.yaml
 patchesStrategicMerge:
 - overlays/network-policy-grafana.yaml
+- overlays/grafana-datasources.yaml
 - overlays/network-policy-prometheus-k8s.yaml
 - overlays/alertmanager.yaml
 - overlays/prometheus.yaml
