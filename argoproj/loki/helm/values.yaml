@@ -63,3 +63,13 @@ monitoring:
       installOperator: false
 test:
   enabled: false
+
+# Disable sidecar rules watcher - not using ruler/rules
+# This eliminates fsnotify watchers that cause "too many open files" errors
+sidecar:
+  rules:
+    enabled: false
+
+# Disable loki-canary DaemonSet - reduces resource overhead
+lokiCanary:
+  enabled: false
