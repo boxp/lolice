@@ -65,7 +65,7 @@ spec:
         # trinkets: Equipment slots for Flight Ring
         # bluemap: 3D web map
         - name: MODRINTH_PROJECTS
-          value: "fabric-api,waystones,balm,diamond-economy,flight-ring,trinkets,bluemap"
+          value: "fabric-api,cloth-config,waystones,balm,diamond-economy,flight-ring,trinkets,bluemap"
         # RCON settings
         - name: ENABLE_RCON
           value: "true"
