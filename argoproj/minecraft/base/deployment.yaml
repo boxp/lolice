@@ -60,12 +60,10 @@ spec:
         # fabric-api: Required for all Fabric mods
         # waystones: Teleportation waypoints (requires balm)
         # balm: Library for Waystones
-        # diamond-economy: Simple economy system
-        # flight-ring: Angel Ring style creative flight (requires trinkets)
-        # trinkets: Equipment slots API (required by flight-ring for TrinketItem)
+        # diamond-economy: Simple economy system (requires cloth-config)
         # bluemap: 3D web map
         - name: MODRINTH_PROJECTS
-          value: "fabric-api,cloth-config,waystones,balm,diamond-economy,trinkets,flight-ring,bluemap"
+          value: "fabric-api,cloth-config,waystones,balm,diamond-economy,bluemap"
         # RCON settings
         - name: ENABLE_RCON
           value: "true"
