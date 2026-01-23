@@ -61,11 +61,12 @@ spec:
         # waystones: Teleportation waypoints (requires balm)
         # balm: Library for Waystones
         # diamond-economy: Simple economy system
-        # flight-ring: Angel Ring style creative flight (requires accessories)
-        # accessories: Equipment slots API (requires owo-lib)
+        # flight-ring: Angel Ring style creative flight (requires both trinkets and accessories)
+        # trinkets: Equipment slots API (required by flight-ring for TrinketItem)
+        # accessories: Equipment slots API (required by flight-ring for AccessoryRenderer)
         # bluemap: 3D web map
         - name: MODRINTH_PROJECTS
-          value: "fabric-api,cloth-config,owo-lib,waystones,balm,diamond-economy,accessories,flight-ring,bluemap"
+          value: "fabric-api,cloth-config,owo-lib,waystones,balm,diamond-economy,trinkets,accessories,flight-ring,bluemap"
         # RCON settings
         - name: ENABLE_RCON
           value: "true"
