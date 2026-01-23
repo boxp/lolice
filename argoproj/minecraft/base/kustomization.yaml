@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
 - namespace.yaml
 - pvc.yaml
+- bluemap-configmap.yaml
 - deployment.yaml
 - service.yaml
 - service-bluemap.yaml

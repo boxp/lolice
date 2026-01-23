@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bluemap-config
+  namespace: minecraft
+data:
+  core.conf: |
+    ##                          ##
+    ##         BlueMap          ##
+    ##       Core-Config        ##
+    ##                          ##
+
+    # By changing the setting (accept-download) below to TRUE you are indicating that you have accepted Mojang's EULA (https://account.mojang.com/documents/minecraft_eula),
+    # you confirm that you own a license to Minecraft (Java Edition)
+    # and you agree that BlueMap will download and use this file for you: https://piston-data.mojang.com/v1/objects/e6a2bf5f4a27e2dcd8e789f7e20c8c7d93f1c647/client.jar (theass>
+    # This file contains resources that are used to generate the 3D-Models used for the map and texture them. (BlueMap will not work without those resources.)
+    accept-download: true
+
+    # This changes the amount of threads that BlueMap will use to render the map.
+    # A higher value can improve render-speed but could impact game-performance.
+    # A negative value will be subtracted from the number of available cores.
+    # Default: -2
+    render-thread-count: -2
+
+    # If this is true, BlueMap might send really basic metrics reports containig only the implementation-type and the version that is being used to https://metrics.bluecolored>.
+    # This allows me to track the basic usage of BlueMap and prioritize development for the platform that is used the most.
+    # Default: true
+    metrics: true
+
+    # The folder where bluemap saves data-files it needs during runtime or to save e.g. the render-progress to resume it later.
+    # Default: "bluemap"
+    data: "bluemap"
+
+    # The web root where static files, the map-config.json and the settings.json is hosted.
+    # Default: "bluemap/web"
+    web-root: "bluemap/web"
+
+    # Whether the integrated webserver should be enabled.
+    # Default: true
+    webserver-enabled: true
+
+    # The port for the integrated webserver
+    # Default: 8100
+    webserver-port: 8100
+
+    # The IP-address that the integrated webserver will bind to
+    # Use "0.0.0.0" to bind to all available interfaces
+    # Default: "0.0.0.0"
+    webserver-bind-address: "0.0.0.0"
+
+    # Enables GZIP compression for files that will be served by the web-server.
+    # Default: true
+    gzip-compression: true

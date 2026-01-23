@@ -75,6 +75,9 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /data
+        - name: bluemap-config
+          mountPath: /data/config/bluemap/core.conf
+          subPath: core.conf
         resources:
           requests:
             memory: "4Gi"
@@ -98,3 +101,6 @@ spec:
       - name: data
         persistentVolumeClaim:
           claimName: minecraft-data
+      - name: bluemap-config
+        configMap:
+          name: bluemap-config
