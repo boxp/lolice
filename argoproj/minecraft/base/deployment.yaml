@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minecraft-server
+  namespace: minecraft
+  labels:
+    app: minecraft-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minecraft-server
+  template:
+    metadata:
+      labels:
+        app: minecraft-server
+    spec:
+      containers:
+      - name: minecraft-server
+        image: docker.io/itzg/minecraft-server:latest
+        ports:
+        - name: minecraft
+          containerPort: 25565
+          protocol: TCP
+        - name: bluemap
+          containerPort: 8100
+          protocol: TCP
+        - name: rcon
+          containerPort: 25575
+          protocol: TCP
+        env:
+        - name: EULA
+          value: "TRUE"
+        - name: TYPE
+          value: "FABRIC"
+        - name: VERSION
+          value: "1.21.4"
+        - name: MEMORY
+          value: "4G"
+        - name: TZ
+          value: "Asia/Tokyo"
+        # Server settings
+        - name: SERVER_NAME
+          value: "lolice-minecraft"
+        - name: MOTD
+          value: "Welcome to lolice Minecraft Server!"
+        - name: MAX_PLAYERS
+          value: "20"
+        - name: VIEW_DISTANCE
+          value: "10"
+        - name: SIMULATION_DISTANCE
+          value: "8"
+        - name: ENABLE_COMMAND_BLOCK
+          value: "true"
+        - name: SPAWN_PROTECTION
+          value: "0"
+        # Fabric MODs from Modrinth
+        # fabric-api: Required for all Fabric mods
+        # waystones: Teleportation waypoints (requires balm)
+        # balm: Library for Waystones
+        # diamond-economy: Simple economy system
+        # flight-ring: Angel Ring style creative flight
+        # trinkets: Equipment slots for Flight Ring
+        # bluemap: 3D web map
+        - name: MODRINTH_PROJECTS
+          value: "fabric-api,waystones,balm,diamond-economy,flight-ring,trinkets,bluemap"
+        # RCON settings
+        - name: ENABLE_RCON
+          value: "true"
+        - name: RCON_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: minecraft-secret
+              key: rcon-password
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "1000m"
+          limits:
+            memory: "6Gi"
+            cpu: "4000m"
+        readinessProbe:
+          exec:
+            command:
+            - mc-health
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        livenessProbe:
+          exec:
+            command:
+            - mc-health
+          initialDelaySeconds: 120
+          periodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: minecraft-data

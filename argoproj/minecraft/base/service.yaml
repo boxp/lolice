@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: minecraft-server
+  namespace: minecraft
+spec:
+  type: LoadBalancer
+  loadBalancerIP: 192.168.10.30
+  selector:
+    app: minecraft-server
+  ports:
+  - name: minecraft
+    protocol: TCP
+    port: 25565
+    targetPort: minecraft
+  - name: rcon
+    protocol: TCP
+    port: 25575
+    targetPort: rcon

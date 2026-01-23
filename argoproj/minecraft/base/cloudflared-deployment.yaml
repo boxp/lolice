@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: minecraft
+spec:
+  selector:
+    matchLabels:
+      app: cloudflared
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+      - name: cloudflared
+        image: docker.io/cloudflare/cloudflared:2025.11.1
+        ports:
+        - name: metrics
+          containerPort: 2000
+        imagePullPolicy: IfNotPresent
+        args:
+        - tunnel
+        - --metrics
+        - 0.0.0.0:2000
+        - run
+        - --protocol
+        - http2
+        - --token
+        - $(TUNNEL_TOKEN)
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: 2000
+          failureThreshold: 1
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        env:
+        - name: TUNNEL_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: minecraft-secret
+              key: tunnel-token
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"

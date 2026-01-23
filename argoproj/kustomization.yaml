@@ -17,6 +17,7 @@ resources:
 - kubernetes-dashboard/application.yaml
 - local-volume-provisioner/application.yaml
 - longhorn/application.yaml
+- minecraft/application.yaml
 - palserver/application.yaml
 - starrupture/application.yaml
 - prometheus-operator-crd/application.yaml
