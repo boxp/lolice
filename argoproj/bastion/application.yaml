@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bastion
+  namespace: argocd
+spec:
+  destination:
+    namespace: bastion
+    server: https://kubernetes.default.svc
+  project: default
+  sources:
+    - path: argoproj/bastion
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

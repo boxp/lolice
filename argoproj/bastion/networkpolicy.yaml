@@ -1,0 +1,49 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bastion-network-policy
+  namespace: bastion
+spec:
+  podSelector:
+    matchLabels:
+      app: bastion
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Only allow traffic from within the same pod (sidecar communication)
+    - from:
+        - podSelector:
+            matchLabels:
+              app: bastion
+      ports:
+        - protocol: TCP
+          port: 2222
+  egress:
+    # Allow SSH to internal nodes only (192.168.10.0/24)
+    - to:
+        - ipBlock:
+            cidr: 192.168.10.0/24
+      ports:
+        - protocol: TCP
+          port: 22
+    # Allow Cloudflare connections (HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow DNS to cluster DNS service only
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

@@ -5,6 +5,7 @@ resources:
 - argocd-image-updater/application.yaml
 - argocd/application.yaml
 - ark-discord-bot/application.yaml
+- bastion/application.yaml
 - ark-survival-ascended/application.yaml
 - boxp-home/application.yaml
 - calico/application.yaml
