@@ -62,10 +62,10 @@ spec:
         # balm: Library for Waystones
         # diamond-economy: Simple economy system
         # flight-ring: Angel Ring style creative flight
-        # trinkets: Equipment slots for Flight Ring
+        # trinkets: Equipment slots for Flight Ring (requires cardinal-components-api)
         # bluemap: 3D web map
         - name: MODRINTH_PROJECTS
-          value: "fabric-api,cloth-config,waystones,balm,diamond-economy,flight-ring,trinkets,bluemap"
+          value: "fabric-api,cloth-config,cardinal-components-api,waystones,balm,diamond-economy,flight-ring,trinkets,bluemap"
         # RCON settings
         - name: ENABLE_RCON
           value: "true"
