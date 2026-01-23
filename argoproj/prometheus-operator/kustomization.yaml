@@ -9,6 +9,8 @@ resources:
 - grafana-pvc.yaml
 - scrape-config.yaml
 - cloudflared-pod-monitor.yaml
+- etcd-service.yaml
+- etcd-servicemonitor.yaml
 - pod-monitor-role.yaml
 - pod-monitor-role-binding.yaml
 - prometheus-servicemonitor-role.yaml
