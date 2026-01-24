@@ -50,23 +50,21 @@ spec:
               value: ansible
             - name: LISTEN_PORT
               value: "2222"
-          # Check sshd process is running
+          # Startup probe: allow up to 120s for sshd to start (s6-overlay init takes time)
+          startupProbe:
+            tcpSocket:
+              port: 2222
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 22
           readinessProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -c
-                - "pgrep -x sshd"
-            initialDelaySeconds: 30
+            tcpSocket:
+              port: 2222
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -c
-                - "pgrep -x sshd"
-            initialDelaySeconds: 60
+            tcpSocket:
+              port: 2222
             periodSeconds: 20
             failureThreshold: 3
         # Cloudflared
