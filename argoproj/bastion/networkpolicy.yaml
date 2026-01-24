@@ -1,78 +1,62 @@
-apiVersion: networking.k8s.io/v1
+apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
 metadata:
   name: bastion-network-policy
   namespace: bastion
 spec:
-  podSelector:
-    matchLabels:
-      app: bastion
-  policyTypes:
+  selector: app == 'bastion'
+  types:
     - Ingress
     - Egress
   ingress:
     # Only allow traffic from within the same pod (sidecar communication)
-    - from:
-        - podSelector:
-            matchLabels:
-              app: bastion
-      ports:
-        - protocol: TCP
-          port: 2222
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: app == 'bastion'
+      destination:
+        ports:
+          - 2222
   egress:
+    # Allow DNS to cluster DNS service
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
     # Allow SSH to internal nodes only (192.168.10.0/24)
-    - to:
-        - ipBlock:
-            cidr: 192.168.10.0/24
-      ports:
-        - protocol: TCP
-          port: 22
-    # Allow Cloudflare connections (HTTPS) - restricted to Cloudflare IP ranges
-    # https://www.cloudflare.com/ips-v4
-    - to:
-        - ipBlock:
-            cidr: 173.245.48.0/20
-        - ipBlock:
-            cidr: 103.21.244.0/22
-        - ipBlock:
-            cidr: 103.22.200.0/22
-        - ipBlock:
-            cidr: 103.31.4.0/22
-        - ipBlock:
-            cidr: 141.101.64.0/18
-        - ipBlock:
-            cidr: 108.162.192.0/18
-        - ipBlock:
-            cidr: 190.93.240.0/20
-        - ipBlock:
-            cidr: 188.114.96.0/20
-        - ipBlock:
-            cidr: 197.234.240.0/22
-        - ipBlock:
-            cidr: 198.41.128.0/17
-        - ipBlock:
-            cidr: 162.158.0.0/15
-        - ipBlock:
-            cidr: 104.16.0.0/13
-        - ipBlock:
-            cidr: 104.24.0.0/14
-        - ipBlock:
-            cidr: 172.64.0.0/13
-        - ipBlock:
-            cidr: 131.0.72.0/22
-      ports:
-        - protocol: TCP
-          port: 443
-    # Allow DNS to cluster DNS service only
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 192.168.10.0/24
+        ports:
+          - 22
+    # Allow GitHub access for fetching SSH public keys (initContainer)
+    - action: Allow
+      protocol: TCP
+      destination:
+        domains:
+          - "github.com"
+          - "*.github.com"
+        ports:
+          - 443
+    # Allow Cloudflare connections (HTTPS) for tunnel
+    - action: Allow
+      protocol: TCP
+      destination:
+        domains:
+          - "*.cloudflare.com"
+          - "*.cloudflareaccess.com"
+        ports:
+          - 443
+          - 7844
