@@ -50,13 +50,13 @@ spec:
               value: ansible
             - name: LISTEN_PORT
               value: "2222"
-          # Check sshd process is listening
+          # Check sshd process is running
           readinessProbe:
             exec:
               command:
                 - /bin/sh
                 - -c
-                - "ss -tlnp | grep -q ':2222'"
+                - "pgrep -x sshd"
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 3
@@ -65,7 +65,7 @@ spec:
               command:
                 - /bin/sh
                 - -c
-                - "ss -tlnp | grep -q ':2222'"
+                - "pgrep -x sshd"
             initialDelaySeconds: 60
             periodSeconds: 20
             failureThreshold: 3
