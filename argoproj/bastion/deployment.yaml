@@ -24,9 +24,10 @@ spec:
           image: docker.io/curlimages/curl:8.11.1
           command:
             - /bin/sh
-            - -c
+            - -ec
             - |
-              curl -fsSL https://github.com/boxp.keys > /ssh-keys/authorized_keys
+              curl -fsSL https://github.com/boxp.keys -o /ssh-keys/authorized_keys
+              test -s /ssh-keys/authorized_keys || { echo "ERROR: authorized_keys is empty"; exit 1; }
               chmod 644 /ssh-keys/authorized_keys
           securityContext:
             runAsNonRoot: true
