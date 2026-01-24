@@ -42,7 +42,7 @@ spec:
       containers:
         # SSH server
         - name: sshd
-          image: docker.io/panubo/sshd:1.8.0
+          image: docker.io/panubo/sshd:1.5.0
           ports:
             - containerPort: 2222
           securityContext:
