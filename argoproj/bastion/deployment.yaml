@@ -52,7 +52,7 @@ spec:
             allowPrivilegeEscalation: true
             capabilities:
               drop: ["ALL"]
-              add: ["SETUID", "SETGID", "CHOWN", "DAC_OVERRIDE"]
+              add: ["SETUID", "SETGID", "CHOWN", "DAC_OVERRIDE", "SYS_CHROOT"]
             readOnlyRootFilesystem: false
           resources:
             limits:
