@@ -54,13 +54,15 @@ spec:
           readinessProbe:
             tcpSocket:
               port: 2222
-            initialDelaySeconds: 5
+            initialDelaySeconds: 30
             periodSeconds: 10
+            failureThreshold: 3
           livenessProbe:
             tcpSocket:
               port: 2222
-            initialDelaySeconds: 15
+            initialDelaySeconds: 60
             periodSeconds: 20
+            failureThreshold: 3
         # Cloudflared
         - name: cloudflared
           image: docker.io/cloudflare/cloudflared:2025.4.2
@@ -99,12 +101,13 @@ spec:
             httpGet:
               path: /ready
               port: 2000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 30
             periodSeconds: 10
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /ready
               port: 2000
-            failureThreshold: 1
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 3
