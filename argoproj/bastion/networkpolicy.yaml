@@ -41,22 +41,10 @@ spec:
           - 192.168.10.0/24
         ports:
           - 22
-    # Allow GitHub access for fetching SSH public keys (initContainer)
+    # Allow HTTPS egress (for GitHub keys fetch and Cloudflare tunnel)
     - action: Allow
       protocol: TCP
       destination:
-        domains:
-          - "github.com"
-          - "*.github.com"
-        ports:
-          - 443
-    # Allow Cloudflare connections (HTTPS) for tunnel
-    - action: Allow
-      protocol: TCP
-      destination:
-        domains:
-          - "*.cloudflare.com"
-          - "*.cloudflareaccess.com"
         ports:
           - 443
           - 7844
