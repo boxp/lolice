@@ -3,6 +3,7 @@ kind: Namespace
 metadata:
   name: bastion
   labels:
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
+    # baseline required: sshd needs root to start and setuid/setgid capabilities
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
