@@ -3,8 +3,7 @@ kind: Namespace
 metadata:
   name: bastion
   labels:
-    # privileged required: linuxserver/openssh-server needs root container
-    # and setuid/setgid capabilities (s6-overlay supervisor limitation)
+    # privileged required: sshd needs root and setuid/setgid capabilities
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
