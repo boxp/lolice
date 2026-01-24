@@ -13,7 +13,7 @@ data:
     PasswordAuthentication no
     PubkeyAuthentication yes
     AuthorizedKeysFile /etc/authorized_keys/%u
-    AllowTcpForwarding no
+    AllowTcpForwarding local
     GatewayPorts no
     X11Forwarding no
     Subsystem sftp /usr/lib/ssh/sftp-server
