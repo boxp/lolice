@@ -25,9 +25,12 @@ spec:
           ports:
             - containerPort: 2222
           securityContext:
-            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: true
             capabilities:
               drop: ["ALL"]
+              add: ["SETUID", "SETGID", "CHOWN", "DAC_OVERRIDE"]
             readOnlyRootFilesystem: false
           resources:
             limits:
