@@ -6,8 +6,14 @@ metadata:
 data:
   sshd_config: |
     Port 2222
+    HostKey /etc/ssh/keys/ssh_host_rsa_key
+    HostKey /etc/ssh/keys/ssh_host_ecdsa_key
+    HostKey /etc/ssh/keys/ssh_host_ed25519_key
     PermitRootLogin no
     PasswordAuthentication no
     PubkeyAuthentication yes
     AuthorizedKeysFile /etc/authorized_keys/%u
+    AllowTcpForwarding no
+    GatewayPorts no
+    X11Forwarding no
     Subsystem sftp /usr/lib/ssh/sftp-server
