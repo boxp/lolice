@@ -41,11 +41,8 @@ spec:
               value: "1000"
             - name: PGID
               value: "1000"
-            - name: PUBLIC_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: ssh-credentials
-                  key: public-key
+            - name: PUBLIC_KEY_URL
+              value: "https://github.com/boxp.keys"
             - name: USER_NAME
               value: ansible
             - name: LISTEN_PORT
@@ -77,6 +74,7 @@ spec:
             - name: metrics
               containerPort: 2000
           securityContext:
+            runAsUser: 65532
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
