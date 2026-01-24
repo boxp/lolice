@@ -18,10 +18,30 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # Fetch SSH public keys from GitHub
+        - name: fetch-keys
+          image: docker.io/curlimages/curl:8.11.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              curl -fsSL https://github.com/boxp.keys > /ssh-keys/authorized_keys
+              chmod 644 /ssh-keys/authorized_keys
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: ssh-keys
+              mountPath: /ssh-keys
       containers:
         # SSH server
         - name: sshd
-          image: lscr.io/linuxserver/openssh-server:10.2_p1-r0-ls213
+          image: docker.io/panubo/sshd:1.8.0
           ports:
             - containerPort: 2222
           securityContext:
@@ -30,7 +50,7 @@ spec:
             allowPrivilegeEscalation: true
             capabilities:
               drop: ["ALL"]
-              add: ["SETUID", "SETGID", "CHOWN", "DAC_OVERRIDE"]
+              add: ["SETUID", "SETGID", "CHOWN", "DAC_OVERRIDE", "NET_BIND_SERVICE"]
             readOnlyRootFilesystem: false
           resources:
             limits:
@@ -40,31 +60,27 @@ spec:
               cpu: "50m"
               memory: "64Mi"
           env:
-            - name: PUID
-              value: "1000"
-            - name: PGID
-              value: "1000"
-            - name: PUBLIC_KEY_URL
-              value: "https://github.com/boxp.keys"
-            - name: USER_NAME
-              value: ansible
-            - name: LISTEN_PORT
-              value: "2222"
-          # Startup probe: allow up to 120s for sshd to start (s6-overlay init takes time)
-          startupProbe:
-            tcpSocket:
-              port: 2222
-            initialDelaySeconds: 10
-            periodSeconds: 5
-            failureThreshold: 22
+            - name: SSH_USERS
+              value: "ansible:1000:1000"
+          volumeMounts:
+            - name: ssh-keys
+              mountPath: /etc/authorized_keys/ansible
+              subPath: authorized_keys
+              readOnly: true
+            - name: sshd-config
+              mountPath: /etc/ssh/sshd_config
+              subPath: sshd_config
+              readOnly: true
           readinessProbe:
             tcpSocket:
               port: 2222
+            initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
             tcpSocket:
               port: 2222
+            initialDelaySeconds: 10
             periodSeconds: 20
             failureThreshold: 3
         # Cloudflared
@@ -115,3 +131,9 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 20
             failureThreshold: 3
+      volumes:
+        - name: ssh-keys
+          emptyDir: {}
+        - name: sshd-config
+          configMap:
+            name: sshd-config
