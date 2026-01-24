@@ -50,19 +50,20 @@ spec:
               value: ansible
             - name: LISTEN_PORT
               value: "2222"
-          # TCP socket check for SSH server
-          readinessProbe:
-            tcpSocket:
-              port: 2222
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            failureThreshold: 3
-          livenessProbe:
-            tcpSocket:
-              port: 2222
-            initialDelaySeconds: 60
-            periodSeconds: 20
-            failureThreshold: 3
+          # Probes temporarily disabled for debugging
+          # TODO: Re-enable after confirming container starts correctly
+          # readinessProbe:
+          #   tcpSocket:
+          #     port: 2222
+          #   initialDelaySeconds: 30
+          #   periodSeconds: 10
+          #   failureThreshold: 3
+          # livenessProbe:
+          #   tcpSocket:
+          #     port: 2222
+          #   initialDelaySeconds: 60
+          #   periodSeconds: 20
+          #   failureThreshold: 3
         # Cloudflared
         - name: cloudflared
           image: docker.io/cloudflare/cloudflared:2025.4.2
