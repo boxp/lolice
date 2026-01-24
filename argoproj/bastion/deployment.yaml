@@ -75,13 +75,13 @@ spec:
           readinessProbe:
             tcpSocket:
               port: 2222
-            initialDelaySeconds: 5
+            initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
             tcpSocket:
               port: 2222
-            initialDelaySeconds: 10
+            initialDelaySeconds: 60
             periodSeconds: 20
             failureThreshold: 3
         # Cloudflared
