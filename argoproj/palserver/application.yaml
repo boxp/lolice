@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/boxp/lolice.git
+    repoURL: git@github.com:boxp/lolice.git
     targetRevision: main
     path: argoproj/palserver
   destination:
