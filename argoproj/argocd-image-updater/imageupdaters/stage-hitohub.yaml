@@ -4,6 +4,7 @@ metadata:
   name: stage-hitohub
   namespace: argocd
 spec:
+  namespace: argocd
   applicationRefs:
     - namePattern: "stage-hitohub"
       images:

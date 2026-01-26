@@ -4,6 +4,7 @@ metadata:
   name: prod-hitohub
   namespace: argocd
 spec:
+  namespace: argocd
   applicationRefs:
     - namePattern: "prod-hitohub"
       images:
