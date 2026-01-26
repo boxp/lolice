@@ -4,6 +4,7 @@ metadata:
   name: ark-survival-ascended
   namespace: argocd
 spec:
+  namespace: argocd
   applicationRefs:
     - namePattern: "ark-survival-ascended"
       images:

@@ -4,6 +4,7 @@ metadata:
   name: palserver
   namespace: argocd
 spec:
+  namespace: argocd
   applicationRefs:
     - namePattern: "palserver"
       images:
