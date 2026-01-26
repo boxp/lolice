@@ -25,6 +25,6 @@ spec:
             kustomize:
               name: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-frontend-prod"
   writeBackConfig:
-    method: "git:secret:argocd/git-creds"
+    method: "git:secret:argocd/repo-lolice"
     gitConfig:
       branch: "main"
