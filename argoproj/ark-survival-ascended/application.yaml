@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default # ArgoCDのプロジェクト名 (loliceプロジェクト用のものが別途あればそれに変更)
   source:
-    repoURL: https://github.com/boxp/lolice.git # このリポジトリのURL
+    repoURL: git@github.com:boxp/lolice.git # このリポジトリのURL
     path: argoproj/ark-survival-ascended # kustomization.yamlがあるディレクトリ
     targetRevision: HEAD # デプロイするブランチやタグ (HEADは最新コミット)
   destination:

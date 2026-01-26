@@ -13,7 +13,7 @@ spec:
       - ServerSideApply=true
   project: default
   source:
-    repoURL: https://github.com/boxp/lolice.git
+    repoURL: git@github.com:boxp/lolice.git
     targetRevision: main
     path: "argoproj/hitohub/overlays/stage"
   destination:
