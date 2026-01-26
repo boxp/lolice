@@ -55,37 +55,36 @@ spec:
         livenessProbe:
           exec:
             command:
-            - python
+            - /bin/sh
             - -c
             - |
-              import asyncio
-              import sys
-              try:
-                  import discord
-                  print('Discord bot dependencies available')
-                  sys.exit(0)
-              except ImportError as e:
-                  print(f'Import error: {e}')
-                  sys.exit(1)
+              # Check if main process (bb) is running via /proc/1/cmdline
+              if grep -q bb /proc/1/cmdline 2>/dev/null; then
+                echo "Main process (bb) is running"
+                exit 0
+              else
+                echo "Main process (bb) not found"
+                exit 1
+              fi
           initialDelaySeconds: 60
           periodSeconds: 60
-          timeoutSeconds: 30
+          timeoutSeconds: 10
           failureThreshold: 3
         readinessProbe:
           exec:
             command:
-            - python
+            - /bin/sh
             - -c
             - |
-              import os
-              import sys
-              required_vars = ['DISCORD_BOT_TOKEN', 'DISCORD_CHANNEL_ID', 'RCON_PASSWORD']
-              missing = [var for var in required_vars if not os.getenv(var)]
-              if missing:
-                  print(f'Missing required environment variables: {missing}')
-                  sys.exit(1)
-              print('Configuration check passed')
-              sys.exit(0)
+              for var in DISCORD_BOT_TOKEN DISCORD_CHANNEL_ID RCON_PASSWORD; do
+                eval "val=\$$var"
+                if [ -z "$val" ]; then
+                  echo "Missing required environment variable: $var"
+                  exit 1
+                fi
+              done
+              echo "Configuration check passed"
+              exit 0
           initialDelaySeconds: 10
           periodSeconds: 30
           timeoutSeconds: 10
