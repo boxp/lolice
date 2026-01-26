@@ -1,0 +1,19 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: ark-survival-ascended
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: "ark-survival-ascended"
+      images:
+        - alias: "arkserver"
+          imageName: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-ascended-server:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            pullSecret: "pullsecret:argocd/regcred"
+          manifestTargets:
+            kustomize:
+              name: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-ascended-server"
+  writeBackConfig:
+    method: "argocd"

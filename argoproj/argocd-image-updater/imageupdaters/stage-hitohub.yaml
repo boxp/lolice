@@ -1,0 +1,27 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: stage-hitohub
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: "stage-hitohub"
+      images:
+        - alias: "backend"
+          imageName: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-backend-stage:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            pullSecret: "pullsecret:argocd/regcred"
+          manifestTargets:
+            kustomize:
+              name: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-backend-stage"
+        - alias: "frontend"
+          imageName: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-frontend-stage:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            pullSecret: "pullsecret:argocd/regcred"
+          manifestTargets:
+            kustomize:
+              name: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohub-frontend-stage"
+  writeBackConfig:
+    method: "argocd"
