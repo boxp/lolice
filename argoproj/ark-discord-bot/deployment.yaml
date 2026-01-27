@@ -58,14 +58,14 @@ spec:
             - /bin/sh
             - -c
             - |
-              # Check if main process (bb) is running via /proc/1/cmdline
-              if grep -q bb /proc/1/cmdline 2>/dev/null; then
-                echo "Main process (bb) is running"
-                exit 0
-              else
-                echo "Main process (bb) not found"
-                exit 1
-              fi
+              # Check if PID 1 is running (not zombie/dead)
+              # Works regardless of binary name (bb, native-image, etc.)
+              # States: R=running, S=sleeping, D=disk sleep (I/O wait)
+              state=$(awk '{print $3}' /proc/1/stat 2>/dev/null)
+              case "$state" in
+                R|S|D) echo "Main process is healthy (state: $state)"; exit 0 ;;
+                *) echo "Main process not healthy (state: $state)"; exit 1 ;;
+              esac
           initialDelaySeconds: 60
           periodSeconds: 60
           timeoutSeconds: 10
