@@ -1,3 +1,3 @@
 kustomize:
   images:
-  - 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-discord-bot=839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-discord-bot:v20260126-b4fdee8
+  - 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-discord-bot=839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/ark-discord-bot:v20260127-188442d
