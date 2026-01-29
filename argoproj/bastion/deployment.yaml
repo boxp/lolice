@@ -87,7 +87,7 @@ spec:
             failureThreshold: 3
         # Cloudflared
         - name: cloudflared
-          image: docker.io/cloudflare/cloudflared:2025.4.2
+          image: docker.io/cloudflare/cloudflared:2025.11.1
           args:
             - tunnel
             - --metrics
