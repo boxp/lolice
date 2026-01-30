@@ -21,7 +21,7 @@ spec:
       initContainers:
         # Fetch SSH public keys from GitHub
         - name: fetch-keys
-          image: docker.io/curlimages/curl:8.11.1
+          image: docker.io/curlimages/curl:8.18.0
           command:
             - /bin/sh
             - -ec
