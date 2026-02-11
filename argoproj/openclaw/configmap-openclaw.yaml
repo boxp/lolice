@@ -11,25 +11,41 @@ data:
           "litellm": {
             "baseUrl": "http://litellm.openclaw.svc.cluster.local:4000",
             "apiKey": "${LITELLM_PROXY_KEY}",
-            "api": "openai-chat"
+            "api": "openai-completions",
+            "models": [
+              {
+                "id": "anthropic/claude-sonnet-4-5-20250929",
+                "name": "Claude Sonnet 4.5",
+                "reasoning": true,
+                "input": ["text", "image"],
+                "contextWindow": 200000,
+                "maxTokens": 16384
+              },
+              {
+                "id": "anthropic/claude-opus-4-6",
+                "name": "Claude Opus 4.6",
+                "reasoning": true,
+                "input": ["text", "image"],
+                "contextWindow": 200000,
+                "maxTokens": 32000
+              }
+            ]
           }
-        },
-        "sonnet": {
-          "provider": "litellm",
-          "model": "anthropic/claude-sonnet-4-5-20250929",
-          "alias": "Sonnet"
-        },
-        "opus": {
-          "provider": "litellm",
-          "model": "anthropic/claude-opus-4-6",
-          "alias": "Opus"
         }
       },
       "agents": {
         "defaults": {
           "model": {
-            "primary": "sonnet",
-            "fallbacks": ["opus"]
+            "primary": "litellm/anthropic/claude-sonnet-4-5-20250929",
+            "fallbacks": ["litellm/anthropic/claude-opus-4-6"]
+          },
+          "models": {
+            "litellm/anthropic/claude-sonnet-4-5-20250929": {
+              "alias": "sonnet"
+            },
+            "litellm/anthropic/claude-opus-4-6": {
+              "alias": "opus"
+            }
           },
           "sandbox": {
             "mode": "all",
@@ -45,8 +61,7 @@ data:
       },
       "tools": {
         "elevated": {
-          "mode": "ask",
-          "ask": "on-miss"
+          "enabled": true
         }
       },
       "channels": {
