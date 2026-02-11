@@ -37,6 +37,7 @@ data:
       "channels": {
         "discord": {
           "enabled": true,
+          "token": "${DISCORD_BOT_TOKEN}",
           "dm": {
             "policy": "allowlist"
           }

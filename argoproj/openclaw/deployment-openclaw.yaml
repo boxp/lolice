@@ -24,9 +24,31 @@ spec:
       automountServiceAccountToken: false
       nodeSelector:
         kubernetes.io/arch: amd64
+      initContainers:
+        # Copy config from ConfigMap to PVC (Helm chart init-config pattern)
+        - name: init-config
+          image: ghcr.io/openclaw/openclaw:latest
+          command: ["sh", "-c"]
+          args:
+            - |
+              mkdir -p /home/node/.openclaw
+              cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: openclaw-config
+              mountPath: /config
+              readOnly: true
+            - name: data
+              mountPath: /home/node/.openclaw
       containers:
         - name: openclaw
           image: ghcr.io/openclaw/openclaw:latest
+          command: ["node", "dist/index.js"]
+          args: ["gateway", "--bind", "lan", "--port", "18789"]
           ports:
             - containerPort: 18789
           env:
@@ -82,20 +104,13 @@ spec:
             capabilities:
               drop:
                 - ALL
-          lifecycle:
-            postStart:
-              exec:
-                command: ["sh", "-c", "sleep 10 && openclaw doctor --fix 2>/dev/null; true"]
           volumeMounts:
             - name: docker-certs
               mountPath: /certs/client
               subPath: client
               readOnly: true
-            - name: openclaw-config
-              mountPath: /app/config/openclaw.json
-              subPath: openclaw.json
             - name: data
-              mountPath: /app/data
+              mountPath: /home/node/.openclaw
         # Docker-in-Docker sidecar for sandbox mode
         # WARNING: privileged: true is required for DinD but carries container escape risk.
         # Mitigations: NetworkPolicy blocks RFC1918, automountServiceAccountToken: false,
