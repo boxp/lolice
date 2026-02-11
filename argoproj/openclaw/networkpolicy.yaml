@@ -158,7 +158,7 @@ spec:
       ports:
         - protocol: TCP
           port: 18789
-    # Cloudflare Edge (HTTPS)
+    # Cloudflare Edge (HTTPS + QUIC tunnel)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -170,6 +170,8 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+        - protocol: UDP
+          port: 7844
     - to:
         - ipBlock:
             cidr: ::/0
@@ -179,3 +181,5 @@ spec:
       ports:
         - protocol: TCP
           port: 443
+        - protocol: UDP
+          port: 7844
