@@ -80,11 +80,12 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # OpenClaw Pod only
+    # OpenClaw gateway Pod only (exclude cloudflared)
     - from:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: openclaw
+              app.kubernetes.io/component: gateway
       ports:
         - protocol: TCP
           port: 4000
