@@ -27,6 +27,8 @@ spec:
           ports:
             - containerPort: 4000
           env:
+            - name: CONFIG_FILE_PATH
+              value: /app/config.yaml
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
