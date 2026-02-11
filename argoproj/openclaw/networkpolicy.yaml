@@ -149,11 +149,12 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # OpenClaw Pod (tunnel ingress forwarding)
+    # OpenClaw gateway Pod (tunnel ingress forwarding)
     - to:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: openclaw
+              app.kubernetes.io/component: gateway
       ports:
         - protocol: TCP
           port: 18789

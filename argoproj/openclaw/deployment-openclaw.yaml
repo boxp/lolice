@@ -12,6 +12,7 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: openclaw
+      app.kubernetes.io/component: gateway
   template:
     metadata:
       labels:
