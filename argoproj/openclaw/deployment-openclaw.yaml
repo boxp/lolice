@@ -27,6 +27,22 @@ spec:
       nodeSelector:
         kubernetes.io/arch: amd64
       initContainers:
+        # Install docker CLI for sandbox mode (DinD sidecar communication)
+        - name: init-docker-cli
+          image: debian:bookworm-slim
+          command: ["sh", "-c"]
+          args:
+            - |
+              apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg
+              install -m 0755 -d /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+              echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list
+              apt-get update && apt-get install -y --no-install-recommends docker-ce-cli
+              cp /usr/bin/docker /shared-bin/docker
+              chmod 755 /shared-bin/docker
+          volumeMounts:
+            - name: shared-bin
+              mountPath: /shared-bin
         # Copy config from ConfigMap to PVC (Helm chart init-config pattern)
         - name: init-config
           image: ghcr.io/openclaw/openclaw:latest
@@ -84,6 +100,8 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: OPENAI_API_KEY
+            - name: PATH
+              value: "/shared-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: DOCKER_HOST
               value: "tcp://localhost:2376"
             - name: DOCKER_TLS_VERIFY
@@ -107,6 +125,9 @@ spec:
               drop:
                 - ALL
           volumeMounts:
+            - name: shared-bin
+              mountPath: /shared-bin
+              readOnly: true
             - name: docker-certs
               mountPath: /certs/client
               subPath: client
@@ -137,6 +158,8 @@ spec:
             - name: docker-data
               mountPath: /var/lib/docker
       volumes:
+        - name: shared-bin
+          emptyDir: {}
         - name: docker-certs
           emptyDir: {}
         - name: docker-data
