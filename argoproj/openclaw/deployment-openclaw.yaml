@@ -80,6 +80,10 @@ spec:
             capabilities:
               drop:
                 - ALL
+          lifecycle:
+            postStart:
+              exec:
+                command: ["sh", "-c", "sleep 10 && openclaw doctor --fix 2>/dev/null; true"]
           volumeMounts:
             - name: docker-certs
               mountPath: /certs/client
