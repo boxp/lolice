@@ -1,0 +1,181 @@
+---
+# OpenClaw Pod NetworkPolicy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openclaw-network
+  namespace: openclaw
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: openclaw
+      app.kubernetes.io/component: gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # cloudflared (Cloudflare Tunnel) -> Web UI only
+    - from:
+        - podSelector:
+            matchLabels:
+              app: cloudflared
+      ports:
+        - protocol: TCP
+          port: 18789
+  egress:
+    # DNS (kube-system)
+    # Note: If using NodeLocal DNSCache (169.254.20.10), add 169.254.20.10/32
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # LiteLLM proxy (namespace-local only)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: litellm
+      ports:
+        - protocol: TCP
+          port: 4000
+    # External HTTPS only (Discord API, Web, GitHub)
+    # Block RFC1918 + link-local to prevent cluster-internal access
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    # IPv6 external (exclude ULA + link-local)
+    - to:
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# LiteLLM Pod NetworkPolicy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: litellm-network
+  namespace: openclaw
+spec:
+  podSelector:
+    matchLabels:
+      app: litellm
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # OpenClaw gateway Pod only (exclude cloudflared)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openclaw
+              app.kubernetes.io/component: gateway
+      ports:
+        - protocol: TCP
+          port: 4000
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Anthropic API only (HTTPS) — block RFC1918 + IPv6
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# cloudflared Pod NetworkPolicy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflared-network
+  namespace: openclaw
+spec:
+  podSelector:
+    matchLabels:
+      app: cloudflared
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # OpenClaw gateway Pod (tunnel ingress forwarding)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openclaw
+              app.kubernetes.io/component: gateway
+      ports:
+        - protocol: TCP
+          port: 18789
+    # Cloudflare Edge (HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - ipBlock:
+            cidr: ::/0
+            except:
+              - fc00::/7
+              - fe80::/10
+      ports:
+        - protocol: TCP
+          port: 443
