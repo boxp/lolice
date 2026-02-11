@@ -77,7 +77,8 @@ data:
           "token": "${DISCORD_BOT_TOKEN}",
           "dm": {
             "enabled": true,
-            "policy": "allowlist"
+            "policy": "allowlist",
+            "allowFrom": ["${DISCORD_ALLOWED_USER_IDS}"]
           }
         }
       },

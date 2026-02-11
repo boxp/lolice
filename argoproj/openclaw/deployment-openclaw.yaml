@@ -96,6 +96,11 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: OPENAI_API_KEY
+            - name: DISCORD_ALLOWED_USER_IDS
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: DISCORD_ALLOWED_USER_IDS
             - name: PATH
               value: "/shared-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: DOCKER_HOST
