@@ -80,6 +80,9 @@ data:
         "port": 18789,
         "auth": {
           "token": "${OPENCLAW_GATEWAY_TOKEN}"
+        },
+        "controlUi": {
+          "allowInsecureAuth": true
         }
       }
     }
