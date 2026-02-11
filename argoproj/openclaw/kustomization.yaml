@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: openclaw
+resources:
+  - namespace.yaml
+  - external-secret.yaml
+  - external-secret-litellm.yaml
+  - configmap-openclaw.yaml
+  - configmap-litellm.yaml
+  - deployment-openclaw.yaml
+  - service-openclaw.yaml
+  - pvc.yaml
+  - deployment-litellm.yaml
+  - service-litellm.yaml
+  - deployment-cloudflared.yaml
+  - networkpolicy.yaml

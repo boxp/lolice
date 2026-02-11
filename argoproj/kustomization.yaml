@@ -28,3 +28,4 @@ resources:
 - reloader/application.yaml
 - tidb-operator/application.yaml
 - kube-vip/application.yaml
+- openclaw/application.yaml

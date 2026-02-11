@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openclaw
+  namespace: openclaw
+  labels:
+    app.kubernetes.io/name: openclaw
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: argocd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openclaw
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openclaw
+        app.kubernetes.io/component: gateway
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      containers:
+        - name: openclaw
+          image: ghcr.io/openclaw/openclaw:latest
+          ports:
+            - containerPort: 18789
+          env:
+            - name: DISCORD_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: DISCORD_BOT_TOKEN
+            - name: OPENCLAW_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: OPENCLAW_GATEWAY_TOKEN
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: GITHUB_TOKEN
+            - name: GH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: GITHUB_TOKEN
+            - name: LITELLM_PROXY_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: LITELLM_PROXY_KEY
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: OPENAI_API_KEY
+            - name: DOCKER_HOST
+              value: "tcp://localhost:2376"
+            - name: DOCKER_TLS_VERIFY
+              value: "1"
+            - name: DOCKER_CERT_PATH
+              value: "/certs/client"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: docker-certs
+              mountPath: /certs/client
+              subPath: client
+              readOnly: true
+            - name: openclaw-config
+              mountPath: /app/config/openclaw.json
+              subPath: openclaw.json
+            - name: data
+              mountPath: /app/data
+        # Docker-in-Docker sidecar for sandbox mode
+        # WARNING: privileged: true is required for DinD but carries container escape risk.
+        # Mitigations: NetworkPolicy blocks RFC1918, automountServiceAccountToken: false,
+        # consider dedicated node with taint/toleration for blast radius limitation.
+        - name: dind
+          image: docker:27-dind
+          securityContext:
+            privileged: true
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: /certs
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          volumeMounts:
+            - name: docker-certs
+              mountPath: /certs
+            - name: docker-data
+              mountPath: /var/lib/docker
+      volumes:
+        - name: docker-certs
+          emptyDir: {}
+        - name: docker-data
+          emptyDir: {}
+        - name: openclaw-config
+          configMap:
+            name: openclaw-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: openclaw-data

@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openclaw-config
+  namespace: openclaw
+data:
+  openclaw.json: |
+    {
+      "agent": {
+        "model": {
+          "primary": "sonnet",
+          "fallbacks": ["opus"]
+        },
+        "models": {
+          "providers": {
+            "litellm": {
+              "baseUrl": "http://litellm.openclaw.svc.cluster.local:4000",
+              "apiKey": "${LITELLM_PROXY_KEY}",
+              "api": "openai-chat"
+            }
+          },
+          "sonnet": {
+            "provider": "litellm",
+            "model": "anthropic/claude-sonnet-4-5-20250929",
+            "alias": "Sonnet"
+          },
+          "opus": {
+            "provider": "litellm",
+            "model": "anthropic/claude-opus-4-6",
+            "alias": "Opus"
+          }
+        },
+        "elevated": {
+          "enabled": true
+        }
+      },
+      "channels": {
+        "discord": {
+          "enabled": true,
+          "dm": {
+            "policy": "allowlist"
+          }
+        },
+        "telegram": {
+          "enabled": false
+        },
+        "whatsapp": {
+          "enabled": false
+        }
+      },
+      "gateway": {
+        "auth": {
+          "mode": "token"
+        }
+      },
+      "agents": {
+        "defaults": {
+          "sandbox": {
+            "mode": "all",
+            "scope": "agent",
+            "workspaceAccess": "rw",
+            "docker": {
+              "image": "openclaw-sandbox:bookworm-slim",
+              "network": "bridge",
+              "user": "1000:1000"
+            }
+          },
+          "elevated": {
+            "enabled": true
+          }
+        }
+      }
+    }
