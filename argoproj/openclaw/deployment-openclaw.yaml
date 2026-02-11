@@ -37,16 +37,24 @@ spec:
           volumeMounts:
             - name: shared-bin
               mountPath: /shared-bin
-        # Copy config from ConfigMap to PVC
-        # OpenClaw resolves ${VAR_NAME} in memory at config load time,
-        # so no sed substitution is needed here.
+        # Copy config from ConfigMap to PVC with env var substitution.
+        # OpenClaw resolves ${VAR_NAME} for top-level string values in memory,
+        # but NOT for strings inside JSON arrays (e.g. allowFrom).
+        # Use sed to substitute DISCORD_ALLOWED_USER_IDS at init time.
         - name: init-config
           image: ghcr.io/openclaw/openclaw:latest
           command: ["sh", "-c"]
           args:
             - |
               mkdir -p /home/node/.openclaw
-              cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+              sed "s/\${DISCORD_ALLOWED_USER_IDS}/${DISCORD_ALLOWED_USER_IDS}/g" \
+                /config/openclaw.json > /home/node/.openclaw/openclaw.json
+          env:
+            - name: DISCORD_ALLOWED_USER_IDS
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: DISCORD_ALLOWED_USER_IDS
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
