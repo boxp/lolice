@@ -10,10 +10,16 @@ data:
         litellm_params:
           model: "claude-sonnet-4-5-20250929"
           api_key: "os.environ/ANTHROPIC_API_KEY"
+          cache_control_injection_points:
+            - location: message
+              role: system
       - model_name: "anthropic/claude-opus-4-6"
         litellm_params:
           model: "claude-opus-4-6"
           api_key: "os.environ/ANTHROPIC_API_KEY"
+          cache_control_injection_points:
+            - location: message
+              role: system
     general_settings:
       master_key: "os.environ/LITELLM_MASTER_KEY"
     litellm_settings:
