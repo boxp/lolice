@@ -42,7 +42,7 @@ spec:
       ports:
         - protocol: TCP
           port: 4000
-    # External HTTPS only (Discord API, Web, GitHub)
+    # External HTTP/HTTPS (Discord API, Web, GitHub, apt repos)
     # Block RFC1918 + link-local to prevent cluster-internal access
     - to:
         - ipBlock:
@@ -54,6 +54,8 @@ spec:
               - 169.254.0.0/16
       ports:
         - protocol: TCP
+          port: 80
+        - protocol: TCP
           port: 443
     # IPv6 external (exclude ULA + link-local)
     - to:
@@ -63,6 +65,8 @@ spec:
               - fc00::/7
               - fe80::/10
       ports:
+        - protocol: TCP
+          port: 80
         - protocol: TCP
           port: 443
 
