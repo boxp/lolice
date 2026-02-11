@@ -78,7 +78,7 @@ data:
           "dm": {
             "enabled": true,
             "policy": "allowlist",
-            "allowFrom": ["${DISCORD_ALLOWED_USER_IDS}"]
+            "allowFrom": ["346180680851652618"]
           }
         }
       },

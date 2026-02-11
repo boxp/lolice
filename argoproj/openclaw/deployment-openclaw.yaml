@@ -37,9 +37,9 @@ spec:
           volumeMounts:
             - name: shared-bin
               mountPath: /shared-bin
-        # Copy config from ConfigMap to PVC
-        # OpenClaw resolves ${VAR_NAME} in memory at config load time,
-        # so no sed substitution is needed here.
+        # Copy config from ConfigMap to PVC.
+        # OpenClaw resolves ${VAR_NAME} in memory at config load time
+        # for top-level string values (e.g. tokens, apiKeys).
         - name: init-config
           image: ghcr.io/openclaw/openclaw:latest
           command: ["sh", "-c"]
@@ -96,11 +96,6 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: OPENAI_API_KEY
-            - name: DISCORD_ALLOWED_USER_IDS
-              valueFrom:
-                secretKeyRef:
-                  name: openclaw-credentials
-                  key: DISCORD_ALLOWED_USER_IDS
             - name: PATH
               value: "/shared-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: DOCKER_HOST
