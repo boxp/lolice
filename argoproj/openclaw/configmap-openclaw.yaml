@@ -6,58 +6,31 @@ metadata:
 data:
   openclaw.json: |
     {
-      "agent": {
-        "model": {
-          "primary": "sonnet",
-          "fallbacks": ["opus"]
-        },
-        "models": {
-          "providers": {
-            "litellm": {
-              "baseUrl": "http://litellm.openclaw.svc.cluster.local:4000",
-              "apiKey": "${LITELLM_PROXY_KEY}",
-              "api": "openai-chat"
-            }
-          },
-          "sonnet": {
-            "provider": "litellm",
-            "model": "anthropic/claude-sonnet-4-5-20250929",
-            "alias": "Sonnet"
-          },
-          "opus": {
-            "provider": "litellm",
-            "model": "anthropic/claude-opus-4-6",
-            "alias": "Opus"
+      "models": {
+        "providers": {
+          "litellm": {
+            "baseUrl": "http://litellm.openclaw.svc.cluster.local:4000",
+            "apiKey": "${LITELLM_PROXY_KEY}",
+            "api": "openai-chat"
           }
         },
-        "elevated": {
-          "enabled": true
-        }
-      },
-      "channels": {
-        "discord": {
-          "enabled": true,
-          "token": "${DISCORD_BOT_TOKEN}",
-          "dm": {
-            "policy": "allowlist"
-          }
+        "sonnet": {
+          "provider": "litellm",
+          "model": "anthropic/claude-sonnet-4-5-20250929",
+          "alias": "Sonnet"
         },
-        "telegram": {
-          "enabled": false
-        },
-        "whatsapp": {
-          "enabled": false
-        }
-      },
-      "gateway": {
-        "bind": "lan",
-        "port": 18789,
-        "auth": {
-          "token": "${OPENCLAW_GATEWAY_TOKEN}"
+        "opus": {
+          "provider": "litellm",
+          "model": "anthropic/claude-opus-4-6",
+          "alias": "Opus"
         }
       },
       "agents": {
         "defaults": {
+          "model": {
+            "primary": "sonnet",
+            "fallbacks": ["opus"]
+          },
           "sandbox": {
             "mode": "all",
             "scope": "agent",
@@ -67,10 +40,30 @@ data:
               "network": "bridge",
               "user": "1000:1000"
             }
-          },
-          "elevated": {
-            "enabled": true
           }
+        }
+      },
+      "tools": {
+        "elevated": {
+          "mode": "ask",
+          "ask": "on-miss"
+        }
+      },
+      "channels": {
+        "discord": {
+          "enabled": true,
+          "token": "${DISCORD_BOT_TOKEN}",
+          "dm": {
+            "enabled": true,
+            "policy": "allowlist"
+          }
+        }
+      },
+      "gateway": {
+        "bind": "lan",
+        "port": 18789,
+        "auth": {
+          "token": "${OPENCLAW_GATEWAY_TOKEN}"
         }
       }
     }
