@@ -37,23 +37,16 @@ spec:
           volumeMounts:
             - name: shared-bin
               mountPath: /shared-bin
-        # Copy config from ConfigMap to PVC with env var substitution
-        # OpenClaw resolves DISCORD_BOT_TOKEN and OPENCLAW_GATEWAY_TOKEN natively,
-        # but LITELLM_PROXY_KEY needs manual substitution via sed.
+        # Copy config from ConfigMap to PVC
+        # OpenClaw resolves ${VAR_NAME} in memory at config load time,
+        # so no sed substitution is needed here.
         - name: init-config
           image: ghcr.io/openclaw/openclaw:latest
           command: ["sh", "-c"]
           args:
             - |
               mkdir -p /home/node/.openclaw
-              sed "s|\${LITELLM_PROXY_KEY}|${LITELLM_PROXY_KEY}|g" \
-                /config/openclaw.json > /home/node/.openclaw/openclaw.json
-          env:
-            - name: LITELLM_PROXY_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: openclaw-credentials
-                  key: LITELLM_PROXY_KEY
+              cp /config/openclaw.json /home/node/.openclaw/openclaw.json
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
