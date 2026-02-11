@@ -37,6 +37,22 @@ spec:
           volumeMounts:
             - name: shared-bin
               mountPath: /shared-bin
+        # Install Claude Code CLI native binary into shared-bin
+        - name: init-claude-code
+          image: ghcr.io/openclaw/openclaw:latest
+          command: ["sh", "-c"]
+          args:
+            - |
+              curl -fsSL https://claude.ai/install.sh | bash
+              cp ~/.local/bin/claude /shared-bin/claude
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: shared-bin
+              mountPath: /shared-bin
         # Copy config from ConfigMap to PVC
         # OpenClaw resolves ${VAR_NAME} in memory at config load time,
         # so no sed substitution is needed here.
@@ -96,6 +112,11 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: OPENAI_API_KEY
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: CLAUDE_CODE_OAUTH_TOKEN
             - name: PATH
               value: "/shared-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: DOCKER_HOST

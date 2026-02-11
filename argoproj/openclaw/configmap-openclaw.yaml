@@ -48,20 +48,8 @@ data:
             }
           },
           "sandbox": {
-            "mode": "all",
-            "scope": "agent",
-            "workspaceAccess": "rw",
-            "docker": {
-              "image": "openclaw-sandbox:bookworm-slim",
-              "network": "bridge",
-              "user": "1000:1000"
-            }
+            "mode": "off"
           }
-        }
-      },
-      "tools": {
-        "elevated": {
-          "enabled": true
         }
       },
       "plugins": {
