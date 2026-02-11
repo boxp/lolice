@@ -89,8 +89,8 @@ spec:
             - name: LITELLM_PROXY_KEY
               valueFrom:
                 secretKeyRef:
-                  name: openclaw-credentials
-                  key: LITELLM_PROXY_KEY
+                  name: litellm-credentials
+                  key: LITELLM_MASTER_KEY
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
