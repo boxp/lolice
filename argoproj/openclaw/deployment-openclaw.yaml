@@ -68,9 +68,9 @@ spec:
           volumeMounts:
             - name: shared-npm
               mountPath: /shared-npm
-        # Copy config from ConfigMap to PVC
-        # OpenClaw resolves ${VAR_NAME} in memory at config load time,
-        # so no sed substitution is needed here.
+        # Copy config from ConfigMap to PVC.
+        # OpenClaw resolves ${VAR_NAME} in memory at config load time
+        # for top-level string values (e.g. tokens, apiKeys).
         - name: init-config
           image: ghcr.io/openclaw/openclaw:latest
           command: ["sh", "-c"]
