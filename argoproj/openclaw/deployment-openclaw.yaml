@@ -114,7 +114,6 @@ spec:
                 mkdir -p "$(dirname "$DOTFILES_DIR")"
                 git clone https://github.com/boxp/dotfiles.git "$DOTFILES_DIR"
               fi
-              ln -sfn "$DOTFILES_DIR/.claude" /home/node/.openclaw/../.claude
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -129,8 +128,12 @@ spec:
       containers:
         - name: openclaw
           image: ghcr.io/openclaw/openclaw:latest
-          command: ["node", "dist/index.js"]
-          args: ["gateway", "--bind", "lan", "--port", "18789"]
+          command: ["sh", "-c"]
+          args:
+            - |
+              DOTFILES_DIR=/home/node/ghq/github.com/boxp/dotfiles
+              ln -sfn "$DOTFILES_DIR/.claude" /home/node/.claude
+              exec node dist/index.js gateway --bind lan --port 18789
           ports:
             - containerPort: 18789
           env:
