@@ -27,52 +27,11 @@ spec:
       nodeSelector:
         kubernetes.io/arch: amd64
       initContainers:
-        # Provide docker CLI for sandbox mode (DinD sidecar communication)
-        # Uses official docker:27-cli image — the standard K8s init container
-        # pattern for tool injection. apt-get is not feasible due to
-        # NetworkPolicy blocking HTTP (port 80).
-        - name: init-docker-cli
-          image: docker:27-cli
-          command: ["cp", "/usr/local/bin/docker", "/shared-bin/docker"]
-          volumeMounts:
-            - name: shared-bin
-              mountPath: /shared-bin
-        # Install Claude Code CLI native binary into shared-bin
-        - name: init-claude-code
-          image: ghcr.io/openclaw/openclaw:latest
-          command: ["sh", "-c"]
-          args:
-            - |
-              curl -fsSL https://claude.ai/install.sh | bash
-              cp ~/.local/bin/claude /shared-bin/claude
-          securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
-            runAsNonRoot: true
-            allowPrivilegeEscalation: false
-          volumeMounts:
-            - name: shared-bin
-              mountPath: /shared-bin
-        # Install Codex CLI via npm into shared volume
-        - name: init-codex-cli
-          image: ghcr.io/openclaw/openclaw:latest
-          command: ["sh", "-c"]
-          args:
-            - |
-              npm install -g @openai/codex --prefix /shared-npm
-          securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
-            runAsNonRoot: true
-            allowPrivilegeEscalation: false
-          volumeMounts:
-            - name: shared-npm
-              mountPath: /shared-npm
         # Copy config from ConfigMap to PVC.
         # OpenClaw resolves ${VAR_NAME} in memory at config load time
         # for top-level string values (e.g. tokens, apiKeys).
         - name: init-config
-          image: ghcr.io/openclaw/openclaw:latest
+          image: ghcr.io/boxp/arch/openclaw:20260212
           command: ["sh", "-c"]
           args:
             - |
@@ -91,7 +50,7 @@ spec:
               mountPath: /home/node/.openclaw
       containers:
         - name: openclaw
-          image: ghcr.io/openclaw/openclaw:latest
+          image: ghcr.io/boxp/arch/openclaw:20260212
           command: ["node", "dist/index.js"]
           args: ["gateway", "--bind", "lan", "--port", "18789"]
           ports:
@@ -132,8 +91,6 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: CLAUDE_CODE_OAUTH_TOKEN
-            - name: PATH
-              value: "/shared-bin:/shared-npm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: DOCKER_HOST
               value: "tcp://localhost:2376"
             - name: DOCKER_TLS_VERIFY
@@ -157,12 +114,6 @@ spec:
               drop:
                 - ALL
           volumeMounts:
-            - name: shared-bin
-              mountPath: /shared-bin
-              readOnly: true
-            - name: shared-npm
-              mountPath: /shared-npm
-              readOnly: true
             - name: docker-certs
               mountPath: /certs/client
               subPath: client
@@ -193,10 +144,6 @@ spec:
             - name: docker-data
               mountPath: /var/lib/docker
       volumes:
-        - name: shared-bin
-          emptyDir: {}
-        - name: shared-npm
-          emptyDir: {}
         - name: docker-certs
           emptyDir: {}
         - name: docker-data
