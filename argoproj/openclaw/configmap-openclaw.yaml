@@ -52,8 +52,8 @@ data:
       "agents": {
         "defaults": {
           "model": {
-            "primary": "litellm/anthropic/claude-sonnet-4-5-20250929",
-            "fallbacks": ["litellm/anthropic/claude-opus-4-6"]
+            "primary": "litellm/zai/glm-4.7",
+            "fallbacks": ["litellm/zai/glm-4.7", "litellm/zai/glm-4.5-flash", "litellm/anthropic/claude-sonnet-4-5-20250929"]
           },
           "models": {
             "litellm/anthropic/claude-sonnet-4-5-20250929": {
