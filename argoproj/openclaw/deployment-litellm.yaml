@@ -39,6 +39,11 @@ spec:
                 secretKeyRef:
                   name: litellm-credentials
                   key: LITELLM_MASTER_KEY
+            - name: ZHIPUAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-credentials
+                  key: ZHIPUAI_API_KEY
           resources:
             requests:
               cpu: 100m

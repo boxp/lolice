@@ -28,6 +28,14 @@ data:
               index: -2
             - location: message
               index: -1
+      - model_name: "zhipuai/glm-4-plus"
+        litellm_params:
+          model: "zhipuai/glm-4-plus"
+          api_key: "os.environ/ZHIPUAI_API_KEY"
+      - model_name: "zhipuai/glm-4-flash"
+        litellm_params:
+          model: "zhipuai/glm-4-flash"
+          api_key: "os.environ/ZHIPUAI_API_KEY"
     general_settings:
       master_key: "os.environ/LITELLM_MASTER_KEY"
     litellm_settings:
