@@ -28,6 +28,22 @@ data:
                 "input": ["text", "image"],
                 "contextWindow": 200000,
                 "maxTokens": 32000
+              },
+              {
+                "id": "zai/glm-4.7",
+                "name": "GLM-4.7",
+                "reasoning": true,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 4096
+              },
+              {
+                "id": "zai/glm-4.5-flash",
+                "name": "GLM-4.5 Flash",
+                "reasoning": false,
+                "input": ["text"],
+                "contextWindow": 128000,
+                "maxTokens": 4096
               }
             ]
           }
@@ -45,6 +61,12 @@ data:
             },
             "litellm/anthropic/claude-opus-4-6": {
               "alias": "opus"
+            },
+            "litellm/zai/glm-4.7": {
+              "alias": "glm47"
+            },
+            "litellm/zai/glm-4.5-flash": {
+              "alias": "glm4-flash"
             }
           },
           "heartbeat": {
