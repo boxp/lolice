@@ -47,6 +47,10 @@ data:
               "alias": "opus"
             }
           },
+          "heartbeat": {
+            "every": "30m",
+            "target": "discord"
+          },
           "sandbox": {
             "mode": "off"
           }
