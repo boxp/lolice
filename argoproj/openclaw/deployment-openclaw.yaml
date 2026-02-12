@@ -53,6 +53,21 @@ spec:
           volumeMounts:
             - name: shared-bin
               mountPath: /shared-bin
+        # Install Codex CLI via npm into shared volume
+        - name: init-codex-cli
+          image: ghcr.io/openclaw/openclaw:latest
+          command: ["sh", "-c"]
+          args:
+            - |
+              npm install -g @openai/codex --prefix /shared-npm
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: shared-npm
+              mountPath: /shared-npm
         # Copy config from ConfigMap to PVC
         # OpenClaw resolves ${VAR_NAME} in memory at config load time,
         # so no sed substitution is needed here.
@@ -118,7 +133,7 @@ spec:
                   name: openclaw-credentials
                   key: CLAUDE_CODE_OAUTH_TOKEN
             - name: PATH
-              value: "/shared-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+              value: "/shared-bin:/shared-npm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: DOCKER_HOST
               value: "tcp://localhost:2376"
             - name: DOCKER_TLS_VERIFY
@@ -144,6 +159,9 @@ spec:
           volumeMounts:
             - name: shared-bin
               mountPath: /shared-bin
+              readOnly: true
+            - name: shared-npm
+              mountPath: /shared-npm
               readOnly: true
             - name: docker-certs
               mountPath: /certs/client
@@ -176,6 +194,8 @@ spec:
               mountPath: /var/lib/docker
       volumes:
         - name: shared-bin
+          emptyDir: {}
+        - name: shared-npm
           emptyDir: {}
         - name: docker-certs
           emptyDir: {}
