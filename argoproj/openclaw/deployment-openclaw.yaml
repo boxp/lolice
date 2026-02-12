@@ -31,7 +31,7 @@ spec:
         # OpenClaw resolves ${VAR_NAME} in memory at config load time
         # for top-level string values (e.g. tokens, apiKeys).
         - name: init-config
-          image: ghcr.io/boxp/arch/openclaw:202602121648
+          image: ghcr.io/boxp/arch/openclaw:sha-ab72cc1
           command: ["sh", "-c"]
           args:
             - |
@@ -53,7 +53,7 @@ spec:
               subPath: ghq
         # Clone/update dotfiles and create symlink for .claude config
         - name: init-dotfiles
-          image: ghcr.io/boxp/arch/openclaw:202602121648
+          image: ghcr.io/boxp/arch/openclaw:sha-ab72cc1
           command: ["sh", "-c"]
           args:
             - |
@@ -77,7 +77,7 @@ spec:
               mountPath: /home/node/.openclaw
       containers:
         - name: openclaw
-          image: ghcr.io/boxp/arch/openclaw:202602121648
+          image: ghcr.io/boxp/arch/openclaw:sha-ab72cc1
           command: ["sh", "-c"]
           args:
             - |
