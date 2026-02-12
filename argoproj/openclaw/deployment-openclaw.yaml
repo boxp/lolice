@@ -59,7 +59,7 @@ spec:
             - |
               DOTFILES_DIR=/home/node/ghq/github.com/boxp/dotfiles
               if [ -d "$DOTFILES_DIR/.git" ]; then
-                cd "$DOTFILES_DIR" && git pull origin main
+                cd "$DOTFILES_DIR" && git checkout master && git pull origin master
               else
                 mkdir -p "$(dirname "$DOTFILES_DIR")"
                 git clone https://github.com/boxp/dotfiles.git "$DOTFILES_DIR"
