@@ -28,6 +28,21 @@ data:
               index: -2
             - location: message
               index: -1
+      - model_name: "zai/glm-4.7"
+        litellm_params:
+          model: "zai/glm-4.7"
+          api_key: "os.environ/ZAI_API_KEY"
+          cache_control_injection_points:
+            - location: message
+              role: system
+            - location: message
+              index: -2
+            - location: message
+              index: -1
+      - model_name: "zai/glm-4.5-flash"
+        litellm_params:
+          model: "zai/glm-4.5-flash"
+          api_key: "os.environ/ZAI_API_KEY"
     general_settings:
       master_key: "os.environ/LITELLM_MASTER_KEY"
     litellm_settings:
