@@ -172,6 +172,11 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: CLAUDE_CODE_OAUTH_TOKEN
+            - name: XAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: XAI_API_KEY
             - name: PATH
               value: "/shared-bin:/shared-npm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: DOCKER_HOST
