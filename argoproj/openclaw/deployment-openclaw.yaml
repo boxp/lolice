@@ -37,6 +37,9 @@ spec:
           volumeMounts:
             - name: shared-bin
               mountPath: /shared-bin
+            - name: data
+              mountPath: /home/node/ghq
+              subPath: ghq
         # Install Claude Code CLI native binary into shared-bin
         - name: init-claude-code
           image: ghcr.io/openclaw/openclaw:latest
@@ -53,6 +56,9 @@ spec:
           volumeMounts:
             - name: shared-bin
               mountPath: /shared-bin
+            - name: data
+              mountPath: /home/node/ghq
+              subPath: ghq
         # Install Codex CLI via npm into shared volume
         - name: init-codex-cli
           image: ghcr.io/openclaw/openclaw:latest
@@ -68,6 +74,9 @@ spec:
           volumeMounts:
             - name: shared-npm
               mountPath: /shared-npm
+            - name: data
+              mountPath: /home/node/ghq
+              subPath: ghq
         # Copy config from ConfigMap to PVC.
         # OpenClaw resolves ${VAR_NAME} in memory at config load time
         # for top-level string values (e.g. tokens, apiKeys).
@@ -89,11 +98,42 @@ spec:
               readOnly: true
             - name: data
               mountPath: /home/node/.openclaw
+            - name: data
+              mountPath: /home/node/ghq
+              subPath: ghq
+        # Clone/update dotfiles and create symlink for .claude config
+        - name: init-dotfiles
+          image: ghcr.io/openclaw/openclaw:latest
+          command: ["sh", "-c"]
+          args:
+            - |
+              DOTFILES_DIR=/home/node/ghq/github.com/boxp/dotfiles
+              if [ -d "$DOTFILES_DIR/.git" ]; then
+                cd "$DOTFILES_DIR" && git pull
+              else
+                mkdir -p "$(dirname "$DOTFILES_DIR")"
+                git clone https://github.com/boxp/dotfiles.git "$DOTFILES_DIR"
+              fi
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: data
+              mountPath: /home/node/ghq
+              subPath: ghq
+            - name: data
+              mountPath: /home/node/.openclaw
       containers:
         - name: openclaw
           image: ghcr.io/openclaw/openclaw:latest
-          command: ["node", "dist/index.js"]
-          args: ["gateway", "--bind", "lan", "--port", "18789"]
+          command: ["sh", "-c"]
+          args:
+            - |
+              DOTFILES_DIR=/home/node/ghq/github.com/boxp/dotfiles
+              ln -sfn "$DOTFILES_DIR/.claude" /home/node/.claude
+              exec node dist/index.js gateway --bind lan --port 18789
           ports:
             - containerPort: 18789
           env:
@@ -169,6 +209,9 @@ spec:
               readOnly: true
             - name: data
               mountPath: /home/node/.openclaw
+            - name: data
+              mountPath: /home/node/ghq
+              subPath: ghq
         # Docker-in-Docker sidecar for sandbox mode
         # WARNING: privileged: true is required for DinD but carries container escape risk.
         # Mitigations: NetworkPolicy blocks RFC1918, automountServiceAccountToken: false,
