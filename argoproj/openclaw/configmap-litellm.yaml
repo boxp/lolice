@@ -43,6 +43,20 @@ data:
         litellm_params:
           model: "zai/glm-4.5-flash"
           api_key: "os.environ/ZAI_API_KEY"
+      - model_name: "google/gemini-2.5-flash"
+        litellm_params:
+          model: "gemini/gemini-2.5-flash"
+          api_key: "os.environ/GEMINI_API_KEY"
+          cache_control_injection_points:
+            - location: message
+              role: system
+      - model_name: "google/gemini-2.5-pro"
+        litellm_params:
+          model: "gemini/gemini-2.5-pro"
+          api_key: "os.environ/GEMINI_API_KEY"
+          cache_control_injection_points:
+            - location: message
+              role: system
     general_settings:
       master_key: "os.environ/LITELLM_MASTER_KEY"
     litellm_settings:
