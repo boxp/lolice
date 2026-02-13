@@ -77,6 +77,43 @@ spec:
               subPath: ghq
             - name: data
               mountPath: /home/node/.openclaw
+        # Clone/update Obsidian Vault for boxp-obsidian-search skill
+        - name: init-obsidian-vault
+          image: ghcr.io/boxp/arch/openclaw:202602130742
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              VAULT_DIR=/home/node/ghq/github.com/boxp/obsidian-vault
+
+              # Configure git credential for private repo
+              git config --global credential.helper store
+              echo "https://boxp:${GITHUB_TOKEN}@github.com" > /home/node/.git-credentials
+              chmod 600 /home/node/.git-credentials
+
+              if [ -d "$VAULT_DIR/.git" ]; then
+                cd "$VAULT_DIR" && git pull origin main || true
+              else
+                mkdir -p "$(dirname "$VAULT_DIR")"
+                git clone https://github.com/boxp/obsidian-vault.git "$VAULT_DIR"
+              fi
+          env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: GITHUB_TOKEN
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: data
+              mountPath: /home/node/ghq
+              subPath: ghq
+            - name: data
+              mountPath: /home/node/.openclaw
       containers:
         - name: openclaw
           image: ghcr.io/boxp/arch/openclaw:202602130742
@@ -140,6 +177,8 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: XAI_API_KEY
+            - name: OBSIDIAN_VAULT_PATH
+              value: "/home/node/ghq/github.com/boxp/obsidian-vault"
             - name: PATH
               value: "/shared-bin:/shared-npm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: DOCKER_HOST
