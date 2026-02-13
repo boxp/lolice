@@ -84,7 +84,18 @@ spec:
           args:
             - |
               DOTFILES_DIR=/home/node/ghq/github.com/boxp/dotfiles
-              ln -sfn "$DOTFILES_DIR/.claude" /home/node/.claude
+              # Symlink individual dotfiles into .claude instead of replacing
+              # the entire directory, to preserve Dockerfile's config.json
+              # and settings.json (trustedWorkspaces, allowedCommands).
+              CLAUDE_DIR=/home/node/.claude
+              if [ -d "$DOTFILES_DIR/.claude" ]; then
+                for item in "$DOTFILES_DIR/.claude"/* "$DOTFILES_DIR/.claude"/.*; do
+                  name="$(basename "$item")"
+                  case "$name" in .|..|config.json|settings.json) continue ;; esac
+                  [ -e "$item" ] || continue
+                  ln -sfn "$item" "$CLAUDE_DIR/$name"
+                done
+              fi
               exec node dist/index.js gateway --bind lan --port 18789
           ports:
             - containerPort: 18789
