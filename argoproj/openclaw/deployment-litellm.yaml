@@ -44,6 +44,11 @@ spec:
                 secretKeyRef:
                   name: litellm-credentials
                   key: ZAI_API_KEY
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm-credentials
+                  key: GEMINI_API_KEY
           resources:
             requests:
               cpu: 100m

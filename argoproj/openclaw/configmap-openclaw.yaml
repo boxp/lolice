@@ -44,6 +44,22 @@ data:
                 "input": ["text"],
                 "contextWindow": 128000,
                 "maxTokens": 4096
+              },
+              {
+                "id": "google/gemini-2.5-flash",
+                "name": "Gemini 2.5 Flash",
+                "reasoning": true,
+                "input": ["text", "image"],
+                "contextWindow": 1048576,
+                "maxTokens": 65536
+              },
+              {
+                "id": "google/gemini-2.5-pro",
+                "name": "Gemini 2.5 Pro",
+                "reasoning": true,
+                "input": ["text", "image"],
+                "contextWindow": 1048576,
+                "maxTokens": 65536
               }
             ]
           }
@@ -67,6 +83,12 @@ data:
             },
             "litellm/zai/glm-4.5-flash": {
               "alias": "glm4-flash"
+            },
+            "litellm/google/gemini-2.5-flash": {
+              "alias": "flash"
+            },
+            "litellm/google/gemini-2.5-pro": {
+              "alias": "gemini-pro"
             }
           },
           "heartbeat": {
