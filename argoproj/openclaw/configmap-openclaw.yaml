@@ -84,7 +84,7 @@ data:
       "agents": {
         "defaults": {
           "model": {
-            "primary": "litellm/anthropic/claude-sonnet-4-5-20250929",
+            "primary": "litellm/google/gemini-2.5-pro",
             "fallbacks": ["litellm/anthropic/claude-sonnet-4-5-20250929", "litellm/zai/glm-4.7", "litellm/zai/glm-4.5-flash"]
           },
           "models": {
