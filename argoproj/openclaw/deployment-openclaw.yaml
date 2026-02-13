@@ -140,6 +140,8 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: XAI_API_KEY
+            - name: OBSIDIAN_VAULT_PATH
+              value: "/home/node/ghq/github.com/boxp/obsidian-vault"
             - name: PATH
               value: "/shared-bin:/shared-npm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             - name: DOCKER_HOST
