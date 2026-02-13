@@ -4,7 +4,10 @@ metadata:
   name: openclaw
   namespace: openclaw
   annotations:
-    configmap.reloader.stakater.com/reload: "openclaw-config"
+    # Reloader disabled: config-manager-sidecar detects ConfigMap changes
+    # and copies to PVC. openclaw's chokidar auto-detects file changes
+    # and hot-reloads without pod restart.
+    reloader.stakater.com/auto: "false"
   labels:
     app.kubernetes.io/name: openclaw
     app.kubernetes.io/component: gateway
@@ -77,6 +80,31 @@ spec:
               subPath: ghq
             - name: data
               mountPath: /home/node/.openclaw
+        # Stage cron job definitions from ConfigMap to PVC
+        - name: init-cron-config
+          image: ghcr.io/boxp/arch/openclaw:202602130742
+          command: ["sh", "-c"]
+          args:
+            - |
+              echo "=== Staging cron job config from ConfigMap ==="
+              mkdir -p /home/node/.openclaw/cron-config
+              if [ -f /cron-config/cron-jobs.json ]; then
+                cp /cron-config/cron-jobs.json /home/node/.openclaw/cron-config/cron-jobs.json
+                echo "=== Cron config staged successfully ==="
+              else
+                echo "=== No cron config found, skipping ==="
+              fi
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: cron-config
+              mountPath: /cron-config
+              readOnly: true
+            - name: data
+              mountPath: /home/node/.openclaw
       containers:
         - name: openclaw
           image: ghcr.io/boxp/arch/openclaw:202602130742
@@ -96,6 +124,22 @@ spec:
                   ln -sfn "$item" "$CLAUDE_DIR/$name"
                 done
               fi
+
+              # === Register cron jobs from staged config at startup ===
+              CRON_CONFIG="/home/node/.openclaw/cron-config/cron-jobs.json"
+              if [ -f "$CRON_CONFIG" ] && command -v jq >/dev/null 2>&1; then
+                echo "=== Registering cron jobs from staged config ==="
+                jq -c '.[]' "$CRON_CONFIG" | while read -r job; do
+                  JOB_NAME=$(echo "$job" | jq -r '.name')
+                  echo "$job" > "/tmp/cron-job-${JOB_NAME}.json"
+                  openclaw cron add "/tmp/cron-job-${JOB_NAME}.json" 2>/dev/null || \
+                    openclaw cron update "/tmp/cron-job-${JOB_NAME}.json" 2>/dev/null || \
+                    echo "Warning: Failed to register cron job: ${JOB_NAME}"
+                  rm -f "/tmp/cron-job-${JOB_NAME}.json"
+                done
+                echo "=== Cron job registration complete ==="
+              fi
+
               exec node dist/index.js gateway --bind lan --port 18789
           ports:
             - containerPort: 18789
@@ -176,6 +220,143 @@ spec:
             - name: data
               mountPath: /home/node/ghq
               subPath: ghq
+        # config-manager-sidecar: dynamically applies config changes without restart.
+        # Main config: copies to PVC; openclaw's chokidar auto-detects and hot-reloads.
+        # Cron jobs: syncs via openclaw cron commands.
+        - name: config-manager-sidecar
+          image: ghcr.io/boxp/arch/openclaw:202602130742
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+
+              CONFIG_DIR="/etc/openclaw/config.d"
+              CRON_DIR="/etc/openclaw/cron.d"
+              PVC_CONFIG="/home/node/.openclaw/openclaw.json"
+              STAGING_DIR="/home/node/.openclaw/cron-config"
+              CHECKSUM_DIR="/tmp/checksums"
+              POLL_INTERVAL=60
+
+              mkdir -p "$CHECKSUM_DIR" "$STAGING_DIR"
+
+              log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [config-manager] $*"; }
+
+              compute_checksum() {
+                if [ -f "$1" ]; then md5sum "$1" | awk '{print $1}'; else echo "none"; fi
+              }
+
+              # --- Main config update ---
+              # Just copy to PVC. openclaw's chokidar auto-detects and hot-reloads.
+              handle_config_change() {
+                log "Config change detected"
+                cp "$CONFIG_DIR/openclaw.json" "$PVC_CONFIG"
+                log "Config copied to PVC (openclaw will auto-detect via chokidar)"
+              }
+
+              # --- Cron job sync ---
+              handle_cron_change() {
+                log "Cron config change detected"
+                local CRON_CONFIG="$CRON_DIR/cron-jobs.json"
+                [ -f "$CRON_CONFIG" ] || return
+
+                cp "$CRON_CONFIG" "$STAGING_DIR/cron-jobs.json"
+
+                if ! command -v jq >/dev/null 2>&1; then
+                  log "WARNING: jq not available"
+                  return
+                fi
+
+                DESIRED_JOBS=$(jq -r '.[].name' "$CRON_CONFIG")
+                CURRENT_JOBS=$(openclaw cron list --format json 2>/dev/null | jq -r '.[].name' 2>/dev/null || echo "")
+
+                echo "$DESIRED_JOBS" | while IFS= read -r JOB_NAME; do
+                  [ -z "$JOB_NAME" ] && continue
+                  JOB_DEF=$(jq -c ".[] | select(.name == \"$JOB_NAME\")" "$CRON_CONFIG")
+                  echo "$JOB_DEF" > "/tmp/cron-job-${JOB_NAME}.json"
+                  if echo "$CURRENT_JOBS" | grep -qx "$JOB_NAME"; then
+                    log "Updating cron job: $JOB_NAME"
+                    openclaw cron update "/tmp/cron-job-${JOB_NAME}.json" 2>/dev/null || \
+                      log "WARNING: Failed to update cron job: $JOB_NAME"
+                  else
+                    log "Adding cron job: $JOB_NAME"
+                    openclaw cron add "/tmp/cron-job-${JOB_NAME}.json" 2>/dev/null || \
+                      log "WARNING: Failed to add cron job: $JOB_NAME"
+                  fi
+                  rm -f "/tmp/cron-job-${JOB_NAME}.json"
+                done
+
+                if [ -n "$CURRENT_JOBS" ]; then
+                  echo "$CURRENT_JOBS" | while IFS= read -r JOB_NAME; do
+                    [ -z "$JOB_NAME" ] && continue
+                    if ! echo "$DESIRED_JOBS" | grep -qx "$JOB_NAME"; then
+                      log "Removing cron job: $JOB_NAME"
+                      openclaw cron remove "$JOB_NAME" 2>/dev/null || \
+                        log "WARNING: Failed to remove cron job: $JOB_NAME"
+                    fi
+                  done
+                fi
+
+                log "Cron sync complete"
+              }
+
+              # --- Main loop ---
+              log "Starting config-manager-sidecar"
+
+              WAIT=0
+              while [ $WAIT -lt 60 ]; do
+                pgrep -f "node dist/index.js gateway" >/dev/null 2>&1 && break
+                sleep 5
+                WAIT=$((WAIT + 1))
+              done
+
+              compute_checksum "$CONFIG_DIR/openclaw.json" > "$CHECKSUM_DIR/config"
+              compute_checksum "$CRON_DIR/cron-jobs.json" > "$CHECKSUM_DIR/cron"
+
+              # Initial cron job sync
+              handle_cron_change
+
+              while true; do
+                sleep "$POLL_INTERVAL"
+
+                NEW=$(compute_checksum "$CONFIG_DIR/openclaw.json")
+                OLD=$(cat "$CHECKSUM_DIR/config" 2>/dev/null || echo "")
+                if [ "$NEW" != "$OLD" ]; then
+                  handle_config_change
+                  echo "$NEW" > "$CHECKSUM_DIR/config"
+                fi
+
+                NEW=$(compute_checksum "$CRON_DIR/cron-jobs.json")
+                OLD=$(cat "$CHECKSUM_DIR/cron" 2>/dev/null || echo "")
+                if [ "$NEW" != "$OLD" ]; then
+                  handle_cron_change
+                  echo "$NEW" > "$CHECKSUM_DIR/cron"
+                fi
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: false
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: openclaw-config
+              mountPath: /etc/openclaw/config.d
+              readOnly: true
+            - name: cron-config
+              mountPath: /etc/openclaw/cron.d
+              readOnly: true
+            - name: data
+              mountPath: /home/node/.openclaw
         # Docker-in-Docker sidecar for sandbox mode
         # WARNING: privileged: true is required for DinD but carries container escape risk.
         # Mitigations: NetworkPolicy blocks RFC1918, automountServiceAccountToken: false,
@@ -207,6 +388,9 @@ spec:
         - name: openclaw-config
           configMap:
             name: openclaw-config
+        - name: cron-config
+          configMap:
+            name: openclaw-cron-jobs
         - name: data
           persistentVolumeClaim:
             claimName: openclaw-data

@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openclaw-cron-jobs
+  namespace: openclaw
+  labels:
+    app.kubernetes.io/name: openclaw
+    app.kubernetes.io/component: cron
+    app.kubernetes.io/managed-by: argocd
+data:
+  cron-jobs.json: |
+    [
+      {
+        "name": "obsidian-vault-sync",
+        "description": "Sync Obsidian Vault every 15 minutes",
+        "schedule": "*/15 * * * *",
+        "command": "/bin/bash -c 'set -e; cd /home/node/ghq/github.com/boxp/obsidian-vault && git pull origin main'",
+        "timeout": 300
+      }
+    ]
