@@ -186,10 +186,14 @@ spec:
               while true; do
                 CURRENT_HASH=$(md5sum /config/openclaw.json 2>/dev/null | cut -d' ' -f1)
                 if [ -n "$CURRENT_HASH" ] && [ "$CURRENT_HASH" != "$LAST_HASH" ]; then
-                  cp /config/openclaw.json /home/node/.openclaw/openclaw.json.tmp && \
-                    mv /home/node/.openclaw/openclaw.json.tmp /home/node/.openclaw/openclaw.json
-                  echo "$(date -Iseconds) config synced (hash=$CURRENT_HASH)"
-                  LAST_HASH="$CURRENT_HASH"
+                  if cp /config/openclaw.json /home/node/.openclaw/openclaw.json.tmp && \
+                     mv /home/node/.openclaw/openclaw.json.tmp /home/node/.openclaw/openclaw.json; then
+                    echo "$(date -Iseconds) config synced (hash=$CURRENT_HASH)"
+                    LAST_HASH="$CURRENT_HASH"
+                  else
+                    echo "$(date -Iseconds) config sync failed, will retry"
+                    rm -f /home/node/.openclaw/openclaw.json.tmp
+                  fi
                 fi
                 sleep 60
               done
