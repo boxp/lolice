@@ -3,8 +3,6 @@ kind: Deployment
 metadata:
   name: openclaw
   namespace: openclaw
-  annotations:
-    configmap.reloader.stakater.com/reload: "openclaw-config"
   labels:
     app.kubernetes.io/name: openclaw
     app.kubernetes.io/component: gateway
@@ -176,6 +174,50 @@ spec:
             - name: data
               mountPath: /home/node/ghq
               subPath: ghq
+        # Config manager sidecar: periodically syncs ConfigMap to PVC
+        # so that OpenClaw's chokidar file watcher detects changes and
+        # hot-reloads configuration without Pod restart.
+        - name: config-manager
+          image: ghcr.io/boxp/arch/openclaw:202602131335
+          command: ["sh", "-c"]
+          args:
+            - |
+              LAST_HASH=$(md5sum /home/node/.openclaw/openclaw.json 2>/dev/null | cut -d' ' -f1)
+              while true; do
+                CURRENT_HASH=$(md5sum /config/openclaw.json 2>/dev/null | cut -d' ' -f1)
+                if [ -n "$CURRENT_HASH" ] && [ "$CURRENT_HASH" != "$LAST_HASH" ]; then
+                  if cp /config/openclaw.json /home/node/.openclaw/openclaw.json.tmp && \
+                     mv /home/node/.openclaw/openclaw.json.tmp /home/node/.openclaw/openclaw.json; then
+                    echo "$(date -Iseconds) config synced (hash=$CURRENT_HASH)"
+                    LAST_HASH="$CURRENT_HASH"
+                  else
+                    echo "$(date -Iseconds) config sync failed, will retry"
+                    rm -f /home/node/.openclaw/openclaw.json.tmp
+                  fi
+                fi
+                sleep 60
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: openclaw-config
+              mountPath: /config
+              readOnly: true
+            - name: data
+              mountPath: /home/node/.openclaw
         # Docker-in-Docker sidecar for sandbox mode
         # WARNING: privileged: true is required for DinD but carries container escape risk.
         # Mitigations: NetworkPolicy blocks RFC1918, automountServiceAccountToken: false,
