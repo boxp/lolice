@@ -37,6 +37,7 @@ spec:
             - |
               mkdir -p /home/node/.openclaw
               cp /config/openclaw.json /home/node/.openclaw/openclaw.json
+              mkdir -p /home/node/.codex
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
@@ -51,6 +52,9 @@ spec:
             - name: data
               mountPath: /home/node/ghq
               subPath: ghq
+            - name: data
+              mountPath: /home/node/.codex
+              subPath: codex
         # Clone/update dotfiles and create symlink for .claude config
         - name: init-dotfiles
           image: ghcr.io/boxp/arch/openclaw:202602131335
@@ -174,6 +178,9 @@ spec:
             - name: data
               mountPath: /home/node/ghq
               subPath: ghq
+            - name: data
+              mountPath: /home/node/.codex
+              subPath: codex
         # Config manager sidecar: periodically syncs ConfigMap to PVC
         # so that OpenClaw's chokidar file watcher detects changes and
         # hot-reloads configuration without Pod restart.
