@@ -142,6 +142,13 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: XAI_API_KEY
+            - name: GRAFANA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: GRAFANA_API_KEY
+            - name: GRAFANA_URL
+              value: "http://grafana.monitoring.svc.cluster.local:3000"
             - name: OBSIDIAN_VAULT_PATH
               value: "/home/node/ghq/github.com/boxp/obsidian-vault"
             - name: PATH

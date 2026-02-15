@@ -16,6 +16,12 @@ spec:
               app: cloudflared
         - ipBlock:
             cidr: 192.168.10.0/24
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openclaw
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: openclaw
       ports:
         - port: 3000
           protocol: TCP

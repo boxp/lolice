@@ -53,6 +53,17 @@ spec:
       ports:
         - protocol: TCP
           port: 9090
+    # Grafana API (monitoring namespace) for metrics context
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - protocol: TCP
+          port: 3000
     # External HTTP/HTTPS (Discord API, Web, GitHub, apt repos)
     # Block RFC1918 + link-local to prevent cluster-internal access
     - to:
