@@ -230,7 +230,7 @@ spec:
         # Mitigations: NetworkPolicy blocks RFC1918, automountServiceAccountToken: false,
         # consider dedicated node with taint/toleration for blast radius limitation.
         - name: dind
-          image: docker:27-dind
+          image: docker:29-dind
           securityContext:
             privileged: true
           env:
