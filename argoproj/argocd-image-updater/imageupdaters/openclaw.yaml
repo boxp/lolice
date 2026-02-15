@@ -1,0 +1,23 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: openclaw
+  namespace: argocd
+spec:
+  namespace: argocd
+  applicationRefs:
+    - namePattern: "openclaw"
+      images:
+        - alias: "openclaw"
+          imageName: "ghcr.io/boxp/arch/openclaw:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            allowTags:
+              - matchRegex: "^\\d{12}$"
+          manifestTargets:
+            kustomize:
+              name: "ghcr.io/boxp/arch/openclaw"
+  writeBackConfig:
+    method: "git:secret:argocd/repo-lolice"
+    gitConfig:
+      branch: "main"
