@@ -1,0 +1,1076 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-openclaw
+  namespace: monitoring
+data:
+  openclaw.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+            "enable": true,
+            "expr": "increase(container_oom_events_total{namespace=\"openclaw\"}[1m]) > 0",
+            "iconColor": "red",
+            "name": "OOM Events",
+            "step": "60s",
+            "titleFormat": "OOM Event"
+          }
+        ]
+      },
+      "description": "OpenClaw container monitoring for Signal 9 (SIGKILL) investigation. Tracks memory pressure, OOM kills, CPU throttling, and container lifecycle events.",
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+          "id": 100,
+          "title": "Overview",
+          "type": "row"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [],
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 70},
+                  {"color": "orange", "value": 85},
+                  {"color": "red", "value": 95}
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 5, "w": 6, "x": 0, "y": 1},
+          "id": 1,
+          "options": {
+            "minVizHeight": 75,
+            "minVizWidth": 75,
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "sizing": "auto"
+          },
+          "title": "Memory Usage % (openclaw)",
+          "type": "gauge",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_working_set_bytes{namespace=\"openclaw\", container=\"openclaw\"}) / max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"openclaw\", resource=\"memory\"}) * 100",
+              "legendFormat": "Memory %",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [],
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 70},
+                  {"color": "orange", "value": 85},
+                  {"color": "red", "value": 95}
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 5, "w": 6, "x": 6, "y": 1},
+          "id": 2,
+          "options": {
+            "minVizHeight": 75,
+            "minVizWidth": 75,
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "sizing": "auto"
+          },
+          "title": "CPU Usage % (openclaw)",
+          "type": "gauge",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(rate(container_cpu_usage_seconds_total{namespace=\"openclaw\", container=\"openclaw\"}[5m])) / max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"openclaw\", resource=\"cpu\"}) * 100",
+              "legendFormat": "CPU %",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "red", "value": 1}
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 5, "w": 6, "x": 12, "y": 1},
+          "id": 3,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "title": "OOM Kill Events (24h)",
+          "type": "stat",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "sum(increase(container_oom_events_total{namespace=\"openclaw\"}[24h])) or vector(0)",
+              "legendFormat": "OOM Events",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "yellow", "value": 3},
+                  {"color": "red", "value": 10}
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 5, "w": 6, "x": 18, "y": 1},
+          "id": 4,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "title": "Container Restarts",
+          "type": "stat",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(kube_pod_container_status_restarts_total{namespace=\"openclaw\", container=\"openclaw\"}) or vector(0)",
+              "legendFormat": "Restarts",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 6},
+          "id": 101,
+          "title": "Memory Analysis (openclaw container)",
+          "type": "row"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "unit": "bytes"
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "Limit"},
+                "properties": [
+                  {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}},
+                  {"id": "custom.lineStyle", "value": {"dash": [10, 10], "fill": "dash"}},
+                  {"id": "custom.fillOpacity", "value": 0},
+                  {"id": "custom.lineWidth", "value": 2}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Working Set"},
+                "properties": [
+                  {"id": "color", "value": {"fixedColor": "blue", "mode": "fixed"}},
+                  {"id": "custom.fillOpacity", "value": 20}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "RSS"},
+                "properties": [
+                  {"id": "color", "value": {"fixedColor": "green", "mode": "fixed"}}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Cache"},
+                "properties": [
+                  {"id": "color", "value": {"fixedColor": "yellow", "mode": "fixed"}}
+                ]
+              }
+            ]
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 7},
+          "id": 5,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "Memory Usage",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_working_set_bytes{namespace=\"openclaw\", container=\"openclaw\"})",
+              "legendFormat": "Working Set",
+              "refId": "A"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_rss{namespace=\"openclaw\", container=\"openclaw\"})",
+              "legendFormat": "RSS",
+              "refId": "B"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_cache{namespace=\"openclaw\", container=\"openclaw\"})",
+              "legendFormat": "Cache",
+              "refId": "C"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"openclaw\", resource=\"memory\"})",
+              "legendFormat": "Limit",
+              "refId": "D"
+            }
+          ]
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "line+area"}
+              },
+              "mappings": [],
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "transparent", "value": null},
+                  {"color": "red", "value": 95}
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 7},
+          "id": 6,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "Memory Usage % of Limit",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_working_set_bytes{namespace=\"openclaw\", container=\"openclaw\"}) / max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"openclaw\", resource=\"memory\"}) * 100",
+              "legendFormat": "Working Set %",
+              "refId": "A"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_rss{namespace=\"openclaw\", container=\"openclaw\"}) / max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"openclaw\", resource=\"memory\"}) * 100",
+              "legendFormat": "RSS %",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 15},
+          "id": 102,
+          "title": "Memory Pressure Indicators",
+          "type": "row"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "id": 7,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "Memory Fail Count (Limit Hit)",
+          "description": "Number of times the memory cgroup limit was reached. High values indicate the container is frequently hitting its memory limit, which can trigger OOM kills.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_failcnt{namespace=\"openclaw\", container=\"openclaw\"})",
+              "legendFormat": "openclaw",
+              "refId": "A"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_failcnt{namespace=\"openclaw\", container=\"dind\"})",
+              "legendFormat": "dind",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "unit": "bytes"
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byRegexp", "options": ".*Limit.*"},
+                "properties": [
+                  {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}},
+                  {"id": "custom.lineStyle", "value": {"dash": [10, 10], "fill": "dash"}},
+                  {"id": "custom.fillOpacity", "value": 0},
+                  {"id": "custom.lineWidth", "value": 2}
+                ]
+              }
+            ]
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "id": 8,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "Max Memory Usage (Peak) vs Limit",
+          "description": "Maximum memory usage recorded by the container runtime. Shows how close the container has come to its limit at peak.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_max_usage_bytes{namespace=\"openclaw\", container=\"openclaw\"})",
+              "legendFormat": "openclaw Max",
+              "refId": "A"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"openclaw\", resource=\"memory\"})",
+              "legendFormat": "openclaw Limit",
+              "refId": "B"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_max_usage_bytes{namespace=\"openclaw\", container=\"dind\"})",
+              "legendFormat": "dind Max",
+              "refId": "C"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"dind\", resource=\"memory\"})",
+              "legendFormat": "dind Limit",
+              "refId": "D"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 24},
+          "id": 103,
+          "title": "Pod Memory (All Containers)",
+          "type": "row"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 30,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "normal"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 25},
+          "id": 9,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "Per-Container Memory (Stacked)",
+          "description": "Memory working set per container in the openclaw pod, stacked to show total pod memory consumption.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "container_memory_working_set_bytes{namespace=\"openclaw\", pod=~\"openclaw-.*\", container!=\"\", container!=\"POD\"}",
+              "legendFormat": "{{container}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 25},
+          "id": 10,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "Memory Swap Usage",
+          "description": "Swap memory usage per container. High swap usage can indicate memory pressure.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "container_memory_swap{namespace=\"openclaw\", pod=~\"openclaw-.*\", container!=\"\", container!=\"POD\"}",
+              "legendFormat": "{{container}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 33},
+          "id": 104,
+          "title": "CPU Analysis",
+          "type": "row"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byRegexp", "options": ".*Limit.*"},
+                "properties": [
+                  {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}},
+                  {"id": "custom.lineStyle", "value": {"dash": [10, 10], "fill": "dash"}},
+                  {"id": "custom.fillOpacity", "value": 0},
+                  {"id": "custom.lineWidth", "value": 2}
+                ]
+              }
+            ]
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 34},
+          "id": 11,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "CPU Usage vs Limit (cores)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "rate(container_cpu_usage_seconds_total{namespace=\"openclaw\", container=\"openclaw\"}[5m])",
+              "legendFormat": "openclaw Usage",
+              "refId": "A"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"openclaw\", resource=\"cpu\"})",
+              "legendFormat": "openclaw Limit",
+              "refId": "B"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "rate(container_cpu_usage_seconds_total{namespace=\"openclaw\", container=\"dind\"}[5m])",
+              "legendFormat": "dind Usage",
+              "refId": "C"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"dind\", resource=\"cpu\"})",
+              "legendFormat": "dind Limit",
+              "refId": "D"
+            }
+          ]
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 20,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "line+area"}
+              },
+              "mappings": [],
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "transparent", "value": null},
+                  {"color": "red", "value": 80}
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 34},
+          "id": 12,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max", "mean"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "CPU Throttling Rate %",
+          "description": "Percentage of CPU periods that were throttled. High throttling can cause process slowdowns and timeouts.",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "rate(container_cpu_cfs_throttled_periods_total{namespace=\"openclaw\", container=\"openclaw\"}[5m]) / rate(container_cpu_cfs_periods_total{namespace=\"openclaw\", container=\"openclaw\"}[5m]) * 100",
+              "legendFormat": "openclaw",
+              "refId": "A"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "rate(container_cpu_cfs_throttled_periods_total{namespace=\"openclaw\", container=\"dind\"}[5m]) / rate(container_cpu_cfs_periods_total{namespace=\"openclaw\", container=\"dind\"}[5m]) * 100",
+              "legendFormat": "dind",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 42},
+          "id": 105,
+          "title": "Container Lifecycle",
+          "type": "row"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "bars",
+                "fillOpacity": 50,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 43},
+          "id": 13,
+          "options": {
+            "legend": {"calcs": ["sum"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "Container Restarts Over Time",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "increase(kube_pod_container_status_restarts_total{namespace=\"openclaw\", pod=~\"openclaw-.*\"}[1h])",
+              "legendFormat": "{{container}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "thresholds"},
+              "custom": {
+                "align": "auto",
+                "cellOptions": {"type": "auto"},
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null}
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "reason"},
+                "properties": [
+                  {"id": "custom.width", "value": 150}
+                ]
+              },
+              {
+                "matcher": {"id": "byName", "options": "Value"},
+                "properties": [
+                  {"id": "custom.hidden", "value": true}
+                ]
+              }
+            ]
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 43},
+          "id": 14,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {"countRows": false, "fields": "", "reducer": ["sum"], "show": false},
+            "showHeader": true,
+            "sortBy": [{"desc": true, "displayName": "Value"}]
+          },
+          "title": "Last Terminated Reason",
+          "description": "Shows why each container was last terminated. 'OOMKilled' indicates the container was killed due to exceeding memory limits.",
+          "type": "table",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "kube_pod_container_status_last_terminated_reason{namespace=\"openclaw\", pod=~\"openclaw-.*\"} > 0",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {"Time": true, "__name__": true, "endpoint": true, "instance": true, "job": true, "namespace": true, "prometheus": true, "service": true, "uid": true},
+                "indexByName": {},
+                "renameByName": {}
+              }
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 51},
+          "id": 106,
+          "title": "DinD Sidecar",
+          "type": "row"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "unit": "bytes"
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "Limit"},
+                "properties": [
+                  {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}},
+                  {"id": "custom.lineStyle", "value": {"dash": [10, 10], "fill": "dash"}},
+                  {"id": "custom.fillOpacity", "value": 0},
+                  {"id": "custom.lineWidth", "value": 2}
+                ]
+              }
+            ]
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 52},
+          "id": 15,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "DinD Memory Usage vs Limit",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_working_set_bytes{namespace=\"openclaw\", container=\"dind\"})",
+              "legendFormat": "Working Set",
+              "refId": "A"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(container_memory_rss{namespace=\"openclaw\", container=\"dind\"})",
+              "legendFormat": "RSS",
+              "refId": "B"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"dind\", resource=\"memory\"})",
+              "legendFormat": "Limit",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+          "fieldConfig": {
+            "defaults": {
+              "color": {"mode": "palette-classic"},
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {"type": "linear"},
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {"group": "A", "mode": "none"},
+                "thresholdsStyle": {"mode": "off"}
+              },
+              "mappings": [],
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {"id": "byName", "options": "Limit"},
+                "properties": [
+                  {"id": "color", "value": {"fixedColor": "red", "mode": "fixed"}},
+                  {"id": "custom.lineStyle", "value": {"dash": [10, 10], "fill": "dash"}},
+                  {"id": "custom.fillOpacity", "value": 0},
+                  {"id": "custom.lineWidth", "value": 2}
+                ]
+              }
+            ]
+          },
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 52},
+          "id": 16,
+          "options": {
+            "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom"},
+            "tooltip": {"mode": "multi", "sort": "desc"}
+          },
+          "title": "DinD CPU Usage vs Limit (cores)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "rate(container_cpu_usage_seconds_total{namespace=\"openclaw\", container=\"dind\"}[5m])",
+              "legendFormat": "Usage",
+              "refId": "A"
+            },
+            {
+              "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+              "expr": "max(kube_pod_container_resource_limits{namespace=\"openclaw\", container=\"dind\", resource=\"cpu\"})",
+              "legendFormat": "Limit",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": {"h": 1, "w": 24, "x": 0, "y": 60},
+          "id": 107,
+          "title": "Logs (OOM/Kill Related)",
+          "type": "row"
+        },
+        {
+          "datasource": {"type": "loki", "uid": "${DS_LOKI}"},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 61},
+          "id": 17,
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "prettifyLogMessage": false,
+            "showCommonLabels": false,
+            "showLabels": false,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          },
+          "title": "OOM / Kill / Signal Related Logs",
+          "description": "Logs from the openclaw namespace filtered for OOM, kill, and signal-related messages.",
+          "type": "logs",
+          "targets": [
+            {
+              "datasource": {"type": "loki", "uid": "${DS_LOKI}"},
+              "expr": "{namespace=\"openclaw\"} |~ \"(?i)(oom|kill|signal|sigkill|sig.?9|out.of.memory|memory.pressure|cgroup|terminated|exit.code)\"",
+              "legendFormat": "",
+              "refId": "A"
+            }
+          ]
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["openclaw", "signal9", "oom"],
+      "templating": {
+        "list": [
+          {
+            "current": {"selected": false, "text": "prometheus", "value": "P1809F7CD0C75ACF3"},
+            "hide": 0,
+            "includeAll": false,
+            "multi": false,
+            "name": "DS_PROMETHEUS",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "type": "datasource"
+          },
+          {
+            "current": {"selected": false, "text": "Loki", "value": "P8E80F9AEF21F6940"},
+            "hide": 0,
+            "includeAll": false,
+            "multi": false,
+            "name": "DS_LOKI",
+            "options": [],
+            "query": "loki",
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "type": "datasource"
+          }
+        ]
+      },
+      "time": {"from": "now-6h", "to": "now"},
+      "timepicker": {},
+      "timezone": "JST",
+      "title": "OpenClaw Container Monitoring",
+      "uid": "openclaw-container-monitoring",
+      "version": 1
+    }

@@ -15,7 +15,14 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - mountPath: /grafana-dashboard-definitions/0/openclaw
+              name: grafana-dashboard-openclaw
+              readOnly: false
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
             claimName: grafana-pvc
+        - name: grafana-dashboard-openclaw
+          configMap:
+            name: grafana-dashboard-openclaw
