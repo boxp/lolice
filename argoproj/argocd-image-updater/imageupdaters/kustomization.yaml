@@ -6,3 +6,4 @@ resources:
   - palserver.yaml
   - ark-survival-ascended.yaml
   - ark-discord-bot.yaml
+  - openclaw.yaml
