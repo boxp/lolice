@@ -12,7 +12,7 @@ spec:
           imageName: "ghcr.io/boxp/arch/openclaw:latest"
           commonUpdateSettings:
             updateStrategy: "newest-build"
-            allowTags: "^\\d{12}$"
+            allowTags: "regexp:^\\d{12}$"
           manifestTargets:
             kustomize:
               name: "ghcr.io/boxp/arch/openclaw"
