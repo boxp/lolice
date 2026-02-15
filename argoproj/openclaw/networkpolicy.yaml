@@ -42,6 +42,17 @@ spec:
       ports:
         - protocol: TCP
           port: 4000
+    # Prometheus OTLP receiver (monitoring namespace)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
     # External HTTP/HTTPS (Discord API, Web, GitHub, apt repos)
     # Block RFC1918 + link-local to prevent cluster-internal access
     - to:

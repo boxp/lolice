@@ -140,6 +140,19 @@ data:
           }
         }
       },
+      "diagnostics": {
+        "enabled": true,
+        "otel": {
+          "enabled": true,
+          "endpoint": "http://prometheus-k8s.monitoring.svc:9090/api/v1/otlp",
+          "protocol": "http/protobuf",
+          "serviceName": "openclaw",
+          "traces": false,
+          "metrics": true,
+          "logs": false,
+          "flushIntervalMs": 30000
+        }
+      },
       "gateway": {
         "mode": "local",
         "bind": "lan",
