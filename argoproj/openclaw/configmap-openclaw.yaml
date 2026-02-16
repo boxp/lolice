@@ -118,9 +118,6 @@ data:
             "openai-codex/gpt-5.3-codex": {
               "alias": "codex"
             },
-            "openai-codex/gpt-5.3-codex-spark": {
-              "alias": "spark"
-            },
             "litellm/openai/gpt-5-mini": {
               "alias": "gpt5-mini"
             },
