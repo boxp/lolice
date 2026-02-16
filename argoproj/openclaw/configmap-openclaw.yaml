@@ -85,7 +85,7 @@ data:
         "defaults": {
           "model": {
             "primary": "openai-codex/gpt-5.3",
-            "fallbacks": ["openai-codex/gpt-5.3-codex-spark", "openai-codex/gpt-5.3-codex", "litellm/google/gemini-2.5-flash", "openai-codex/gpt-4o-mini", "openai-codex/o4-mini"]
+            "fallbacks": ["openai-codex/gpt-5.3-codex", "litellm/google/gemini-2.5-flash", "openai-codex/gpt-4o-mini", "openai-codex/o4-mini"]
           },
           "models": {
             "litellm/anthropic/claude-sonnet-4-5-20250929": {
