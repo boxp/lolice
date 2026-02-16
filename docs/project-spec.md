@@ -67,7 +67,7 @@ lolice/
 │   └── workflows/            # CI/CD パイプライン設定
 │       ├── argocd-diff.yaml  # ArgoCD diff 用ワークフロー
 │       └── ...
-├── doc/                      # プロジェクトドキュメント
+├── docs/                     # プロジェクトドキュメント
 │   └── project-spec.md       # プロジェクト仕様書
 ├── argoproj/                 # Argo CD アプリケーション定義
 │   ├── argocd/               # Argo CD 自体の設定
