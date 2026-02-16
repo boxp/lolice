@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: hitohub-back-end
 spec:
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app: hitohub-back-end
