@@ -35,10 +35,10 @@ loliceプロジェクトは、オンプレミスのKubernetesクラスタを管�
 │   ├── reloader/            # Reloaderのマニフェスト
 │   └── tidb-operator/       # TiDB Operatorのマニフェスト
 ├── cluster.jpg              # クラスタの構成図
-├── doc/                     # ドキュメントディレクトリ
+├── docs/                    # ドキュメントディレクトリ
 │   ├── project-spec.md      # プロジェクト仕様書
 │   ├── project-structure.md # プロジェクト構造の説明（本ファイル）
-│   └── project_doc/         # プロジェクト関連ドキュメント
+│   └── project_docs/        # プロジェクト関連ドキュメント
 │       └── add-k8s-manifest-validate-action/
 ├── k8s/                     # Kubernetesマニフェストディレクトリ
 │   └── calico/              # Calicoネットワークプラグインの設定
@@ -54,8 +54,8 @@ GitHub Actions ワークフロー (`workflows/`) や Dependabot (`dependabot.yml
 ### argoproj/
 ArgoCDを使用したGitOpsのためのマニフェストファイルが格納されています。各サブディレクトリには、ArgoCD自身、Calico、Prometheusなど、異なるアプリケーションやサービスのマニフェストファイルが含まれています。
 
-### doc/
-プロジェクトに関するドキュメントが格納されています。プロジェクト構造 (`project-structure.md`)、プロジェクト仕様 (`project-spec.md`)、その他のドキュメント (`project_doc/`) が含まれています。
+### docs/
+プロジェクトに関するドキュメントが格納されています。プロジェクト構造 (`project-structure.md`)、プロジェクト仕様 (`project-spec.md`)、その他のドキュメント (`project_docs/`) が含まれています。
 
 ### k8s/
 Kubernetesクラスタの基本設定に関するマニフェストファイルが格納されています。現在はCalicoネットワークプラグインの設定が含まれています。
