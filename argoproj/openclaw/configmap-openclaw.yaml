@@ -84,8 +84,8 @@ data:
       "agents": {
         "defaults": {
           "model": {
-            "primary": "litellm/google/gemini-2.5-flash",
-            "fallbacks": ["litellm/anthropic/claude-sonnet-4-5-20250929", "openai-codex/gpt-4o-mini", "openai-codex/o4-mini", "litellm/zai/glm-4.7", "litellm/zai/glm-4.5-flash"]
+            "primary": "openai-codex/gpt-5.3-codex",
+            "fallbacks": ["openai-codex/gpt-4o-mini", "openai-codex/o4-mini"]
           },
           "models": {
             "litellm/anthropic/claude-sonnet-4-5-20250929": {
