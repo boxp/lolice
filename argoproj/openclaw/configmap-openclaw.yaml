@@ -147,6 +147,10 @@ data:
             "policy": "allowlist",
             "allowFrom": ["346180680851652618"]
           }
+        },
+        "telegram": {
+          "enabled": true,
+          "botToken": "${TELEGRAM_BOT_TOKEN}"
         }
       },
       "diagnostics": {
