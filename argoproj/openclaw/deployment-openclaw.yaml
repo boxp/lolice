@@ -164,6 +164,11 @@ spec:
               value: "1"
             - name: DOCKER_CERT_PATH
               value: "/certs/client"
+            # Limit Node.js heap to prevent unbounded memory growth.
+            # Without this, Node.js may use up to 75% of the container
+            # memory limit (3 GiB of 4 GiB), causing pressure on the node.
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=2048"
           resources:
             requests:
               cpu: 500m
@@ -243,6 +248,23 @@ spec:
         # consider dedicated node with taint/toleration for blast radius limitation.
         - name: dind
           image: docker:29-dind
+          command: ["sh", "-c"]
+          args:
+            - |
+              # Configure Docker daemon with log rotation and explicit
+              # storage driver to prevent unbounded log and layer growth.
+              mkdir -p /etc/docker
+              cat > /etc/docker/daemon.json <<'EOF'
+              {
+                "storage-driver": "overlay2",
+                "log-driver": "json-file",
+                "log-opts": {
+                  "max-size": "10m",
+                  "max-file": "3"
+                }
+              }
+              EOF
+              exec dockerd-entrypoint.sh
           securityContext:
             privileged: true
           env:
@@ -260,6 +282,55 @@ spec:
               mountPath: /certs
             - name: docker-data
               mountPath: /var/lib/docker
+        # Docker GC sidecar: periodically prunes unused Docker resources
+        # (stopped containers, dangling images, build cache) to prevent
+        # memory growth in the dind container.
+        - name: docker-gc
+          image: docker:29-cli
+          command: ["sh", "-c"]
+          args:
+            - |
+              # Wait for dind to be ready
+              until docker info >/dev/null 2>&1; do
+                sleep 5
+              done
+              echo "$(date -Iseconds) docker-gc: dind is ready, starting periodic cleanup"
+              while true; do
+                sleep 1800
+                echo "$(date -Iseconds) docker-gc: running cleanup"
+                # Remove stopped containers
+                docker container prune -f 2>/dev/null || true
+                # Remove dangling images
+                docker image prune -f 2>/dev/null || true
+                # Remove unused volumes
+                docker volume prune -f 2>/dev/null || true
+                # Remove build cache older than 1h
+                docker builder prune -f --filter "until=1h" 2>/dev/null || true
+                echo "$(date -Iseconds) docker-gc: cleanup complete"
+                docker system df 2>/dev/null || true
+              done
+          env:
+            - name: DOCKER_HOST
+              value: "tcp://localhost:2376"
+            - name: DOCKER_TLS_VERIFY
+              value: "1"
+            - name: DOCKER_CERT_PATH
+              value: "/certs/client"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: docker-certs
+              mountPath: /certs/client
+              subPath: client
+              readOnly: true
       volumes:
         - name: docker-certs
           emptyDir: {}
