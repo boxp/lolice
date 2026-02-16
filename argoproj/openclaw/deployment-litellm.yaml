@@ -54,18 +54,6 @@ spec:
                 secretKeyRef:
                   name: litellm-credentials
                   key: OPENAI_API_KEY
-            - name: AZURE_OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: azure-openai-credentials
-                  key: AZURE_OPENAI_API_KEY
-                  optional: true
-            - name: AZURE_OPENAI_API_BASE
-              valueFrom:
-                secretKeyRef:
-                  name: azure-openai-credentials
-                  key: AZURE_OPENAI_API_BASE
-                  optional: true
           resources:
             requests:
               cpu: 100m

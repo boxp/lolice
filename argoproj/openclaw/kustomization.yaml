@@ -6,7 +6,6 @@ resources:
   - namespace.yaml
   - external-secret.yaml
   - external-secret-litellm.yaml
-  - external-secret-azure-openai.yaml
   - configmap-openclaw.yaml
   - configmap-litellm.yaml
   - deployment-openclaw.yaml
