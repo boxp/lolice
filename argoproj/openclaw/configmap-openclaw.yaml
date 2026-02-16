@@ -63,11 +63,27 @@ data:
               },
               {
                 "id": "openai/gpt-4o-mini",
-                "name": "GPT-4o mini",
+                "name": "GPT-4o mini (Azure)",
                 "reasoning": false,
                 "input": ["text", "image"],
                 "contextWindow": 128000,
                 "maxTokens": 16384
+              },
+              {
+                "id": "openai/o4-mini",
+                "name": "o4-mini (Azure)",
+                "reasoning": true,
+                "input": ["text", "image"],
+                "contextWindow": 200000,
+                "maxTokens": 100000
+              },
+              {
+                "id": "openai/codex-mini",
+                "name": "Codex mini (Azure)",
+                "reasoning": true,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 100000
               },
               {
                 "id": "openai/gpt-5-mini",
@@ -93,7 +109,7 @@ data:
         "defaults": {
           "model": {
             "primary": "litellm/google/gemini-2.5-flash",
-            "fallbacks": ["litellm/anthropic/claude-sonnet-4-5-20250929", "litellm/openai/gpt-4o-mini", "litellm/zai/glm-4.7", "litellm/zai/glm-4.5-flash"]
+            "fallbacks": ["litellm/anthropic/claude-sonnet-4-5-20250929", "litellm/openai/gpt-4o-mini", "litellm/openai/o4-mini", "litellm/zai/glm-4.7", "litellm/zai/glm-4.5-flash"]
           },
           "models": {
             "litellm/anthropic/claude-sonnet-4-5-20250929": {
@@ -117,11 +133,17 @@ data:
             "litellm/openai/gpt-4o-mini": {
               "alias": "gpt4o-mini"
             },
+            "litellm/openai/o4-mini": {
+              "alias": "o4-mini"
+            },
+            "litellm/openai/codex-mini": {
+              "alias": "codex-mini"
+            },
             "litellm/openai/gpt-5-mini": {
               "alias": "gpt5-mini"
             },
             "litellm/openai/gpt-5.1-codex-mini": {
-              "alias": "codex-mini"
+              "alias": "codex-5-mini"
             }
           },
           "heartbeat": {
