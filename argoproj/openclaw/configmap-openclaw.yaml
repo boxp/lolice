@@ -84,8 +84,8 @@ data:
       "agents": {
         "defaults": {
           "model": {
-            "primary": "openai-codex/gpt-5.3",
-            "fallbacks": ["openai-codex/gpt-5.3-codex", "litellm/google/gemini-2.5-flash", "openai-codex/gpt-4o-mini", "openai-codex/o4-mini"]
+            "primary": "openai-codex/gpt-5.3-codex",
+            "fallbacks": ["litellm/google/gemini-2.5-flash", "openai-codex/gpt-4o-mini", "openai-codex/o4-mini"]
           },
           "models": {
             "litellm/anthropic/claude-sonnet-4-5-20250929": {
@@ -111,9 +111,6 @@ data:
             },
             "openai-codex/o4-mini": {
               "alias": "o4-mini"
-            },
-            "openai-codex/gpt-5.3": {
-              "alias": "gpt53"
             },
             "openai-codex/gpt-5.3-codex": {
               "alias": "codex"
