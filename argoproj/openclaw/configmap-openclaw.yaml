@@ -170,6 +170,11 @@ data:
             "approvers": ["346180680851652618"],
             "target": "dm",
             "cleanupAfterResolve": true
+          },
+          "gateApprovals": {
+            "enabled": true,
+            "approvers": ["346180680851652618"],
+            "target": "dm"
           }
         },
         "telegram": {
