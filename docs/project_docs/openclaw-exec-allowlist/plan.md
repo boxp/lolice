@@ -2,11 +2,14 @@
 
 ## 概要
 
-OpenClawのexec運用で、`ls` / `ghq` / `gwq` / `gh`（read用途中心）を承認なしで実行可能にする設定を、
+OpenClawのexec運用で、`ls` / `ghq` / `gwq` / `gh`を承認なしで実行可能にする設定を、
 `boxp/lolice` のGitOpsソースに恒久反映する。
 
-`gh` コマンドについてはサブコマンド制御方式を採用し、read-onlyサブコマンドのみを許可する
-ラッパースクリプトで安全境界を実現する。
+`gh` コマンドについてはサブコマンド制御方式を採用し、以下のポリシーで安全境界を実現する:
+
+- **`gh pr`** — `merge` 以外のすべてのサブコマンドを許可
+- **`gh issue`** — すべてのサブコマンドを許可
+- **`gh pr merge`** — 明示的に拒否（オプション付きでも）
 
 ## 変更対象ファイル
 
@@ -35,7 +38,7 @@ ConfigMap `openclaw-config` の `openclaw.json` に `tools` セクションを�
 ### 2. `argoproj/openclaw/configmap-gh-wrapper.yaml` (新規)
 
 `gh` コマンドのラッパースクリプトを定義するConfigMap。
-read-onlyサブコマンドのみを許可し、それ以外はexit code 126で拒否する。
+ポリシーに基づくサブコマンド制御を行い、禁止操作はexit code 126で拒否する。
 
 ### 3. `argoproj/openclaw/deployment-openclaw.yaml`
 
@@ -53,7 +56,7 @@ read-onlyサブコマンドのみを許可し、それ以外はexit code 126で�
 OpenClawの `safeBins` はバイナリ名レベルでしかフィルタできず、サブコマンドの区別ができない。
 GITHUB_TOKENのスコープに依存する方式では、トークンスコープの変更だけで安全境界が崩れるリスクがある。
 
-そこで、read-onlyサブコマンドのみを通すラッパースクリプト `gh` を `/opt/gh-wrapper/gh` に配置し、
+そこで、ポリシーに基づくサブコマンド制御を行うラッパースクリプト `gh` を `/opt/gh-wrapper/gh` に配置し、
 `pathPrepend` で本物の `/usr/bin/gh` より先にヒットさせる。
 
 ラッパーはConfigMapボリュームとしてKubernetesがread-onlyで提供するため:
@@ -71,29 +74,22 @@ GITHUB_TOKENのスコープに依存する方式では、トークンスコー�
 
 ## セキュリティ境界 — 許可/禁止サブコマンド一覧
 
-### 許可（read-only操作）
+### 許可
 
 | コマンド | サブコマンド | 説明 |
 |----------|-------------|------|
+| `gh pr` | **merge以外すべて** | create, list, view, diff, checks, status, checkout, close, comment, edit, lock, ready, reopen, revert, review, unlock, update-branch |
+| `gh issue` | **すべて** | create, list, view, close, comment, delete, develop, edit, lock, pin, reopen, status, transfer, unlock, unpin |
 | `gh auth` | `status` | 認証状態の確認 |
-| `gh pr` | `list` | PR一覧の取得 |
-| `gh pr` | `view` | PR詳細の閲覧 |
-| `gh pr` | `diff` | PR差分の閲覧 |
-| `gh pr` | `checks` | CIチェック状態の確認 |
-| `gh pr` | `status` | PR状態サマリーの取得 |
-| `gh run` | `list` | ワークフロー実行一覧の取得 |
-| `gh run` | `view` | ワークフロー実行詳細の閲覧 |
-| `gh issue` | `list` | Issue一覧の取得 |
-| `gh issue` | `view` | Issue詳細の閲覧 |
+| `gh run` | `list`, `view` | ワークフロー実行の閲覧 |
 | `gh api` | (GETのみ) | GitHub REST/GraphQL API (GET) |
 
-### 禁止（write/destructive操作）
+### 禁止
 
 | コマンド | サブコマンド | 理由 |
 |----------|-------------|------|
-| `gh pr` | `merge`, `close`, `reopen`, `edit`, `create`, `review` | リポジトリ状態の変更 |
+| `gh pr` | `merge` | マージ操作はGitOps/CI経由で行うべき |
 | `gh run` | `cancel`, `rerun`, `delete` | ワークフロー操作 |
-| `gh issue` | `create`, `close`, `reopen`, `edit`, `delete` | Issue状態の変更 |
 | `gh api` | POST, PATCH, PUT, DELETE | 書き込みAPI操作 |
 | `gh repo` | (全て) | リポジトリ管理操作 |
 | `gh release` | (全て) | リリース管理操作 |
@@ -121,9 +117,10 @@ OpenClawの `safeBins` はstdin-only用途を想定しており、positional引�
 
 ## リスクとロールバック
 
-- **リスク**: ラッパースクリプトの不備により、意図しないサブコマンドが許可される可能性
+- **リスク**: ラッパースクリプトの不備により、`gh pr merge` が通過する可能性
 - **緩和策**:
-  - ラッパーはホワイトリスト方式（明示的に許可したもの以外は全て拒否）
+  - `gh pr merge` はブラックリスト方式で明示的に拒否（オプション付きでも）
+  - `gh issue` は全サブコマンド許可のためシンプルなパススルー
   - ConfigMapはread-onlyマウントでコンテナ内からの改竄不可
   - `gh api` はGETメソッドのみ許可、`--input` も拒否
 - **ロールバック**:

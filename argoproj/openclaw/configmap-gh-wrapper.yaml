@@ -11,12 +11,12 @@ data:
     # binary via pathPrepend so that OpenClaw's safeBins allowlist
     # delegates safety to this script rather than to token scopes.
     #
-    # Allowed (read-only) operations:
-    #   auth status
-    #   pr   list | view | diff | checks | status
-    #   run  list | view
-    #   issue list | view
-    #   api  (GET only — the default method)
+    # Policy:
+    #   pr    — all subcommands EXCEPT merge
+    #   issue — all subcommands
+    #   auth  — status only
+    #   run   — list | view
+    #   api   — GET only (default method)
     #
     # Everything else is rejected with a non-zero exit code.
 
@@ -70,8 +70,9 @@ data:
       pr)
         sub="${1:-}"
         case "$sub" in
-          list|view|diff|checks|status) shift; exec "$REAL_GH" $GLOBAL_OPTS pr "$sub" "$@" ;;
-          *) die "pr: '$sub' is not allowed (allowed: list, view, diff, checks, status)" ;;
+          merge) die "pr: 'merge' is explicitly denied" ;;
+          "") die "pr: no subcommand provided" ;;
+          *) shift; exec "$REAL_GH" $GLOBAL_OPTS pr "$sub" "$@" ;;
         esac
         ;;
       run)
@@ -82,11 +83,7 @@ data:
         esac
         ;;
       issue)
-        sub="${1:-}"
-        case "$sub" in
-          list|view) shift; exec "$REAL_GH" $GLOBAL_OPTS issue "$sub" "$@" ;;
-          *) die "issue: '$sub' is not allowed (allowed: list, view)" ;;
-        esac
+        exec "$REAL_GH" $GLOBAL_OPTS issue "$@"
         ;;
       api)
         # Only allow GET requests (the default). Reject:
