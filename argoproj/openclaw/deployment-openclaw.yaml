@@ -195,6 +195,9 @@ spec:
               mountPath: /certs/client
               subPath: client
               readOnly: true
+            - name: gh-wrapper
+              mountPath: /opt/gh-wrapper
+              readOnly: true
             - name: data
               mountPath: /home/node/.openclaw
             - name: data
@@ -344,6 +347,10 @@ spec:
         - name: openclaw-config
           configMap:
             name: openclaw-config
+        - name: gh-wrapper
+          configMap:
+            name: gh-wrapper
+            defaultMode: 0555
         - name: data
           persistentVolumeClaim:
             claimName: openclaw-data

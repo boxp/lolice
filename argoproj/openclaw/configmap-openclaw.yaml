@@ -81,6 +81,14 @@ data:
           }
         }
       },
+      "tools": {
+        "exec": {
+          "security": "allowlist",
+          "ask": "on-miss",
+          "safeBins": ["gh", "ls", "ghq", "gwq"],
+          "pathPrepend": ["/opt/gh-wrapper"]
+        }
+      },
       "agents": {
         "defaults": {
           "model": {
