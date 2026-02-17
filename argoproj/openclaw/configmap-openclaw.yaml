@@ -164,6 +164,12 @@ data:
             "enabled": true,
             "policy": "allowlist",
             "allowFrom": ["346180680851652618"]
+          },
+          "execApprovals": {
+            "enabled": true,
+            "approvers": ["346180680851652618"],
+            "target": "dm",
+            "cleanupAfterResolve": true
           }
         },
         "telegram": {
