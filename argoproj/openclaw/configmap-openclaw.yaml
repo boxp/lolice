@@ -84,8 +84,15 @@ data:
       "tools": {
         "exec": {
           "security": "allowlist",
-          "ask": "on-miss",
-          "safeBins": ["gh", "ls", "ghq", "gwq"],
+          "ask": "off",
+          "safeBins": [
+            "gh", "ghq", "gwq",
+            "ls", "cat", "grep", "rg",
+            "head", "tail", "wc", "jq",
+            "sort", "uniq", "cut", "tr",
+            "pwd", "date", "stat",
+            "dirname", "basename"
+          ],
           "pathPrepend": ["/opt/gh-wrapper"]
         }
       },

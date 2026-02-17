@@ -2,10 +2,20 @@
 
 ## 概要
 
-OpenClawのexec運用で、`ls` / `ghq` / `gwq` / `gh`を承認なしで実行可能にする設定を、
-`boxp/lolice` のGitOpsソースに恒久反映する。
+OpenClawのexec運用で、都度承認をほぼ不要にする設定を `boxp/lolice` のGitOpsソースに恒久反映する。
 
-`gh` コマンドについてはサブコマンド制御方式を採用し、以下のポリシーで安全境界を実現する:
+### 変更履歴
+
+1. **Phase 1** (完了): `safeBins` に `gh`, `ls`, `ghq`, `gwq` を追加、gh-wrapper導入
+2. **Phase 2** (本PR): `ask` を `"on-miss"` → `"off"` に変更、`safeBins` をread系コマンドで大幅拡張
+
+### Phase 2 の方針
+
+- `security: "allowlist"` を維持（safeBinsに含まれないコマンドは実行不可）
+- `ask: "off"` に変更（safeBinsに含まれるコマンドの都度確認を廃止）
+- `safeBins` をread系・テキスト処理系コマンド中心に拡張
+
+`gh` コマンドについてはサブコマンド制御方式を維持し、以下のポリシーで安全境界を実現する:
 
 - **`gh pr`** — `merge` 以外のすべてのサブコマンドを許可
 - **`gh issue`** — すべてのサブコマンドを許可
@@ -15,43 +25,93 @@ OpenClawのexec運用で、`ls` / `ghq` / `gwq` / `gh`を承認なしで実行�
 
 ### 1. `argoproj/openclaw/configmap-openclaw.yaml`
 
-ConfigMap `openclaw-config` の `openclaw.json` に `tools` セクションを追加:
+ConfigMap `openclaw-config` の `openclaw.json` > `tools.exec` セクションを更新:
 
 ```json
 "tools": {
   "exec": {
     "security": "allowlist",
-    "ask": "on-miss",
-    "safeBins": ["gh", "ls", "ghq", "gwq"],
+    "ask": "off",
+    "safeBins": [
+      "gh", "ghq", "gwq",
+      "ls", "cat", "grep", "rg",
+      "head", "tail", "wc", "jq",
+      "sort", "uniq", "cut", "tr",
+      "pwd", "date", "stat",
+      "dirname", "basename"
+    ],
     "pathPrepend": ["/opt/gh-wrapper"]
   }
 }
 ```
 
-- `security: "allowlist"` — safeBinsに含まれるコマンドのみ承認なしで実行可能
-- `ask: "on-miss"` — safeBinsに含まれないコマンドはユーザーに実行確認を求める
-- `safeBins` — 承認なし実行を許可するコマンド一覧
-- `pathPrepend: ["/opt/gh-wrapper"]` — ラッパースクリプトのディレクトリをPATH先頭に追加。
-  ConfigMapボリュームとしてread-onlyマウントされるため、書き込み可能ディレクトリの追加にはあたらず、
-  PATHハイジャックリスクは発生しない
+#### 変更点
 
-### 2. `argoproj/openclaw/configmap-gh-wrapper.yaml` (新規)
+| 項目 | 変更前 | 変更後 |
+|------|--------|--------|
+| `ask` | `"on-miss"` | `"off"` |
+| `safeBins` | `["gh", "ls", "ghq", "gwq"]` (4個) | 上記19個に拡張 |
 
-`gh` コマンドのラッパースクリプトを定義するConfigMap。
-ポリシーに基づくサブコマンド制御を行い、禁止操作はexit code 126で拒否する。
+#### safeBinsカテゴリ分類
 
-### 3. `argoproj/openclaw/deployment-openclaw.yaml`
+| カテゴリ | コマンド | 用途 |
+|----------|----------|------|
+| ツール管理 | `gh`, `ghq`, `gwq` | GitHub CLI (wrapper経由), リポジトリ管理, worktree管理 |
+| ファイル参照 | `ls`, `cat`, `stat` | ファイル一覧・内容・属性の参照 |
+| テキスト検索 | `grep`, `rg` | パターン検索 |
+| テキスト加工 | `head`, `tail`, `wc`, `jq`, `sort`, `uniq`, `cut`, `tr` | テキストのフィルタリング・整形・変換 |
+| パス操作 | `dirname`, `basename` | パス文字列の操作 |
+| 環境情報 | `pwd`, `date` | 現在ディレクトリ・日時の取得 |
 
-- `gh-wrapper` ConfigMapボリュームを追加（`defaultMode: 0555`でread-only実行可能）
-- openclawコンテナに `/opt/gh-wrapper` マウントを追加（`readOnly: true`）
+### 既存ファイル（変更なし）
 
-### 4. `argoproj/openclaw/kustomization.yaml`
-
-- `configmap-gh-wrapper.yaml` をresourcesに追加
+- `configmap-gh-wrapper.yaml` — gh-wrapperスクリプト（Phase 1で導入済み）
+- `deployment-openclaw.yaml` — gh-wrapperボリューム/マウント（Phase 1で導入済み）
+- `kustomization.yaml` — リソース一覧（Phase 1で追加済み）
 
 ## 設計判断
 
+### `ask: "off"` の採用理由
+
+- `ask: "on-miss"` では、safeBinsに含まれないコマンドの実行時にユーザー確認が発生していた
+- `ask: "off"` + `security: "allowlist"` の組み合わせにより、safeBins外コマンドは**確認なしで拒否**される
+- これにより、Discordチャンネル等での都度承認操作が不要になり、自動運用が実現する
+- 安全性は `security: "allowlist"` + `safeBins` のホワイトリストで担保される
+
+### safeBins拡張の方針
+
+**追加基準**: 読み取り専用、またはstdin/stdoutベースのテキスト処理に限定
+
+- ファイルシステムを変更しないコマンドのみ（`cat`, `grep`, `head` 等）
+- 子プロセス起動機能を持たないコマンドのみ（`find -exec` や `awk 'BEGIN{system(...)}'` のような
+  任意コマンド実行が可能なコマンドは除外）
+- テキストストリーム処理コマンド（`sort`, `cut` 等）はstdin/stdoutベースで副作用なし
+- 環境情報の参照コマンド（`pwd`, `date`）は副作用なし
+
+### bash/git等を safeBins に入れない理由
+
+以下のコマンドは **意図的に safeBins から除外** している:
+
+| 除外コマンド | 除外理由 |
+|-------------|---------|
+| `bash`, `sh`, `zsh` | 任意コマンドの実行基盤となる。safeBinsの全ての制約をバイパスできてしまう（例: `bash -c "rm -rf /"`) |
+| `find` | `-exec` オプションで任意コマンドを子プロセスとして実行可能。allowlist境界を回避できる |
+| `awk` | `system()` 関数で任意コマンド実行可能。`BEGIN{system("rm -rf /")}` のようにallowlistを完全にバイパスできる |
+| `sed` | `-e` と `w` コマンドでファイル書き込みが可能。GNU sedでは `e` コマンドで任意コマンド実行も可能 |
+| `git` | `git push --force`, `git reset --hard` 等の破壊的操作が可能。リポジトリの履歴改変やデータ消失のリスク |
+| `python`, `python3`, `node` | 任意コード実行が可能。ネットワークアクセス、ファイル書き込み等あらゆる操作の踏み台になる |
+| `rm`, `mv`, `cp`, `chmod`, `chown` | ファイルシステムの破壊的変更が可能 |
+| `curl`, `wget` | 任意URLへのデータ送信（exfiltration）、悪意あるスクリプトのダウンロード実行が可能 |
+| `docker`, `kubectl` | コンテナ/クラスタレベルの操作が可能。権限昇格の踏み台になりうる |
+| `ssh`, `scp` | リモートアクセス、データ転送が可能 |
+| `dd`, `mkfs` | ブロックデバイスレベルの破壊的操作が可能 |
+| `tee` | ファイルへの書き込みが可能（stdout分岐の副作用） |
+
+**原則**: 「書き込み操作」または「任意実行の踏み台化」が可能なコマンドは safeBins に含めない。
+
 ### ghサブコマンド制御（ラッパースクリプト方式）
+
+（Phase 1から変更なし）
 
 OpenClawの `safeBins` はバイナリ名レベルでしかフィルタできず、サブコマンドの区別ができない。
 GITHUB_TOKENのスコープに依存する方式では、トークンスコープの変更だけで安全境界が崩れるリスクがある。
@@ -63,14 +123,6 @@ GITHUB_TOKENのスコープに依存する方式では、トークンスコー�
 - コンテナ内からの書き換えは不可能
 - PATHハイジャック（書き込み可能ディレクトリをPATH先頭に追加する問題）には該当しない
 - 変更はGitOps経由のConfigMap更新でのみ可能
-
-### `channels.discord.execApprovals.enabled: false` について
-
-**追加しない。** 理由:
-- `tools.exec.security: "allowlist"` と `tools.exec.ask: "on-miss"` の組み合わせにより、
-  safeBins内のコマンドは自動承認、それ以外はユーザー確認という制御が実現される
-- `execApprovals` はDiscordの追加的な承認UIであり、上記設定で十分カバーされる
-- 不要な設定を追加すると設定の複雑化を招く
 
 ## セキュリティ境界 — 許可/禁止サブコマンド一覧
 
@@ -96,15 +148,6 @@ GITHUB_TOKENのスコープに依存する方式では、トークンスコー�
 | `gh ssh-key` | (全て) | SSH鍵管理 |
 | その他 | (全て) | 上記許可リスト以外は全て拒否 |
 
-### その他の安全なコマンド
-
-| コマンド | 許可 | 不許可 |
-|----------|------|--------|
-| `ls` | ファイル一覧の参照 | — |
-| `ghq` | リポジトリ管理 | — |
-| `gwq` | worktree管理 | — |
-| その他 | — | ユーザー承認なしの実行 |
-
 ### safeBins の制約事項
 
 OpenClawの `safeBins` はstdin-only用途を想定しており、positional引数が
@@ -117,14 +160,21 @@ OpenClawの `safeBins` はstdin-only用途を想定しており、positional引�
 
 ## リスクとロールバック
 
-- **リスク**: ラッパースクリプトの不備により、`gh pr merge` が通過する可能性
-- **緩和策**:
-  - `gh pr merge` はブラックリスト方式で明示的に拒否（オプション付きでも）
-  - `gh issue` は全サブコマンド許可のためシンプルなパススルー
-  - ConfigMapはread-onlyマウントでコンテナ内からの改竄不可
-  - `gh api` はGETメソッドのみ許可、`--input` も拒否
-- **ロールバック**:
-  1. ConfigMapの `tools.exec` から `pathPrepend` を削除し `safeBins` から `gh` を除外
-  2. `configmap-gh-wrapper.yaml` をkustomization.yamlから除外
-  3. deployment-openclaw.yaml から gh-wrapper のボリュームとマウントを削除
-  - いずれもhot-reloadまたはPod再起動で即時反映
+### リスク
+
+- `ask: "off"` により、safeBins内コマンドは完全に自動実行される
+- safeBinsに含まれるコマンドの組み合わせで意図しない操作が行われる可能性
+
+### 緩和策
+
+- `security: "allowlist"` により、safeBins外のコマンドは実行不可（確認も出ない）
+- safeBinsには読み取り専用/テキスト処理コマンドのみを含める
+- `bash`, `git`, `python` 等の任意実行可能コマンドは除外
+- `gh` はラッパースクリプトでサブコマンドレベルの制御を維持
+- ConfigMapはread-onlyマウントでコンテナ内からの改竄不可
+
+### ロールバック手順
+
+1. `configmap-openclaw.yaml` の `tools.exec.ask` を `"on-miss"` に戻す
+2. `tools.exec.safeBins` を `["gh", "ls", "ghq", "gwq"]` に戻す
+3. ArgoCD syncまたはPod再起動で即時反映
