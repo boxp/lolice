@@ -84,7 +84,7 @@ data:
       "tools": {
         "exec": {
           "security": "allowlist",
-          "ask": "off",
+          "ask": "on-miss",
           "safeBins": [
             "gh", "ghq", "gwq",
             "ls", "cat", "grep",
