@@ -85,7 +85,8 @@ data:
         "exec": {
           "security": "allowlist",
           "ask": "on-miss",
-          "safeBins": ["gh", "ls", "ghq", "gwq"]
+          "safeBins": ["gh", "ls", "ghq", "gwq"],
+          "pathPrepend": ["/opt/gh-wrapper"]
         }
       },
       "agents": {

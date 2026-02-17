@@ -7,6 +7,7 @@ resources:
   - external-secret.yaml
   - external-secret-litellm.yaml
   - configmap-openclaw.yaml
+  - configmap-gh-wrapper.yaml
   - configmap-litellm.yaml
   - deployment-openclaw.yaml
   - service-openclaw.yaml

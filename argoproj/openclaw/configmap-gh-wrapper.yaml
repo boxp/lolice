@@ -1,0 +1,138 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gh-wrapper
+  namespace: openclaw
+data:
+  gh: |
+    #!/bin/sh
+    # gh-wrapper: subcommand-level access control for the GitHub CLI.
+    # Mounted read-only from ConfigMap and placed ahead of the real gh
+    # binary via pathPrepend so that OpenClaw's safeBins allowlist
+    # delegates safety to this script rather than to token scopes.
+    #
+    # Allowed (read-only) operations:
+    #   auth status
+    #   pr   list | view | diff | checks | status
+    #   run  list | view
+    #   issue list | view
+    #   api  (GET only — the default method)
+    #
+    # Everything else is rejected with a non-zero exit code.
+
+    set -eu
+
+    REAL_GH="/usr/bin/gh"
+
+    die() { printf 'gh-wrapper: denied — %s\n' "$1" >&2; exit 126; }
+
+    if [ $# -eq 0 ]; then
+      die "no subcommand provided"
+    fi
+
+    # Collect gh global options so they can be re-injected into the
+    # real gh invocation after subcommand validation.
+    GLOBAL_OPTS=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        -R|--repo)
+          GLOBAL_OPTS="$GLOBAL_OPTS $1 $2"
+          shift 2
+          ;;
+        -R=*|--repo=*)
+          GLOBAL_OPTS="$GLOBAL_OPTS $1"
+          shift
+          ;;
+        --help|--version)
+          exec "$REAL_GH" "$@"
+          ;;
+        -*)
+          die "unsupported global option '$1'"
+          ;;
+        *)
+          break
+          ;;
+      esac
+    done
+
+    if [ $# -eq 0 ]; then
+      die "no subcommand provided"
+    fi
+
+    cmd="$1"; shift
+
+    # shellcheck disable=SC2086
+    case "$cmd" in
+      auth)
+        [ "${1:-}" = "status" ] || die "auth: only 'status' is allowed"
+        exec "$REAL_GH" $GLOBAL_OPTS auth "$@"
+        ;;
+      pr)
+        sub="${1:-}"
+        case "$sub" in
+          list|view|diff|checks|status) shift; exec "$REAL_GH" $GLOBAL_OPTS pr "$sub" "$@" ;;
+          *) die "pr: '$sub' is not allowed (allowed: list, view, diff, checks, status)" ;;
+        esac
+        ;;
+      run)
+        sub="${1:-}"
+        case "$sub" in
+          list|view) shift; exec "$REAL_GH" $GLOBAL_OPTS run "$sub" "$@" ;;
+          *) die "run: '$sub' is not allowed (allowed: list, view)" ;;
+        esac
+        ;;
+      issue)
+        sub="${1:-}"
+        case "$sub" in
+          list|view) shift; exec "$REAL_GH" $GLOBAL_OPTS issue "$sub" "$@" ;;
+          *) die "issue: '$sub' is not allowed (allowed: list, view)" ;;
+        esac
+        ;;
+      api)
+        # Only allow GET requests (the default). Reject:
+        #   --method/-X with anything other than GET (including -XPOST form)
+        #   --input (implies POST body)
+        #   -f/--raw-field/-F/--field (triggers implicit POST)
+        # Handles both separate (-X POST) and concatenated (-XPOST) forms.
+        method="GET"
+        for arg in "$@"; do
+          case "$arg" in
+            --method=*)
+              method="${arg#*=}"
+              ;;
+            --method|-X)
+              # value follows in next arg — resolved in second pass
+              ;;
+            -X*)
+              # concatenated form: -XPOST, -XGET, etc.
+              method="${arg#-X}"
+              ;;
+            --input|--input=*)
+              die "api: --input is not allowed (implies write operation)"
+              ;;
+            -f|--raw-field|-f*|--raw-field=*)
+              die "api: -f/--raw-field is not allowed (triggers implicit POST)"
+              ;;
+            -F|--field|-F*|--field=*)
+              die "api: -F/--field is not allowed (triggers implicit POST)"
+              ;;
+          esac
+        done
+        # Second pass: resolve -X / --method <value> (separate arg form)
+        prev=""
+        for arg in "$@"; do
+          if [ "$prev" = "--method" ] || [ "$prev" = "-X" ]; then
+            method="$arg"
+          fi
+          prev="$arg"
+        done
+        case "$method" in
+          GET|get) ;;
+          *) die "api: method '$method' is not allowed (only GET)" ;;
+        esac
+        exec "$REAL_GH" $GLOBAL_OPTS api "$@"
+        ;;
+      *)
+        die "'$cmd' is not an allowed subcommand"
+        ;;
+    esac
