@@ -128,6 +128,11 @@ data:
           },
           "sandbox": {
             "mode": "off"
+          },
+          "cliBackends": {
+            "claude-cli": {
+              "args": ["-p", "--output-format", "json", "--dangerously-skip-permissions", "--mcp-config", "/home/node/.claude/mcp-config.json"]
+            }
           }
         }
       },
