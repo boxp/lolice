@@ -34,9 +34,9 @@ ConfigMap `openclaw-config` の `openclaw.json` > `tools.exec` セクション�
     "ask": "off",
     "safeBins": [
       "gh", "ghq", "gwq",
-      "ls", "cat", "grep", "rg",
+      "ls", "cat", "grep",
       "head", "tail", "wc", "jq",
-      "sort", "uniq", "cut", "tr",
+      "uniq", "cut", "tr",
       "pwd", "date", "stat",
       "dirname", "basename"
     ],
@@ -50,7 +50,7 @@ ConfigMap `openclaw-config` の `openclaw.json` > `tools.exec` セクション�
 | 項目 | 変更前 | 変更後 |
 |------|--------|--------|
 | `ask` | `"on-miss"` | `"off"` |
-| `safeBins` | `["gh", "ls", "ghq", "gwq"]` (4個) | 上記19個に拡張 |
+| `safeBins` | `["gh", "ls", "ghq", "gwq"]` (4個) | 上記17個に拡張 |
 
 #### safeBinsカテゴリ分類
 
@@ -58,8 +58,8 @@ ConfigMap `openclaw-config` の `openclaw.json` > `tools.exec` セクション�
 |----------|----------|------|
 | ツール管理 | `gh`, `ghq`, `gwq` | GitHub CLI (wrapper経由), リポジトリ管理, worktree管理 |
 | ファイル参照 | `ls`, `cat`, `stat` | ファイル一覧・内容・属性の参照 |
-| テキスト検索 | `grep`, `rg` | パターン検索 |
-| テキスト加工 | `head`, `tail`, `wc`, `jq`, `sort`, `uniq`, `cut`, `tr` | テキストのフィルタリング・整形・変換 |
+| テキスト検索 | `grep` | パターン検索 |
+| テキスト加工 | `head`, `tail`, `wc`, `jq`, `uniq`, `cut`, `tr` | テキストのフィルタリング・整形・変換 |
 | パス操作 | `dirname`, `basename` | パス文字列の操作 |
 | 環境情報 | `pwd`, `date` | 現在ディレクトリ・日時の取得 |
 
@@ -85,7 +85,7 @@ ConfigMap `openclaw-config` の `openclaw.json` > `tools.exec` セクション�
 - ファイルシステムを変更しないコマンドのみ（`cat`, `grep`, `head` 等）
 - 子プロセス起動機能を持たないコマンドのみ（`find -exec` や `awk 'BEGIN{system(...)}'` のような
   任意コマンド実行が可能なコマンドは除外）
-- テキストストリーム処理コマンド（`sort`, `cut` 等）はstdin/stdoutベースで副作用なし
+- テキストストリーム処理コマンド（`cut`, `tr` 等）はstdin/stdoutベースで副作用なし
 - 環境情報の参照コマンド（`pwd`, `date`）は副作用なし
 
 ### bash/git等を safeBins に入れない理由
@@ -94,6 +94,8 @@ ConfigMap `openclaw-config` の `openclaw.json` > `tools.exec` セクション�
 
 | 除外コマンド | 除外理由 |
 |-------------|---------|
+| `rg` | `--pre` オプションでプリプロセッサとして任意の外部コマンドを子プロセス実行可能。allowlist境界を回避できる |
+| `sort` | `-o` オプションでファイルへの直接書き込みが可能。読み取り専用の原則に違反する |
 | `bash`, `sh`, `zsh` | 任意コマンドの実行基盤となる。safeBinsの全ての制約をバイパスできてしまう（例: `bash -c "rm -rf /"`) |
 | `find` | `-exec` オプションで任意コマンドを子プロセスとして実行可能。allowlist境界を回避できる |
 | `awk` | `system()` 関数で任意コマンド実行可能。`BEGIN{system("rm -rf /")}` のようにallowlistを完全にバイパスできる |

@@ -87,9 +87,9 @@ data:
           "ask": "off",
           "safeBins": [
             "gh", "ghq", "gwq",
-            "ls", "cat", "grep", "rg",
+            "ls", "cat", "grep",
             "head", "tail", "wc", "jq",
-            "sort", "uniq", "cut", "tr",
+            "uniq", "cut", "tr",
             "pwd", "date", "stat",
             "dirname", "basename"
           ],
