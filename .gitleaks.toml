@@ -1,0 +1,7 @@
+title = "gitleaks config for lolice"
+
+[allowlist]
+  description = "global allowlist"
+  paths = [
+    '''(^|/)\.github/workflows/.*\.ya?ml$''',
+  ]
