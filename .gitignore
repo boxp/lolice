@@ -32,15 +32,3 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
-
-# Secret and credential files
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-*.p12
-*.pfx
-credentials.json
-service-account*.json
-*.kubeconfig
