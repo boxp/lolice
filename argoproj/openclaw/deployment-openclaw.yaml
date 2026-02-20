@@ -292,7 +292,7 @@ spec:
               mountPath: /var/lib/docker
         # board-server sidecar: serves board.md as a web page via nginx
         - name: board-server
-          image: nginxinc/nginx-unprivileged:1.27-alpine
+          image: nginxinc/nginx-unprivileged:1.29-alpine
           ports:
             - containerPort: 8080
           resources:
