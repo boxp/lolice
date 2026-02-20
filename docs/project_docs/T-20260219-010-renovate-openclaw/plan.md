@@ -20,11 +20,18 @@
   - matchStrings: `image:\s*ghcr\.io/boxp/arch/openclaw:(?<currentValue>\d{12})`
   - datasource: `docker`
   - versioning: `regex:^(?<major>\d{4})(?<minor>\d{2})(?<patch>\d{6})$`
-- `packageRules` で openclaw に対して `automerge: false` を明示設定
+- `packageRules` で以下を設定:
+  - kubernetesマネージャーによるOpenClaw検出を無効化（regex側と重複するため）
+  - custom.regexマネージャーのOpenClawに対して `automerge: false` を明示
 
 ### 2. 運用手順ドキュメント
 
-- `docs/renovate-openclaw-ops.md` にレビュー時の確認ポイントを記載
+- `docs/openclaw-image-update-ops.md` にレビュー時の確認ポイントを記載
+
+## CI チェック
+
+- **gitleaks**: シークレット漏洩チェック（設定変更のみのため影響なし）
+- **argocd-diff**: `/argoproj/` 配下の変更がないため発動しない
 
 ## リスク
 
