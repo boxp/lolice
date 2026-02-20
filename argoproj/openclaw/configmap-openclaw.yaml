@@ -195,6 +195,11 @@ data:
           "flushIntervalMs": 30000
         }
       },
+      "cron": {
+        "enabled": true,
+        "webhookToken": "${OPENCLAW_CRON_WEBHOOK_TOKEN}",
+        "sessionRetention": "7d"
+      },
       "gateway": {
         "mode": "local",
         "bind": "lan",

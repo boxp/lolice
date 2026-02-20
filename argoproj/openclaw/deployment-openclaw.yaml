@@ -157,6 +157,11 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: TELEGRAM_BOT_TOKEN
+            - name: OPENCLAW_CRON_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openclaw-credentials
+                  key: OPENCLAW_CRON_WEBHOOK_TOKEN
             - name: GRAFANA_URL
               value: "http://grafana.monitoring.svc.cluster.local:3000"
             - name: OBSIDIAN_VAULT_PATH
