@@ -19,6 +19,9 @@ spec:
             - mountPath: /grafana-dashboard-definitions/0/openclaw
               name: grafana-dashboard-openclaw
               readOnly: false
+            - mountPath: /grafana-dashboard-definitions/0/openclaw-app
+              name: grafana-dashboard-openclaw-app
+              readOnly: false
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
@@ -26,3 +29,6 @@ spec:
         - name: grafana-dashboard-openclaw
           configMap:
             name: grafana-dashboard-openclaw
+        - name: grafana-dashboard-openclaw-app
+          configMap:
+            name: grafana-dashboard-openclaw-app
