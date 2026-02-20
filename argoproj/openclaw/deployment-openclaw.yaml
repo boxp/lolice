@@ -55,6 +55,48 @@ spec:
             - name: data
               mountPath: /home/node/.codex
               subPath: codex
+        # Prepare Google OAuth token file for babashka scripts.
+        # Secret volumes are read-only, but bb scripts need to write back
+        # refreshed access_tokens. emptyDir + initContainer pattern solves this.
+        # fsGroup=1000 ensures the emptyDir is group-owned by 1000.
+        - name: init-google-oauth
+          image: ghcr.io/boxp/arch/openclaw:202602170222
+          command: ["sh", "-c"]
+          args:
+            - |
+              cat > /home/node/.google/oauth.json <<EOF
+              {
+                "client_id": "${GOOGLE_OAUTH_CLIENT_ID}",
+                "client_secret": "${GOOGLE_OAUTH_CLIENT_SECRET}",
+                "refresh_token": "${GOOGLE_OAUTH_REFRESH_TOKEN}",
+                "token_type": "Bearer"
+              }
+              EOF
+              chmod 0600 /home/node/.google/oauth.json
+          env:
+            - name: GOOGLE_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: google-oauth-credentials
+                  key: GOOGLE_OAUTH_CLIENT_ID
+            - name: GOOGLE_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: google-oauth-credentials
+                  key: GOOGLE_OAUTH_CLIENT_SECRET
+            - name: GOOGLE_OAUTH_REFRESH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: google-oauth-credentials
+                  key: GOOGLE_OAUTH_REFRESH_TOKEN
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: google-oauth-rw
+              mountPath: /home/node/.google
         # Clone/update dotfiles and create symlink for .claude config
         - name: init-dotfiles
           image: ghcr.io/boxp/arch/openclaw:202602170222
@@ -157,6 +199,23 @@ spec:
                 secretKeyRef:
                   name: openclaw-credentials
                   key: TELEGRAM_BOT_TOKEN
+            - name: GOOGLE_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: google-oauth-credentials
+                  key: GOOGLE_OAUTH_CLIENT_ID
+            - name: GOOGLE_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: google-oauth-credentials
+                  key: GOOGLE_OAUTH_CLIENT_SECRET
+            - name: GOOGLE_MAPS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: google-oauth-credentials
+                  key: GOOGLE_MAPS_API_KEY
+            - name: GOOGLE_OAUTH_TOKEN_PATH
+              value: "/home/node/.google/oauth.json"
             - name: GRAFANA_URL
               value: "http://grafana.monitoring.svc.cluster.local:3000"
             - name: OBSIDIAN_VAULT_PATH
@@ -198,6 +257,8 @@ spec:
             - name: gh-wrapper
               mountPath: /opt/gh-wrapper
               readOnly: true
+            - name: google-oauth-rw
+              mountPath: /home/node/.google
             - name: data
               mountPath: /home/node/.openclaw
             - name: data
@@ -344,6 +405,12 @@ spec:
           emptyDir: {}
         - name: docker-data
           emptyDir: {}
+        # Writable volume for Google OAuth token cache.
+        # initContainer writes oauth.json here; bb scripts refresh
+        # the access_token in-place. Lost on Pod restart (re-seeded from Secret).
+        - name: google-oauth-rw
+          emptyDir:
+            sizeLimit: 1Mi
         - name: openclaw-config
           configMap:
             name: openclaw-config
