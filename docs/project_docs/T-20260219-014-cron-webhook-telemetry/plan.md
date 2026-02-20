@@ -185,6 +185,42 @@ cron セクションを追加:
 
 #### 1.5.2 Secret 追加 (3箇所の変更が必要)
 
+##### `OPENCLAW_CRON_WEBHOOK_TOKEN` の値と取得手順
+
+このトークンは **自分で生成するランダム文字列** であり、外部サービスから取得するものではない。
+OpenClaw が cron webhook を POST する際に `Authorization: Bearer <token>` ヘッダーとして付与し、
+受信側エンドポイントがリクエストの正当性を検証するために使用する共有シークレット。
+
+| 項目 | 内容 |
+|---|---|
+| **推奨値形式** | 暗号学的にランダムな 32 バイト以上の hex 文字列 (64文字) |
+| **生成方法** | `openssl rand -hex 32` |
+| **配置先** | AWS SSM Parameter Store (`SecureString`) |
+| **注入経路** | SSM → ExternalSecret → K8s Secret → Deployment env |
+
+**生成・登録手順:**
+
+```bash
+# 1. トークンを生成
+TOKEN=$(openssl rand -hex 32)
+echo "$TOKEN"   # 例: a3f8c1...d9e2b7 (64文字の hex 文字列)
+
+# 2. SSM Parameter Store に登録 (arch リポジトリの Terraform で管理する場合はそちらで定義)
+aws ssm put-parameter \
+  --name "/lolice/openclaw/OPENCLAW_CRON_WEBHOOK_TOKEN" \
+  --type SecureString \
+  --value "$TOKEN"
+
+# 3. webhook 受信側にも同じトークンを設定し、
+#    Authorization: Bearer <token> の検証に使用する
+```
+
+> **補足**: Terraform で管理する場合は `aws_ssm_parameter` リソースで `type = "SecureString"` として定義する。
+> 値は `random_password` リソースで自動生成するか、初回のみ手動で `aws ssm put-parameter` を実行し、
+> Terraform state には `lifecycle { ignore_changes = [value] }` で値変更を無視させる運用が推奨。
+
+以下の 3 箇所に変更が必要:
+
 1. **SSM Parameter Store**: `/lolice/openclaw/OPENCLAW_CRON_WEBHOOK_TOKEN` を SecureString で登録 (arch リポジトリの Terraform で管理)
 2. **ExternalSecret** (`argoproj/openclaw/external-secret.yaml`): 新しい secretKey エントリを追加
    ```yaml
