@@ -1,40 +1,51 @@
-# Renovate OpenClaw イメージ更新 運用手順
+# OpenClaw イメージ更新 責務分離ルール
 
 ## 概要
 
-Renovateが `ghcr.io/boxp/arch/openclaw` の新しいタグを検出すると、`deployment-openclaw.yaml` のイメージタグを更新するPRを自動作成します。auto merge は無効のため、手動レビューとマージが必要です。
+OpenClaw Docker image の更新責務は、以下のように分離して管理する。
 
-## RenovateのPRレビュー時の確認ポイント
+| リポジトリ | 更新対象 | 更新手段 |
+|-----------|---------|---------|
+| **boxp/lolice** | デプロイ先イメージタグ (`deployment-openclaw.yaml`) | ArgoCD Image Updater |
+| **boxp/arch** | ベースイメージ (`docker/openclaw/Dockerfile` の `FROM ghcr.io/openclaw/openclaw`) | Renovate |
 
-1. **変更対象の確認**
-   - `argoproj/openclaw/deployment-openclaw.yaml` のみが変更されていること
-   - イメージタグが12桁数字（YYYYMMDDHHMM形式）であること
+## boxp/lolice（本リポジトリ）
 
-2. **タグの妥当性確認**
-   - 新しいタグが現在のタグより新しい日時であること
-   - `ghcr.io/boxp/arch/openclaw` のレジストリでタグが実在することを確認
-     ```bash
-     # タグの確認
-     docker manifest inspect ghcr.io/boxp/arch/openclaw:<new-tag>
-     ```
+### ArgoCD Image Updater による管理
 
-3. **ArgoCD Image Updaterとの整合性**
-   - `.argocd-source-openclaw.yaml` に記載されているタグとの関係を確認
-   - ArgoCD Image Updater は kustomize オーバーライドで実際に適用されるタグを管理
-   - Renovate は `deployment-openclaw.yaml` のベースタグを更新（Kustomize適用前のデフォルト値）
+- `ghcr.io/boxp/arch/openclaw` の新タグ検出・デプロイは **ArgoCD Image Updater** が担当
+- 設定: `argoproj/argocd-image-updater/imageupdaters/openclaw.yaml`
+- 戦略: `newest-build`（12桁YYYYMMDDHHmmタグ）
+- 書き戻し先: `.argocd-source-openclaw.yaml`（kustomize オーバーライド）
 
-4. **マージ後の動作**
-   - ArgoCD が変更を検知し、sync を実行
-   - ただし ArgoCD Image Updater の kustomize オーバーライドが優先されるため、deployment のベースタグ更新は実運用タグに直接影響しない
-   - ベースタグを最新に保つことで、Image Updater が何らかの理由で停止した場合のフォールバックとして機能する
+### Renovate の役割
 
-## トラブルシューティング
+- `ghcr.io/boxp/arch/openclaw` に対する Renovate 更新は **無効化** (`enabled: false`)
+- `renovate.json` の `packageRules` で明示的に除外
+- cloudflared など他のイメージは引き続き Renovate が管理
 
-### RenovateがPRを作成しない場合
-- Renovate のダッシュボードIssueでログを確認
-- `ghcr.io/boxp/arch/openclaw` へのレジストリアクセス権限を確認
-- `renovate.json` の regex パターンが `deployment-openclaw.yaml` の記述と一致しているか確認
+## boxp/arch
 
-### タグ比較が正しくない場合
-- `renovate.json` の `versioningTemplate` が `regex:^(?<major>\d{4})(?<minor>\d{2})(?<patch>\d{6})$` であることを確認
-- YYYYMMDDHHMM を YYYY(major) / MM(minor) / DDHHMM(patch) として数値比較する設計
+### Renovate による管理
+
+- `docker/openclaw/Dockerfile` の上流ベースイメージ `ghcr.io/openclaw/openclaw` の更新は **Renovate** が担当
+- 新しいベースイメージが検出されるとPRを自動作成
+- PRマージ → GitHub Actions でカスタムイメージ (`ghcr.io/boxp/arch/openclaw`) をビルド・プッシュ
+- その後、lolice側の ArgoCD Image Updater が新タグを検出してデプロイ
+
+## 更新フロー全体像
+
+```
+[openclaw/openclaw 上流リリース]
+  ↓ Renovate (boxp/arch)
+[boxp/arch: Dockerfile ベースイメージ更新 PR]
+  ↓ マージ
+[GitHub Actions: ghcr.io/boxp/arch/openclaw ビルド・プッシュ]
+  ↓ ArgoCD Image Updater (boxp/lolice)
+[lolice: デプロイタグ自動更新 → ArgoCD sync]
+```
+
+## 注意事項
+
+- lolice側で Renovate による OpenClaw イメージ更新PRが作成された場合は設定ミスの可能性があるため調査すること
+- ArgoCD Image Updater が停止した場合は `deployment-openclaw.yaml` のイメージタグを手動更新する

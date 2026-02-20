@@ -21,33 +21,14 @@
       "depNameTemplate": "docker.io/cloudflare/cloudflared",
       "versioningTemplate": "docker",
       "currentValueTemplate": "{{currentValue}}"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/argoproj/openclaw/deployment-openclaw\\.yaml$/"
-      ],
-      "matchStrings": [
-        "image:\\s*ghcr\\.io/boxp/arch/openclaw:(?<currentValue>\\d{12})"
-      ],
-      "datasourceTemplate": "docker",
-      "depNameTemplate": "ghcr.io/boxp/arch/openclaw",
-      "versioningTemplate": "regex:^(?<major>\\d{4})(?<minor>\\d{2})(?<patch>\\d{6})$"
     }
   ],
   "packageRules": [
     {
       "matchDatasources": ["docker"],
       "matchDepNames": ["ghcr.io/boxp/arch/openclaw"],
-      "automerge": false,
       "enabled": false,
-      "matchManagers": ["kubernetes"]
-    },
-    {
-      "matchDatasources": ["docker"],
-      "matchDepNames": ["ghcr.io/boxp/arch/openclaw"],
-      "automerge": false,
-      "matchManagers": ["custom.regex"]
+      "description": "OpenClaw image updates are managed by ArgoCD Image Updater, not Renovate"
     }
   ],
   "major": {

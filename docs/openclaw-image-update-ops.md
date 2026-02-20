@@ -1,45 +1,42 @@
-# OpenClaw イメージ更新 PRレビュー手順
+# OpenClaw イメージ更新 運用手順
 
 ## 概要
 
-Renovateが `ghcr.io/boxp/arch/openclaw` の新しいタグ（YYYYMMDDHHMM形式）を検出すると、`deployment-openclaw.yaml` のイメージタグを更新するPRを自動作成する。auto merge は無効のため、手動レビューとマージが必要。
+`ghcr.io/boxp/arch/openclaw` の新しいタグは **ArgoCD Image Updater** が自動検出し、`.argocd-source-openclaw.yaml` の kustomize オーバーライドを更新してデプロイする。Renovate による本イメージの更新は無効化されている。
 
-## レビュー時の確認ポイント
+## 通常運用
 
-### 1. 変更対象の確認
+### 自動更新フロー
 
-- `argoproj/openclaw/deployment-openclaw.yaml` のみが変更されていること
-- イメージタグが12桁数字（YYYYMMDDHHMM形式）であること
-- initContainers・containers 全てのOpenClawイメージタグが同一であること
+1. boxp/arch 側で `docker/openclaw/Dockerfile` のベースイメージが更新される（Renovate PR → マージ）
+2. GitHub Actions が `ghcr.io/boxp/arch/openclaw` の新タグ（YYYYMMDDHHmm形式）をビルド・プッシュ
+3. ArgoCD Image Updater が新タグを検出
+4. `.argocd-source-openclaw.yaml` を自動更新（git write-back）
+5. ArgoCD が sync を実行しデプロイ完了
 
-### 2. タグの妥当性確認
+### 確認方法
 
-- 新しいタグが現在のタグより新しい日時であること
-- レジストリでタグが実在することを確認:
-  ```bash
-  docker manifest inspect ghcr.io/boxp/arch/openclaw:<new-tag>
-  ```
-
-### 3. ArgoCD Image Updater との整合性
-
-- `.argocd-source-openclaw.yaml` の kustomize オーバーライドが実際に適用されるタグを管理
-- Renovate は `deployment-openclaw.yaml` のベースタグを更新（kustomize適用前のデフォルト値）
-- ベースタグを最新に保つことで、Image Updater 停止時のフォールバックとして機能する
-
-### 4. マージ後の動作
-
-- ArgoCD が変更を検知し sync を実行
-- ArgoCD Image Updater の kustomize オーバーライドが優先されるため、ベースタグ更新は通常運用に直接影響しない
+- ArgoCD UI でアプリケーション `openclaw` の状態を確認
+- `.argocd-source-openclaw.yaml` の内容で現在適用されているタグを確認
 
 ## トラブルシューティング
 
-### RenovateがPRを作成しない場合
+### ArgoCD Image Updater が新タグを検出しない場合
 
-1. Renovate ダッシュボードIssueでログを確認
-2. `ghcr.io/boxp/arch/openclaw` へのレジストリアクセス権限を確認
-3. `renovate.json` の regex パターンが `deployment-openclaw.yaml` の記述と一致しているか確認
+1. Image Updater の Pod ログを確認
+2. `imageupdaters/openclaw.yaml` の `allowTags` パターンを確認
+3. ghcr.io レジストリへのアクセス権限を確認
 
-### タグ比較が正しくない場合
+### 緊急時の手動更新
 
-- `versioningTemplate` が `regex:^(?<major>\d{4})(?<minor>\d{2})(?<patch>\d{6})$` であることを確認
-- YYYYMMDDHHMM を YYYY(major) / MM(minor) / DDHHMM(patch) として数値比較する設計
+ArgoCD Image Updater が停止している場合、`deployment-openclaw.yaml` のイメージタグを直接更新する:
+
+```bash
+# deployment-openclaw.yaml 内の全イメージタグを更新
+# initContainers・containers の全箇所を同一タグに揃えること
+```
+
+## 関連ドキュメント
+
+- [責務分離ルール](./renovate-openclaw-ops.md)
+- ArgoCD Image Updater設定: `argoproj/argocd-image-updater/imageupdaters/openclaw.yaml`
