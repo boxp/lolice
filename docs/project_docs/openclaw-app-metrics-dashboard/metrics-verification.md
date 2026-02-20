@@ -9,7 +9,11 @@
 PR #471 で追加した Grafana Application Metrics ダッシュボードが参照する
 `openclaw_*` メトリクスが Prometheus で収集されているかを検証した。
 
-**結論: 全 18 メトリクスが Prometheus に存在しない（0/18）。**
+**結論: ダッシュボードが参照する全 18 メトリクス定義（Counter 11 + Histogram 7）が Prometheus に存在しない（0/18）。**
+
+> 注: Histogram 系は Prometheus 上で `_bucket`/`_sum`/`_count` の3 series に展開されるため、
+> 実際の time series 数は最大 32（Counter 11 + Histogram 7×3）となる。
+> ここでの「18」はダッシュボード PromQL で参照されるベースメトリクス名の数。
 
 ## 検証手順と結果
 
@@ -54,7 +58,7 @@ PR #471 で追加した Grafana Application Metrics ダッシュボードが参�
 
 #### 直接原因: `@opentelemetry/api` モジュール欠損
 
-Loki ログで以下のエラーを確認:
+Loki ログで以下のエラーを確認（LogQL: `{container="openclaw"} |~ "(?i)(otel|telemetry|Cannot find module)"`）:
 
 ```
 2026-02-20T14:33:27.038Z [gateway] [plugins] diagnostics-otel failed to load
@@ -70,6 +74,18 @@ Loki ログで以下のエラーを確認:
 | `openclaw-5869587775-z8n2v` | 2026-02-20T13:35:06 |
 | `openclaw-5579969465-658k4` | 2026-02-20T13:42:28 |
 | `openclaw-559ddcc574-2cfwx` | 2026-02-20T14:33:27 |
+
+#### 他要因の切り分け
+
+| 確認項目 | 結果 | 根拠 |
+|---------|------|------|
+| プラグインロード | 失敗 | Loki: `Cannot find module '@opentelemetry/api'` が全 Pod で発生 |
+| exporter 初期化ログ | 存在しない | LogQL `{container="openclaw"} \|~ "(?i)(MetricExporter\|otlp.*export\|metric.*reader)"` → 0件 |
+| OTLP HTTP POST | 発生していない | Prometheus 側に `openclaw` 由来の series が 0 件 |
+| 他の OTel ログ | 存在しない | LogQL `{container="openclaw"} \|~ "(?i)opentelemetry"` → プラグインロード失敗のみ |
+
+プラグインロードの時点で `@opentelemetry/api` の import に失敗しているため、
+SDK 初期化・exporter 起動・メトリクス送信のいずれも実行されていない。
 
 #### 因果関係
 
@@ -88,7 +104,8 @@ Loki ログで以下のエラーを確認:
 | 項目 | 設定 | 状態 |
 |------|------|------|
 | `diagnostics-otel` プラグイン有効化 | `plugins.entries.diagnostics-otel.enabled: true` | OK (PR #466 で修正済み) |
-| OTLP endpoint | `http://prometheus-k8s.monitoring.svc:9090/api/v1/otlp` | OK |
+| OTLP endpoint (base) | `http://prometheus-k8s.monitoring.svc:9090/api/v1/otlp` | OK |
+| OTLP metrics ingest URL | 上記 base + `/v1/metrics` (SDK が自動付与) | OK (設定値は base のみで正しい) |
 | OTLP protocol | `http/protobuf` | OK |
 | metrics 有効化 | `diagnostics.otel.metrics: true` | OK |
 | Prometheus `otlp-write-receiver` | `enableFeatures: ["otlp-write-receiver"]` | OK |
@@ -132,6 +149,66 @@ USER node
 1. **短期 (Option A)**: `boxp/arch` で Dockerfile に OTel パッケージを追加
 2. **検証**: 新イメージデプロイ後、Prometheus で `openclaw_*` メトリクス出現を確認
 3. **中期 (Option B)**: upstream に Issue/PR を作成
+
+## 再検証 (T-20260220-028): Grafana MCP 経由の確認
+
+### 検証日時
+
+2026-02-20 18:30 UTC
+
+### Grafana MCP 利用可否
+
+Grafana MCP (`mcp__grafana__*`) ツール群の動作確認を実施。
+
+| ツール | 結果 | 備考 |
+|--------|------|------|
+| `list_datasources` | OK | 3件取得: prometheus, Loki, alertmanager |
+| `search_dashboards` (query: "openclaw") | OK | 2件: OpenClaw Application Metrics, OpenClaw Container Monitoring |
+| `list_prometheus_metric_names` (regex: `openclaw_.*`) | OK (0件) | メトリクス未収集を再確認 |
+| `list_loki_label_values` (container) | OK | `openclaw` コンテナ確認 |
+| `query_loki_logs` | OK | ログ取得成功 |
+
+**結論: Grafana MCP は全ツール正常動作中。**
+
+### データソース一覧
+
+| UID | 名前 | タイプ | デフォルト |
+|-----|------|--------|-----------|
+| `P1809F7CD0C75ACF3` | prometheus | prometheus | Yes |
+| `P8E80F9AEF21F6940` | Loki | loki | No |
+| `ee8z216blo1s0b` | alertmanager | alertmanager | No |
+
+### Prometheus メトリクス再確認
+
+```
+list_prometheus_metric_names(regex="openclaw_.*") → []
+list_prometheus_metric_names(regex="openclaw")    → []
+```
+
+**全 18 ベースメトリクス定義が依然として Prometheus に存在しない（0/18、前回検証と同一）。**
+
+### Loki ログ再確認（最新 Pod 世代）
+
+OTel プラグイン読み込みエラーは **現行 Pod でも継続発生中**:
+
+| Pod | 発生時刻 (UTC) | エラー |
+|-----|--------------|--------|
+| `openclaw-559ddcc574-2cfwx` | 2026-02-20T14:33:27 | `Cannot find module '@opentelemetry/api'` |
+| `openclaw-5579969465-658k4` | 2026-02-20T13:42:28 | 同上 |
+| `openclaw-5869587775-z8n2v` | 2026-02-20T13:35:06 | 同上 |
+| `openclaw-7dd4f57495-fxt8j` | 2026-02-20T11:10:19 | 同上 |
+
+追加で検出された問題:
+- **Discord Gateway セキュリティエラー**: `SECURITY ERROR: Gateway URL "ws://192.178.252.121:18789" uses plaintext ws:// to a non-loopback address.` が約5分間隔で発生中（メトリクス収集とは無関係だが要観察）
+
+### 結論
+
+前回検証 (T-20260220-027) からの状態変化なし:
+
+1. `@opentelemetry/api` が Docker イメージに未インストールのまま
+2. `diagnostics-otel` プラグインは config 上有効だが実行時にロード失敗
+3. Prometheus への OTLP メトリクスプッシュは一切発生していない
+4. Grafana MCP は正常に動作しており、メトリクス収集開始後のダッシュボード確認に利用可能
 
 ## 次のステップ
 
