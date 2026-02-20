@@ -37,6 +37,25 @@ Grafana にログイン後、以下のいずれかの方法でアクセス:
    count({__name__=~"openclaw_.*"})
    ```
 
+#### diagnostics-otel プラグインのロード失敗
+
+OTel 依存パッケージが Docker イメージに含まれていない場合、以下のエラーが発生する:
+
+```
+[plugins] diagnostics-otel failed to load from /app/extensions/diagnostics-otel/index.ts:
+  Error: Cannot find module '@opentelemetry/api'
+```
+
+確認方法:
+```logql
+{namespace="openclaw", container="openclaw"} |~ "Cannot find module.*opentelemetry"
+```
+
+対処:
+1. `boxp/arch` の `docker/openclaw/Dockerfile` で OTel パッケージを追加インストール
+2. 必要なパッケージ: `@opentelemetry/api`, `@opentelemetry/sdk-node`, `@opentelemetry/sdk-metrics`, `@opentelemetry/exporter-metrics-otlp-proto`
+3. 新イメージビルド後、ArgoCD Image Updater が自動デプロイ
+
 #### Webhook エラー率が高い場合
 
 1. エラーの内訳を確認:
