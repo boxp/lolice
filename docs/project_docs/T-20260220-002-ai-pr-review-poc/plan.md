@@ -175,9 +175,9 @@ Layer 5: 人間オーバーライド（ラベル、レビュー）
 
 | トリガー | 検知方法 | アクション |
 |----------|----------|-----------|
-| 自動マージ後24時間以内にrevert PRが作成された | PRタイトルに`revert`を含むPRの作成をGitHub Webhookで検知。revert対象PRのマージイベントが`github-actions[bot]`であることを確認し因果紐付け | 自動マージ機能を一時停止（48時間） |
+| 自動マージ後24時間以内にrevert PRが作成された | `pull_request`イベントで新規PRを検知し、PRボディの`Reverts #<number>`参照またはgit revertメタデータ（`This reverts commit <sha>`）で因果紐付け。revert対象PRのマージイベントが`github-actions[bot]`であることを確認。タイトルのみの判定は行わない | 自動マージ機能を一時停止（48時間） |
 | 1週間以内に自動マージ後のArgoCD sync失敗が2回以上 | ArgoCD Notifications（Webhook）経由でsync failure eventを受信。失敗したApplication名とマージされたPRの変更パスを照合し因果紐付け | 自動マージ機能を一時停止（1週間） |
-| 人間が`auto-merge-blocked`ラベルをリポジトリレベルで適用 | ワークフロー実行時にリポジトリ変数をチェック | 手動解除まで全自動マージ停止 |
+| 管理者がRepository Variableを`tripped`に設定（手動停止） | ワークフロー実行時にRepository Variable `AUTO_MERGE_CIRCUIT_BREAKER` をチェック | 手動解除まで全自動マージ停止 |
 
 #### Circuit Breaker状態管理
 
@@ -202,8 +202,8 @@ Layer 5: 人間オーバーライド（ラベル、レビュー）
 
 | 項目 | 保存先 | 保存期間 |
 |------|--------|----------|
-| AI分類結果（影響度、波及範囲、リスク） | PRコメント + GitHub Actions artifacts | PR存続期間 + 90日 |
-| 自動マージ判定理由（全条件の結果） | PRコメント + GitHub Actions artifacts | PR存続期間 + 90日 |
+| AI分類結果（影響度、波及範囲、リスク） | **正本**: GitHub Actions artifacts（ハッシュ付きJSON）、**補助**: PRコメント（可視化用） | 90日（artifacts）。PRコメントは利便性のみ |
+| 自動マージ判定理由（全条件の結果） | **正本**: GitHub Actions artifacts（ハッシュ付きJSON）、**補助**: PRコメント（可視化用） | 90日（artifacts）。PRコメントは利便性のみ |
 | LLM API応答要約（分類結果・判定理由のみ、diff原文は含まない） | GitHub Actions artifacts | 90日 |
 | マージ実行者（bot/human） | GitHub PR merge event | 永続（Git履歴） |
 | Circuit Breaker発動/解除イベント | GitHub Issue + Telegram通知 | Issue存続期間 |
@@ -220,7 +220,12 @@ Layer 5: 人間オーバーライド（ラベル、レビュー）
 | 入力ハッシュ | LLMに送信したdiff内容のSHA-256ハッシュ（再現性検証用） |
 | 対象コミットSHA | PRのhead commit SHA |
 
-PRコメントとして投稿された監査記録は**GitHub APIのimmutable audit log**として永続化される（PRコメントの編集履歴も記録される）。判定結果は投稿後に編集しない運用とする。
+**監査証跡の保存先と改ざん耐性**: PRコメントは投稿者や権限保持者が編集・削除できるため、改ざん耐性のある監査証跡としては不十分である。PRコメントは**可視化・利便性の目的**に限定し、監査の正本は以下の改ざん耐性のある保存先に置く:
+
+- **GitHub Actions artifacts**: 判定結果の構造化JSON（SHA-256ハッシュ付き）を90日間保存
+- **外部監査ログ**: 長期保存が必要な場合は、書き込み専用の外部ログストア（例: append-onlyなCloud Storage、SIEMへの転送）に出力
+
+PRコメントには「正本はartifactに保存済み（Run ID: xxx）」とリンクを記載し、参照先を明示する。
 
 ### 5.2 承認トレーサビリティ
 
@@ -274,14 +279,14 @@ PRコメントには以下のフォーマットで投稿:
 ### Phase 1: AIレビューワークフロー追加（観測のみ）
 
 - `ai-pr-review.yaml` ワークフローを追加
-- **自動マージは行わない**: 分類結果をPRコメントとして投稿するのみ
+- **自動マージは行わない**: 分類結果をPRコメントとして投稿するのみ（監査証跡のartifact保存はPhase 1から実施する）
 - 1-2週間の観測期間で分類精度を検証
 
 ### Phase 2: 自動マージの段階的有効化
 
 - Phase 1の分類精度が十分と判断された後に実施
 - 最初はRenovate PR（openclaw以外）のみ対象
-- gh-wrapperポリシーの緩和検討（条件付き`gh pr merge`許可）
+- 実装方式は案A（GitHub Actions内で直接マージ）を採用し、gh-wrapperポリシーは変更しない
 
 ### Phase 3: 対象範囲の拡大
 
@@ -304,8 +309,8 @@ PRコメントには以下のフォーマットで投稿:
 | 要件 | 対策 |
 |------|------|
 | ワークフロー権限の最小化 | `permissions`で`contents: write`, `pull-requests: write`のみ付与。他の権限は付与しない |
-| イベントトリガーの安全設計 | `pull_request`イベントを使用（`pull_request_target`は使用しない）。fork PRではワークフローが実行されないよう制約 |
-| fork PRの権限分離 | `if: github.event.pull_request.head.repo.full_name == github.repository` でfork PRを除外 |
+| イベントトリガーの安全設計 | `pull_request`イベントを使用（`pull_request_target`は使用しない）。**注意**: `pull_request`イベントではfork PRでもワークフロー自体は起動する（権限が制限されるのみ）ため、ジョブ条件でのfork除外を必須とする |
+| fork PRの除外（必須） | すべてのジョブに `if: github.event.pull_request.head.repo.full_name == github.repository` 条件を付与し、fork PRではジョブが一切実行されないことを保証する。この条件がないジョブはfork PRでも動作し、LLM呼び出しによるコスト増や情報露出のリスクがある |
 | ワークフロー改竄防止 | `.github/workflows/ai-pr-review.yaml`の変更を含むPRはHIGH分類とし、自動マージ対象外にする |
 | ブランチ保護ルールとの整合 | mainブランチの保護ルール（required reviews等）が自動マージと矛盾しないよう設定を調整 |
 
