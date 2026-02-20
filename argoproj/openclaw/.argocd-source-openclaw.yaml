@@ -1,3 +1,3 @@
 kustomize:
   images:
-  - ghcr.io/boxp/arch/openclaw=ghcr.io/boxp/arch/openclaw:202602170222
+  - ghcr.io/boxp/arch/openclaw=ghcr.io/boxp/arch/openclaw:202602200133
