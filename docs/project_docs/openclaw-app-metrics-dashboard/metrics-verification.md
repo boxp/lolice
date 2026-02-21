@@ -210,9 +210,97 @@ OTel プラグイン読み込みエラーは **現行 Pod でも継続発生中*
 3. Prometheus への OTLP メトリクスプッシュは一切発生していない
 4. Grafana MCP は正常に動作しており、メトリクス収集開始後のダッシュボード確認に利用可能
 
+## 関連 Issue: openclaw/openclaw#6989
+
+### Issue 概要
+
+- **タイトル**: [Bug] diagnostics-otel plugin fails to load: "Cannot find module '@opentelemetry/api'"
+- **リポジトリ**: `openclaw/openclaw`
+- **Issue 番号**: [#6989](https://github.com/openclaw/openclaw/issues/6989)
+- **状態**: Open
+- **ラベル**: `bug`, `stale`
+- **報告者**: Gaurang-Patel
+- **報告日**: OpenClaw v2026.1.30 で報告
+
+### 因果関係
+
+Issue #6989 で報告されている現象は、本環境で観測されている
+`openclaw_*` メトリクス欠損の**直接原因**と同一である。
+
+```
+[upstream Issue #6989]
+  diagnostics-otel が @opentelemetry/api を require → MODULE_NOT_FOUND
+    ↓
+[本環境での影響]
+  diagnostics-otel プラグインの register() が呼ばれない
+    → OTEL NodeSDK が初期化されない
+      → PeriodicExportingMetricReader が起動しない
+        → Prometheus OTLP endpoint へのメトリクスプッシュが発生しない
+          → Grafana ダッシュボード (PR #471) の全 18 パネルが "No data"
+```
+
+Issue #6989 が修正されない限り、本環境では `boxp/arch` Dockerfile での
+OTel パッケージ追加インストール（前述 Option A）が必要となる。
+
+## 再検証 (T-20260220-028 第2回): 2026-02-21 最新確認
+
+### 検証日時
+
+2026-02-21 00:07 UTC
+
+### Grafana MCP 利用可否
+
+| ツール | 結果 | 備考 |
+|--------|------|------|
+| `list_datasources` | OK | 3件: prometheus, Loki, alertmanager |
+| `search_dashboards` (query: "openclaw") | OK | 2件: Application Metrics, Container Monitoring |
+| `list_prometheus_metric_names` (regex: `openclaw_.*`) | OK (0件) | メトリクス未収集を再確認 |
+| `list_prometheus_label_values` (service_name) | OK | `openclaw` なし (external-secrets-webhook, longhorn-admission-webhook のみ) |
+| `query_loki_logs` | OK | ログ取得成功 |
+
+**結論: Grafana MCP は全ツール正常動作中。**
+
+### Prometheus メトリクス確認 (2026-02-21)
+
+```
+list_prometheus_metric_names(regex="openclaw_.*") → []  (0件)
+```
+
+全 18 ベースメトリクスが依然として Prometheus に存在しない。
+
+### Loki ログ確認 (2026-02-21)
+
+Pod `openclaw-7df8795bd7-gdskr` (2026-02-20T23:53:53Z 起動) が現行稼働中。
+起動時に `@opentelemetry/api` 欠損エラーが発生:
+
+| Pod | 起動時刻 (UTC) | エラー |
+|-----|--------------|--------|
+| `openclaw-7df8795bd7-gdskr` | 2026-02-20T23:53:53 | `Cannot find module '@opentelemetry/api'` |
+| `openclaw-9b94c5fff-dnql2` | 2026-02-20T19:31:01 / 21:19:19 (再起動2回) | 同上 |
+| `openclaw-559ddcc574-2cfwx` | 2026-02-20T14:33:27 | 同上 |
+| `openclaw-5579969465-658k4` | 2026-02-20T13:42:28 | 同上 |
+| `openclaw-5869587775-z8n2v` | 2026-02-20T13:35:07 | 同上 |
+
+合計 5 Pod 世代で同一エラーが継続発生中。
+
+### 追加観察: fsnotify エラー
+
+現行 Pod で `failed to create fsnotify watcher: too many open files` エラーも観測。
+メトリクス収集とは直接無関係だが、ファイルディスクリプタ枯渇の兆候として要注意。
+
+### 結論 (2026-02-21)
+
+前回検証 (2026-02-20) からの状態変化なし:
+
+1. `@opentelemetry/api` が Docker イメージに未インストールのまま（Issue #6989 と同一原因）
+2. `diagnostics-otel` プラグインは config 上有効だが実行時にロード失敗
+3. Prometheus への OTLP メトリクスプッシュは一切発生していない
+4. Grafana MCP は正常に動作しており、メトリクス収集開始後のダッシュボード確認に利用可能
+
 ## 次のステップ
 
-- [ ] `boxp/arch` リポジトリで OTel 依存追加の PR を作成
+- [ ] `boxp/arch` リポジトリで OTel 依存追加の PR を作成（Issue #6989 のワークアラウンド）
+- [ ] upstream `openclaw/openclaw` Issue #6989 にコメントで本環境の再現情報を追記
 - [ ] 新イメージビルド → ArgoCD Image Updater による自動デプロイ
 - [ ] メトリクス出現確認 (`count({__name__=~"openclaw_.*"})`)
 - [ ] ダッシュボードでデータ表示を確認
