@@ -152,7 +152,7 @@ data:
             }
           },
           "heartbeat": {
-            "every": "30m",
+            "every": "1h",
             "target": "discord"
           },
           "sandbox": {
