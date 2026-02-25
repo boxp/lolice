@@ -138,7 +138,7 @@ data:
             }
           },
           "heartbeat": {
-            "every": "30m",
+            "every": "1h",
             "model": "openai-codex/gpt-5.1-codex-mini",
             "target": "discord"
           },
