@@ -101,6 +101,29 @@ run_test "gh issue develop 123" allow issue develop 123
 run_test "gh issue status" allow issue status
 
 echo ""
+echo "=== gh project tests (すべて許可) ==="
+run_test "gh project list" allow project list
+run_test "gh project view" allow project view
+run_test "gh project create" allow project create
+run_test "gh project edit" allow project edit
+run_test "gh project close" allow project close
+run_test "gh project delete" allow project delete
+run_test "gh project copy" allow project copy
+run_test "gh project item-list" allow project item-list
+run_test "gh project item-add" allow project item-add
+run_test "gh project item-edit" allow project item-edit
+run_test "gh project item-delete" allow project item-delete
+run_test "gh project item-archive" allow project item-archive
+run_test "gh project item-create" allow project item-create
+run_test "gh project field-list" allow project field-list
+run_test "gh project field-create" allow project field-create
+run_test "gh project field-delete" allow project field-delete
+run_test "gh project mark-template" allow project mark-template
+run_test "gh project link" allow project link
+run_test "gh project unlink" allow project unlink
+run_test "gh project list --owner boxp" allow project list --owner boxp
+
+echo ""
 echo "=== gh api GraphQL tests (query許可, mutation allowlist) ==="
 # Queries — all allowed
 run_test "graphql query" allow api graphql -f 'query=query { repository(owner:"o",name:"r") { id } }'
@@ -184,6 +207,8 @@ run_test "gh run cancel (deny)" deny run cancel 123
 run_test "gh repo list (deny)" deny repo list
 run_test "gh api repos/o/r" allow api repos/o/r
 run_test "gh api -XPOST (deny)" deny api -XPOST repos/o/r
+run_test "gh api -f key=val (non-graphql, deny)" deny api -f key=val repos/o/r
+run_test "gh api -F key=val (non-graphql, deny)" deny api -F key=val repos/o/r
 run_test "gh (no args, deny)" deny
 
 echo ""
