@@ -101,6 +101,66 @@ run_test "gh issue develop 123" allow issue develop 123
 run_test "gh issue status" allow issue status
 
 echo ""
+echo "=== gh api GraphQL tests (query許可, mutation allowlist) ==="
+# Queries — all allowed
+run_test "graphql query" allow api graphql -f 'query=query { repository(owner:"o",name:"r") { id } }'
+run_test "graphql shorthand query" allow api graphql -f 'query={ repository(owner:"o",name:"r") { id } }'
+run_test "graphql query with variables" allow api graphql -f 'query=query($o:String!){repository(owner:$o,name:"r"){id}}' -f 'variables={"o":"owner"}'
+run_test "graphql query with operationName" allow api graphql -f 'query=query GetRepo{repository{id}}' -f 'operationName=GetRepo'
+
+# Allowlisted mutations — allowed
+run_test "graphql mutation addComment" allow api graphql -f 'query=mutation { addComment(input:{subjectId:"x",body:"hi"}) { commentEdge { node { id } } } }'
+run_test "graphql mutation named addComment" allow api graphql -f 'query=mutation AddC($i:AddCommentInput!) { addComment(input:$i) { commentEdge { node { id } } } }'
+run_test "graphql mutation addProjectV2ItemById" allow api graphql -f 'query=mutation { addProjectV2ItemById(input:{projectId:"p",contentId:"c"}) { item { id } } }'
+run_test "graphql mutation closeIssue" allow api graphql -f 'query=mutation { closeIssue(input:{issueId:"i"}) { issue { id } } }'
+run_test "graphql mutation updateProjectV2ItemFieldValue" allow api graphql -f 'query=mutation { updateProjectV2ItemFieldValue(input:{projectId:"p",itemId:"i",fieldId:"f",value:{text:"v"}}) { projectV2Item { id } } }'
+run_test "graphql mutation createIssue" allow api graphql -f 'query=mutation { createIssue(input:{repositoryId:"r",title:"t"}) { issue { id } } }'
+
+# Non-allowlisted mutations — denied
+run_test "graphql mutation createRepository (deny)" deny api graphql -f 'query=mutation { createRepository(input:{name:"evil"}) { repository { id } } }'
+run_test "graphql mutation mergePullRequest (deny)" deny api graphql -f 'query=mutation { mergePullRequest(input:{pullRequestId:"x"}) { pullRequest { id } } }'
+run_test "graphql mutation deleteUser (deny)" deny api graphql -f 'query=mutation { deleteUser(input:{userId:"x"}) { clientMutationId } }'
+
+# Alias bypass — denied (actual mutation name is checked, not alias)
+run_test "graphql alias bypass (deny)" deny api graphql -f 'query=mutation { safe:createRepository(input:{name:"evil"}) { repository { id } } }'
+run_test "graphql alias allowed mutation" allow api graphql -f 'query=mutation { myComment:addComment(input:{subjectId:"x",body:"hi"}) { commentEdge { node { id } } } }'
+
+# Multiple mutations — mixed allowed+denied → denied
+run_test "graphql multi-mutation mixed (deny)" deny api graphql -f 'query=mutation { addComment(input:{subjectId:"x",body:"hi"}) { commentEdge { node { id } } } deleteRepository(input:{repositoryId:"r"}) { clientMutationId } }'
+
+# Multiple mutations — all allowed → allowed
+run_test "graphql multi-mutation all allowed" allow api graphql -f 'query=mutation { addComment(input:{subjectId:"x",body:"a"}) { commentEdge { node { id } } } closeIssue(input:{issueId:"i"}) { issue { id } } }'
+
+# Unparseable mutation — denied (fail-closed)
+run_test "graphql unparseable mutation (deny)" deny api graphql -f 'query=mutation { }'
+
+# Multi-operation document bypass — mutation not at start → denied
+run_test "graphql multi-op bypass (deny)" deny api graphql -f 'query=query Q { repository { id } } mutation M { deleteRepository(input:{repositoryId:"r"}) { clientMutationId } }' -f 'operationName=M'
+run_test "graphql multi-op bypass allowed mutation (deny)" deny api graphql -f 'query=query Q { repository { id } } mutation M { addComment(input:{subjectId:"x",body:"hi"}) { commentEdge { node { id } } } }' -f 'operationName=M'
+
+# Comment bypass — GraphQL comment before mutation → denied (mutation detected in full text)
+run_test "graphql comment bypass (deny)" deny api graphql -f "$(printf 'query=#comment\nmutation { deleteRepository(input:{repositoryId:"r"}) { clientMutationId } }')"
+
+# String-with-hash bypass — # inside string should not hide mutation keyword
+run_test "graphql string hash bypass (deny)" deny api graphql -f 'query=query Q { field(arg: "#") } mutation M { deleteRepository(input:{repositoryId:"r"}) { clientMutationId } }'
+
+# clientMutationId in query should not trigger false positive
+run_test "graphql query with clientMutationId field" allow api graphql -f 'query=query { node(id:"x") { ... on Issue { id clientMutationId } } }'
+
+# -F/--field — denied (supports @file bypass)
+run_test "graphql -F (deny)" deny api graphql -F 'query=query { repository { id } }'
+run_test "graphql --field (deny)" deny api graphql --field 'query=query { repository { id } }'
+
+# --input — denied
+run_test "graphql --input (deny)" deny api graphql --input body.json
+
+# File reference @file — denied
+run_test "graphql @file query (deny)" deny api graphql -f 'query=@evil.graphql'
+
+# Disallowed extra fields — denied
+run_test "graphql extra field (deny)" deny api graphql -f 'query=query{repository{id}}' -f 'title=evil'
+
+echo ""
 echo "=== その他のコマンド ==="
 run_test "gh auth status" allow auth status
 run_test "gh auth login (deny)" deny auth login

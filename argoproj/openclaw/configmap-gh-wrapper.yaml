@@ -17,6 +17,7 @@ data:
     #   auth  — status only
     #   run   — list | view
     #   api   — GET only (default method)
+    #   api graphql — queries allowed; mutations allowlisted to issue/project ops
     #
     # Everything else is rejected with a non-zero exit code.
 
@@ -86,11 +87,108 @@ data:
         exec "$REAL_GH" $GLOBAL_OPTS issue "$@"
         ;;
       api)
-        # Only allow GET requests (the default). Reject:
-        #   --method/-X with anything other than GET (including -XPOST form)
-        #   --input (implies POST body)
-        #   -f/--raw-field/-F/--field (triggers implicit POST)
-        # Handles both separate (-X POST) and concatenated (-XPOST) forms.
+        # Detect GraphQL endpoint
+        is_graphql=false
+        for arg in "$@"; do
+          [ "$arg" = "graphql" ] && is_graphql=true && break
+        done
+
+        if $is_graphql; then
+          # --- GraphQL path ---
+          # Queries are allowed freely.
+          # Mutations are allowlisted to issue/project operations.
+          # Only -f/--raw-field with query=, variables=, operationName= permitted.
+          # -F/--field rejected (supports @file which bypasses query parsing).
+          # --input rejected (file/stdin bypass).
+          query_str=""
+          prev_f=""
+          for arg in "$@"; do
+            case "$prev_f" in
+              -f|--raw-field)
+                case "$arg" in
+                  query=@*|variables=@*|operationName=@*)
+                    die "api graphql: file references (@) are not allowed" ;;
+                  query=*) query_str="${arg#query=}" ;;
+                  variables=*|operationName=*) ;;
+                  *) die "api graphql: field '$arg' is not allowed (only query, variables, operationName)" ;;
+                esac
+                prev_f=""; continue ;;
+            esac
+            case "$arg" in
+              -f|--raw-field) prev_f="$arg" ;;
+              -fquery=@*|--raw-field=query=@*)
+                die "api graphql: file references (@) are not allowed" ;;
+              -fquery=*) query_str="${arg#-fquery=}" ;;
+              --raw-field=query=*) query_str="${arg#--raw-field=query=}" ;;
+              -fvariables=*|--raw-field=variables=*) ;;
+              -foperationName=*|--raw-field=operationName=*) ;;
+              -f*|--raw-field=*)
+                die "api graphql: only query, variables, operationName fields are allowed" ;;
+              -F|--field|-F*|--field=*)
+                die "api graphql: use -f/--raw-field instead of -F/--field" ;;
+              --input|--input=*)
+                die "api graphql: --input is not allowed" ;;
+              *) ;;
+            esac
+          done
+
+          # Normalize whitespace (newlines/tabs → spaces, collapse runs, strip leading)
+          # Note: we intentionally do NOT strip GraphQL comments (#...) because
+          # doing so could erase content inside string literals (e.g. "foo#bar")
+          # and allow a mutation keyword to be hidden from detection.
+          normalized=$(printf '%s' "$query_str" | tr '\n\r\t' '   ' | sed 's/  */ /g; s/^[[:space:]]*//')
+          # Check for mutation keyword anywhere in the document (word boundary)
+          if printf '%s' "$normalized" | grep -qE '(^|[^a-zA-Z0-9_])mutation([[:space:]{(]|$)'; then
+            # mutation keyword found — require it to be the first operation
+            case "$normalized" in
+              mutation*) ;; # OK — mutation is the first operation
+              *) die "api graphql: mutation must be the first operation in the document" ;;
+            esac
+            # Extract top-level mutation field names.
+            # 1. Get content after the first '{' (the selection set).
+            inner=$(printf '%s' "$normalized" | sed 's/^[^{]*{//')
+            # 2. Collapse nested {...} to isolate top-level fields.
+            depth_zero="$inner"
+            while true; do
+              new=$(printf '%s' "$depth_zero" | sed 's/{[^{}]*}//g')
+              [ "$new" = "$depth_zero" ] && break
+              depth_zero="$new"
+            done
+            # 3. Extract identifiers immediately before '(' — these are
+            #    mutation names (aliases precede ':', not '(').
+            mut_names=$(printf '%s' "$depth_zero" \
+              | grep -oE '[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(' \
+              | sed 's/[[:space:]]*($//' || true)
+            [ -z "$mut_names" ] && die "api graphql: could not parse mutation name(s)"
+            for m in $mut_names; do
+              case "$m" in
+                addComment|updateIssueComment|deleteIssueComment|\
+                createIssue|updateIssue|closeIssue|reopenIssue|deleteIssue|\
+                transferIssue|markIssueAsDuplicate|unmarkIssueAsDuplicate|\
+                addLabelsToLabelable|removeLabelsFromLabelable|\
+                addAssigneesToAssignable|removeAssigneesFromAssignable|\
+                lockLockable|unlockLockable|pinIssue|unpinIssue|\
+                createProjectV2|updateProjectV2|deleteProjectV2|copyProjectV2|\
+                addProjectV2ItemById|updateProjectV2ItemFieldValue|\
+                clearProjectV2ItemFieldValue|deleteProjectV2Item|\
+                archiveProjectV2Item|unarchiveProjectV2Item|\
+                updateProjectV2ItemPosition|\
+                addProjectV2DraftIssue|updateProjectV2DraftIssue|deleteProjectV2DraftIssue|\
+                linkProjectV2ToRepository|unlinkProjectV2FromRepository|\
+                linkProjectV2ToTeam|unlinkProjectV2FromTeam|\
+                createProjectV2Field|updateProjectV2Field|deleteProjectV2Field|\
+                createProjectV2StatusUpdate|updateProjectV2StatusUpdate|deleteProjectV2StatusUpdate)
+                  ;; # allowed
+                *)
+                  die "api graphql: mutation '$m' is not in the allowlist"
+                  ;;
+              esac
+            done
+          fi
+          exec "$REAL_GH" $GLOBAL_OPTS api "$@"
+        fi
+
+        # --- Non-GraphQL API: GET only (existing logic, unchanged) ---
         method="GET"
         for arg in "$@"; do
           case "$arg" in
