@@ -208,7 +208,8 @@ data:
           "token": "${OPENCLAW_GATEWAY_TOKEN}"
         },
         "controlUi": {
-          "allowInsecureAuth": true
+          "allowInsecureAuth": true,
+          "allowedOrigins": ["https://openclaw.b0xp.io"]
         }
       }
     }
