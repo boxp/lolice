@@ -87,10 +87,25 @@ data:
         exec "$REAL_GH" $GLOBAL_OPTS issue "$@"
         ;;
       api)
-        # Detect GraphQL endpoint
+        # Detect GraphQL endpoint: only match the first positional argument.
+        # Skip option flags and their values so that e.g. --jq graphql
+        # does not incorrectly trigger the GraphQL path (P1 fix).
         is_graphql=false
+        _skip_val=false
         for arg in "$@"; do
-          [ "$arg" = "graphql" ] && is_graphql=true && break
+          if $_skip_val; then
+            _skip_val=false
+            continue
+          fi
+          case "$arg" in
+            -X|--method|-H|--header|-f|--raw-field|-F|--field|\
+            -q|--jq|-t|--template|--input|--hostname|--cache|-p|--preview)
+              _skip_val=true ;;
+            -*) ;;
+            *)
+              [ "$arg" = "graphql" ] && is_graphql=true
+              break ;;
+          esac
         done
 
         if $is_graphql; then
@@ -137,16 +152,47 @@ data:
           # doing so could erase content inside string literals (e.g. "foo#bar")
           # and allow a mutation keyword to be hidden from detection.
           normalized=$(printf '%s' "$query_str" | tr '\n\r\t' '   ' | sed 's/  */ /g; s/^[[:space:]]*//')
+          # Strip string literals before mutation detection to avoid false
+          # positives from "mutation" appearing inside string values (P2 fix).
+          # Handles block strings ("""..."""), escaped quotes (\"), and
+          # regular strings ("...") via character-by-character scanning.
+          stripped=$(printf '%s' "$normalized" | awk '{
+            r=""; s=$0
+            while (length(s) > 0) {
+              if (substr(s,1,3) == "\"\"\"") {
+                s = substr(s,4)
+                while (length(s) > 0) {
+                  if (substr(s,1,1) == "\\" && substr(s,2,3) == "\"\"\"") {
+                    s = substr(s,5)
+                  } else if (substr(s,1,3) == "\"\"\"") {
+                    s = substr(s,4); break
+                  } else { s = substr(s,2) }
+                }
+              } else if (substr(s,1,2) == "\\\"") {
+                s = substr(s,3)
+              } else if (substr(s,1,1) == "\"") {
+                s = substr(s,2)
+                while (length(s) > 0 && substr(s,1,1) != "\"") {
+                  if (substr(s,1,2) == "\\\"") s = substr(s,3)
+                  else s = substr(s,2)
+                }
+                if (length(s) > 0) s = substr(s,2)
+              } else {
+                r = r substr(s,1,1); s = substr(s,2)
+              }
+            }
+            printf "%s", r
+          }')
           # Check for mutation keyword anywhere in the document (word boundary)
-          if printf '%s' "$normalized" | grep -qE '(^|[^a-zA-Z0-9_])mutation([[:space:]{(]|$)'; then
+          if printf '%s' "$stripped" | grep -qE '(^|[^a-zA-Z0-9_])mutation([[:space:]{(]|$)'; then
             # mutation keyword found — require it to be the first operation
-            case "$normalized" in
+            case "$stripped" in
               mutation*) ;; # OK — mutation is the first operation
               *) die "api graphql: mutation must be the first operation in the document" ;;
             esac
             # Extract top-level mutation field names.
             # 1. Get content after the first '{' (the selection set).
-            inner=$(printf '%s' "$normalized" | sed 's/^[^{]*{//')
+            inner=$(printf '%s' "$stripped" | sed 's/^[^{]*{//')
             # 2. Collapse nested {...} to isolate top-level fields.
             depth_zero="$inner"
             while true; do

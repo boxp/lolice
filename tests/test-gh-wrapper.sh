@@ -147,6 +147,13 @@ run_test "graphql string hash bypass (deny)" deny api graphql -f 'query=query Q 
 # clientMutationId in query should not trigger false positive
 run_test "graphql query with clientMutationId field" allow api graphql -f 'query=query { node(id:"x") { ... on Issue { id clientMutationId } } }'
 
+# P2: "mutation" inside string literals should not trigger mutation detection
+run_test "graphql query with mutation in string literal" allow api graphql -f 'query=query { search(query:"foo mutation bar", type:ISSUE, first:10) { nodes { id } } }'
+run_test "graphql query with mutation in repo name string" allow api graphql -f 'query={ repository(owner:"o",name:"mutation-tracker") { id } }'
+run_test "graphql query with escaped quote and mutation in string" allow api graphql -f 'query=query { search(query:"test \"mutation\" value", type:ISSUE) { nodes { id } } }'
+run_test "graphql query with mutation in block string" allow api graphql -f 'query=query { search(query:"""foo " mutation " bar""", type:ISSUE) { nodes { id } } }'
+run_test "graphql query with escaped triple quote in block string" allow api graphql -f 'query=query { f(arg:"""prefix \""" mutation suffix""") }'
+
 # -F/--field — denied (supports @file bypass)
 run_test "graphql -F (deny)" deny api graphql -F 'query=query { repository { id } }'
 run_test "graphql --field (deny)" deny api graphql --field 'query=query { repository { id } }'
@@ -159,6 +166,13 @@ run_test "graphql @file query (deny)" deny api graphql -f 'query=@evil.graphql'
 
 # Disallowed extra fields — denied
 run_test "graphql extra field (deny)" deny api graphql -f 'query=query{repository{id}}' -f 'title=evil'
+
+echo ""
+echo "=== P1: Non-GraphQL API with 'graphql' in option values ==="
+# P1: "graphql" as an option value should NOT trigger GraphQL path
+run_test "api --jq graphql (non-graphql GET, allow)" allow api repos/o/r --jq graphql
+run_test "api --jq graphql -XPUT (non-graphql PUT, deny)" deny api repos/o/r --jq graphql -X PUT
+run_test "api -H graphql repos/o/r (non-graphql GET, allow)" allow api -H graphql repos/o/r
 
 echo ""
 echo "=== その他のコマンド ==="
