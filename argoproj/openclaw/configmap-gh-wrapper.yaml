@@ -12,11 +12,12 @@ data:
     # delegates safety to this script rather than to token scopes.
     #
     # Policy:
-    #   pr    — all subcommands EXCEPT merge
-    #   issue — all subcommands
-    #   auth  — status only
-    #   run   — list | view
-    #   api   — GET only (default method)
+    #   pr      — all subcommands EXCEPT merge
+    #   issue   — all subcommands
+    #   project — all subcommands
+    #   auth    — status only
+    #   run     — list | view
+    #   api     — GET only (default method)
     #   api graphql — queries allowed; mutations allowlisted to issue/project ops
     #
     # Everything else is rejected with a non-zero exit code.
@@ -85,6 +86,9 @@ data:
         ;;
       issue)
         exec "$REAL_GH" $GLOBAL_OPTS issue "$@"
+        ;;
+      project)
+        exec "$REAL_GH" $GLOBAL_OPTS project "$@"
         ;;
       api)
         # Detect GraphQL endpoint: only match the first positional argument.
