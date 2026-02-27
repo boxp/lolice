@@ -1,0 +1,49 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: tailscale-subnet-router-network-policy
+  namespace: tailscale
+spec:
+  selector: app == 'tailscale-subnet-router'
+  types:
+    - Ingress
+    - Egress
+  # No ingress rules: deny all inbound traffic.
+  # WireGuard tunnels are established outbound by the userspace tailscale process.
+  ingress: []
+  egress:
+    # Allow DNS to cluster DNS service (UDP + TCP)
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    # Allow Kubernetes API access for TS_KUBE_SECRET state persistence
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 10.96.0.1/32
+        ports:
+          - 443
+    # Allow HTTPS egress to Tailscale coordination server and DERP relays
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports:
+          - 443
+    # Allow STUN for Tailscale DERP relay discovery
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports:
+          - 3478
