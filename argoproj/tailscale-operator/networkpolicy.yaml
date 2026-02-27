@@ -9,9 +9,12 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow webhook traffic from Kubernetes API server
+    # Allow webhook traffic from Kubernetes API server only
     - action: Allow
       protocol: TCP
+      source:
+        nets:
+          - 10.96.0.1/32
       destination:
         ports:
           - 443
