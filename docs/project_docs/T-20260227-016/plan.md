@@ -155,11 +155,37 @@ metadata:
 
 ## 前提条件（`boxp/arch` 側で必要な作業）
 
-- Tailscale OAuth Client の作成（Terraform）
+**arch PR**: https://github.com/boxp/arch/pull/7268 (T-20260227-017)
+
+- Tailscale OAuth Client 用 SSM パラメータの Terraform 管理化（`terraform/tailscale/lolice/oauth.tf`）
 - OAuth Client ID / Secret を SSM に保存:
   - `/lolice/tailscale/operator-oauth-client-id`
   - `/lolice/tailscale/operator-oauth-client-secret`
 - Tailscale ACL に `tag:k8s-operator` の権限設定
+
+### マージ順序
+
+1. **First**: arch PR #7268 をマージ（SSM パラメータ作成）
+2. **Then**: Tailscale admin console で OAuth client を作成し SSM に値を投入
+3. **Last**: 本 PR をマージ（ExternalSecret が SSM から credentials を取得）
+
+### 運用手順（手動設定不要化）
+
+arch PR #7268 により、SSM パラメータは Terraform で管理されます。
+初回のみ以下の手動ステップが必要ですが、以降は ExternalSecret による自動同期で運用できます：
+
+1. arch PR マージ後、Terraform apply で SSM パラメータが作成される
+2. Tailscale admin console で OAuth client を作成（Settings > OAuth clients）
+   - Scopes: `auth_keys`, `devices` (Write)
+   - Tag: `tag:k8s-operator`
+3. 取得した credentials を SSM に投入:
+   ```bash
+   aws ssm put-parameter --name "/lolice/tailscale/operator-oauth-client-id" \
+       --value "<CLIENT_ID>" --type SecureString --overwrite
+   aws ssm put-parameter --name "/lolice/tailscale/operator-oauth-client-secret" \
+       --value "<CLIENT_SECRET>" --type SecureString --overwrite
+   ```
+4. 本 PR マージ後、ExternalSecret が 1h 間隔で SSM から自動同期
 
 ## 非スコープ
 
