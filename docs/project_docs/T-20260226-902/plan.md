@@ -1,6 +1,6 @@
 # Tailscale Workload Identity Federation PoC 導入計画
 
-> **要約**: lolice クラスターの GitHub Actions CI/CD パイプラインで利用している Cloudflare Service Token（長寿命キー）を、Tailscale Workload Identity Federation（2026-02-19 GA）に置き換える PoC 計画。推奨案は「GitHub Actions WIF + 限定 subnet router による ArgoCD diff のキーレス化」で、2 週間以内に検証可能。GitHub Actions 側は WIF で完全キーレス化し、クラスター側は subnet router（auth key を既存 External Secrets パターンで管理）で ArgoCD API への到達性を確保する。**Tailscale 関連設定（Trust Credential、ACL ポリシー、DNS 等）は原則として Terraform で管理し**、既存 Cloudflare 経路は維持したまま並行導入し、失敗時は `terraform destroy` による即座のロールバックが可能な設計とする。
+> **要約**: lolice クラスターの GitHub Actions CI/CD パイプラインで利用している Cloudflare Service Token（長寿命キー）を、Tailscale Workload Identity Federation（2026-02-19 GA）に置き換える PoC 計画。推奨案は「GitHub Actions WIF + 限定 subnet router による ArgoCD diff のキーレス化」で、2 週間以内に検証可能。GitHub Actions 側は WIF で完全キーレス化し、クラスター側は subnet router（auth key を既存 External Secrets パターンで管理）で ArgoCD API への到達性を確保する。**Tailscale 関連設定（Trust Credential、ACL ポリシー、DNS 等）は `boxp/arch` リポジトリの Terraform（tfaction）で管理し**、既存 Cloudflare 経路は維持したまま並行導入し、失敗時は Terraform コード revert + tfaction apply による即座のロールバックが可能な設計とする。
 
 ---
 
@@ -131,20 +131,20 @@ GitHub Actions の `argocd-diff` ワークフローで、Cloudflare Service Toke
 | Day | タスク | 成果物 | Terraform 適用 |
 |---|---|---|---|
 | 1 | Tailscale アカウント設定・tailnet 作成（既存がない場合） | tailnet 環境 | - |
-| 1-2 | Terraform プロジェクト初期セットアップ（`tailscale/` ディレクトリ、provider 設定、state backend 設定） | `tailscale/main.tf`, `tailscale/providers.tf`, `tailscale/backend.tf` | `terraform init` |
-| 2-3 | Terraform で ACL ポリシー・Trust Credential・DNS 設定を定義 | `tailscale/acl.tf`, `tailscale/wif.tf`, `tailscale/dns.tf` | `terraform plan` → レビュー |
-| 3 | **検証ポイント**: `terraform plan` の差分レビュー、意図しない変更がないことを確認 | plan 出力のスクリーンショット/ログ | - |
-| 3-4 | `terraform apply` で Tailscale リソースを作成（ACL、Trust Credential） | 適用済みリソース、tfstate | `terraform apply` |
-| 4-5 | K8s クラスターに Tailscale subnet router Pod をデプロイ（ArgoCD Application） | subnet router マニフェスト、ArgoCD Application | - (ArgoCD 管理) |
-| 5 | subnet router が tailnet に参加後、Terraform で subnet routes を承認（`tailscale_device_subnet_routes`） | 承認済み routes | `terraform apply`（subnet_routes.tf 追加） |
-| 5 | **検証ポイント**: subnet router が tailnet に参加し、routes が承認済みで ACL が正しく適用されていることを確認 | `tailscale status` 出力、ACL テスト結果、`terraform plan` で差分なし | - |
+| 1-2 | `boxp/arch` に Tailscale tfaction ターゲットを追加（`tfaction-root.yaml` 更新、`templates/tailscale/` 作成、provider whitelist 更新）→ PR 作成 | `boxp/arch` PR | tfaction plan 自動実行 |
+| 2-3 | `boxp/arch` に `terraform/tailscale/lolice-poc/` ワーキングディレクトリを作成し、ACL・Trust Credential・DNS を定義 → PR 作成 | `acl.tf`, `wif.tf`, `dns.tf` | tfaction plan 自動実行 → レビュー |
+| 3 | **検証ポイント**: tfaction の plan 結果を PR コメントで確認、意図しない変更がないことを確認 | plan 出力（PR コメント） | - |
+| 3-4 | PR マージ → tfaction が自動で `terraform apply` を実行し Tailscale リソースを作成 | 適用済みリソース、tfstate（S3） | tfaction apply 自動実行 |
+| 4-5 | `boxp/lolice` に K8s マニフェスト（Tailscale subnet router Pod）を追加 → ArgoCD でデプロイ | subnet router マニフェスト、ArgoCD Application | - (ArgoCD 管理) |
+| 5 | subnet router が tailnet に参加後、`boxp/arch` に subnet routes 承認の Terraform コードを追加 → PR → マージ | 承認済み routes | tfaction apply 自動実行 |
+| 5 | **検証ポイント**: subnet router が tailnet に参加し、routes が承認済みで ACL が正しく適用されていることを確認 | `tailscale status` 出力、ACL テスト結果、tfaction plan で差分なし | - |
 
 #### Week 2: 検証・統合
 
 | Day | タスク | 成果物 | Terraform 適用 |
 |---|---|---|---|
 | 6-7 | テスト用 GitHub Actions ワークフロー作成（tailnet 接続 → ArgoCD API 疎通確認） | `.github/workflows/test-tailscale-wif.yaml` | - |
-| 8 | **検証ポイント**: WIF 接続テスト実行、失敗時は Terraform 設定（ACL/Trust Credential）を修正して `terraform apply` | テスト結果ログ | 必要に応じて `terraform apply` |
+| 8 | **検証ポイント**: WIF 接続テスト実行、失敗時は `boxp/arch` の Terraform 設定（ACL/Trust Credential）を修正して PR → マージ → tfaction apply | テスト結果ログ | 必要に応じて tfaction apply |
 | 8-9 | `argocd-diff.yaml` に Tailscale 接続パスを追加（Cloudflare パスと並行） | 更新済みワークフロー | - |
 | 10 | 実際の PR で両経路（Cloudflare / Tailscale）の動作を比較検証 | 検証結果レポート | - |
 | 11-12 | 結果レビュー、成功基準の判定、次フェーズ計画の策定 | 最終レポート | - |
@@ -196,9 +196,9 @@ GitHub Actions の `argocd-diff` ワークフローで、Cloudflare Service Toke
 | 2 | GitHub リポジトリ (`boxp/lolice`) で OIDC トークン発行が可能 | `permissions: id-token: write` がブロックされていないこと |
 | 3 | K8s クラスターに新規 Pod をデプロイ可能 | ArgoCD で Application を追加できること |
 | 4 | Tailscale 管理コンソールへの管理者アクセスがある | Trust Credential・ACL の編集権限 |
-| 5 | Terraform CLI (v1.5+) がインストールされている | `terraform version` で確認 |
+| 5 | `boxp/arch` リポジトリへの書き込み権限がある | PR 作成・マージが可能であること |
 | 6 | Tailscale API キーが取得可能（Terraform provider 認証用） | 管理コンソール → Settings → Keys → API Key |
-| 7 | Terraform state backend（S3 + DynamoDB 推奨）が利用可能 | 既存 AWS アカウントの S3 バケットを使用 |
+| 7 | `boxp/arch` の tfaction CI パイプラインが動作可能 | 既存の AWS/Cloudflare ターゲットの plan/apply が正常であること |
 
 ### 4.2 GitHub 設定
 
@@ -212,22 +212,28 @@ GitHub Actions の `argocd-diff` ワークフローで、Cloudflare Service Toke
 3. **既存 Secrets は削除しない:**
    - `ARGOCD_API_TOKEN_ID` / `ARGOCD_API_TOKEN_SECRET`: Cloudflare 経路のフォールバック用に保持
 
-### 4.3 Tailscale 設定（Terraform 管理）
+### 4.3 Tailscale 設定（Terraform 管理 — `boxp/arch` リポジトリ）
 
-> **原則:** Tailscale 関連の設定変更は全て Terraform 経由で行い、管理コンソールでの手動操作は原則禁止とする。例外条件は [4.4 Terraform 管理方針](#44-terraform-管理方針) を参照。
+> **原則:** Tailscale 関連の設定変更は全て `boxp/arch` リポジトリの Terraform（tfaction）経由で行い、管理コンソールでの手動操作は原則禁止とする。例外条件は [4.4 Terraform 管理方針](#44-terraform-管理方針) を参照。
 
-1. **Trust Credential 作成（`tailscale_tailnet_key` / `tailscale_acl` リソースで管理）:**
+1. **Trust Credential（WIF）作成:**
    - Issuer: GitHub Actions (`https://token.actions.githubusercontent.com`)
    - Subject: `repo:boxp/lolice:pull_request`（`pull_request` トリガーでの OIDC Subject に一致させる。`argocd-diff` ワークフローは `on: pull_request` で実行されるため、`ref:refs/heads/main` ではなくこの形式が必要）
    - Custom Claim Rules: `{ "workflow": "ArgoCD Diff Check" }`（`.github/workflows/argocd-diff.yaml` の `name` フィールドに一致させる）
    - Tags: `tag:ci`
    - Scopes: `auth_keys`, `devices:core`
    - **最小権限の原則:** PoC 段階では `pull_request` イベント + 特定ワークフロー名に限定。Custom Claim Rules の `workflow` で対象ワークフローを制限する
+   - **Terraform リソース:** WIF 専用リソースが Provider で利用可能であればそちらを採用（詳細は [4.4.1 ※1](#441-terraform-管理対象必須) を参照）。利用不可能な場合は Tailscale API を直接利用し、Terraform では `null_resource` + local-exec で管理する
 
-2. **ACL ポリシー（Terraform `tailscale_acl` リソースで管理）:**
+2. **subnet router 用 auth key（`tailscale_tailnet_key` リソースで管理）:**
+   - subnet router Pod の tailnet 参加に必要な事前承認済み auth key を Terraform で作成
+   - `reusable = true`, `ephemeral = true`, `preauthorized = true` で設定
+   - **注意:** この auth key は WIF（Trust Credential）とは別物。subnet router は常駐 Pod であり、GitHub Actions のようにジョブ毎に OIDC トークンを取得する仕組みとは異なるため、auth key を使用する
+
+3. **ACL ポリシー（Terraform `tailscale_acl` リソースで管理）:**
 
    ```hcl
-   # tailscale/acl.tf
+   # boxp/arch: terraform/tailscale/lolice-poc/acl.tf
    resource "tailscale_acl" "this" {
      acl = jsonencode({
        acls = [
@@ -257,18 +263,23 @@ GitHub Actions の `argocd-diff` ワークフローで、Cloudflare Service Toke
 
 ### 4.4 Terraform 管理方針
 
-> **原則:** Tailscale 関連設定は PoC フェーズから Terraform で管理する。手動操作で作成した設定は PoC 完了までに Terraform 管理下へ移行すること。
+> **原則:** Tailscale 関連設定は PoC フェーズから `boxp/arch` リポジトリの Terraform（tfaction）で管理する。`boxp/arch` は既に AWS・Cloudflare・GitHub の Terraform 管理を tfaction で運用しており、Tailscale もこの既存構成に従って管理する。手動操作で作成した設定は PoC 完了までに Terraform 管理下へ移行すること。
 
 #### 4.4.1 Terraform 管理対象（必須）
 
 | リソース | Terraform Provider / Resource | 管理理由 |
 |---|---|---|
 | ACL ポリシー | `tailscale_acl` | アクセス制御の変更履歴・レビューを担保するため必須 |
-| Trust Credential (WIF) | `tailscale_tailnet_key`（※1） | 認証設定の再現性・監査性を担保するため必須 |
+| Trust Credential (WIF) | ※1 参照 | 認証設定の再現性・監査性を担保するため必須 |
+| subnet router 用 auth key | `tailscale_tailnet_key` | subnet router の tailnet 参加キーを IaC 管理するため必須 |
 | DNS 設定 | `tailscale_dns_nameservers`, `tailscale_dns_search_paths` | tailnet 内名前解決の一貫性を担保するため必須 |
 | subnet routes 承認 | `tailscale_device_subnet_routes` | ネットワーク経路の意図しない変更を防ぐため必須 |
 
-> **※1: Trust Credential リソース名について:** Tailscale Terraform Provider v0.17 時点では WIF (Federated Identity) 専用リソースが未提供のため、`tailscale_tailnet_key` で auth key を管理する。PoC 開始時に Provider の最新バージョンを確認し、WIF 専用リソース（例: `tailscale_federated_credential`）が利用可能であればそちらを採用する。採用リソースは PoC Day 1-2 の Terraform セットアップ時に確定し、本ドキュメントを更新すること。
+> **※1: Trust Credential (WIF) リソースについて:** Tailscale Terraform Provider v0.17 時点では WIF (Federated Identity) 専用リソースが未提供のため、Trust Credential の Terraform 管理方法は PoC Day 1-2 に確定する。選択肢は以下:
+> - **推奨:** Provider の最新バージョンで WIF 専用リソース（例: `tailscale_federated_credential`）が利用可能であればそちらを採用
+> - **代替:** WIF 専用リソースが未提供の場合、Tailscale API を `null_resource` + local-exec で呼び出すか、管理コンソールで手動作成した上で Terraform import する
+>
+> **注意:** `tailscale_tailnet_key` は auth key 管理用リソースであり、WIF の Trust Credential（OIDC Issuer/Subject/Claims 条件）を表現するものではない。subnet router 用 auth key と WIF Trust Credential は別リソースとして管理すること。
 
 #### 4.4.2 Terraform 管理対象外（他ツールで管理）
 
@@ -276,7 +287,7 @@ GitHub Actions の `argocd-diff` ワークフローで、Cloudflare Service Toke
 |---|---|---|
 | K8s マニフェスト（subnet router Pod 等） | ArgoCD（既存パイプライン） | K8s リソースは既存の GitOps フローに統合する |
 | GitHub Actions Secrets/Variables | GitHub CLI (`gh secret set`) または手動 | Terraform GitHub Provider の導入コストに対してリソース数が少ない。将来的に GitHub 管理全体を Terraform 化する際に統合する |
-| Tailscale auth key（subnet router 用） | AWS SSM Parameter Store → External Secrets | 既存のシークレット管理パターンに統合する |
+| Tailscale auth key の**保管・配布**（subnet router 用） | AWS SSM Parameter Store → External Secrets | 既存のシークレット管理パターンに統合する。**注意:** auth key の**生成**（Tailscale 側リソース）は 4.4.1 の `tailscale_tailnet_key` で Terraform 管理する。ここで管理対象外とするのは、生成された key 値の保管・K8s への配布経路のみ |
 
 #### 4.4.3 手動運用を許容する例外条件
 
@@ -292,52 +303,142 @@ GitHub Actions の `argocd-diff` ワークフローで、Cloudflare Service Toke
 
 > **ドリフト検出:** `terraform plan` を定期的に実行し（最低でも PoC 期間中は週 1 回）、管理コンソールでの意図しない手動変更がないことを確認する。
 
-#### 4.4.4 Terraform プロジェクト構成
+#### 4.4.4 Terraform プロジェクト構成（`boxp/arch` リポジトリ内）
+
+`boxp/arch` の tfaction 既存構成（`terraform/aws/`, `terraform/cloudflare/`, `terraform/github/`）に倣い、`terraform/tailscale/` 配下に Tailscale 用ターゲットを配置する。
 
 ```
-tailscale/
-  ├── main.tf              # tailscale provider 設定
-  ├── providers.tf         # provider version constraints
-  ├── backend.tf           # state backend（S3 + DynamoDB 推奨）
-  ├── variables.tf         # 入力変数（tailnet 名、ArgoCD ClusterIP 等）
-  ├── acl.tf               # ACL ポリシー定義
-  ├── wif.tf               # Trust Credential（WIF）定義
-  ├── dns.tf               # DNS 設定
-  ├── subnet_routes.tf     # subnet routes 承認
-  ├── outputs.tf           # 出力値（Client ID、Audience 等）
-  └── terraform.tfvars.example  # 環境固有値のテンプレート（実際の .tfvars は .gitignore 対象）
+boxp/arch/
+  ├── tfaction-root.yaml                       # ← target_groups に tailscale エントリを追加
+  ├── templates/tailscale/                     # ← 新規: scaffold テンプレート
+  │   ├── backend.tf                           #    S3 backend（既存と同じ tfaction-state バケット）
+  │   ├── provider.tf                          #    tailscale provider 設定
+  │   └── tfaction.yaml                        #    tfaction ターゲット設定（空 or 最小構成）
+  ├── terraform/tailscale/
+  │   └── lolice-poc/                          # ← 新規: PoC 用ワーキングディレクトリ
+  │       ├── backend.tf                       #    S3 key: terraform/tailscale/lolice-poc/v1/terraform.tfstate
+  │       ├── provider.tf                      #    provider "tailscale" {} + provider "aws" {}
+  │       ├── tfaction.yaml                    #    tfaction ターゲット設定
+  │       ├── acl.tf                           #    ACL ポリシー定義
+  │       ├── wif.tf                           #    Trust Credential（WIF）定義
+  │       ├── dns.tf                           #    DNS 設定
+  │       ├── subnet_routes.tf                 #    subnet routes 承認
+  │       ├── variables.tf                     #    入力変数（tailnet 名、ArgoCD ClusterIP 等）
+  │       └── outputs.tf                       #    出力値（Client ID、Audience 等）
+  └── .github/workflows/
+      └── wc-plan.yaml                         # ← provider whitelist に tailscale を追加
 ```
 
-#### 4.4.5 Terraform 適用フロー
+> **テンプレート・backend パターン:** 既存の `templates/cloudflare/backend.tf` と同様に、S3 backend（バケット: `tfaction-state`）を使用し、state key は `%%TARGET%%/v1/terraform.tfstate` パターンに従う。
+
+#### 4.4.5 Terraform 適用フロー（tfaction）
+
+`boxp/arch` の既存 tfaction ワークフローに従い、PR ベースの plan/apply サイクルで運用する。
 
 ```
-1. コード変更（PR 作成）
+1. boxp/arch で PR 作成（terraform/tailscale/ 配下のコード変更）
    ↓
-2. terraform plan（差分確認）
+2. tfaction が自動で terraform plan を実行（pull_request_target トリガー）
    ↓
-3. PR レビュー（plan 出力を含む）
+3. PR に plan 結果がコメントとして投稿される
    ↓
-4. terraform apply（マージ後、または承認後に手動実行）
+4. PR レビュー・承認
    ↓
-5. terraform plan（ドリフトなし確認）
+5. マージ後、tfaction が自動で terraform apply を実行
+   ↓
+6. apply 結果がコメント/ステータスとして記録される
 ```
 
-> **注意:** PoC フェーズでは CI/CD での自動 apply は行わず、手動実行とする。本番移行時に GitHub Actions での自動化を検討する。
+> **tfaction の既存動作:** `tfaction-root.yaml` の `plan_workflow_name: pull_request_target` に従い、PR 作成時に自動で plan が実行される。apply はマージトリガーで自動実行される。
 
-#### 4.4.6 arch リポジトリとの責務分離
+#### 4.4.6 `boxp/arch` と `boxp/lolice` の責務分離
 
-既存の運用方針では、基盤インフラ（クラウドリソース、ネットワーク、IAM 等）の Terraform 管理は arch リポジトリが担当し、lolice リポジトリは K8s マニフェストの GitOps 管理を担当する（`docs/project-spec.md` 1.1 節参照）。
+既存の運用方針に従い、Tailscale の Terraform 管理は **`boxp/arch` リポジトリ** で行う。
 
-本 PoC では以下の理由から、Tailscale Terraform コードを **lolice リポジトリに配置する例外** とする:
+| 責務 | リポジトリ | 管理対象 |
+|---|---|---|
+| Tailscale インフラ（ACL、Trust Credential、DNS、subnet routes） | `boxp/arch` | Terraform（tfaction） |
+| K8s マニフェスト（subnet router Pod、Namespace、RBAC 等） | `boxp/lolice` | ArgoCD（既存 GitOps） |
+| GitHub Actions ワークフロー（argocd-diff.yaml 等） | `boxp/lolice` | Git / PR |
+| Tailscale auth key（subnet router 用） | `boxp/arch`（AWS SSM） + `boxp/lolice`（ExternalSecret） | Terraform + ArgoCD |
 
-1. **PoC の迅速性**: arch リポジトリへの PR・レビュー・CI パイプライン統合は PoC のスコープを超える
-2. **密結合性**: Tailscale ACL・Trust Credential は lolice の CI/CD ワークフロー（argocd-diff.yaml）と密結合しており、同一リポジトリで管理する方が変更の整合性を保ちやすい
-3. **一時性**: PoC 成功後の本番移行時に arch リポジトリへの移管を検討する
+> **注意:** Tailscale ACL・Trust Credential は lolice の CI/CD ワークフローと密結合しているが、基盤インフラの Terraform 管理は arch 側で一元化する方針に従う。lolice 側のワークフロー変更時に Tailscale 設定の変更も必要な場合は、arch 側にも PR を作成して整合性を確保する。
 
-**本番移行時の責務整理方針:**
-- PoC 成功後、Tailscale Terraform コードを arch リポジトリに移管するか、lolice に残すかを判断する
-- 判断基準: Tailscale が lolice 固有のリソースか（lolice に残す）、複数プロジェクトで共有するか（arch に移管）
-- 移管する場合は `terraform state mv` で state を移行し、lolice 側のコードを削除する
+#### 4.4.7 `boxp/arch` への変更対象ファイル候補
+
+Tailscale Terraform ターゲットを tfaction に追加するために、`boxp/arch` で以下の変更が必要となる。
+
+**1. tfaction-root.yaml（target_groups 追加）**
+
+```yaml
+  # --- Tailscale ---
+  - working_directory: terraform/tailscale/
+    target: terraform/tailscale/
+    aws_region: ap-northeast-1
+    s3_bucket_name_tfmigrate_history: 'tfaction-history'
+    template_dir: templates/tailscale
+    terraform_command: terraform
+    drift_detection: { enabled: false }
+    terraform_plan_config:
+      aws_assume_role_arn: arn:aws:iam::839695154978:role/GitHubActions_Terraform_AWS_terraform_plan
+      secrets:
+      - env_name: TAILSCALE_API_KEY
+        secret_name: TAILSCALE_API_KEY
+      - env_name: TAILSCALE_TAILNET
+        secret_name: TAILSCALE_TAILNET
+    tfmigrate_plan_config:
+      aws_assume_role_arn: arn:aws:iam::839695154978:role/GitHubActions_Terraform_AWS_tfmigrate_plan
+    terraform_apply_config:
+      aws_assume_role_arn: arn:aws:iam::839695154978:role/GitHubActions_Terraform_AWS_terraform_apply
+      secrets:
+      - env_name: TAILSCALE_API_KEY
+        secret_name: TAILSCALE_API_KEY
+      - env_name: TAILSCALE_TAILNET
+        secret_name: TAILSCALE_TAILNET
+    tfmigrate_apply_config:
+      aws_assume_role_arn: arn:aws:iam::839695154978:role/GitHubActions_Terraform_AWS_tfmigrate_apply
+```
+
+**2. `.github/workflows/wc-plan.yaml`（provider whitelist 追加）**
+
+`TFPROVIDERCHECK_CONFIG_BODY` 環境変数に Tailscale provider を追加:
+
+```yaml
+TFPROVIDERCHECK_CONFIG_BODY: |
+  providers:
+    - name: registry.terraform.io/cloudflare/cloudflare
+    - name: registry.terraform.io/hashicorp/aws
+    - name: registry.terraform.io/hashicorp/google
+    - name: registry.terraform.io/hashicorp/null
+    - name: registry.terraform.io/hashicorp/tls
+    - name: registry.terraform.io/hashicorp/random
+    - name: registry.terraform.io/hashicorp/time
+    - name: registry.terraform.io/integrations/github
+    - name: registry.terraform.io/tailscale/tailscale    # ← 追加
+```
+
+> **重要:** この whitelist を更新しないと、tfaction の plan ステップで `tfprovidercheck` がエラーとなり CI が失敗する。
+
+**3. `templates/tailscale/`（新規テンプレートディレクトリ）**
+
+既存の `templates/cloudflare/` パターンに倣い作成:
+
+| ファイル | 内容 |
+|---|---|
+| `templates/tailscale/backend.tf` | S3 backend 設定（`bucket = "tfaction-state"`, `key = "%%TARGET%%/v1/terraform.tfstate"`） |
+| `templates/tailscale/provider.tf` | `provider "tailscale" {}` + `provider "aws" {}` |
+| `templates/tailscale/tfaction.yaml` | `{}` (空) |
+
+**4. `terraform/tailscale/lolice-poc/`（新規ワーキングディレクトリ）**
+
+PoC 用 Terraform ターゲット。tfaction の `scaffold-working-dir` アクションで自動生成するか、テンプレートを元に手動作成する。
+
+**5. GitHub Actions Secrets（`boxp/arch` リポジトリ）**
+
+| Secret 名 | 用途 |
+|---|---|
+| `TAILSCALE_API_KEY` | Tailscale Terraform Provider 認証用 API キー |
+| `TAILSCALE_TAILNET` | 対象 tailnet 名 |
 
 ### 4.5 検証項目
 
@@ -356,7 +457,10 @@ tailscale/
 
 ### 4.6 失敗時のロールバック手順
 
-> **方針:** Terraform 管理リソースのロールバックは `terraform destroy` または Terraform コードの revert + `terraform apply` で行う。管理コンソールでの手動削除は緊急時のフォールバック手段とする。
+> **方針:** Terraform 管理リソースのロールバックは以下の優先順位で行う:
+> 1. **通常時:** `boxp/arch` で Terraform コードを revert する PR を作成 → マージ → tfaction が `terraform apply` で削除を実行
+> 2. **緊急時:** `boxp/arch` を clone して手動で `terraform destroy` を実行
+> 3. **最終手段:** 管理コンソールでの手動削除（実施後は Terraform state の整合手順を実施すること）
 
 **レベル 1: ワークフローのロールバック（即座に実行可能）**
 
@@ -373,28 +477,25 @@ tailscale/
 3. Terraform で subnet routes 承認を削除: `terraform apply`（`tailscale_device_subnet_routes` リソースを削除したコードを apply）
    - 緊急時フォールバック: Tailscale 管理コンソール → Machines から該当デバイスを手動削除
 
-**レベル 3: Tailscale 設定の完全撤去（Terraform destroy）**
+**レベル 3: Tailscale 設定の完全撤去（Terraform destroy via `boxp/arch`）**
 
-1. `terraform destroy` を実行し、Terraform 管理下の全 Tailscale リソースを削除:
-   ```bash
-   cd tailscale/
-   terraform destroy
-   ```
+1. `boxp/arch` で Tailscale ターゲットのリソース定義を削除する PR を作成し、マージ → tfaction が `terraform apply` で削除を実行:
    - 削除対象: Trust Credential、ACL ポリシー（PoC 追加分）、DNS 設定、subnet routes 承認
+   - 代替手段（緊急時）: `boxp/arch` を clone して手動で `terraform destroy` を実行
 2. GitHub Secrets/Variables から `TS_OAUTH_CLIENT_ID` / `TS_AUDIENCE` を削除: `gh secret delete` / `gh variable delete`
-3. Terraform state ファイルのクリーンアップ（S3 backend の場合はバケット内の state を確認）
+3. Terraform state ファイルのクリーンアップ（S3 `tfaction-state` バケット内の `terraform/tailscale/lolice-poc/v1/terraform.tfstate` を確認）
    - 緊急時フォールバック: 管理コンソールで Trust Credential を手動無効化 → ACL からルールを手動削除
 
-**各レベルの独立性:** レベル 1 のみで運用は完全に元に戻る。レベル 2-3 は不要なリソースのクリーンアップであり、緊急性は低い。Terraform 管理により、レベル 3 の実行もコマンド 1 つで完了する。
+**各レベルの独立性:** レベル 1 のみで運用は完全に元に戻る。レベル 2-3 は不要なリソースのクリーンアップであり、緊急性は低い。Terraform 管理（tfaction）により、レベル 3 の実行も PR マージで完了する。
 
 **緊急時手動フォールバック後の Terraform state 整合手順:**
 
-管理コンソールで手動削除を行った場合、Terraform state と実環境に乖離が生じる。以下の手順で整合を回復すること:
+管理コンソールで手動削除を行った場合、Terraform state と実環境に乖離が生じる。`boxp/arch` で以下の手順で整合を回復すること:
 
-1. `terraform plan` を実行し、ドリフト（state にあるが実環境にないリソース）を特定
+1. `boxp/arch` の該当ターゲットで `terraform plan` を実行し、ドリフト（state にあるが実環境にないリソース）を特定
 2. 手動削除済みリソースを state から除去: `terraform state rm <resource_address>`
 3. `terraform plan` で "No changes" になることを確認
-4. 手動操作の内容を Issue に記録し、対応した Terraform コードの変更（リソース定義の削除等）をコミット
+4. 手動操作の内容を Issue に記録し、対応した Terraform コードの変更（リソース定義の削除等）を `boxp/arch` にコミット
 
 ---
 
@@ -525,39 +626,74 @@ spec:
               add: ["NET_ADMIN"]
 ```
 
-### C. Terraform Provider 設定の概念設計
+### C. Terraform Provider 設定の概念設計（`boxp/arch` 内）
+
+> 以下は `boxp/arch` の既存 tfaction 構成（`terraform/cloudflare/` 等）に倣ったファイル構成例。
 
 ```hcl
-# tailscale/providers.tf
+# boxp/arch: terraform/tailscale/lolice-poc/backend.tf
 terraform {
-  required_version = ">= 1.5.0"
-
+  required_version = ">= 1.0"
+  backend "s3" {
+    bucket = "tfaction-state"
+    key    = "terraform/tailscale/lolice-poc/v1/terraform.tfstate"
+    region = "ap-northeast-1"
+  }
   required_providers {
     tailscale = {
       source  = "tailscale/tailscale"
       version = "~> 0.17"
     }
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
   }
-}
-
-provider "tailscale" {
-  # API キーは環境変数 TAILSCALE_API_KEY で渡す
-  # tailnet 名は環境変数 TAILSCALE_TAILNET で渡す
 }
 ```
 
 ```hcl
-# tailscale/wif.tf
-resource "tailscale_tailnet_key" "github_actions_ci" {
-  reusable      = true
-  ephemeral     = true
-  preauthorized = true
-  tags          = ["tag:ci"]
-  description   = "GitHub Actions WIF - ArgoCD diff"
+# boxp/arch: terraform/tailscale/lolice-poc/provider.tf
+provider "tailscale" {
+  # API キーは環境変数 TAILSCALE_API_KEY で渡す（tfaction-root.yaml の secrets で設定）
+  # tailnet 名は環境変数 TAILSCALE_TAILNET で渡す
+}
+
+provider "aws" {
+  region = "ap-northeast-1"
 }
 ```
 
-> **注意:** 上記は `tailscale_tailnet_key` を使用した暫定的な概念設計。PoC Day 1-2 で Provider v0.17+ のドキュメントを確認し、WIF 専用リソースが利用可能であればそちらに切り替える（詳細は [4.4.1 ※1](#441-terraform-管理対象必須) を参照）。
+```hcl
+# boxp/arch: terraform/tailscale/lolice-poc/wif.tf
+#
+# Trust Credential (WIF) の Terraform 管理:
+# Provider v0.17 時点では WIF 専用リソースが未提供のため、
+# PoC Day 1-2 で最新 Provider を確認し管理方法を確定する。
+# 詳細は 4.4.1 ※1 を参照。
+#
+# 以下は WIF 専用リソースが利用可能になった場合の概念例:
+# resource "tailscale_federated_credential" "github_actions_ci" {
+#   issuer   = "https://token.actions.githubusercontent.com"
+#   subject  = "repo:boxp/lolice:pull_request"
+#   claims   = { workflow = "ArgoCD Diff Check" }
+#   tags     = ["tag:ci"]
+# }
+```
+
+```hcl
+# boxp/arch: terraform/tailscale/lolice-poc/auth_key.tf
+# subnet router 用 auth key（WIF とは別リソース）
+resource "tailscale_tailnet_key" "subnet_router" {
+  reusable      = true
+  ephemeral     = true
+  preauthorized = true
+  tags          = ["tag:argocd-api"]
+  description   = "Subnet router auth key for lolice ArgoCD"
+}
+```
+
+> **注意:** `tailscale_tailnet_key` は subnet router の tailnet 参加用 auth key であり、GitHub Actions WIF の Trust Credential ではない。WIF Trust Credential の Terraform 管理方法は PoC Day 1-2 で確定する（詳細は [4.4.1 ※1](#441-terraform-管理対象必須) を参照）。
 
 ### D. 参考リンク
 
