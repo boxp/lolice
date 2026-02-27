@@ -206,11 +206,11 @@ GitHub Actions の `argocd-diff` ワークフローで、Cloudflare Service Toke
 
 1. **Trust Credential 作成:**
    - Issuer: GitHub Actions (`https://token.actions.githubusercontent.com`)
-   - Subject: `repo:boxp/lolice:ref:refs/heads/main`（main ブランチに限定）
-   - Custom Claim Rules: `{ "workflow": "ArgoCD Diff" }`（argocd-diff ワークフローのみ許可）
+   - Subject: `repo:boxp/lolice:pull_request`（`pull_request` トリガーでの OIDC Subject に一致させる。`argocd-diff` ワークフローは `on: pull_request` で実行されるため、`ref:refs/heads/main` ではなくこの形式が必要）
+   - Custom Claim Rules: `{ "workflow": "ArgoCD Diff Check" }`（`.github/workflows/argocd-diff.yaml` の `name` フィールドに一致させる）
    - Tags: `tag:ci`
    - Scopes: `auth_keys`, `devices:core`
-   - **最小権限の原則:** PoC 段階では main ブランチ + 特定ワークフローに限定。検証完了後に PR ブランチへの拡張を検討する
+   - **最小権限の原則:** PoC 段階では `pull_request` イベント + 特定ワークフロー名に限定。Custom Claim Rules の `workflow` で対象ワークフローを制限する
 
 2. **ACL ポリシー（例）:**
    ```json
