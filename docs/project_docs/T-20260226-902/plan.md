@@ -132,7 +132,7 @@ GitHub Actions の `argocd-diff` ワークフローで、Cloudflare Service Toke
 |---|---|---|---|
 | 1 | Tailscale アカウント設定・tailnet 作成（既存がない場合） | tailnet 環境 | - |
 | 1-2 | `boxp/arch` に Tailscale tfaction ターゲットを追加（`tfaction-root.yaml` 更新、`templates/tailscale/` 作成、provider whitelist 更新）→ PR 作成 | `boxp/arch` PR | tfaction plan 自動実行 |
-| 2-3 | `boxp/arch` に `terraform/tailscale/lolice-poc/` ワーキングディレクトリを作成し、ACL・Trust Credential・DNS を定義 → PR 作成 | `acl.tf`, `wif.tf`, `dns.tf` | tfaction plan 自動実行 → レビュー |
+| 2-3 | `boxp/arch` に `terraform/tailscale/lolice/` ワーキングディレクトリを作成し、ACL・Trust Credential・DNS を定義 → PR 作成 | `acl.tf`, `wif.tf`, `dns.tf` | tfaction plan 自動実行 → レビュー |
 | 3 | **検証ポイント**: tfaction の plan 結果を PR コメントで確認、意図しない変更がないことを確認 | plan 出力（PR コメント） | - |
 | 3-4 | PR マージ → tfaction が自動で `terraform apply` を実行し Tailscale リソースを作成 | 適用済みリソース、tfstate（S3） | tfaction apply 自動実行 |
 | 4-5 | `boxp/lolice` に K8s マニフェスト（Tailscale subnet router Pod）を追加 → ArgoCD でデプロイ | subnet router マニフェスト、ArgoCD Application | - (ArgoCD 管理) |
@@ -233,7 +233,7 @@ GitHub Actions の `argocd-diff` ワークフローで、Cloudflare Service Toke
 3. **ACL ポリシー（Terraform `tailscale_acl` リソースで管理）:**
 
    ```hcl
-   # boxp/arch: terraform/tailscale/lolice-poc/acl.tf
+   # boxp/arch: terraform/tailscale/lolice/acl.tf
    resource "tailscale_acl" "this" {
      acl = jsonencode({
        acls = [
@@ -315,8 +315,8 @@ boxp/arch/
   │   ├── provider.tf                          #    tailscale provider 設定
   │   └── tfaction.yaml                        #    tfaction ターゲット設定（空 or 最小構成）
   ├── terraform/tailscale/
-  │   └── lolice-poc/                          # ← 新規: PoC 用ワーキングディレクトリ
-  │       ├── backend.tf                       #    S3 key: terraform/tailscale/lolice-poc/v1/terraform.tfstate
+  │   └── lolice/                          # ← 新規: PoC 用ワーキングディレクトリ
+  │       ├── backend.tf                       #    S3 key: terraform/tailscale/lolice/v1/terraform.tfstate
   │       ├── provider.tf                      #    provider "tailscale" {} + provider "aws" {}
   │       ├── tfaction.yaml                    #    tfaction ターゲット設定
   │       ├── acl.tf                           #    ACL ポリシー定義
@@ -429,7 +429,7 @@ TFPROVIDERCHECK_CONFIG_BODY: |
 | `templates/tailscale/provider.tf` | `provider "tailscale" {}` + `provider "aws" {}` |
 | `templates/tailscale/tfaction.yaml` | `{}` (空) |
 
-**4. `terraform/tailscale/lolice-poc/`（新規ワーキングディレクトリ）**
+**4. `terraform/tailscale/lolice/`（新規ワーキングディレクトリ）**
 
 PoC 用 Terraform ターゲット。tfaction の `scaffold-working-dir` アクションで自動生成するか、テンプレートを元に手動作成する。
 
@@ -483,7 +483,7 @@ PoC 用 Terraform ターゲット。tfaction の `scaffold-working-dir` アク�
    - 削除対象: Trust Credential、ACL ポリシー（PoC 追加分）、DNS 設定、subnet routes 承認
    - 代替手段（緊急時）: `boxp/arch` を clone して手動で `terraform destroy` を実行
 2. GitHub Secrets/Variables から `TS_OAUTH_CLIENT_ID` / `TS_AUDIENCE` を削除: `gh secret delete` / `gh variable delete`
-3. Terraform state ファイルのクリーンアップ（S3 `tfaction-state` バケット内の `terraform/tailscale/lolice-poc/v1/terraform.tfstate` を確認）
+3. Terraform state ファイルのクリーンアップ（S3 `tfaction-state` バケット内の `terraform/tailscale/lolice/v1/terraform.tfstate` を確認）
    - 緊急時フォールバック: 管理コンソールで Trust Credential を手動無効化 → ACL からルールを手動削除
 
 **各レベルの独立性:** レベル 1 のみで運用は完全に元に戻る。レベル 2-3 は不要なリソースのクリーンアップであり、緊急性は低い。Terraform 管理（tfaction）により、レベル 3 の実行も PR マージで完了する。
@@ -631,12 +631,12 @@ spec:
 > 以下は `boxp/arch` の既存 tfaction 構成（`terraform/cloudflare/` 等）に倣ったファイル構成例。
 
 ```hcl
-# boxp/arch: terraform/tailscale/lolice-poc/backend.tf
+# boxp/arch: terraform/tailscale/lolice/backend.tf
 terraform {
   required_version = ">= 1.0"
   backend "s3" {
     bucket = "tfaction-state"
-    key    = "terraform/tailscale/lolice-poc/v1/terraform.tfstate"
+    key    = "terraform/tailscale/lolice/v1/terraform.tfstate"
     region = "ap-northeast-1"
   }
   required_providers {
@@ -653,7 +653,7 @@ terraform {
 ```
 
 ```hcl
-# boxp/arch: terraform/tailscale/lolice-poc/provider.tf
+# boxp/arch: terraform/tailscale/lolice/provider.tf
 provider "tailscale" {
   # API キーは環境変数 TAILSCALE_API_KEY で渡す（tfaction-root.yaml の secrets で設定）
   # tailnet 名は環境変数 TAILSCALE_TAILNET で渡す
@@ -665,7 +665,7 @@ provider "aws" {
 ```
 
 ```hcl
-# boxp/arch: terraform/tailscale/lolice-poc/wif.tf
+# boxp/arch: terraform/tailscale/lolice/wif.tf
 #
 # Trust Credential (WIF) の Terraform 管理:
 # Provider v0.17 時点では WIF 専用リソースが未提供のため、
@@ -682,7 +682,7 @@ provider "aws" {
 ```
 
 ```hcl
-# boxp/arch: terraform/tailscale/lolice-poc/auth_key.tf
+# boxp/arch: terraform/tailscale/lolice/auth_key.tf
 # subnet router 用 auth key（WIF とは別リソース）
 resource "tailscale_tailnet_key" "subnet_router" {
   reusable      = true
@@ -695,7 +695,17 @@ resource "tailscale_tailnet_key" "subnet_router" {
 
 > **注意:** `tailscale_tailnet_key` は subnet router の tailnet 参加用 auth key であり、GitHub Actions WIF の Trust Credential ではない。WIF Trust Credential の Terraform 管理方法は PoC Day 1-2 で確定する（詳細は [4.4.1 ※1](#441-terraform-管理対象必須) を参照）。
 
-### D. 参考リンク
+### D. `boxp/arch` CLAUDE.md への反映
+
+本計画のTailscale Terraform管理方針は `boxp/arch` リポジトリの `CLAUDE.md` にも反映済み。`CLAUDE.md` には以下を追記:
+- プロジェクト構造に `terraform/tailscale/` エントリを追加
+- 技術スタックにTailscaleを追加
+- `lolice`プロジェクトとの関係にTailscale責務分離を明記
+- 「Tailscale Terraform管理方針」セクションを新設（管理対象、配置、CI/CD、責務分離、ロールバック手順）
+
+また `boxp/arch` の `AGENTS.md` は `CLAUDE.md` へのシンボリックリンクに変更し、内容を一元管理する。
+
+### E. 参考リンク
 
 - Tailscale Workload Identity Federation ドキュメント: `https://tailscale.com/docs/features/workload-identity-federation`
 - Tailscale GitHub Action: `https://tailscale.com/docs/integrations/github/github-action`
