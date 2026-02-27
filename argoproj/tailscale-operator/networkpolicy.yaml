@@ -10,6 +10,8 @@ spec:
     - Egress
   ingress:
     # Allow webhook traffic from Kubernetes API server only
+    # Calico evaluates post-DNAT destination port, so use the actual
+    # container port (9443) rather than the Service port (443)
     - action: Allow
       protocol: TCP
       source:
@@ -17,7 +19,7 @@ spec:
           - 10.96.0.1/32
       destination:
         ports:
-          - 443
+          - 9443
   egress:
     # DNS resolution via cluster DNS
     - action: Allow
