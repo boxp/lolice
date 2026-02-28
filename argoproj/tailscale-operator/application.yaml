@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tailscale-operator
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+      ref: lolice
+    - repoURL: https://pkgs.tailscale.com/helmcharts
+      targetRevision: 1.80.3
+      chart: tailscale-operator
+      helm:
+        valueFiles:
+          - $lolice/argoproj/tailscale-operator/helm/values.yaml
+    - path: argoproj/tailscale-operator
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tailscale-operator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
