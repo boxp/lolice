@@ -13,3 +13,7 @@ spec:
     protocol: UDP
     port: 7777
     targetPort: 7777
+  - name: game-tcp
+    protocol: TCP
+    port: 7777
+    targetPort: 7777
