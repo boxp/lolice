@@ -27,7 +27,7 @@ spec:
         - name: SERVER_PORT
           value: "7777"
         - name: USE_DSSETTINGS
-          value: "false"
+          value: "true"
         volumeMounts:
         - name: saved-volume
           mountPath: /home/container/server_files/StarRupture/Saved/SaveGames
