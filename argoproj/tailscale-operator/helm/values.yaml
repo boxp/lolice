@@ -16,8 +16,7 @@ image:
 
 # Operator runs in userspace mode (no NET_ADMIN required)
 proxyConfig:
-  defaultTags:
-    - "tag:k8s-operator"
+  defaultTags: "tag:k8s-operator"
 
 # Resource limits for the operator itself
 resources:
