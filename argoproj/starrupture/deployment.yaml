@@ -27,10 +27,10 @@ spec:
         - name: SERVER_PORT
           value: "7777"
         - name: USE_DSSETTINGS
-          value: "false"
+          value: "true"
         volumeMounts:
-        - name: saved-volume
-          mountPath: /home/container/server_files/StarRupture/Saved/SaveGames
+        - name: server-files-volume
+          mountPath: /home/container/server_files
         resources:
           limits:
             cpu: 2000m
@@ -39,6 +39,6 @@ spec:
             cpu: 500m
             memory: 2Gi
       volumes:
-      - name: saved-volume
+      - name: server-files-volume
         persistentVolumeClaim:
-          claimName: starrupture-saved-claim
+          claimName: starrupture-server-files-claim
