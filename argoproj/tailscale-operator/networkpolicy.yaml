@@ -1,0 +1,64 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: tailscale-operator-network-policy
+  namespace: tailscale-operator
+spec:
+  selector: all()
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow admission webhook traffic from control-plane nodes
+    # Source IP is the actual API server node IP (not Service ClusterIP).
+    # Restrict to webhook container port only; 9443 serves only the
+    # operator's admission webhook so exposure is minimal.
+    - action: Allow
+      protocol: TCP
+      source:
+        nets:
+          - 192.168.10.0/24
+      destination:
+        ports:
+          - 9443
+  egress:
+    # DNS resolution via cluster DNS
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    # Kubernetes API (operator needs to watch/manage resources)
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 10.96.0.1/32
+        ports:
+          - 443
+    # Tailscale coordination server (HTTPS)
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports:
+          - 443
+    # Tailscale DERP relay (STUN)
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports:
+          - 3478
+    # Proxy pods need to reach target services in other namespaces
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: has(kubernetes.io/metadata.name)

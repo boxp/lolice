@@ -17,3 +17,17 @@ resources:
   - service-litellm.yaml
   - deployment-cloudflared.yaml
   - networkpolicy.yaml
+
+configMapGenerator:
+  - name: board-server-config-nginx
+    namespace: openclaw
+    files:
+      - board-server/nginx.conf
+  - name: board-server-config-html
+    namespace: openclaw
+    files:
+      - board-server/index.html
+      - board-server/style.css
+      - board-server/app.js
+      - board-server/marked.min.js
+      - board-server/purify.min.js

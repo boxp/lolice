@@ -4,7 +4,7 @@ metadata:
   name: starrupture
   namespace: starrupture
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -29,8 +29,8 @@ spec:
         - name: USE_DSSETTINGS
           value: "true"
         volumeMounts:
-        - name: saved-volume
-          mountPath: /home/container/server_files/StarRupture/Saved/SaveGames
+        - name: server-files-volume
+          mountPath: /home/container/server_files
         resources:
           limits:
             cpu: 2000m
@@ -39,6 +39,6 @@ spec:
             cpu: 500m
             memory: 2Gi
       volumes:
-      - name: saved-volume
+      - name: server-files-volume
         persistentVolumeClaim:
-          claimName: starrupture-saved-claim
+          claimName: starrupture-server-files-claim

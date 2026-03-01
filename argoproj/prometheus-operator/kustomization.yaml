@@ -16,6 +16,7 @@ resources:
 - prometheus-servicemonitor-role.yaml
 - prometheus-servicemonitor-role-binding.yaml
 - grafana-dashboard-openclaw.yaml
+- grafana-dashboard-openclaw-app.yaml
 patchesStrategicMerge:
 - overlays/network-policy-grafana.yaml
 - overlays/grafana-datasources.yaml

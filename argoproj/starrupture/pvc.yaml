@@ -1,6 +1,21 @@
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
+  name: starrupture-server-files-claim
+  namespace: starrupture
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Legacy PVC - retained for data migration from SaveGames-only volume.
+# After migrating data to starrupture-server-files-claim, this PVC can be removed.
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
   name: starrupture-saved-claim
   namespace: starrupture
 spec:

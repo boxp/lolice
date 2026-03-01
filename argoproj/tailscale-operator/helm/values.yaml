@@ -1,0 +1,39 @@
+# Tailscale Kubernetes Operator - Helm values
+# Ref: https://tailscale.com/kb/1236/kubernetes-operator
+
+# OAuth credentials are provided via ExternalSecret (tailscale-operator-oauth).
+# Do not set oauth.clientId/clientSecret here; the chart would create a
+# duplicate "operator-oauth" Secret that conflicts with the ExternalSecret.
+oauth: {}
+
+# Override the default volume source (secretName: operator-oauth) so the
+# operator deployment mounts the ExternalSecret-managed Secret instead.
+oauthSecretVolume:
+  secret:
+    secretName: tailscale-operator-oauth
+
+# Operator image tag (pinned for reproducibility)
+image:
+  tag: v1.80.3
+
+# Operator runs in userspace mode (no NET_ADMIN required)
+proxyConfig:
+  defaultTags: "tag:k8s-operator"
+
+# Resource limits for the operator itself
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# Proxy resource limits (for sidecar/standalone proxy pods)
+proxyResources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi

@@ -5,7 +5,7 @@ metadata:
   namespace: starrupture
 spec:
   type: LoadBalancer
-  loadBalancerIP: 192.168.10.98
+  loadBalancerIP: 192.168.10.31
   selector:
     app: starrupture
   ports:
