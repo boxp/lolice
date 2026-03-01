@@ -56,6 +56,19 @@ spec:
           - 192.168.10.99/32
         ports:
           - 6443
+    # Control-plane node endpoints (TCP/6443).
+    # The VIP (192.168.10.99) may DNAT to these backend kube-apiservers;
+    # without this rule, packets routed directly to the real node IPs are
+    # dropped and cause timeouts on selfsubjectaccessreviews / Secret reads.
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 192.168.10.102/32
+          - 192.168.10.103/32
+          - 192.168.10.104/32
+        ports:
+          - 6443
     # Tailscale coordination server (HTTPS)
     - action: Allow
       protocol: TCP
