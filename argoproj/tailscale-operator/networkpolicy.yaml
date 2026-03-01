@@ -38,6 +38,7 @@ spec:
         ports:
           - 53
     # Kubernetes API (operator needs to watch/manage resources)
+    # Service ClusterIP (kubernetes.default.svc)
     - action: Allow
       protocol: TCP
       destination:
@@ -45,6 +46,16 @@ spec:
           - 10.96.0.1/32
         ports:
           - 443
+    # kube-vip API VIP – kube-apiserver may be reached via this endpoint
+    # (192.168.10.99:6443) instead of the Service ClusterIP, causing
+    # selfsubjectaccessreviews and Secret reads to timeout without this rule.
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 192.168.10.99/32
+        ports:
+          - 6443
     # Tailscale coordination server (HTTPS)
     - action: Allow
       protocol: TCP
