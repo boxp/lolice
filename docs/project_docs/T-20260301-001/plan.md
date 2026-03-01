@@ -43,3 +43,7 @@ volumes:
 - ExternalSecret target name: `tailscale-operator-oauth` ✓
 - oauthSecretVolume.secret.secretName: `tailscale-operator-oauth` ✓
 - Secret keys (`client_id`, `client_secret`) are consistent ✓
+
+## 関連
+
+- 親計画: [T-20260227-016](../T-20260227-016/plan.md) — Tailscale Kubernetes Operator PoC
