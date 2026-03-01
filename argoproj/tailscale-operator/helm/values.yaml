@@ -1,14 +1,16 @@
 # Tailscale Kubernetes Operator - Helm values
 # Ref: https://tailscale.com/kb/1236/kubernetes-operator
 
-# OAuth credentials are provided via ExternalSecret
-# The operator reads from a Secret named "operator-oauth" in its namespace
-oauth:
-  clientId: ""
-  clientSecret: ""
-operatorConfig:
-  # Existing secret with OAuth credentials (managed by ExternalSecret)
-  existingSecret: "tailscale-operator-oauth"
+# OAuth credentials are provided via ExternalSecret (tailscale-operator-oauth).
+# Do not set oauth.clientId/clientSecret here; the chart would create a
+# duplicate "operator-oauth" Secret that conflicts with the ExternalSecret.
+oauth: {}
+
+# Override the default volume source (secretName: operator-oauth) so the
+# operator deployment mounts the ExternalSecret-managed Secret instead.
+oauthSecretVolume:
+  secret:
+    secretName: tailscale-operator-oauth
 
 # Operator image tag (pinned for reproducibility)
 image:
