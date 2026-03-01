@@ -47,3 +47,7 @@ proxyConfig:
 
 - **Risk**: Minimal - single value change from list to string, matching chart's expected type
 - **Rollback**: Revert the single line change in values.yaml
+
+## 関連
+
+- 親計画: [T-20260227-016](../T-20260227-016/plan.md) — Tailscale Kubernetes Operator PoC
