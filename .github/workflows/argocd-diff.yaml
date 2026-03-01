@@ -52,7 +52,34 @@ jobs:
           audience: ${{ secrets.TS_AUDIENCE }}
           tags: tag:ci
           hostname: gha-argocd-diff-${{ github.run_id }}
-          ping: lolice-argocd
+
+      - name: Tailscale reachability diagnostics
+        id: tailscale-diag
+        if: steps.tailscale.outcome == 'success'
+        continue-on-error: true
+        run: |
+          echo "::group::tailscale status"
+          tailscale status 2>&1 || true
+          echo "::endgroup::"
+
+          echo "::group::DNS resolution for lolice-argocd"
+          getent hosts lolice-argocd 2>&1 || echo "getent failed; trying tailscale status grep"
+          tailscale status | grep -i lolice-argocd || echo "lolice-argocd not found in tailscale status"
+          echo "::endgroup::"
+
+          echo "::group::tailscale ping lolice-argocd"
+          tailscale ping -c 3 --timeout 10s lolice-argocd 2>&1 && echo "TAILSCALE_PING=ok" || echo "TAILSCALE_PING=fail"
+          echo "::endgroup::"
+
+      - name: Determine Tailscale usability
+        id: tailscale-ready
+        run: |
+          if [ "${{ steps.tailscale.outcome }}" = "success" ] && [ "${{ steps.tailscale-diag.outcome }}" != "failure" ]; then
+            echo "usable=true" >> $GITHUB_OUTPUT
+          else
+            echo "::warning::Tailscale connected but lolice-argocd unreachable; falling back to Cloudflare"
+            echo "usable=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Extract applications and check for changes
         id: get-apps
@@ -64,7 +91,7 @@ jobs:
           ARGOCD_AUTH_TOKEN: "${{ secrets.ARGOCD_AUTH_TOKEN }}"
           CF_ACCESS_CLIENT_ID: "${{ secrets.ARGOCD_API_TOKEN_ID }}"
           CF_ACCESS_CLIENT_SECRET: "${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
-          USE_TAILSCALE: "${{ steps.tailscale.outcome == 'success' && 'true' || 'false' }}"
+          USE_TAILSCALE: "${{ steps.tailscale-ready.outputs.usable }}"
         run: |
           # 認証経路の決定
           if [ "$USE_TAILSCALE" = "true" ]; then
