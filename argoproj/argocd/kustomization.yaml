@@ -14,3 +14,4 @@ patchesStrategicMerge:
 - overlays/argocd-cmd-params-cm.yaml
 - overlays/argocd-cm.yaml
 - overlays/argocd-rbac-cm.yaml
+- overlays/argocd-server-tailscale.yaml

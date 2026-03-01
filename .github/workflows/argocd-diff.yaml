@@ -19,60 +19,87 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0  # 完全な履歴を取得してdiffが正確に取れるようにする
-      
+
       - name: Setup environment and ArgoCD CLI
         run: |
           # PRで変更されたファイルを取得
           git fetch origin main
           git diff --name-only origin/main..HEAD > changed_files.txt
           cat changed_files.txt
-          
+
           # ArgoCD CLIのインストール
           curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
           sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
           rm argocd-linux-amd64
-          
+
           # kustomizeのインストール
           curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
           sudo install -m 555 kustomize /usr/local/bin/kustomize
           rm kustomize
-          
+
           # Helmのインストール
           curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
           chmod 700 get_helm.sh
           ./get_helm.sh
           rm get_helm.sh
-      
+
+      - name: Connect to Tailscale (WIF keyless)
+        id: tailscale
+        continue-on-error: true
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+          hostname: gha-argocd-diff-${{ github.run_id }}
+          ping: lolice-argocd
+
       - name: Extract applications and check for changes
         id: get-apps
         env:
-          ARGOCD_SERVER: "${{ vars.ARGOCD_SERVER_URL }}"
+          # Tailscale WIF keyless path (primary)
+          ARGOCD_SERVER_TAILSCALE: "lolice-argocd"
+          # Cloudflare path (fallback)
+          ARGOCD_SERVER_CF: "${{ vars.ARGOCD_SERVER_URL }}"
           ARGOCD_AUTH_TOKEN: "${{ secrets.ARGOCD_AUTH_TOKEN }}"
           CF_ACCESS_CLIENT_ID: "${{ secrets.ARGOCD_API_TOKEN_ID }}"
           CF_ACCESS_CLIENT_SECRET: "${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
+          USE_TAILSCALE: "${{ steps.tailscale.outcome == 'success' && 'true' || 'false' }}"
         run: |
+          # 認証経路の決定
+          if [ "$USE_TAILSCALE" = "true" ]; then
+            echo "::notice::Using Tailscale WIF keyless path (server: $ARGOCD_SERVER_TAILSCALE)"
+            export ARGOCD_SERVER="$ARGOCD_SERVER_TAILSCALE"
+            AUTH_MODE="tailscale"
+          else
+            echo "::warning::Tailscale unavailable, falling back to Cloudflare path (server: $ARGOCD_SERVER_CF)"
+            export ARGOCD_SERVER="$ARGOCD_SERVER_CF"
+            AUTH_MODE="cloudflare"
+          fi
 
           # application.yamlファイルを探し、アプリケーション名とパスのマッピングを作成
           echo "Finding all application.yaml files..."
-          
+
           # 出力ファイルの初期化
           echo "" > app_diff_results.md
-          
+          echo "**Auth path: ${AUTH_MODE}**" >> app_diff_results.md
+          echo "" >> app_diff_results.md
+
           # PRで変更されたファイルを含むディレクトリを特定
           CHANGED_DIRS=$(cat changed_files.txt | grep -E "^argoproj/" | xargs -I{} dirname {} | sort | uniq)
-          
+
           # アプリケーション情報を収集
           declare -A APP_INFO
           while IFS= read -r app_file; do
             APP_DIR=$(dirname "$app_file")
             APP_NAME=$(grep -E "name: " "$app_file" | head -1 | awk '{print $2}')
-            
+
             if [ -n "$APP_NAME" ]; then
               APP_INFO["$APP_DIR"]="$APP_NAME"
               echo "Found application: $APP_NAME in $APP_DIR"
             fi
           done < <(find argoproj -name "application.yaml")
-          
+
           # 変更があったアプリケーションのdiffを取得
           FOUND_CHANGES=false
           for dir in $CHANGED_DIRS; do
@@ -83,12 +110,12 @@ jobs:
                 APP_NAME="${APP_INFO[$CURRENT_DIR]}"
                 echo "Changes detected for application: $APP_NAME (in $CURRENT_DIR)"
                 FOUND_CHANGES=true
-                
+
                 # Diffの結果を追記
                 echo "### アプリケーション: $APP_NAME の差分" >> app_diff_results.md
                 echo "パス: $CURRENT_DIR" >> app_diff_results.md
                 echo '```diff' >> app_diff_results.md
-                
+
                 # Diffを取得（既にログイン済み）
                 REPO_ROOT=$(pwd)
                 set +e  # エラーが発生してもスクリプトを終了しないようにする
@@ -96,15 +123,23 @@ jobs:
                 # 注: "local diff without --server-side-generate is deprecated"の警告を抑制しています
                 # これはArgoCD側のバグのためです。--server-side-generateオプションを--grpc-webと併用するとエラーが発生します
                 # 関連issue: https://github.com/argoproj/argo-cd/discussions/13302
-                argocd app diff "argocd/$APP_NAME" \
-                  --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-                  --grpc-web \
-                  --insecure \
-                  --local-repo-root "$REPO_ROOT" \
-                  --local "$REPO_ROOT/$CURRENT_DIR" 2> >(grep -v "local diff without --server-side-generate is deprecated" >&2) >> app_diff_results.md
+                if [ "$AUTH_MODE" = "tailscale" ]; then
+                  argocd app diff "argocd/$APP_NAME" \
+                    --grpc-web \
+                    --plaintext \
+                    --local-repo-root "$REPO_ROOT" \
+                    --local "$REPO_ROOT/$CURRENT_DIR" 2> >(grep -v "local diff without --server-side-generate is deprecated" >&2) >> app_diff_results.md
+                else
+                  argocd app diff "argocd/$APP_NAME" \
+                    --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+                    --grpc-web \
+                    --insecure \
+                    --local-repo-root "$REPO_ROOT" \
+                    --local "$REPO_ROOT/$CURRENT_DIR" 2> >(grep -v "local diff without --server-side-generate is deprecated" >&2) >> app_diff_results.md
+                fi
                 DIFF_EXIT_CODE=$?
                 set -e  # エラー時にスクリプトを終了する設定に戻す
-                
+
                 # exit codeに基づいて適切なメッセージを追加
                 if [ $DIFF_EXIT_CODE -eq 0 ]; then
                   echo "✅ 差分なし" >> app_diff_results.md
@@ -114,24 +149,24 @@ jobs:
                   echo "❌ エラーが発生しました" >> app_diff_results.md
                   exit 1
                 fi
-                
+
                 echo '```' >> app_diff_results.md
                 echo "" >> app_diff_results.md
                 break  # 最も近いapplication.yamlが見つかったらループを抜ける
               fi
-              
+
               # 親ディレクトリに移動
               CURRENT_DIR=$(dirname "$CURRENT_DIR")
             done
           done
-          
+
           # 変更がない場合のメッセージ
           if [ "$FOUND_CHANGES" = false ]; then
             echo "### 変更されたアプリケーションはありません" > app_diff_results.md
           fi
-          
+
           echo "has_changes=$FOUND_CHANGES" >> $GITHUB_OUTPUT
-      
+
       - name: Comment PR
         uses: actions/github-script@v8
         with:
@@ -139,38 +174,38 @@ jobs:
           script: |
             const fs = require('fs');
             const diffOutput = fs.readFileSync('app_diff_results.md', 'utf8');
-            
+
             function truncateContent(content) {
               const maxLength = 65000; // GitHubの制限65536文字より少し小さく設定
               const header = "## ArgoCD Diff Result\n\n";
-              
+
               if ((header + content).length <= maxLength) {
                 return header + content;
               }
-              
+
               // 文字数制限を超える場合の処理
               const truncationMessage = "\n\n---\n⚠️ **diff出力が長すぎるため、一部内容を省略しました**\n\n";
               const footer = "\n\n💡 完全なdiffを確認するには、ローカルで `argocd app diff` を実行してください。";
-              
+
               // ヘッダー、省略メッセージ、フッターの文字数を計算
               const overhead = header.length + truncationMessage.length + footer.length;
               const availableLength = maxLength - overhead;
-              
+
               // コンテンツを前半と後半に分割
               const frontLength = Math.floor(availableLength * 0.4);
               const backLength = Math.floor(availableLength * 0.4);
               const omittedLength = content.length - frontLength - backLength;
-              
+
               const frontPart = content.substring(0, frontLength);
               const backPart = content.substring(content.length - backLength);
-              
+
               const omittedMessage = `\n\n📝 **省略された内容**: ${omittedLength.toLocaleString()}文字\n\n`;
-              
+
               return header + frontPart + truncationMessage + omittedMessage + backPart + footer;
             }
-            
+
             const finalBody = truncateContent(diffOutput);
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
