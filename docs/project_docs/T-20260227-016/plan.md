@@ -119,7 +119,7 @@ Tailscale Kubernetes Operator のインストール。既存 Cloudflare 経路�
 | PROXY_TAGS 型不整合修正 | 完了 | [#497](https://github.com/boxp/lolice/pull/497) |
 | OAuth Secret 名不一致修正 | 完了 | [#500](https://github.com/boxp/lolice/pull/500) |
 
-### Phase 2: ArgoCD Service の tailnet 公開 — 未着手
+### Phase 2: ArgoCD Service の tailnet 公開 — 実装済み (T-20260301-003)
 
 ArgoCD Service に Annotation を追加し、tailnet 経由でのアクセスを確認する。
 
@@ -137,7 +137,7 @@ ArgoCD Service に Annotation を追加し、tailnet 経由でのアクセスを
 **前提条件:**
 - `boxp/arch` 側で Tailscale ACL に ArgoCD 向けルールを追加（`tag:k8s-operator` デバイスへのアクセス制御）
 
-### Phase 3: argocd-diff の Tailscale WIF keyless 化 — 未着手（本丸）
+### Phase 3: argocd-diff の Tailscale WIF keyless 化 — 実装済み (T-20260301-003)
 
 GitHub Actions の `argocd-diff` ワークフローを Tailscale WIF 経由に切り替え、Cloudflare Service Token 依存を排除する。
 
@@ -308,3 +308,5 @@ arch PR #7268 により、SSM パラメータは Terraform で管理されます
 | [#494](https://github.com/boxp/lolice/pull/494) | feat(tailscale): add Kubernetes Operator PoC for tailnet-only exposure | Merged | 2026-02-28 |
 | [#497](https://github.com/boxp/lolice/pull/497) | fix: normalize tailscale-operator PROXY_TAGS env type for ArgoCD sync | Merged | 2026-02-28 |
 | [#500](https://github.com/boxp/lolice/pull/500) | fix: wire tailscale operator oauthSecretVolume to tailscale-operator-oauth | Merged | 2026-03-01 |
+| [#501](https://github.com/boxp/lolice/pull/501) | docs: rebaseline tailscale operator poc plan | Merged | 2026-03-01 |
+| TBD | feat: route argocd-diff through tailscale wif keyless path (poc) | Open | — |
