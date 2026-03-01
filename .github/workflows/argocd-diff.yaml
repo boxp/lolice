@@ -68,13 +68,18 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::tailscale ping lolice-argocd"
-          tailscale ping -c 3 --timeout 10s lolice-argocd 2>&1 && echo "TAILSCALE_PING=ok" || echo "TAILSCALE_PING=fail"
+          if tailscale ping -c 3 --timeout 10s lolice-argocd 2>&1; then
+            echo "::notice::tailscale ping succeeded"
+          else
+            echo "::warning::tailscale ping failed"
+            exit 1
+          fi
           echo "::endgroup::"
 
       - name: Determine Tailscale usability
         id: tailscale-ready
         run: |
-          if [ "${{ steps.tailscale.outcome }}" = "success" ] && [ "${{ steps.tailscale-diag.outcome }}" != "failure" ]; then
+          if [ "${{ steps.tailscale.outcome }}" = "success" ] && [ "${{ steps.tailscale-diag.outcome }}" = "success" ]; then
             echo "usable=true" >> $GITHUB_OUTPUT
           else
             echo "::warning::Tailscale connected but lolice-argocd unreachable; falling back to Cloudflare"
