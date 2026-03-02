@@ -76,10 +76,10 @@ jobs:
           echo "::endgroup::"
 
           echo "::group::tailscale ping lolice-argocd"
-          if tailscale ping -c 3 --timeout 10s lolice-argocd 2>&1; then
-            echo "::notice::tailscale ping succeeded"
+          if tailscale ping -c 3 --timeout 10s --until-direct=false lolice-argocd 2>&1; then
+            echo "::notice::tailscale ping succeeded (DERP or direct)"
           else
-            echo "::warning::tailscale ping to lolice-argocd failed — peer exists but is unreachable via WireGuard tunnel"
+            echo "::warning::tailscale ping to lolice-argocd failed — no reachable path (direct/DERP)"
             exit 1
           fi
           echo "::endgroup::"
