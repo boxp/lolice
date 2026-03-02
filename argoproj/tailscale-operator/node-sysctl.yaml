@@ -1,0 +1,69 @@
+# DaemonSet to raise inotify limits on all nodes.
+# The Tailscale Operator requires inotify instances to watch
+# Kubernetes resources. The default fs.inotify.max_user_instances (128)
+# is insufficient on nodes running many controllers, causing:
+#   "failed to create fsnotify watcher: too many open files"
+# This prevents the operator from creating proxy pods (e.g. lolice-argocd).
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-sysctl-inotify
+  namespace: tailscale-operator
+  labels:
+    app: node-sysctl-inotify
+spec:
+  selector:
+    matchLabels:
+      app: node-sysctl-inotify
+  template:
+    metadata:
+      labels:
+        app: node-sysctl-inotify
+    spec:
+      automountServiceAccountToken: false
+      initContainers:
+        - name: sysctl
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              sysctl -w fs.inotify.max_user_instances=8192
+              sysctl -w fs.inotify.max_user_watches=524288
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 1m
+              memory: 4Mi
+            limits:
+              cpu: 10m
+              memory: 8Mi
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.10
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 1m
+              memory: 4Mi
+            limits:
+              cpu: 1m
+              memory: 4Mi
+      # All nodes need the inotify fix, including control-plane nodes
+      # with taints, so tolerations are intentionally broad.
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+      terminationGracePeriodSeconds: 1
