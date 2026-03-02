@@ -62,16 +62,33 @@ jobs:
           tailscale status 2>&1 || true
           echo "::endgroup::"
 
-          echo "::group::DNS resolution for lolice-argocd"
-          getent hosts lolice-argocd 2>&1 || echo "getent failed; trying tailscale status grep"
-          tailscale status | grep -i lolice-argocd || echo "lolice-argocd not found in tailscale status"
+          echo "::group::peer discovery for lolice-argocd"
+          if tailscale status | grep -qi lolice-argocd; then
+            echo "::notice::lolice-argocd found in tailscale peer list"
+          else
+            echo "::warning::lolice-argocd not found in tailscale peer list — proxy device does not exist in tailnet"
+            echo "Possible causes:"
+            echo "  - Tailscale Operator failed to create proxy pod (check operator logs for fsnotify/inotify errors)"
+            echo "  - ArgoCD Service missing tailscale.com/expose annotation"
+            echo "  - Proxy pod is not healthy or still initializing"
+            exit 1
+          fi
           echo "::endgroup::"
 
           echo "::group::tailscale ping lolice-argocd"
           if tailscale ping -c 3 --timeout 10s lolice-argocd 2>&1; then
             echo "::notice::tailscale ping succeeded"
           else
-            echo "::warning::tailscale ping failed"
+            echo "::warning::tailscale ping to lolice-argocd failed — peer exists but is unreachable via WireGuard tunnel"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+          echo "::group::TCP connectivity check (port 443)"
+          if nc -z -w 5 lolice-argocd 443 2>&1; then
+            echo "::notice::TCP port 443 reachable on lolice-argocd"
+          else
+            echo "::warning::TCP port 443 not reachable on lolice-argocd — ArgoCD gRPC-web endpoint may be down"
             exit 1
           fi
           echo "::endgroup::"
