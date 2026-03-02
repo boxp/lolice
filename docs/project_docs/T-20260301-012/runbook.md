@@ -87,4 +87,5 @@ kubectl get networkpolicy -n argocd -o yaml
 | proxy pod が CrashLoop | OAuth Secret 不一致 | ExternalSecret 同期確認、Secret 名の一致確認 |
 | tailscale status に表示されない | proxy pod が tailnet 未参加 | proxy pod ログ確認、NetworkPolicy egress (TCP 443) 確認 |
 | tailscale ping 失敗 | ACL 不許可 or NetworkPolicy | ACL で `tag:ci` -> `tag:k8s-operator` 許可確認 |
+| tailscale ping 3分タイムアウト | ACL が空（`acls=[]`） | `boxp/arch` の `terraform/tailscale/lolice/acl.tf` で `tag:ci` → `tag:k8s-operator:80,443` ルールが存在するか確認。条件変数（`argocd_service_cluster_ip`）未設定で空になる場合あり（T-20260302-001 参照） |
 | DNS 解決失敗 | MagicDNS 無効 or hostname 未登録 | Tailscale Admin Console で MagicDNS 有効確認 |
