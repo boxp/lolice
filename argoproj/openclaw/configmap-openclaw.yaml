@@ -138,6 +138,12 @@ data:
             },
             "openai-codex/gpt-5.1-codex-mini": {
               "alias": "codex-mini"
+            },
+            "openai-codex/gpt-5.4": {
+              "alias": "gpt54"
+            },
+            "openai-codex/gpt-5.4-mini": {
+              "alias": "gpt54-mini"
             }
           },
           "heartbeat": {
