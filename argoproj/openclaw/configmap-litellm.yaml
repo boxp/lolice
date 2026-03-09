@@ -53,21 +53,13 @@ data:
       - model_name: "google/gemini-2.5-flash"
         litellm_params:
           model: "gemini/gemini-2.5-flash"
+          api_base: "https://generativelanguage.googleapis.com"
           api_key: "os.environ/GEMINI_API_KEY"
-          cache_control_injection_points:
-            - location: message
-              role: system
-            - location: message
-              index: -1
       - model_name: "google/gemini-2.5-pro"
         litellm_params:
           model: "gemini/gemini-2.5-pro"
+          api_base: "https://generativelanguage.googleapis.com"
           api_key: "os.environ/GEMINI_API_KEY"
-          cache_control_injection_points:
-            - location: message
-              role: system
-            - location: message
-              index: -1
       - model_name: "openai/gpt-5-mini"
         litellm_params:
           model: "openai/gpt-5-mini"
