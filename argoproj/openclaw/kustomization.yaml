@@ -6,6 +6,7 @@ resources:
   - namespace.yaml
   - external-secret.yaml
   - external-secret-litellm.yaml
+  - external-secret-google.yaml
   - configmap-openclaw.yaml
   - configmap-gh-wrapper.yaml
   - configmap-litellm.yaml
