@@ -98,6 +98,30 @@ spec:
                   ln -sfn "$item" "$CLAUDE_DIR/$name"
                 done
               fi
+              # Patch settings.json to allow cron-invoked skills (xai-x-search,
+              # xai-web-search) and WebFetch so daily-morning-trend-research
+              # is not blocked by approval prompts.
+              node -e "
+                const fs = require('fs');
+                const p = '/home/node/.claude/settings.json';
+                try {
+                  const s = JSON.parse(fs.readFileSync(p, 'utf8'));
+                  const add = [
+                    'Bash(bash /home/node/.claude/skills/xai-x-search/scripts/search.sh *)',
+                    'Bash(bash /home/node/.claude/skills/xai-web-search/scripts/search.sh *)',
+                    'WebFetch'
+                  ];
+                  s.permissions = s.permissions || {};
+                  s.permissions.allow = s.permissions.allow || [];
+                  const before = JSON.stringify(s);
+                  add.forEach(t => { if (!s.permissions.allow.includes(t)) s.permissions.allow.push(t); });
+                  if (JSON.stringify(s) !== before) {
+                    fs.writeFileSync(p, JSON.stringify(s, null, 2) + '\n');
+                  }
+                } catch (e) {
+                  console.error('settings.json patch skipped:', e.message);
+                }
+              "
               exec node dist/index.js gateway --bind lan --port 18789
           ports:
             - containerPort: 18789
