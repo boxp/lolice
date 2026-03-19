@@ -88,7 +88,7 @@ spec:
               DOTFILES_DIR=/home/node/ghq/github.com/boxp/dotfiles
               # Symlink individual dotfiles into .claude instead of replacing
               # the entire directory, to preserve Dockerfile's config.json
-              # and settings.json (trustedWorkspaces, allowedCommands).
+              # and ConfigMap-mounted settings.json.
               CLAUDE_DIR=/home/node/.claude
               if [ -d "$DOTFILES_DIR/.claude" ]; then
                 for item in "$DOTFILES_DIR/.claude"/* "$DOTFILES_DIR/.claude"/.*; do
@@ -211,6 +211,10 @@ spec:
             - name: data
               mountPath: /home/node/.codex
               subPath: codex
+            - name: claude-settings
+              mountPath: /home/node/.claude/settings.json
+              subPath: settings.json
+              readOnly: true
         # Config manager sidecar: periodically syncs ConfigMap to PVC
         # so that OpenClaw's chokidar file watcher detects changes and
         # hot-reloads configuration without Pod restart.
@@ -395,6 +399,9 @@ spec:
         - name: openclaw-config
           configMap:
             name: openclaw-config
+        - name: claude-settings
+          configMap:
+            name: claude-settings
         - name: gh-wrapper
           configMap:
             name: gh-wrapper
