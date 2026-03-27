@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: n8n
+  labels:
+    app: cloudflared
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: cloudflared
+          image: docker.io/cloudflare/cloudflared:latest
+          args:
+            - tunnel
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+            - --protocol
+            - http2
+            - --token
+            - $(TUNNEL_TOKEN)
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: tunnel-credentials
+                  key: tunnel-token
+          ports:
+            - containerPort: 2000
+              name: metrics
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
