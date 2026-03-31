@@ -1,20 +1,28 @@
 # Tailscale Kubernetes Operator - Helm values
-# Ref: https://tailscale.com/kb/1236/kubernetes-operator
+# Ref: https://tailscale.com/docs/features/kubernetes-operator
 
-# OAuth credentials are provided via ExternalSecret (tailscale-operator-oauth).
-# Do not set oauth.clientId/clientSecret here; the chart would create a
-# duplicate "operator-oauth" Secret that conflicts with the ExternalSecret.
+# ── Authentication ──────────────────────────────────────────────────
+# Current mode: OAuth Secret (via ExternalSecret).
+# After Terraform (boxp/arch) applies the WIF credential, switch to
+# Workload Identity Federation by replacing this block with:
+#
+#   oauth:
+#     clientId: "<terraform output k8s_operator_wif_client_id>"
+#     audience: "<terraform output k8s_operator_wif_audience>"
+#
+# and removing the oauthSecretVolume section below.
+# See docs/runbook/tailscale-operator-workload-identity.md for details.
 oauth: {}
 
-# Override the default volume source (secretName: operator-oauth) so the
-# operator deployment mounts the ExternalSecret-managed Secret instead.
+# Mount the ExternalSecret-managed Secret (OAuth client credentials).
+# Remove this section when switching to Workload Identity Federation.
 oauthSecretVolume:
   secret:
     secretName: tailscale-operator-oauth
 
 # Operator image tag (pinned for reproducibility)
 image:
-  tag: v1.80.3
+  tag: v1.94.2
 
 # Operator runs in userspace mode (no NET_ADMIN required)
 proxyConfig:
