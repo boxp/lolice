@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: n8n
+
+resources:
+  - namespace.yaml
+  - external-secret-n8n.yaml
+  - external-secret-postgres.yaml
+  - external-secret-tunnel.yaml
+  - statefulset-postgres.yaml
+  - deployment-n8n.yaml
+  - deployment-cloudflared.yaml
+  - service-n8n.yaml
+  - service-postgres.yaml
+  - pvc-n8n.yaml
+  - networkpolicy.yaml
