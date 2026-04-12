@@ -70,10 +70,10 @@ spec:
         resources:
           requests:
             memory: "8Gi"
-            cpu: "2000m"
+            cpu: "1000m"
           limits:
             memory: "16Gi"
-            cpu: "4000m"
+            cpu: "3000m"
       volumes:
       - name: ark-data
         persistentVolumeClaim:
