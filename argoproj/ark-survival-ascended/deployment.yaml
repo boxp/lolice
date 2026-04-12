@@ -69,7 +69,7 @@ spec:
           mountPath: /home/steam/ark/ShooterGame/Saved
         resources:
           requests:
-            memory: "13Gi"
+            memory: "8Gi"
             cpu: "2000m"
           limits:
             memory: "16Gi"
