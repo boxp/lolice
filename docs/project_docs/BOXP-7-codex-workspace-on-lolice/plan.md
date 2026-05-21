@@ -8,6 +8,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
 
 - 最新 Ubuntu LTS ベース。
 - Cloudflare WARP 経由で SSH 接続できる。
+- Cloudflare WARP 経由で `codex-workspace.b0xp.io` hostname でも接続できる。
 - GitHub の `boxp` user に登録されている public key で SSH login できる。
 - Cloudflare WARP 経由で Even Realities App から `@evenrealities/even-terminal` に接続できる。
 - `codex`, `@evenrealities/even-terminal`, `obsidian-headless`, `git`, `ghq`, `gwq`, `boxp/ceeker`, `bb`, `lazygit`, `yazi`, `vim`, `node`, `npm` が使える。
@@ -26,6 +27,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
   - Service: fixed ClusterIP `10.111.250.7`
   - Ports: SSH `2222`, Even Terminal `3456`
 - `boxp/arch` の `terraform/cloudflare/b0xp.io/k8s` で WARP private route `10.111.250.7/32` を追加し、既存 k8s tunnel の `warp_routing` を有効化する。
+- `boxp/arch` の Cloudflare DNS に `codex-workspace.b0xp.io` DNS-only A record を追加し、`10.111.250.7` に解決させる。
 
 ## Tasks
 
