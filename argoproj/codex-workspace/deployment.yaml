@@ -42,7 +42,7 @@ spec:
             - name: home
               mountPath: /home/boxp
         - name: install-docker-cli
-          image: docker.io/docker:29.1.2-cli
+          image: docker.io/docker:29.5.1-cli
           command:
             - /bin/sh
             - -ec
@@ -115,7 +115,7 @@ spec:
               subPath: docker
               readOnly: true
         - name: docker
-          image: docker.io/docker:29.1.2-dind
+          image: docker.io/docker:29.5.1-dind
           imagePullPolicy: IfNotPresent
           args:
             - --host=tcp://127.0.0.1:2375
