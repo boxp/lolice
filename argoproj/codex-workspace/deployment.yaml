@@ -25,20 +25,22 @@ spec:
             - /bin/sh
             - -ec
             - |
-              curl -fsSL https://github.com/boxp.keys -o /authorized-keys/authorized_keys
-              test -s /authorized-keys/authorized_keys
-              chmod 644 /authorized-keys/authorized_keys
+              mkdir -p /home/boxp/.ssh
+              curl -fsSL https://github.com/boxp.keys -o /home/boxp/.ssh/authorized_keys
+              test -s /home/boxp/.ssh/authorized_keys
+              chown -R 1000:1000 /home/boxp/.ssh
+              chmod 700 /home/boxp/.ssh
+              chmod 600 /home/boxp/.ssh/authorized_keys
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
+            runAsNonRoot: false
+            runAsUser: 0
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
           volumeMounts:
-            - name: authorized-keys
-              mountPath: /authorized-keys
+            - name: home
+              mountPath: /home/boxp
         - name: install-docker-cli
           image: docker.io/docker:29.1.2-cli
           command:
@@ -104,9 +106,6 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
-            - name: authorized-keys
-              mountPath: /tmp/authorized_keys
-              readOnly: true
             - name: sshd-config
               mountPath: /etc/ssh/sshd_config
               subPath: sshd_config
@@ -145,8 +144,6 @@ spec:
         - name: home
           persistentVolumeClaim:
             claimName: codex-workspace-home
-        - name: authorized-keys
-          emptyDir: {}
         - name: sshd-config
           configMap:
             name: codex-workspace-sshd-config
