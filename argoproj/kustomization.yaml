@@ -9,6 +9,7 @@ resources:
 - ark-survival-ascended/application.yaml
 - boxp-home/application.yaml
 - calico/application.yaml
+- codex-workspace/application.yaml
 - descheduler/application.yaml
 - external-secrets-operator/application.yaml
 - hitohub/overlays/prod/application.yaml

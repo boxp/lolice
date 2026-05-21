@@ -1,0 +1,51 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: codex-workspace-network-policy
+  namespace: codex-workspace
+spec:
+  selector: app == 'codex-workspace'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'k8s'
+        selector: app == 'cloudflared'
+      destination:
+        ports:
+          - 2222
+          - 3456
+    - action: Allow
+      protocol: TCP
+      source:
+        nets:
+          - 192.168.10.0/24
+      destination:
+        ports:
+          - 2222
+          - 3456
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports:
+          - 22
+          - 80
+          - 443

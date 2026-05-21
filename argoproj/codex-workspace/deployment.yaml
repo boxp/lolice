@@ -1,0 +1,153 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codex-workspace
+  namespace: codex-workspace
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: codex-workspace
+  template:
+    metadata:
+      labels:
+        app: codex-workspace
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      initContainers:
+        - name: fetch-ssh-keys
+          image: docker.io/curlimages/curl:8.20.0
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              mkdir -p /home/boxp/.ssh
+              curl -fsSL https://github.com/boxp.keys -o /home/boxp/.ssh/authorized_keys
+              test -s /home/boxp/.ssh/authorized_keys
+              chown -R 1000:1000 /home/boxp/.ssh
+              chmod 700 /home/boxp/.ssh
+              chmod 600 /home/boxp/.ssh/authorized_keys
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+        - name: install-docker-cli
+          image: docker.io/docker:29.1.2-cli
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              cp /usr/local/bin/docker /docker-cli/docker
+              chmod 755 /docker-cli/docker
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: docker-cli
+              mountPath: /docker-cli
+      containers:
+        - name: workspace
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          ports:
+            - name: ssh
+              containerPort: 2222
+            - name: even-terminal
+              containerPort: 3456
+          env:
+            - name: EVEN_TERMINAL_PORT
+              value: "3456"
+            - name: EVEN_TERMINAL_CWD
+              value: /home/boxp
+            - name: EVEN_TERMINAL_PROVIDER
+              value: codex
+            - name: EVEN_TERMINAL_NAME
+              value: lolice-codex-workspace
+            - name: DOCKER_HOST
+              value: tcp://127.0.0.1:2375
+            - name: DOCKER_BUILDKIT
+              value: "1"
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          readinessProbe:
+            tcpSocket:
+              port: ssh
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: ssh
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+            - name: sshd-config
+              mountPath: /etc/ssh/sshd_config
+              subPath: sshd_config
+              readOnly: true
+            - name: docker-cli
+              mountPath: /usr/local/bin/docker
+              subPath: docker
+              readOnly: true
+        - name: docker
+          image: docker.io/docker:29.1.2-dind
+          imagePullPolicy: IfNotPresent
+          args:
+            - --host=tcp://127.0.0.1:2375
+            - --host=unix:///var/run/docker.sock
+            - --storage-driver=overlay2
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+          securityContext:
+            privileged: true
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: docker-graph-storage
+              mountPath: /var/lib/docker
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: codex-workspace-home
+        - name: sshd-config
+          configMap:
+            name: codex-workspace-sshd-config
+        - name: docker-cli
+          emptyDir: {}
+        - name: docker-graph-storage
+          emptyDir: {}

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: codex-workspace-sshd-config
+  namespace: codex-workspace
+data:
+  sshd_config: |
+    Port 2222
+    PermitRootLogin no
+    PasswordAuthentication no
+    PubkeyAuthentication yes
+    AuthorizedKeysFile /home/%u/.ssh/authorized_keys
+    AllowTcpForwarding yes
+    GatewayPorts no
+    X11Forwarding no
+    ClientAliveInterval 60
+    ClientAliveCountMax 3
+    Subsystem sftp /usr/lib/openssh/sftp-server
