@@ -12,6 +12,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
 - GitHub の `boxp` user に登録されている public key で SSH login できる。
 - Cloudflare WARP 経由で Even Realities App から `@evenrealities/even-terminal` に接続できる。
 - `codex`, `@evenrealities/even-terminal`, `obsidian-headless`, `git`, `ghq`, `gwq`, `boxp/ceeker`, `bb`, `lazygit`, `yazi`, `vim`, `node`, `npm` が使える。
+- Docker CLI と dind sidecar で Docker build/run が使える。
 - `/home/boxp` は Longhorn PVC で永続化する。
 - Secret/token は Git に直接置かない。
 
@@ -24,6 +25,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
 - `boxp/lolice` に `argoproj/codex-workspace` Application を追加する。
   - PVC: Longhorn, mounted at `/home/boxp`
   - SSH authorized keys: initContainer で `https://github.com/boxp.keys` から取得
+  - Docker: `docker:29.1.2-cli` initContainer で CLI を配置し、`docker:29.1.2-dind` sidecar を `DOCKER_HOST=tcp://127.0.0.1:2375` で利用する
   - Service: fixed ClusterIP `10.111.250.7`
   - Ports: SSH `2222`, Even Terminal `3456`
 - `boxp/arch` の `terraform/cloudflare/b0xp.io/k8s` で WARP private route `10.111.250.7/32` を追加し、既存 k8s tunnel の `warp_routing` を有効化する。

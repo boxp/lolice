@@ -39,6 +39,24 @@ spec:
           volumeMounts:
             - name: authorized-keys
               mountPath: /authorized-keys
+        - name: install-docker-cli
+          image: docker.io/docker:29.1.2-cli
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              cp /usr/local/bin/docker /docker-cli/docker
+              chmod 755 /docker-cli/docker
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: docker-cli
+              mountPath: /docker-cli
       containers:
         - name: workspace
           image: ghcr.io/boxp/arch/codex-workspace:latest
@@ -57,6 +75,10 @@ spec:
               value: codex
             - name: EVEN_TERMINAL_NAME
               value: lolice-codex-workspace
+            - name: DOCKER_HOST
+              value: tcp://127.0.0.1:2375
+            - name: DOCKER_BUILDKIT
+              value: "1"
           securityContext:
             runAsNonRoot: false
             runAsUser: 0
@@ -89,6 +111,36 @@ spec:
               mountPath: /etc/ssh/sshd_config
               subPath: sshd_config
               readOnly: true
+            - name: docker-cli
+              mountPath: /usr/local/bin/docker
+              subPath: docker
+              readOnly: true
+        - name: docker
+          image: docker.io/docker:29.1.2-dind
+          imagePullPolicy: IfNotPresent
+          args:
+            - --host=tcp://127.0.0.1:2375
+            - --host=unix:///var/run/docker.sock
+            - --storage-driver=overlay2
+          env:
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+          securityContext:
+            privileged: true
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: docker-graph-storage
+              mountPath: /var/lib/docker
       volumes:
         - name: home
           persistentVolumeClaim:
@@ -98,3 +150,7 @@ spec:
         - name: sshd-config
           configMap:
             name: codex-workspace-sshd-config
+        - name: docker-cli
+          emptyDir: {}
+        - name: docker-graph-storage
+          emptyDir: {}
