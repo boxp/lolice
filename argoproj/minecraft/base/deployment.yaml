@@ -6,7 +6,7 @@ metadata:
   labels:
     app: minecraft-server
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
