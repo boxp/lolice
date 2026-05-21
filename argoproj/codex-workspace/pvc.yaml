@@ -6,7 +6,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: longhorn
+  storageClassName: codex-workspace-longhorn
   resources:
     requests:
       storage: 50Gi
