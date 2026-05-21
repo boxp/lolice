@@ -24,7 +24,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
   - scheduler: amd64 worker へ固定
 - `boxp/lolice` に `argoproj/codex-workspace` Application を追加する。
   - PVC: Longhorn, mounted at `/home/boxp`
-  - StorageClass: `codex-workspace-longhorn`, replica 2. `golyat-3` の Longhorn disk が schedulable=false のため default replica 3 では新規 volume が scheduling できない。
+  - StorageClass: `codex-workspace-longhorn`, replica 2. `golyat-3` の Longhorn disk が schedulable=false のため default replica 3 では新規 volume が scheduling できない。Longhorn の最小空き率制約に合わせて初期容量は 10Gi にし、空きを作ってから拡張する。
   - SSH authorized keys: initContainer で `https://github.com/boxp.keys` から取得
   - Docker: `docker:29.1.2-cli` initContainer で CLI を配置し、`docker:29.1.2-dind` sidecar を `DOCKER_HOST=tcp://127.0.0.1:2375` で利用する
   - Service: fixed ClusterIP `10.111.250.7`
