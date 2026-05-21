@@ -33,17 +33,6 @@ spec:
       ports:
         - port: 9090
           protocol: TCP
-    # OpenClaw OTLP metrics push (cross-namespace)
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: openclaw
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: openclaw
-      ports:
-        - port: 9090
-          protocol: TCP
   podSelector:
     matchLabels:
       app.kubernetes.io/component: prometheus

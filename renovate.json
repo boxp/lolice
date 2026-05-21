@@ -23,14 +23,6 @@
       "currentValueTemplate": "{{currentValue}}"
     }
   ],
-  "packageRules": [
-    {
-      "matchDatasources": ["docker"],
-      "matchDepNames": ["ghcr.io/boxp/arch/openclaw"],
-      "enabled": false,
-      "description": "OpenClaw image updates are managed by ArgoCD Image Updater, not Renovate"
-    }
-  ],
   "major": {
     "automerge": false
   },

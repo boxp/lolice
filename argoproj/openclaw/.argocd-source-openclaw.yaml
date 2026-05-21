@@ -1,3 +1,0 @@
-kustomize:
-  images:
-  - ghcr.io/boxp/arch/openclaw=ghcr.io/boxp/arch/openclaw:202603080909
