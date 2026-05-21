@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: codex-workspace
+  namespace: codex-workspace
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: codex-workspace
+  template:
+    metadata:
+      labels:
+        app: codex-workspace
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      initContainers:
+        - name: fetch-ssh-keys
+          image: docker.io/curlimages/curl:8.20.0
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              curl -fsSL https://github.com/boxp.keys -o /authorized-keys/authorized_keys
+              test -s /authorized-keys/authorized_keys
+              chmod 644 /authorized-keys/authorized_keys
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: authorized-keys
+              mountPath: /authorized-keys
+      containers:
+        - name: workspace
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          ports:
+            - name: ssh
+              containerPort: 2222
+            - name: even-terminal
+              containerPort: 3456
+          env:
+            - name: EVEN_TERMINAL_PORT
+              value: "3456"
+            - name: EVEN_TERMINAL_CWD
+              value: /home/boxp
+            - name: EVEN_TERMINAL_PROVIDER
+              value: codex
+            - name: EVEN_TERMINAL_NAME
+              value: lolice-codex-workspace
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          readinessProbe:
+            tcpSocket:
+              port: ssh
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: ssh
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+            - name: authorized-keys
+              mountPath: /tmp/authorized_keys
+              readOnly: true
+            - name: sshd-config
+              mountPath: /etc/ssh/sshd_config
+              subPath: sshd_config
+              readOnly: true
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: codex-workspace-home
+        - name: authorized-keys
+          emptyDir: {}
+        - name: sshd-config
+          configMap:
+            name: codex-workspace-sshd-config
