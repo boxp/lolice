@@ -6,6 +6,7 @@ resources:
   - storageclass.yaml
   - pvc.yaml
   - configmap.yaml
+  - external-secret.yaml
   - deployment.yaml
   - service.yaml
   - networkpolicy.yaml

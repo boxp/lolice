@@ -22,6 +22,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
   - base: `ubuntu:26.04`
   - platform: `linux/amd64`
   - scheduler: amd64 worker へ固定
+- Even Terminal の認証 token は `boxp/arch` の `/lolice/codex-workspace/even-terminal-token` SSM SecureString を ExternalSecret 経由で `EVEN_TERMINAL_TOKEN` に注入し、Pod再起動後も固定する。
 - `boxp/lolice` に `argoproj/codex-workspace` Application を追加する。
   - PVC: Longhorn, mounted at `/home/boxp`
   - StorageClass: `codex-workspace-longhorn`, replica 2. `golyat-3` の Longhorn disk が schedulable=false のため default replica 3 では新規 volume が scheduling できない。Longhorn の最小空き率制約に合わせて初期容量は 10Gi にし、空きを作ってから拡張する。
@@ -29,7 +30,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
   - `fetch-ssh-keys` initContainer は Longhorn PVC 上の `/home/boxp/.ssh` を更新し、`boxp` user 所有にするため、`CHOWN`/`DAC_OVERRIDE`/`FOWNER` capability だけを追加する。
   - Docker: `docker:29.5.1-cli` initContainer で CLI を配置し、`docker:29.5.1-dind` sidecar を `DOCKER_HOST=tcp://127.0.0.1:2375` で利用する
   - dind sidecar は args 先頭に `dockerd` を明示し、`docker:dind` entrypoint が既定の `0.0.0.0:2375` listener を追加して `127.0.0.1:2375` と重複 bind しないようにする。
-  - Workspace container は `/home/boxp` 初期化、OpenSSH privilege separation、login user への権限移行のため `CHOWN`/`FOWNER`/`SYS_CHROOT`/`SETUID`/`SETGID` capability を持つ。
+  - Workspace container は SSH login audit、`/home/boxp` 初期化、OpenSSH privilege separation、login user への権限移行のため `AUDIT_WRITE`/`CHOWN`/`FOWNER`/`SYS_CHROOT`/`SETUID`/`SETGID` capability を持つ。
   - Service: fixed LoadBalancer IP `192.168.10.98`
   - Ports: SSH `22` -> container `2222`, Even Terminal `3456`
 - `boxp/arch` の `terraform/cloudflare/b0xp.io/k8s` で WARP private route `192.168.10.98/32` を追加し、既存 k8s tunnel の `warp_routing` を有効化する。
@@ -49,6 +50,8 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
 - [x] `sshd` の preauth `chroot("/run/sshd"): Operation not permitted` と認証後の user/group 権限移行失敗を避けるため workspace container に `SYS_CHROOT`/`SETUID`/`SETGID` capability を追加する。
 - [x] workspace entrypoint が Longhorn PVC 上の `/home/boxp` を chmod できるように `FOWNER` capability を追加する。
 - [x] workspace entrypoint が Longhorn PVC 上の `/home/boxp` を chown できるように `CHOWN` capability を追加する。
+- [x] interactive SSH session が login audit で落ちないように `AUDIT_WRITE` capability を追加する。
+- [x] Even Terminal token を ExternalSecret 経由で `EVEN_TERMINAL_TOKEN` に注入する。
 - [x] VIP の port 22 が kube-vip holder node の sshd に届かないよう、Service port `22` を workspace ssh へ割り当てる。
 - [x] kustomize と Terraform validate を通す。
 - [x] PR を作成する。
