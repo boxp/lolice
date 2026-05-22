@@ -87,7 +87,7 @@ spec:
             runAsUser: 0
             allowPrivilegeEscalation: true
             capabilities:
-              add: ["SYS_CHROOT"]
+              add: ["SETGID", "SETUID", "SYS_CHROOT"]
               drop: ["ALL"]
             readOnlyRootFilesystem: false
           resources:
