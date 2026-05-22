@@ -26,7 +26,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
   - PVC: Longhorn, mounted at `/home/boxp`
   - StorageClass: `codex-workspace-longhorn`, replica 2. `golyat-3` の Longhorn disk が schedulable=false のため default replica 3 では新規 volume が scheduling できない。Longhorn の最小空き率制約に合わせて初期容量は 10Gi にし、空きを作ってから拡張する。
   - SSH authorized keys: initContainer で `https://github.com/boxp.keys` から取得
-  - `fetch-ssh-keys` initContainer は Longhorn PVC 上の `/home/boxp/.ssh` を `boxp` user 所有にするため、`CHOWN` と `FOWNER` capability だけを追加する。
+  - `fetch-ssh-keys` initContainer は Longhorn PVC 上の `/home/boxp/.ssh` を更新し、`boxp` user 所有にするため、`CHOWN`/`DAC_OVERRIDE`/`FOWNER` capability だけを追加する。
   - Docker: `docker:29.5.1-cli` initContainer で CLI を配置し、`docker:29.5.1-dind` sidecar を `DOCKER_HOST=tcp://127.0.0.1:2375` で利用する
   - Service: fixed ClusterIP `10.111.250.7`
   - Ports: SSH `2222`, Even Terminal `3456`
@@ -41,7 +41,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
 - [x] `boxp/arch` に workspace image build と Cloudflare WARP private route を追加する。
 - [x] `boxp/lolice` に codex workspace Application を追加する。
 - [x] Longhorn の replica/scheduling 制約に合わせて Codex workspace PVC を replica 2 / 10Gi に調整する。
-- [x] `fetch-ssh-keys` initContainer が Longhorn PVC 上で authorized_keys を owner/mode 設定できるように capability を追加する。
+- [x] `fetch-ssh-keys` initContainer が Longhorn PVC 上で authorized_keys を更新し、owner/mode 設定できるように capability を追加する。
 - [x] kustomize と Terraform validate を通す。
 - [x] PR を作成する。
 
