@@ -10,7 +10,7 @@ spec:
     app: codex-workspace
   ports:
     - name: ssh
-      port: 2222
+      port: 22
       targetPort: ssh
     - name: even-terminal
       port: 3456
