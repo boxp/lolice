@@ -36,6 +36,7 @@ spec:
             runAsUser: 0
             allowPrivilegeEscalation: false
             capabilities:
+              add: ["CHOWN", "FOWNER"]
               drop: ["ALL"]
             readOnlyRootFilesystem: true
           volumeMounts:
