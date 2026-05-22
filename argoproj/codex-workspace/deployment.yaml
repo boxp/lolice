@@ -78,6 +78,11 @@ spec:
               value: codex
             - name: EVEN_TERMINAL_NAME
               value: lolice-codex-workspace
+            - name: EVEN_TERMINAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-even-terminal
+                  key: token
             - name: DOCKER_HOST
               value: tcp://127.0.0.1:2375
             - name: DOCKER_BUILDKIT

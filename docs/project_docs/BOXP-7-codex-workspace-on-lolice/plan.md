@@ -22,6 +22,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
   - base: `ubuntu:26.04`
   - platform: `linux/amd64`
   - scheduler: amd64 worker へ固定
+- Even Terminal の認証 token は `boxp/arch` の `/lolice/codex-workspace/even-terminal-token` SSM SecureString を ExternalSecret 経由で `EVEN_TERMINAL_TOKEN` に注入し、Pod再起動後も固定する。
 - `boxp/lolice` に `argoproj/codex-workspace` Application を追加する。
   - PVC: Longhorn, mounted at `/home/boxp`
   - StorageClass: `codex-workspace-longhorn`, replica 2. `golyat-3` の Longhorn disk が schedulable=false のため default replica 3 では新規 volume が scheduling できない。Longhorn の最小空き率制約に合わせて初期容量は 10Gi にし、空きを作ってから拡張する。
@@ -50,6 +51,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
 - [x] workspace entrypoint が Longhorn PVC 上の `/home/boxp` を chmod できるように `FOWNER` capability を追加する。
 - [x] workspace entrypoint が Longhorn PVC 上の `/home/boxp` を chown できるように `CHOWN` capability を追加する。
 - [x] interactive SSH session が login audit で落ちないように `AUDIT_WRITE` capability を追加する。
+- [x] Even Terminal token を ExternalSecret 経由で `EVEN_TERMINAL_TOKEN` に注入する。
 - [x] VIP の port 22 が kube-vip holder node の sshd に届かないよう、Service port `22` を workspace ssh へ割り当てる。
 - [x] kustomize と Terraform validate を通す。
 - [x] PR を作成する。
