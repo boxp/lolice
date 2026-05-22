@@ -119,6 +119,7 @@ spec:
           image: docker.io/docker:29.5.1-dind
           imagePullPolicy: IfNotPresent
           args:
+            - dockerd
             - --host=tcp://127.0.0.1:2375
             - --host=unix:///var/run/docker.sock
             - --storage-driver=overlay2
