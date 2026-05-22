@@ -31,7 +31,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
   - dind sidecar は args 先頭に `dockerd` を明示し、`docker:dind` entrypoint が既定の `0.0.0.0:2375` listener を追加して `127.0.0.1:2375` と重複 bind しないようにする。
   - Workspace container は OpenSSH privilege separation のため `SYS_CHROOT` capability を持つ。
   - Service: fixed LoadBalancer IP `192.168.10.98`
-  - Ports: SSH `2222`, Even Terminal `3456`
+  - Ports: SSH `22` -> container `2222`, Even Terminal `3456`
 - `boxp/arch` の `terraform/cloudflare/b0xp.io/k8s` で WARP private route `192.168.10.98/32` を追加し、既存 k8s tunnel の `warp_routing` を有効化する。
 - `boxp/arch` の Cloudflare DNS に `codex-workspace.b0xp.io` DNS-only A record を追加し、`192.168.10.98` に解決させる。
 
@@ -47,6 +47,7 @@ OpenClaw の代替として、`lolice` cluster 上に Codex と Even G2 Terminal
 - [x] dind sidecar の args を明示的な `dockerd` 起動にして TCP listener の重複 bind を避ける。
 - [x] WARP経由のL4到達性を優先し、ServiceをClusterIPからARK serverと同じLoadBalancer IP固定構成へ切り替える。
 - [x] `sshd` の preauth `chroot("/run/sshd"): Operation not permitted` を避けるため workspace container に `SYS_CHROOT` capability を追加する。
+- [x] VIP の port 22 が kube-vip holder node の sshd に届かないよう、Service port `22` を workspace ssh へ割り当てる。
 - [x] kustomize と Terraform validate を通す。
 - [x] PR を作成する。
 
