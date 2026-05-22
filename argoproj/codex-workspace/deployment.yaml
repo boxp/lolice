@@ -87,7 +87,7 @@ spec:
             runAsUser: 0
             allowPrivilegeEscalation: true
             capabilities:
-              add: ["CHOWN", "FOWNER", "SETGID", "SETUID", "SYS_CHROOT"]
+              add: ["AUDIT_WRITE", "CHOWN", "FOWNER", "SETGID", "SETUID", "SYS_CHROOT"]
               drop: ["ALL"]
             readOnlyRootFilesystem: false
           resources:
