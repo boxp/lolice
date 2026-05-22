@@ -86,6 +86,9 @@ spec:
             runAsNonRoot: false
             runAsUser: 0
             allowPrivilegeEscalation: true
+            capabilities:
+              add: ["SYS_CHROOT"]
+              drop: ["ALL"]
             readOnlyRootFilesystem: false
           resources:
             requests:
