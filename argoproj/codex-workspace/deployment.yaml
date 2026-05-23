@@ -83,6 +83,13 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-even-terminal
                   key: token
+            - name: GRAFANA_URL
+              value: http://grafana.monitoring.svc.cluster.local:3000
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-grafana
+                  key: service-account-token
             - name: DOCKER_HOST
               value: tcp://127.0.0.1:2375
             - name: DOCKER_BUILDKIT
