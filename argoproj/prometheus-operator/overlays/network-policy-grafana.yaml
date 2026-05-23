@@ -14,6 +14,12 @@ spec:
         - podSelector:
             matchLabels:
               app: cloudflared
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: codex-workspace
+          podSelector:
+            matchLabels:
+              app: codex-workspace
         - ipBlock:
             cidr: 192.168.10.0/24
       ports:

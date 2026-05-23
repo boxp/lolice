@@ -45,6 +45,13 @@ spec:
     - action: Allow
       protocol: TCP
       destination:
+        selector: app.kubernetes.io/component == 'grafana' && app.kubernetes.io/name == 'grafana' && app.kubernetes.io/part-of == 'kube-prometheus'
+        namespaceSelector: kubernetes.io/metadata.name == 'monitoring'
+        ports:
+          - 3000
+    - action: Allow
+      protocol: TCP
+      destination:
         ports:
           - 22
           - 80
