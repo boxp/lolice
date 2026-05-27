@@ -13,7 +13,9 @@ spec:
       rules:
         - alert: ControlPlaneNodeNotReady
           expr: |
-            kube_node_status_condition{condition="Ready",status!="true"} == 1
+            max by (node) (
+              kube_node_status_condition{condition="Ready",status!="true"} == 1
+            )
             and on (node)
             kube_node_role{role=~"control-plane|master"} == 1
           for: 5m
