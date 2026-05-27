@@ -8,6 +8,7 @@ resources:
 - cloudflared-deployment.yaml
 - grafana-pvc.yaml
 - scrape-config.yaml
+- control-plane-node-rules.yaml
 - cloudflared-pod-monitor.yaml
 - etcd-service.yaml
 - etcd-servicemonitor.yaml
