@@ -1,0 +1,26 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: control-plane-node-rules
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    release: prometheus
+spec:
+  groups:
+    - name: control-plane-node.rules
+      rules:
+        - alert: ControlPlaneNodeNotReady
+          expr: |
+            max by (node) (
+              kube_node_status_condition{condition="Ready",status!="true"} == 1
+            )
+            and on (node)
+            kube_node_role{role=~"control-plane|master"} == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Control-plane node is not Ready
+            description: Control-plane node {{ $labels.node }} has been NotReady or Unknown for more than 5 minutes.
