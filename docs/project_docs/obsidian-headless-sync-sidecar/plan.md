@@ -10,7 +10,7 @@ Run Obsidian Sync continuously inside the lolice Codex workspace Pod using the a
 2. Reuse `ghcr.io/boxp/arch/codex-workspace:latest`, which already includes `obsidian-headless` and exposes the `ob` command.
 3. Mount the shared `/home/boxp` PVC into the sidecar so it can read the existing Obsidian headless config under `~/.config/obsidian-headless` and sync the local vault at `/home/boxp/Documents/obsidian-headless/BOXP`.
 4. Run `ob sync --path "${OBSIDIAN_VAULT_PATH}" --continuous` as UID/GID 1000 with minimal privileges.
-   If the sync process exits, retry after 60 seconds so a transient Obsidian Sync failure does not remove the workspace Pod from service.
+   Let Kubernetes restart the sidecar if the continuous sync process exits unexpectedly.
 5. Validate the rendered Kustomize output.
 
 ## Notes

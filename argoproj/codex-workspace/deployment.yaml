@@ -137,11 +137,7 @@ spec:
             - /bin/bash
             - -ec
             - |
-              while true; do
-                ob sync --path "${OBSIDIAN_VAULT_PATH}" --continuous || true
-                echo "obsidian-headless sync exited; retrying in 60 seconds" >&2
-                sleep 60
-              done
+              exec ob sync --path "${OBSIDIAN_VAULT_PATH}" --continuous
           env:
             - name: HOME
               value: /home/boxp
