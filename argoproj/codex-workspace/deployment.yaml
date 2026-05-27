@@ -130,6 +130,41 @@ spec:
               mountPath: /usr/local/bin/docker
               subPath: docker
               readOnly: true
+        - name: obsidian-sync
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              while true; do
+                ob sync --path "${OBSIDIAN_VAULT_PATH}" --continuous || true
+                echo "obsidian-headless sync exited; retrying in 60 seconds" >&2
+                sleep 60
+              done
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: OBSIDIAN_VAULT_PATH
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
         - name: docker
           image: docker.io/docker:29.5.2-dind
           imagePullPolicy: IfNotPresent
