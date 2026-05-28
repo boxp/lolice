@@ -43,88 +43,17 @@ jobs:
           ./get_helm.sh
           rm get_helm.sh
 
-      - name: Connect to Tailscale (WIF keyless)
-        id: tailscale
-        continue-on-error: true
-        uses: tailscale/github-action@v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          audience: ${{ secrets.TS_AUDIENCE }}
-          tags: tag:ci
-          hostname: gha-argocd-diff-${{ github.run_id }}
-
-      - name: Tailscale reachability diagnostics
-        id: tailscale-diag
-        if: steps.tailscale.outcome == 'success'
-        continue-on-error: true
-        run: |
-          echo "::group::tailscale status"
-          tailscale status 2>&1 || true
-          echo "::endgroup::"
-
-          echo "::group::peer discovery for lolice-argocd"
-          if tailscale status | grep -qi lolice-argocd; then
-            echo "::notice::lolice-argocd found in tailscale peer list"
-          else
-            echo "::warning::lolice-argocd not found in tailscale peer list — proxy device does not exist in tailnet"
-            echo "Possible causes:"
-            echo "  - Tailscale Operator failed to create proxy pod (check operator logs for fsnotify/inotify errors)"
-            echo "  - ArgoCD Service missing tailscale.com/expose annotation"
-            echo "  - Proxy pod is not healthy or still initializing"
-            exit 1
-          fi
-          echo "::endgroup::"
-
-          echo "::group::tailscale ping lolice-argocd"
-          if tailscale ping -c 3 --timeout 10s --until-direct=false lolice-argocd 2>&1; then
-            echo "::notice::tailscale ping succeeded (DERP or direct)"
-          else
-            echo "::warning::tailscale ping to lolice-argocd failed — no reachable path (direct/DERP)"
-            exit 1
-          fi
-          echo "::endgroup::"
-
-          echo "::group::TCP connectivity check (port 443)"
-          if nc -z -w 5 lolice-argocd 443 2>&1; then
-            echo "::notice::TCP port 443 reachable on lolice-argocd"
-          else
-            echo "::warning::TCP port 443 not reachable on lolice-argocd — ArgoCD gRPC-web endpoint may be down"
-            exit 1
-          fi
-          echo "::endgroup::"
-
-      - name: Determine Tailscale usability
-        id: tailscale-ready
-        run: |
-          if [ "${{ steps.tailscale.outcome }}" = "success" ] && [ "${{ steps.tailscale-diag.outcome }}" = "success" ]; then
-            echo "usable=true" >> $GITHUB_OUTPUT
-          else
-            echo "::warning::Tailscale connected but lolice-argocd unreachable; falling back to Cloudflare"
-            echo "usable=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Extract applications and check for changes
         id: get-apps
         env:
-          # Tailscale WIF keyless path (primary)
-          ARGOCD_SERVER_TAILSCALE: "lolice-argocd"
-          # Cloudflare path (fallback)
           ARGOCD_SERVER_CF: "${{ vars.ARGOCD_SERVER_URL }}"
           ARGOCD_AUTH_TOKEN: "${{ secrets.ARGOCD_AUTH_TOKEN }}"
           CF_ACCESS_CLIENT_ID: "${{ secrets.ARGOCD_API_TOKEN_ID }}"
           CF_ACCESS_CLIENT_SECRET: "${{ secrets.ARGOCD_API_TOKEN_SECRET }}"
-          USE_TAILSCALE: "${{ steps.tailscale-ready.outputs.usable }}"
         run: |
-          # 認証経路の決定
-          if [ "$USE_TAILSCALE" = "true" ]; then
-            echo "::notice::Using Tailscale WIF keyless path (server: $ARGOCD_SERVER_TAILSCALE)"
-            export ARGOCD_SERVER="$ARGOCD_SERVER_TAILSCALE"
-            AUTH_MODE="tailscale"
-          else
-            echo "::warning::Tailscale unavailable, falling back to Cloudflare path (server: $ARGOCD_SERVER_CF)"
-            export ARGOCD_SERVER="$ARGOCD_SERVER_CF"
-            AUTH_MODE="cloudflare"
-          fi
+          export ARGOCD_SERVER="$ARGOCD_SERVER_CF"
+          AUTH_MODE="cloudflare"
+          echo "::notice::Using Cloudflare path (server: $ARGOCD_SERVER_CF)"
 
           # application.yamlファイルを探し、アプリケーション名とパスのマッピングを作成
           echo "Finding all application.yaml files..."
@@ -172,20 +101,12 @@ jobs:
                 # 注: "local diff without --server-side-generate is deprecated"の警告を抑制しています
                 # これはArgoCD側のバグのためです。--server-side-generateオプションを--grpc-webと併用するとエラーが発生します
                 # 関連issue: https://github.com/argoproj/argo-cd/discussions/13302
-                if [ "$AUTH_MODE" = "tailscale" ]; then
-                  argocd app diff "argocd/$APP_NAME" \
-                    --grpc-web \
-                    --plaintext \
-                    --local-repo-root "$REPO_ROOT" \
-                    --local "$REPO_ROOT/$CURRENT_DIR" 2> >(grep -v "local diff without --server-side-generate is deprecated" >&2) >> app_diff_results.md
-                else
-                  argocd app diff "argocd/$APP_NAME" \
-                    --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-                    --grpc-web \
-                    --insecure \
-                    --local-repo-root "$REPO_ROOT" \
-                    --local "$REPO_ROOT/$CURRENT_DIR" 2> >(grep -v "local diff without --server-side-generate is deprecated" >&2) >> app_diff_results.md
-                fi
+                argocd app diff "argocd/$APP_NAME" \
+                  --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID,CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+                  --grpc-web \
+                  --insecure \
+                  --local-repo-root "$REPO_ROOT" \
+                  --local "$REPO_ROOT/$CURRENT_DIR" 2> >(grep -v "local diff without --server-side-generate is deprecated" >&2) >> app_diff_results.md
                 DIFF_EXIT_CODE=$?
                 set -e  # エラー時にスクリプトを終了する設定に戻す
 

@@ -29,4 +29,3 @@ resources:
 - reloader/application.yaml
 - tidb-operator/application.yaml
 - kube-vip/application.yaml
-- tailscale-operator/application.yaml
