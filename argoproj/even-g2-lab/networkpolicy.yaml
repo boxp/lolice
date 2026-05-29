@@ -11,7 +11,7 @@ spec:
     - action: Allow
       protocol: TCP
       source:
-        namespaceSelector: kubernetes.io/metadata.name == 'k8s'
+        namespaceSelector: kubernetes.io/metadata.name == 'even-g2-lab'
         selector: app == 'cloudflared'
       destination:
         ports:

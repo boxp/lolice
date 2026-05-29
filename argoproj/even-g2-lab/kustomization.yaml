@@ -3,7 +3,9 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
+  - external-secret-cloudflared.yaml
+  - deployment-cloudflared.yaml
   - deployment.yaml
+  - service-cloudflared-metrics.yaml
   - service.yaml
   - networkpolicy.yaml
-
