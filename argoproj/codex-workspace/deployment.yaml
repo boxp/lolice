@@ -90,6 +90,11 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-grafana
                   key: service-account-token
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
             - name: DOCKER_HOST
               value: tcp://127.0.0.1:2375
             - name: DOCKER_BUILDKIT
@@ -209,6 +214,11 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-grafana
                   key: service-account-token
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
