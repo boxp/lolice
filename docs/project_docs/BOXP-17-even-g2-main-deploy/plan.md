@@ -10,7 +10,7 @@
 - Namespace: `even-g2-lab`
 - Workload: nginx static image `839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main`
 - Service: `ClusterIP` `even-g2-main.even-g2-lab.svc.cluster.local:80`
-- Access path: Cloudflare Tunnel published hostname -> k8s `cloudflared` -> Kubernetes service DNS
+- Access path: Cloudflare private hostname route -> Gateway initial resolved IP -> k8s `cloudflared` -> Kubernetes service DNS
 - Image updates: Argo CD Image Updater watches ECR newest build and writes the selected tag back to `main`.
 
 ## Tasks
@@ -20,5 +20,5 @@
 - [x] Add ImageUpdater resource for ECR image updates.
 - [x] Validate YAML manifests.
 - [ ] After merge/apply, confirm `regcred` exists in `even-g2-lab` namespace.
-- [ ] Confirm k8s `cloudflared` can reach `http://even-g2-main.even-g2-lab.svc.cluster.local:80`.
+- [ ] Confirm k8s `cloudflared` can resolve and reach `http://even-g2-main.even-g2-lab.svc.cluster.local:80`.
 - [ ] After first image push, confirm ImageUpdater updates the image tag.
