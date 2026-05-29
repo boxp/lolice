@@ -188,6 +188,45 @@ spec:
           volumeMounts:
             - name: docker-graph-storage
               mountPath: /var/lib/docker
+        - name: codex-cron-scheduler
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /opt/codex-workspace/cron/scheduler.bb
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: CODEX_HOME
+              value: /home/boxp/.codex
+            - name: CODEX_CRON_ROOT
+              value: /home/boxp/.codex-cron
+            - name: CODEX_CRON_POLL_SECONDS
+              value: "30"
+            - name: GRAFANA_URL
+              value: http://grafana.monitoring.svc.cluster.local:3000
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-grafana
+                  key: service-account-token
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
       volumes:
         - name: home
           persistentVolumeClaim:
