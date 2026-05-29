@@ -1,0 +1,18 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: even-g2-main-network-policy
+  namespace: even-g2-lab
+spec:
+  selector: app == 'even-g2-main'
+  types:
+    - Ingress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'k8s'
+        selector: app == 'cloudflared'
+      destination:
+        ports:
+          - 8080
