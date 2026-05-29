@@ -6,7 +6,10 @@ resources:
   - storageclass.yaml
   - pvc.yaml
   - configmap.yaml
+  - cron-configmap.yaml
   - external-secret.yaml
   - deployment.yaml
+  - cronjob.yaml
   - service.yaml
   - networkpolicy.yaml
+  - networkpolicy-cron.yaml
