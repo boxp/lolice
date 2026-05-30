@@ -6,3 +6,4 @@ resources:
   - palserver.yaml
   - ark-survival-ascended.yaml
   - ark-discord-bot.yaml
+  - even-g2-lab.yaml

@@ -1,0 +1,23 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: even-g2-lab
+  namespace: argocd
+spec:
+  namespace: argocd
+  applicationRefs:
+    - namePattern: "even-g2-lab"
+      images:
+        - alias: "web"
+          imageName: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            pullSecret: "pullsecret:argocd/regcred"
+          manifestTargets:
+            kustomize:
+              name: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main"
+  writeBackConfig:
+    method: "git:secret:argocd/repo-lolice"
+    gitConfig:
+      branch: "main"
+
