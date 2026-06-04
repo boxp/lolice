@@ -56,3 +56,8 @@ spec:
           - 22
           - 80
           - 443
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports:
+          - 2408
