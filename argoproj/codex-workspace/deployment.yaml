@@ -119,6 +119,7 @@ spec:
             - name: DOCKER_BUILDKIT
               value: "1"
           securityContext:
+            privileged: true
             runAsNonRoot: false
             runAsUser: 0
             allowPrivilegeEscalation: true
