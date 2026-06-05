@@ -6,6 +6,7 @@ Codex workspace から `even-g2-main.b0xp.io` を、`even-g2-main.even-g2-lab.sv
 
 - workspace container に Cloudflare WARP enrollment 用 secret を注入する。
 - workspace container に `/dev/net/tun` と `NET_ADMIN` / `NET_RAW` を付与する。
+- rollout 後の実コンテナで `open tun: Operation not permitted` が出たため、workspace container は `privileged: true` にして TUN 作成を許可する。
 - Calico egress policy で WARP の UDP 2408 を許可する。
 - `even-g2-main` Service 側の NetworkPolicy には Codex workspace 直通許可を追加しない。
 
