@@ -204,7 +204,7 @@ spec:
             - name: CODEX_HOME
               value: /home/boxp/.codex
             - name: CODEX_CRON_ROOT
-              value: /home/boxp/.codex-cron
+              value: /home/boxp/Documents/obsidian-headless/BOXP/Infrastructure/Codex Cron
             - name: CODEX_CRON_POLL_SECONDS
               value: "30"
             - name: GRAFANA_URL
