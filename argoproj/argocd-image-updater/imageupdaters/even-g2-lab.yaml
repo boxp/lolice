@@ -4,7 +4,6 @@ metadata:
   name: even-g2-lab
   namespace: argocd
 spec:
-  namespace: argocd
   applicationRefs:
     - namePattern: "even-g2-lab"
       images:
@@ -20,4 +19,3 @@ spec:
     method: "git:secret:argocd/repo-lolice"
     gitConfig:
       branch: "main"
-

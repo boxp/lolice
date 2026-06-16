@@ -4,7 +4,6 @@ metadata:
   name: codex-workspace
   namespace: argocd
 spec:
-  namespace: argocd
   applicationRefs:
     - namePattern: "codex-workspace"
       images:
