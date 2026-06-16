@@ -20,4 +20,5 @@ spec:
   writeBackConfig:
     method: "git:secret:argocd/repo-lolice"
     gitConfig:
+      repository: "git@github.com:boxp/lolice.git"
       branch: "main"

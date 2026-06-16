@@ -13,6 +13,7 @@
 - `manifestTargets.kustomize.name` で `ghcr.io/boxp/arch/codex-workspace` を指定し、同一 image を使う複数コンテナをまとめて更新対象にする。
 - `codex-workspace` は amd64 node に固定されているため、ImageUpdater 側も `linux/amd64` を対象 platform とする。
 - `argocd-image-updater` の registry config に `ghcr.io` を明示的に追加する。
+- `codex-workspace` Application の `repoURL` は HTTPS だが、write-back に使う `repo-lolice` Secret は SSH key 形式のため、`gitConfig.repository` で SSH URL を明示する。
 
 ## 変更対象
 
