@@ -3,7 +3,6 @@ kind: Kustomization
 resources:
   - stage-hitohub.yaml
   - prod-hitohub.yaml
-  - palserver.yaml
   - ark-survival-ascended.yaml
   - ark-discord-bot.yaml
   - even-g2-lab.yaml
