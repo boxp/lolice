@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: etcd-snapshot-store
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/boxp/lolice.git
+    targetRevision: main
+    path: argoproj/etcd-snapshot-store
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: etcd-snapshots
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

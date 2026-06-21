@@ -12,6 +12,7 @@ resources:
 - codex-workspace/application.yaml
 - descheduler/application.yaml
 - external-secrets-operator/application.yaml
+- etcd-snapshot-store/application.yaml
 - even-g2-lab/application.yaml
 - hitohub/overlays/prod/application.yaml
 - hitohub/overlays/stage/application.yaml
