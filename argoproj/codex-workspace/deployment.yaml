@@ -43,7 +43,7 @@ spec:
             - name: home
               mountPath: /home/boxp
         - name: install-docker-cli
-          image: docker.io/docker:29.6.0-cli
+          image: docker.io/docker:29.6.1-cli
           command:
             - /bin/sh
             - -ec
@@ -197,7 +197,7 @@ spec:
             - name: home
               mountPath: /home/boxp
         - name: docker
-          image: docker.io/docker:29.6.0-dind
+          image: docker.io/docker:29.6.1-dind
           imagePullPolicy: IfNotPresent
           args:
             - dockerd
