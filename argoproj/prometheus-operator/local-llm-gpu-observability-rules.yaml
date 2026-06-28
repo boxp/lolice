@@ -46,3 +46,12 @@ spec:
           annotations:
             summary: Intel GPU exporter is down
             description: Prometheus cannot scrape the Intel GPU exporter target for more than 5 minutes.
+        - alert: GpuWorkerPackageTemperatureHigh
+          expr: |
+            node_thermal_zone_temp{job="node-exporter", instance="golyat-4", type="x86_pkg_temp"} > 90
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: GPU worker package temperature is high
+            description: golyat-4 package temperature has been above 90C for more than 10 minutes. Arc 140T is an iGPU, so this is the closest available package-level thermal signal rather than a discrete GPU sensor.
