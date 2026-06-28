@@ -33,14 +33,17 @@ spec:
           imagePullPolicy: Always
           args:
             - llama-server
-            - -m
-            - /models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
             - --host
             - 0.0.0.0
             - --port
             - "8080"
             - -dev
             - SYCL0
+            - --models-preset
+            - /config/models.ini
+            - --models-max
+            - "1"
+            - --no-models-autoload
             - -ngl
             - "3"
             - -c
@@ -111,6 +114,10 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            - name: models-config
+              mountPath: /config/models.ini
+              subPath: models.ini
+              readOnly: true
       volumes:
         - name: models
           hostPath:
@@ -118,3 +125,6 @@ spec:
             type: Directory
         - name: tmp
           emptyDir: {}
+        - name: models-config
+          configMap:
+            name: llama-server-models
