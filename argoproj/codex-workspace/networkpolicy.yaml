@@ -52,6 +52,13 @@ spec:
     - action: Allow
       protocol: TCP
       destination:
+        selector: app == 'llama-server'
+        namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
+        ports:
+          - 8080
+    - action: Allow
+      protocol: TCP
+      destination:
         ports:
           - 22
           - 80
