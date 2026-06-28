@@ -51,6 +51,8 @@ spec:
             - q8_0
             - --cache-type-v
             - turbo3
+            - -fa
+            - "on"
             - --no-warmup
           ports:
             - name: http
