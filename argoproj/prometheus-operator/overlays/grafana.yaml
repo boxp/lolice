@@ -4,6 +4,8 @@ metadata:
   name: grafana
   namespace: monitoring
 spec:
+  strategy:
+    type: Recreate
   template:
     spec:
       containers:
