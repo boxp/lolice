@@ -7,3 +7,4 @@ resources:
   - ark-discord-bot.yaml
   - even-g2-lab.yaml
   - codex-workspace.yaml
+  - local-llm.yaml

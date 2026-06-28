@@ -1,0 +1,23 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: local-llm
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: "local-llm"
+      images:
+        - alias: "llama-sycl"
+          imageName: "ghcr.io/boxp/arch/llama-sycl:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            platforms:
+              - "linux/amd64"
+          manifestTargets:
+            kustomize:
+              name: "ghcr.io/boxp/arch/llama-sycl"
+  writeBackConfig:
+    method: "git:secret:argocd/repo-lolice"
+    gitConfig:
+      repository: "git@github.com:boxp/lolice.git"
+      branch: "main"
