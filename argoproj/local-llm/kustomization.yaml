@@ -4,5 +4,6 @@ namespace: local-llm
 
 resources:
   - namespace.yaml
+  - models-config.yaml
   - deployment.yaml
   - service.yaml
