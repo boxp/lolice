@@ -24,6 +24,7 @@ patchesStrategicMerge:
 - overlays/prometheus.yaml
 - overlays/grafana.yaml
 - overlays/monitoring-deployment-tolerations.yaml
+- overlays/dashboard-placement.yaml
 - overlays/grafana-config.yaml
 patchesJson6902:
 - target:

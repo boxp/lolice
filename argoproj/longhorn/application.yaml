@@ -19,11 +19,6 @@ spec:
             backupTargetCredentialSecret: "longhorn-backup-secret"
             taintToleration: "lolice.io/gpu-worker=true:NoSchedule"
           global:
-            tolerations:
-              - key: lolice.io/gpu-worker
-                operator: Equal
-                value: "true"
-                effect: NoSchedule
             storageClass:
               reclaimPolicy: "Retain"
           longhornManager:
@@ -33,12 +28,6 @@ spec:
                 value: "true"
                 effect: NoSchedule
           longhornDriver:
-            tolerations:
-              - key: lolice.io/gpu-worker
-                operator: Equal
-                value: "true"
-                effect: NoSchedule
-          longhornUI:
             tolerations:
               - key: lolice.io/gpu-worker
                 operator: Equal
