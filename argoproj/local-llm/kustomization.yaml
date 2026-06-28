@@ -5,5 +5,7 @@ namespace: local-llm
 resources:
   - namespace.yaml
   - models-config.yaml
+  - envoy-config.yaml
   - deployment.yaml
   - service.yaml
+  - servicemonitor.yaml

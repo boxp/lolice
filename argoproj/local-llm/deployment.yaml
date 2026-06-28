@@ -36,7 +36,7 @@ spec:
             - --host
             - 0.0.0.0
             - --port
-            - "8080"
+            - "8081"
             - -dev
             - SYCL0
             - --models-preset
@@ -62,8 +62,8 @@ spec:
             - --cpu-moe
             - --no-warmup
           ports:
-            - name: http
-              containerPort: 8080
+            - name: llama-http
+              containerPort: 8081
           env:
             - name: ONEAPI_DEVICE_SELECTOR
               value: level_zero:0
@@ -91,20 +91,20 @@ spec:
           startupProbe:
             httpGet:
               path: /health
-              port: http
+              port: llama-http
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /health
-              port: http
+              port: llama-http
             periodSeconds: 10
             timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
-              port: http
+              port: llama-http
             initialDelaySeconds: 60
             periodSeconds: 20
             timeoutSeconds: 5
@@ -118,6 +118,52 @@ spec:
               mountPath: /config/models.ini
               subPath: models.ini
               readOnly: true
+        - name: envoy
+          image: docker.io/envoyproxy/envoy@sha256:4d496918618a7ebd6c71ae8285e31ebff092f3a0a5ad642d50decf4a54eb2456
+          imagePullPolicy: IfNotPresent
+          args:
+            - -c
+            - /etc/envoy/envoy.yaml
+            - --log-level
+            - warn
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9901
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /server_info
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy/envoy.yaml
+              subPath: envoy.yaml
+              readOnly: true
       volumes:
         - name: models
           hostPath:
@@ -128,3 +174,6 @@ spec:
         - name: models-config
           configMap:
             name: llama-server-models
+        - name: envoy-config
+          configMap:
+            name: llama-server-envoy
