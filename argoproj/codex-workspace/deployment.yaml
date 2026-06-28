@@ -96,6 +96,8 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-gemini
                   key: GEMINI_API_KEY
+            - name: PI_CODING_AGENT_DIR
+              value: /home/boxp/.pi/agent
             - name: CLOUDFLARE_WARP_ENABLED
               value: "true"
             - name: CLOUDFLARE_WARP_REQUIRED
