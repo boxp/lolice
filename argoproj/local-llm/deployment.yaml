@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-server
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llama-server
+  template:
+    metadata:
+      labels:
+        app: llama-server
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 1000
+        supplementalGroups:
+          - 44
+          - 110
+      initContainers:
+        - name: fetch-smoke-model
+          image: docker.io/curlimages/curl:8.21.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              model=/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+              if [ ! -s "${model}" ]; then
+                tmp="${model}.part"
+                rm -f "${tmp}"
+                curl -L --fail --retry 5 --retry-all-errors \
+                  -o "${tmp}" \
+                  https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+                mv "${tmp}" "${model}"
+              fi
+              chown 1000:1000 "${model}"
+              chmod 0644 "${model}"
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              add: ["CHOWN", "FOWNER"]
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: llama-server
+          image: ghcr.io/boxp/arch/llama-sycl:latest
+          imagePullPolicy: Always
+          args:
+            - llama-server
+            - -m
+            - /models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8080"
+            - -dev
+            - SYCL0
+            - -ngl
+            - "99"
+            - -c
+            - "1024"
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: ONEAPI_DEVICE_SELECTOR
+              value: level_zero:0
+            - name: ZES_ENABLE_SYSMAN
+              value: "1"
+            - name: HOME
+              value: /tmp
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+              gpu.intel.com/i915: "1"
+            limits:
+              cpu: "8"
+              memory: 16Gi
+              gpu.intel.com/i915: "1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: local-llm-models
+        - name: tmp
+          emptyDir: {}

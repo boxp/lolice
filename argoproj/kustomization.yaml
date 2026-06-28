@@ -20,6 +20,7 @@ resources:
 - k8s/application.yaml
 - kubernetes-dashboard/application.yaml
 - local-volume-provisioner/application.yaml
+- local-llm/application.yaml
 - longhorn/application.yaml
 - node-feature-discovery/application.yaml
 - intel-gpu-device-plugin/application.yaml
