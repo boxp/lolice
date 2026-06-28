@@ -6,3 +6,6 @@ resources:
   - namespace.yaml
   - node-feature-rules.yaml
   - daemonset.yaml
+  - exporter-daemonset.yaml
+  - exporter-service.yaml
+  - exporter-servicemonitor.yaml

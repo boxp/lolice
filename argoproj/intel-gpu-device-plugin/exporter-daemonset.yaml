@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: intel-gpu-exporter
+  labels:
+    app: intel-gpu-exporter
+spec:
+  selector:
+    matchLabels:
+      app: intel-gpu-exporter
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: intel-gpu-exporter
+    spec:
+      hostPID: true
+      nodeSelector:
+        intel.feature.node.kubernetes.io/gpu: "true"
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: exporter
+          image: ghcr.io/onedr0p/intel-gpu-exporter@sha256:518d4b4be0a4bedd619e33567804d9b07c2e9dabeeec038d8e36129e31f1cc39
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+              gpu.intel.com/monitoring: "1"
+            limits:
+              cpu: 250m
+              memory: 256Mi
+              gpu.intel.com/monitoring: "1"
+          securityContext:
+            privileged: true
+            readOnlyRootFilesystem: false
+          volumeMounts:
+            - name: devfs
+              mountPath: /dev/dri
+      volumes:
+        - name: devfs
+          hostPath:
+            path: /dev/dri
