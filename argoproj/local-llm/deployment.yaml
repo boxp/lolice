@@ -42,7 +42,7 @@ spec:
             - -dev
             - SYCL0
             - -ngl
-            - "99"
+            - "3"
             - -c
             - "4096"
             - --parallel
@@ -53,6 +53,10 @@ spec:
             - turbo3
             - -fa
             - "on"
+            - --jinja
+            - --reasoning
+            - "off"
+            - --cpu-moe
             - --no-warmup
           ports:
             - name: http
