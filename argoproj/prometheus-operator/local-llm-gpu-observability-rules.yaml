@@ -1,0 +1,48 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: local-llm-gpu-observability-rules
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    release: prometheus
+spec:
+  groups:
+    - name: local-llm-gpu-observability.rules
+      rules:
+        - alert: LocalLlmTargetDown
+          expr: |
+            absent(up{job="llama-server", namespace="local-llm", service="llama-server"})
+            or
+            up{job="llama-server", namespace="local-llm", service="llama-server"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Local LLM metrics target is down
+            description: Prometheus cannot scrape the local-llm Envoy metrics target for more than 5 minutes.
+        - alert: LocalLlmHigh5xxRate
+          expr: |
+            (
+              sum(rate(envoy_cluster_upstream_rq_xx{job="llama-server", namespace="local-llm", envoy_cluster_name="llama_server", envoy_response_code_class="5"}[5m]))
+              /
+              clamp_min(sum(rate(envoy_cluster_upstream_rq_total{job="llama-server", namespace="local-llm", envoy_cluster_name="llama_server"}[5m])), 0.001)
+            ) > 0.05
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Local LLM has a high 5xx response rate
+            description: More than 5 percent of local-llm upstream requests have returned 5xx responses for 10 minutes.
+        - alert: IntelGpuExporterDown
+          expr: |
+            absent(up{job="intel-gpu-exporter", namespace="intel-device-plugins", service="intel-gpu-exporter"})
+            or
+            up{job="intel-gpu-exporter", namespace="intel-device-plugins", service="intel-gpu-exporter"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Intel GPU exporter is down
+            description: Prometheus cannot scrape the Intel GPU exporter target for more than 5 minutes.
