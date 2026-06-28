@@ -10,7 +10,7 @@ spec:
         - alias: "llama-sycl"
           imageName: "ghcr.io/boxp/arch/llama-sycl:latest"
           commonUpdateSettings:
-            updateStrategy: "newest-build"
+            updateStrategy: "digest"
             platforms:
               - "linux/amd64"
           manifestTargets:

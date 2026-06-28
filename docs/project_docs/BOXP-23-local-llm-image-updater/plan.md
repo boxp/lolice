@@ -7,8 +7,9 @@
 ## Change
 
 - Add an `ImageUpdater` for the `local-llm` Application.
-- Track `ghcr.io/boxp/arch/llama-sycl:latest` with `newest-build` for `linux/amd64`.
+- Track `ghcr.io/boxp/arch/llama-sycl:latest` with `digest` for `linux/amd64`.
 - Use the existing `git:secret:argocd/repo-lolice` write-back method targeting `main`.
+- Keep the generated `.argocd-source-local-llm.yaml` on the current `latest` digest. `newest-build` selected the older `sha-87fdeb8` tag from GHCR, so digest tracking is required for this `latest`-driven image.
 
 ## Verification
 
