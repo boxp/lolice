@@ -15,7 +15,13 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - mountPath: /grafana-dashboard-definitions/0/local-llm-gpu-overview
+              name: grafana-dashboard-local-llm-gpu-overview
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
             claimName: grafana-pvc
+        - name: grafana-dashboard-local-llm-gpu-overview
+          configMap:
+            name: grafana-dashboard-local-llm-gpu-overview

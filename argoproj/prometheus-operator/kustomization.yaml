@@ -9,6 +9,7 @@ resources:
 - grafana-pvc.yaml
 - scrape-config.yaml
 - control-plane-node-rules.yaml
+- local-llm-gpu-observability-rules.yaml
 - cloudflared-pod-monitor.yaml
 - etcd-service.yaml
 - etcd-servicemonitor.yaml
@@ -34,3 +35,15 @@ patchesJson6902:
       name: grafana
       namespace: monitoring
   path: patches/grafana-remove-empty-dir.yaml
+configMapGenerator:
+- name: grafana-dashboard-local-llm-gpu-overview
+  namespace: monitoring
+  files:
+  - local-llm-gpu-overview.json=dashboards/local-llm-gpu-overview.json
+  options:
+    disableNameSuffixHash: true
+    labels:
+      app.kubernetes.io/component: grafana
+      app.kubernetes.io/name: grafana
+      app.kubernetes.io/part-of: kube-prometheus
+      app.kubernetes.io/version: 13.0.2
