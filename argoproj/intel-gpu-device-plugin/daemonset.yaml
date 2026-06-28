@@ -20,6 +20,7 @@ spec:
     spec:
       nodeSelector:
         intel.feature.node.kubernetes.io/gpu: "true"
+        lolice.io/gpu-worker: "true"
       tolerations:
         - key: lolice.io/gpu-worker
           operator: Equal
