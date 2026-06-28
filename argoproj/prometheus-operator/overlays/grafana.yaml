@@ -6,11 +6,6 @@ metadata:
 spec:
   template:
     spec:
-      tolerations:
-        - key: lolice.io/gpu-worker
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
       containers:
         - name: grafana
           resources:
