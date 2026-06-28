@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: node-feature-discovery
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+    targetRevision: 0.18.3
+    chart: node-feature-discovery
+    helm:
+      values: |
+        worker:
+          tolerations:
+            - key: lolice.io/gpu-worker
+              operator: Equal
+              value: "true"
+              effect: NoSchedule
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: node-feature-discovery
+  syncPolicy:
+    automated:
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
