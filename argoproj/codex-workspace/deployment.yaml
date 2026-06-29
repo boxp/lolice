@@ -27,9 +27,12 @@ spec:
             - |
               mkdir -p /home/boxp/.ssh
               mkdir -p /home/boxp/.pi/agent
+              rm -f /home/boxp/.pi/agent/models.json
+              ln -s /etc/pi-agent-config/models.json /home/boxp/.pi/agent/models.json
               curl -fsSL https://github.com/boxp.keys -o /home/boxp/.ssh/authorized_keys
               test -s /home/boxp/.ssh/authorized_keys
               chown -R 1000:1000 /home/boxp/.ssh
+              chown -h 1000:1000 /home/boxp/.pi/agent/models.json
               chmod 700 /home/boxp/.ssh
               chmod 600 /home/boxp/.ssh/authorized_keys
           securityContext:
@@ -159,8 +162,7 @@ spec:
             - name: home
               mountPath: /home/boxp
             - name: pi-config
-              mountPath: /home/boxp/.pi/agent/models.json
-              subPath: models.json
+              mountPath: /etc/pi-agent-config
               readOnly: true
             - name: sshd-config
               mountPath: /etc/ssh/sshd_config
