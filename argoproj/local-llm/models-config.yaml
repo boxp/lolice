@@ -9,12 +9,12 @@ data:
     [gemma4-26b]
     model = /models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
     ctx-size = 65536
-    batch-size = 256
-    ubatch-size = 64
+    batch-size = 512
+    ubatch-size = 128
 
     [ornith-35b]
     model = /models/ornith-1.0-35b-Q4_K_M.gguf
     ctx-size = 65536
-    batch-size = 128
-    ubatch-size = 32
+    batch-size = 256
+    ubatch-size = 64
     reasoning-budget = 0
