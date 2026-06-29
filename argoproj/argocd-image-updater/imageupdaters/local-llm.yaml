@@ -7,15 +7,15 @@ spec:
   applicationRefs:
     - namePattern: "local-llm"
       images:
-        - alias: "llama-vulkan"
-          imageName: "ghcr.io/boxp/arch/llama-vulkan:latest"
+        - alias: "llama-sycl"
+          imageName: "ghcr.io/boxp/arch/llama-sycl:latest"
           commonUpdateSettings:
             updateStrategy: "digest"
             platforms:
               - "linux/amd64"
           manifestTargets:
             kustomize:
-              name: "ghcr.io/boxp/arch/llama-vulkan"
+              name: "ghcr.io/boxp/arch/llama-sycl"
   writeBackConfig:
     method: "git:secret:argocd/repo-lolice"
     gitConfig:
