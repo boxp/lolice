@@ -699,6 +699,16 @@
           "legendFormat": "prompt processing",
           "queryType": "range",
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${lokiDatasource}"
+          },
+          "expr": "avg_over_time({namespace=\"local-llm\",container=\"llama-server\"} |= \"tg =\" | regexp \"(?P<tps>[0-9.]+) t/s\" | unwrap tps | __error__=\"\" [$__interval])",
+          "legendFormat": "generation slot timing",
+          "queryType": "range",
+          "refId": "D"
         }
       ],
       "title": "Local LLM Token Throughput",
