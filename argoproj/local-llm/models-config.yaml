@@ -9,8 +9,8 @@ data:
     [gemma4-26b]
     model = /models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
     ctx-size = 65536
-    batch-size = 1024
-    ubatch-size = 512
+    batch-size = 2048
+    ubatch-size = 1024
     threads = 14
     threads-batch = 14
 
