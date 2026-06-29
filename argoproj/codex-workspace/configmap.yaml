@@ -40,7 +40,21 @@ data:
               "name": "Gemma4 26B local",
               "reasoning": false,
               "input": ["text"],
-              "contextWindow": 4096,
+              "contextWindow": 65536,
+              "maxTokens": 4096,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0
+              }
+            },
+            {
+              "id": "ornith-35b",
+              "name": "Ornith 35B local",
+              "reasoning": false,
+              "input": ["text"],
+              "contextWindow": 65536,
               "maxTokens": 4096,
               "cost": {
                 "input": 0,
