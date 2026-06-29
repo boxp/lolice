@@ -1,0 +1,48 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: stable-diffusion-webui
+spec:
+  selector: app == 'stable-diffusion-webui'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'stable-diffusion'
+        selector: app == 'cloudflared'
+      destination:
+        ports:
+          - 7860
+    - action: Allow
+      protocol: TCP
+      source:
+        nets:
+          - 192.168.10.0/24
+      destination:
+        ports:
+          - 7860
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports:
+          - 80
+          - 443
+

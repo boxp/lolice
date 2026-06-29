@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: stable-diffusion
+  namespace: argocd
+spec:
+  destination:
+    namespace: stable-diffusion
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    path: argoproj/stable-diffusion
+    repoURL: https://github.com/boxp/lolice
+    targetRevision: main
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+
