@@ -33,9 +33,11 @@ jobs:
           rm argocd-linux-amd64
 
           # kustomizeのインストール
-          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          KUSTOMIZE_VERSION=v5.7.1
+          curl -sSL -o kustomize.tar.gz "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf kustomize.tar.gz kustomize
           sudo install -m 555 kustomize /usr/local/bin/kustomize
-          rm kustomize
+          rm kustomize kustomize.tar.gz
 
           # Helmのインストール
           curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3

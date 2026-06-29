@@ -632,6 +632,77 @@
       ],
       "title": "Local LLM Request Latency",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${lokiDatasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "auto"
+          },
+          "decimals": 2,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${lokiDatasource}"
+          },
+          "expr": "avg_over_time({namespace=\"local-llm\",container=\"llama-server\"} |= \"prompt eval time\" | regexp \"(?P<tps>[0-9]+(?:\\.[0-9]+)?) tokens per second\" | unwrap tps | __error__=\"\" [$__interval])",
+          "legendFormat": "prompt eval",
+          "queryType": "range",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${lokiDatasource}"
+          },
+          "expr": "avg_over_time({namespace=\"local-llm\",container=\"llama-server\"} |= \"eval time =\" != \"prompt eval time\" | regexp \"(?P<tps>[0-9]+(?:\\.[0-9]+)?) tokens per second\" | unwrap tps | __error__=\"\" [$__interval])",
+          "legendFormat": "generation",
+          "queryType": "range",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${lokiDatasource}"
+          },
+          "expr": "avg_over_time({namespace=\"local-llm\",container=\"llama-server\"} |= \"prompt processing\" | regexp \"(?P<tps>[0-9]+(?:\\.[0-9]+)?) tokens per second\" | unwrap tps | __error__=\"\" [$__interval])",
+          "legendFormat": "prompt processing",
+          "queryType": "range",
+          "refId": "C"
+        }
+      ],
+      "title": "Local LLM Token Throughput",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",
@@ -652,6 +723,19 @@
         "label": "Data source",
         "name": "datasource",
         "query": "prometheus",
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "Loki",
+          "value": "Loki"
+        },
+        "hide": 0,
+        "label": "Loki data source",
+        "name": "lokiDatasource",
+        "query": "loki",
         "regex": "",
         "type": "datasource"
       }
