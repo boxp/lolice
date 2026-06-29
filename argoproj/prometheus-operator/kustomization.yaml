@@ -10,6 +10,7 @@ resources:
 - scrape-config.yaml
 - control-plane-node-rules.yaml
 - local-llm-gpu-observability-rules.yaml
+- stable-diffusion-observability-rules.yaml
 - cloudflared-pod-monitor.yaml
 - etcd-service.yaml
 - etcd-servicemonitor.yaml
