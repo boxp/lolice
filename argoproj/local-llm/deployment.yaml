@@ -52,7 +52,7 @@ spec:
             - --cache-type-k
             - q8_0
             - --cache-type-v
-            - turbo3
+            - q8_0
             - -fa
             - "on"
             - --jinja
