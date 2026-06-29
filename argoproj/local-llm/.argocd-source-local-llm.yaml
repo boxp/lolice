@@ -1,3 +1,3 @@
 kustomize:
   images:
-  - ghcr.io/boxp/arch/llama-vulkan=ghcr.io/boxp/arch/llama-vulkan:latest@sha256:f5045352fb474d567c069f4a72f3a1eb2cb57c3c00945501c1384a9e36135845
+  - ghcr.io/boxp/arch/llama-sycl=ghcr.io/boxp/arch/llama-sycl:latest@sha256:5c781ee682d4c8afa21799ad36a9229895663e32479f57aac3736cd2d8aac36a

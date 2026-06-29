@@ -29,7 +29,7 @@ spec:
           - 110
       containers:
         - name: llama-server
-          image: ghcr.io/boxp/arch/llama-vulkan:latest
+          image: ghcr.io/boxp/arch/llama-sycl:latest
           imagePullPolicy: Always
           args:
             - llama-server
@@ -38,7 +38,7 @@ spec:
             - --port
             - "8081"
             - -dev
-            - Vulkan0
+            - SYCL0
             - --models-preset
             - /config/models.ini
             - --models-max
@@ -65,6 +65,10 @@ spec:
               containerPort: 8081
           env:
             - name: ZES_ENABLE_SYSMAN
+              value: "1"
+            - name: ONEAPI_DEVICE_SELECTOR
+              value: level_zero:gpu
+            - name: ZE_ENABLE_PCI_ID_DEVICE_ORDER
               value: "1"
             - name: HOME
               value: /tmp
