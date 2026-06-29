@@ -43,7 +43,6 @@ spec:
             - /config/models.ini
             - --models-max
             - "1"
-            - --no-models-autoload
             - -ngl
             - "3"
             - -c
