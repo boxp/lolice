@@ -9,3 +9,10 @@ data:
     [gemma4-26b]
     model = /models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
     load-on-startup = true
+
+    [ornith-35b]
+    model = /models/ornith-1.0-35b-Q4_K_M.gguf
+    ctx-size = 65536
+    batch-size = 128
+    ubatch-size = 32
+    reasoning-budget = 0
