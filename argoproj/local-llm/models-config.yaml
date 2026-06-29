@@ -11,10 +11,14 @@ data:
     ctx-size = 65536
     batch-size = 1024
     ubatch-size = 256
+    threads = 8
+    threads-batch = 8
 
     [ornith-35b]
     model = /models/ornith-1.0-35b-Q4_K_M.gguf
     ctx-size = 65536
     batch-size = 512
     ubatch-size = 128
+    threads = 8
+    threads-batch = 8
     reasoning-budget = 0
