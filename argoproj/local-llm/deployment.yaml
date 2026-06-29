@@ -58,7 +58,6 @@ spec:
             - --jinja
             - --reasoning
             - "off"
-            - --cpu-moe
             - --no-warmup
           ports:
             - name: llama-http
