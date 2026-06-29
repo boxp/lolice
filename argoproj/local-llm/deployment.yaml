@@ -44,7 +44,7 @@ spec:
             - --models-max
             - "1"
             - -ngl
-            - "3"
+            - "99"
             - -c
             - "65536"
             - --parallel
