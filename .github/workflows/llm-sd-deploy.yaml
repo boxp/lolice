@@ -115,8 +115,19 @@ jobs:
           # プッシュ
           git push -u origin "$BRANCH"
 
-          # PR 作成
+          # PR 作成（失敗しても続行）
+          set +e
           gh pr create \
             --title "deploy: ${{ env.SERVICE }} replicas: 1, others: 0" \
             --body "GPU リソースの競合により、local-llm と stable-diffusion のどちらかしか同時に稼働できません。選択サービス：${{ env.SERVICE }}" \
             --base main
+          PR_EXIT_CODE=$?
+          set -e
+
+          if [ $PR_EXIT_CODE -eq 0 ]; then
+            echo "✅ PR created successfully"
+          else
+            echo "⚠️ PR creation failed (exit code: $PR_EXIT_CODE). Please create PR manually."
+            echo "Branch: $BRANCH"
+            echo "URL: https://github.com/boxp/lolice/pull/new/$BRANCH"
+          fi
