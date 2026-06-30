@@ -1,6 +1,6 @@
 name: Deploy LLM/SD Service
 
-on:
+"on":
   workflow_dispatch:
     inputs:
       service:
