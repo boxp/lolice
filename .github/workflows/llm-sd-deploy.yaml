@@ -1,0 +1,127 @@
+name: Deploy LLM/SD Service
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Deploy service (llm, diffusion, or auto)'
+        required: true
+        type: choice
+        options:
+          - llm
+          - diffusion
+          - auto
+        default: llm
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Determine service to deploy
+        id: determine-service
+        run: |
+          SERVICE="${{ github.event.inputs.service }}"
+
+          if [ "$SERVICE" = "auto" ]; then
+            # auto: GPU リソースが空いている方を自動選択（簡易版：llm を優先）
+            SERVICE="llm"
+            echo "ℹ️ Auto-selected: local-llm"
+          fi
+
+          echo "service=$SERVICE" >> $GITHUB_OUTPUT
+
+      - name: Configure Git
+        if: steps.determine-service.outputs.service != 'none'
+        run: |
+          git config user.name "deploy-bot"
+          git config user.email "deploy-bot@boxp.github.com"
+
+      - name: Deploy selected service
+        if: steps.determine-service.outputs.service != 'none'
+        env:
+          SERVICE: ${{ steps.determine-service.outputs.service }}
+        run: |
+          # 現在の replicas を確認
+          echo "=== Current state ==="
+          grep "replicas:" argoproj/local-llm/deployment.yaml
+          grep "replicas:" argoproj/stable-diffusion/deployment.yaml
+          grep "replicas:" argoproj/stable-diffusion/cloudflared-deployment.yaml
+
+          # ローカル変数
+          LLM_REPLICAS=0
+          SD_REPLICAS=0
+          CLOUDFLARED_REPLICAS=0
+
+          if [ "$SERVICE" = "llm" ]; then
+            LLM_REPLICAS=1
+            SD_REPLICAS=0
+            CLOUDFLARED_REPLICAS=0
+            echo "✅ Will deploy: local-llm (replicas: 1)"
+            echo "   Will stop: stable-diffusion (replicas: 0)"
+            echo "   Will stop: cloudflared (replicas: 0)"
+          elif [ "$SERVICE" = "diffusion" ]; then
+            LLM_REPLICAS=0
+            SD_REPLICAS=1
+            CLOUDFLARED_REPLICAS=0
+            echo "✅ Will deploy: stable-diffusion (replicas: 1)"
+            echo "   Will stop: local-llm (replicas: 0)"
+            echo "   Will stop: cloudflared (replicas: 0)"
+          fi
+
+          # deployment.yaml の更新（Linux 用 sed 構文）
+          sed -i "s/^  replicas: [0-9]*/  replicas: $LLM_REPLICAS/" argoproj/local-llm/deployment.yaml
+          sed -i "s/^  replicas: [0-9]*/  replicas: $SD_REPLICAS/" argoproj/stable-diffusion/deployment.yaml
+          sed -i "s/^  replicas: [0-9]*/  replicas: $CLOUDFLARED_REPLICAS/" argoproj/stable-diffusion/cloudflared-deployment.yaml
+
+          echo ""
+          echo "=== Updated state ==="
+          grep "replicas:" argoproj/local-llm/deployment.yaml
+          grep "replicas:" argoproj/stable-diffusion/deployment.yaml
+          grep "replicas:" argoproj/stable-diffusion/cloudflared-deployment.yaml
+
+      - name: Create pull request
+        if: steps.determine-service.outputs.service != 'none'
+        env:
+          SERVICE: ${{ steps.determine-service.outputs.service }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # ブランチ名生成
+          BRANCH="deploy/${{ env.SERVICE }}-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
+
+          # コミット
+          git add argoproj/local-llm/deployment.yaml argoproj/stable-diffusion/deployment.yaml argoproj/stable-diffusion/cloudflared-deployment.yaml
+          git commit -m "deploy: ${{ env.SERVICE }} replicas: 1, others: 0
+
+          Selected service: ${{ env.SERVICE }}
+          - local-llm: $(grep 'replicas:' argoproj/local-llm/deployment.yaml | head -1 | awk '{print $2}')
+          - stable-diffusion: $(grep 'replicas:' argoproj/stable-diffusion/deployment.yaml | head -1 | awk '{print $2}')
+          - cloudflared: $(grep 'replicas:' argoproj/stable-diffusion/cloudflared-deployment.yaml | head -1 | awk '{print $2}')"
+
+          # プッシュ
+          git push -u origin "$BRANCH"
+
+          # PR 作成
+          gh pr create \
+            --title "deploy: ${{ env.SERVICE }} replicas: 1, others: 0" \
+            --body "## What
+GPU リソースの競合により、local-llm と stable-diffusion のどちらかしか同時に稼働できません。
+
+## Changes
+- **${{ env.SERVICE }}**: \`replicas: 0\` → \`replicas: 1\`
+- **other service**: \`replicas: 0\` (unchanged)
+- **cloudflared**: \`replicas: 0\` (unchanged)
+
+## Rationale
+single GPU worker node (Intel Arc) 上で両サービスが並行稼働できないため、${{ env.SERVICE }} を優先してデプロイします。" \
+            --base main
+"
