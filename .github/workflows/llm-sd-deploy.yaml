@@ -12,11 +12,6 @@ on:
           - diffusion
           - auto
         default: llm
-      confirm:
-        description: 'Confirm deployment (type "yes" to confirm)'
-        required: true
-        type: string
-        default: 'no'
 
 jobs:
   deploy:
@@ -35,13 +30,6 @@ jobs:
         id: determine-service
         run: |
           SERVICE="${{ github.event.inputs.service }}"
-          CONFIRM="${{ github.event.inputs.confirm }}"
-
-          if [ "$CONFIRM" != "yes" ]; then
-            echo "⚠️ Deployment not confirmed. Exiting."
-            echo "service=none" >> $GITHUB_OUTPUT
-            exit 0
-          fi
 
           if [ "$SERVICE" = "auto" ]; then
             # auto: GPU リソースが空いている方を自動選択（簡易版：llm を優先）
