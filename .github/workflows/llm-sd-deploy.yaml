@@ -124,4 +124,3 @@ GPU リソースの競合により、local-llm と stable-diffusion のどちら
 ## Rationale
 single GPU worker node (Intel Arc) 上で両サービスが並行稼働できないため、${{ env.SERVICE }} を優先してデプロイします。" \
             --base main
-"
