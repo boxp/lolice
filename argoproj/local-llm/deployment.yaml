@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: llama-server
 spec:
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
