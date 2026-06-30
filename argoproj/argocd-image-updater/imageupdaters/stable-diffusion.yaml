@@ -1,0 +1,23 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: stable-diffusion
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: "stable-diffusion"
+      images:
+        - alias: "sdnext-ipex"
+          imageName: "ghcr.io/boxp/arch/sdnext-ipex:latest"
+          commonUpdateSettings:
+            updateStrategy: "digest"
+            platforms:
+              - "linux/amd64"
+          manifestTargets:
+            kustomize:
+              name: "ghcr.io/boxp/arch/sdnext-ipex"
+  writeBackConfig:
+    method: "git:secret:argocd/repo-lolice"
+    gitConfig:
+      repository: "git@github.com:boxp/lolice.git"
+      branch: "main"

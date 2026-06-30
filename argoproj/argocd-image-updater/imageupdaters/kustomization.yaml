@@ -8,3 +8,4 @@ resources:
   - even-g2-lab.yaml
   - codex-workspace.yaml
   - local-llm.yaml
+  - stable-diffusion.yaml
