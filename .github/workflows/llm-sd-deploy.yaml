@@ -118,14 +118,5 @@ jobs:
           # PR 作成
           gh pr create \
             --title "deploy: ${{ env.SERVICE }} replicas: 1, others: 0" \
-            --body "## What
-GPU リソースの競合により、local-llm と stable-diffusion のどちらかしか同時に稼働できません。
-
-## Changes
-- **${{ env.SERVICE }}**: \`replicas: 0\` → \`replicas: 1\`
-- **other service**: \`replicas: 0\` (unchanged)
-- **cloudflared**: \`replicas: 0\` (unchanged)
-
-## Rationale
-single GPU worker node (Intel Arc) 上で両サービスが並行稼働できないため、${{ env.SERVICE }} を優先してデプロイします。" \
+            --body "GPU リソースの競合により、local-llm と stable-diffusion のどちらかしか同時に稼働できません。選択サービス：${{ env.SERVICE }}" \
             --base main
