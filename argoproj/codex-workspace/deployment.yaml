@@ -101,25 +101,6 @@ spec:
                   key: GEMINI_API_KEY
             - name: PI_CODING_AGENT_DIR
               value: /home/boxp/.pi/agent
-            - name: CLOUDFLARE_WARP_ENABLED
-              value: "true"
-            - name: CLOUDFLARE_WARP_REQUIRED
-              value: "false"
-            - name: CLOUDFLARE_WARP_AUTH_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: codex-workspace-cloudflare-warp
-                  key: auth-client-id
-            - name: CLOUDFLARE_WARP_AUTH_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: codex-workspace-cloudflare-warp
-                  key: auth-client-secret
-            - name: CLOUDFLARE_WARP_ORGANIZATION
-              valueFrom:
-                secretKeyRef:
-                  name: codex-workspace-cloudflare-warp
-                  key: organization
             - name: DOCKER_HOST
               value: tcp://127.0.0.1:2375
             - name: DOCKER_BUILDKIT
@@ -172,8 +153,6 @@ spec:
               mountPath: /usr/local/bin/docker
               subPath: docker
               readOnly: true
-            - name: dev-net-tun
-              mountPath: /dev/net/tun
         - name: obsidian-sync
           image: ghcr.io/boxp/arch/codex-workspace:latest
           imagePullPolicy: Always
@@ -290,7 +269,3 @@ spec:
           emptyDir: {}
         - name: docker-graph-storage
           emptyDir: {}
-        - name: dev-net-tun
-          hostPath:
-            path: /dev/net/tun
-            type: CharDevice
