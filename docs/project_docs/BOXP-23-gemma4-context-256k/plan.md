@@ -1,16 +1,16 @@
-# BOXP-23 Gemma4 128k context
+# BOXP-23 Gemma4 256k context
 
 ## Context
 
 `local-llm` currently exposes `gemma4-26b` with a 65536 token context in both the llama-server model preset and the `codex-workspace` pi model metadata.
 
-Gemma4 should be available with a 128k context window while keeping the existing Ornith 65536 setting unchanged.
+Gemma4 should be available with a 256k context window while keeping the existing Ornith 65536 setting unchanged.
 
 ## Plan
 
-1. Set the `gemma4-26b` llama-server model preset `ctx-size` to `131072`.
+1. Set the `gemma4-26b` llama-server model preset `ctx-size` to `262144`.
 2. Align the llama-server startup `-c` value with the larger Gemma4 context.
-3. Update the `codex-workspace` pi config so only `gemma4-26b` advertises `contextWindow=131072`.
+3. Update the `codex-workspace` pi config so only `gemma4-26b` advertises `contextWindow=262144`.
 4. Validate the YAML and embedded pi `models.json`.
 
 ## Verification

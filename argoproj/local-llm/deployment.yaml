@@ -46,7 +46,7 @@ spec:
             - -ngl
             - "99"
             - -c
-            - "131072"
+            - "262144"
             - --parallel
             - "1"
             - --cache-type-k
