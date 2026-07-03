@@ -5,6 +5,7 @@ resources:
 - application.yaml
 - grafana-lb.yaml
 - external-secret.yaml
+- grafana-smtp-external-secret.yaml
 - cloudflared-deployment.yaml
 - grafana-pvc.yaml
 - scrape-config.yaml

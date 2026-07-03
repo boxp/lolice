@@ -3,11 +3,39 @@ kind: Deployment
 metadata:
   name: grafana
   namespace: monitoring
+  annotations:
+    secret.reloader.stakater.com/reload: "grafana-smtp"
 spec:
   template:
     spec:
       containers:
         - name: grafana
+          env:
+            - name: GF_SMTP_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-smtp
+                  key: GF_SMTP_ENABLED
+            - name: GF_SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-smtp
+                  key: GF_SMTP_HOST
+            - name: GF_SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-smtp
+                  key: GF_SMTP_USER
+            - name: GF_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-smtp
+                  key: GF_SMTP_PASSWORD
+            - name: GF_SMTP_FROM_ADDRESS
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-smtp
+                  key: GF_SMTP_FROM_ADDRESS
           resources:
             requests:
               cpu: 500m
