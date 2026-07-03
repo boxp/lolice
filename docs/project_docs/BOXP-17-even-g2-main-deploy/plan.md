@@ -20,6 +20,7 @@
 - [x] Add Deployment/ClusterIP Service/NetworkPolicy for main static app.
 - [x] Add dedicated `cloudflared` Deployment and ExternalSecret in `even-g2-lab`.
 - [x] Add ImageUpdater resource for ECR image updates.
+- [x] Set the ImageUpdater git write-back repository explicitly.
 - [x] Validate YAML manifests.
 - [ ] After merge/apply, confirm `regcred` exists in `even-g2-lab` namespace.
 - [ ] Confirm `even-g2-lab` `cloudflared` can route `even-g2-main.b0xp.io` to `http://even-g2-main.even-g2-lab.svc.cluster.local:80`.
