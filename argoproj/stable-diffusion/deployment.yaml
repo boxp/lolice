@@ -65,12 +65,12 @@ spec:
               value: "1"
           resources:
             requests:
-              cpu: "4"
+              cpu: "3"
               memory: 24Gi
               gpu.intel.com/i915: "1"
             limits:
               cpu: "14"
-              memory: 80Gi
+              memory: 48Gi
               gpu.intel.com/i915: "1"
           startupProbe:
             httpGet:
