@@ -13,6 +13,11 @@ spec:
       labels:
         app: even-g2-main
     spec:
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
       imagePullSecrets:
         - name: regcred
       containers:
@@ -40,4 +45,3 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
-

@@ -19,6 +19,11 @@ spec:
       automountServiceAccountToken: false
       nodeSelector:
         kubernetes.io/arch: amd64
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
       initContainers:
         - name: fetch-ssh-keys
           image: docker.io/curlimages/curl:8.21.0
