@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: even-g2-lab-cloudflared-metrics
+  namespace: even-g2-lab
+spec:
+  selector:
+    app: cloudflared
+  type: NodePort
+  ports:
+    - protocol: TCP
+      port: 2000
+      targetPort: metrics
+      name: metrics

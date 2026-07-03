@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stable-diffusion-cloudflared
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+        - name: cloudflared
+          image: docker.io/cloudflare/cloudflared:2026.6.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+            - --protocol
+            - http2
+            - --token
+            - $(TUNNEL_TOKEN)
+          ports:
+            - name: metrics
+              containerPort: 2000
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          envFrom:
+            - secretRef:
+                name: stable-diffusion-cloudflared-secret
+

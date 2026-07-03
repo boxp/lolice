@@ -1,0 +1,45 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: stable-diffusion-observability-rules
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    release: prometheus
+spec:
+  groups:
+    - name: stable-diffusion.rules
+      rules:
+        - alert: StableDiffusionWebuiPodMissing
+          expr: |
+            absent(kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment="stable-diffusion-webui"})
+            or
+            kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment="stable-diffusion-webui"} < 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Stable Diffusion WebUI pod is not available
+            description: stable-diffusion-webui has had no available replicas for more than 10 minutes.
+        - alert: StableDiffusionWebuiRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="stable-diffusion", container="sdnext"}[30m]) > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Stable Diffusion WebUI container is restarting
+            description: The sdnext container restarted more than twice in 30 minutes.
+        - alert: StableDiffusionCloudflaredMissing
+          expr: |
+            absent(kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment="stable-diffusion-cloudflared"})
+            or
+            kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment="stable-diffusion-cloudflared"} < 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Stable Diffusion cloudflared pod is not available
+            description: stable-diffusion-cloudflared has had no available replicas for more than 10 minutes.
+

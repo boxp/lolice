@@ -1,0 +1,23 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: codex-workspace
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: "codex-workspace"
+      images:
+        - alias: "workspace"
+          imageName: "ghcr.io/boxp/arch/codex-workspace:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            platforms:
+              - "linux/amd64"
+          manifestTargets:
+            kustomize:
+              name: "ghcr.io/boxp/arch/codex-workspace"
+  writeBackConfig:
+    method: "git:secret:argocd/repo-lolice"
+    gitConfig:
+      repository: "git@github.com:boxp/lolice.git"
+      branch: "main"

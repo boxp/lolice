@@ -20,15 +20,19 @@ spec:
         kubernetes.io/arch: amd64
       initContainers:
         - name: fetch-ssh-keys
-          image: docker.io/curlimages/curl:8.20.0
+          image: docker.io/curlimages/curl:8.21.0
           command:
             - /bin/sh
             - -ec
             - |
               mkdir -p /home/boxp/.ssh
+              mkdir -p /home/boxp/.pi/agent
+              rm -f /home/boxp/.pi/agent/models.json
+              ln -s /etc/pi-agent-config/models.json /home/boxp/.pi/agent/models.json
               curl -fsSL https://github.com/boxp.keys -o /home/boxp/.ssh/authorized_keys
               test -s /home/boxp/.ssh/authorized_keys
               chown -R 1000:1000 /home/boxp/.ssh
+              chown -h 1000:1000 /home/boxp/.pi/agent/models.json
               chmod 700 /home/boxp/.ssh
               chmod 600 /home/boxp/.ssh/authorized_keys
           securityContext:
@@ -43,7 +47,7 @@ spec:
             - name: home
               mountPath: /home/boxp
         - name: install-docker-cli
-          image: docker.io/docker:29.5.2-cli
+          image: docker.io/docker:29.6.1-cli
           command:
             - /bin/sh
             - -ec
@@ -95,16 +99,27 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-gemini
                   key: GEMINI_API_KEY
+            - name: PI_CODING_AGENT_DIR
+              value: /home/boxp/.pi/agent
             - name: DOCKER_HOST
               value: tcp://127.0.0.1:2375
             - name: DOCKER_BUILDKIT
               value: "1"
           securityContext:
+            privileged: true
             runAsNonRoot: false
             runAsUser: 0
             allowPrivilegeEscalation: true
             capabilities:
-              add: ["AUDIT_WRITE", "CHOWN", "FOWNER", "SETGID", "SETUID", "SYS_CHROOT"]
+              add:
+                - AUDIT_WRITE
+                - CHOWN
+                - FOWNER
+                - NET_ADMIN
+                - NET_RAW
+                - SETGID
+                - SETUID
+                - SYS_CHROOT
               drop: ["ALL"]
             readOnlyRootFilesystem: false
           resources:
@@ -127,6 +142,9 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+            - name: pi-config
+              mountPath: /etc/pi-agent-config
+              readOnly: true
             - name: sshd-config
               mountPath: /etc/ssh/sshd_config
               subPath: sshd_config
@@ -166,8 +184,46 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+        - name: obsidian-task-board-draft
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              watch_script="${OBSIDIAN_VAULT_PATH}/Scripts/task-board-draft-watch.sh"
+              while [ ! -f "${watch_script}" ]; do
+                echo "Waiting for ${watch_script}"
+                sleep 5
+              done
+              exec /bin/bash "${watch_script}"
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: OBSIDIAN_VAULT_PATH
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: TASK_BOARD_DRAFT_WATCH_INTERVAL
+              value: "1"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
         - name: docker
-          image: docker.io/docker:29.5.2-dind
+          image: docker.io/docker:29.6.1-dind
           imagePullPolicy: IfNotPresent
           args:
             - dockerd
@@ -204,7 +260,7 @@ spec:
             - name: CODEX_HOME
               value: /home/boxp/.codex
             - name: CODEX_CRON_ROOT
-              value: /home/boxp/.codex-cron
+              value: /home/boxp/Documents/obsidian-headless/BOXP/Infrastructure/Codex Cron
             - name: CODEX_CRON_POLL_SECONDS
               value: "30"
             - name: GRAFANA_URL
@@ -301,6 +357,9 @@ spec:
         - name: sshd-config
           configMap:
             name: codex-workspace-sshd-config
+        - name: pi-config
+          configMap:
+            name: codex-workspace-pi-config
         - name: docker-cli
           emptyDir: {}
         - name: docker-graph-storage

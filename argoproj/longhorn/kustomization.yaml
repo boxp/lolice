@@ -6,3 +6,4 @@ resources:
   - external-secret.yaml
   - cloudflare-deployment.yaml
   - settings.yaml
+  - recurring-jobs.yaml

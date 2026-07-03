@@ -13,13 +13,28 @@ spec:
         values: |
           preUpgradeChecker:
             jobEnabled: false
+          csi:
+            kubeletRootDir: /var/lib/kubelet
           defaultSettings:
             defaultReplicaCount: 2
             backupTarget: "s3://boxp-longhorn-backup@ap-northeast-1/"
             backupTargetCredentialSecret: "longhorn-backup-secret"
+            taintToleration: "lolice.io/gpu-worker=true:NoSchedule"
           global:
             storageClass:
               reclaimPolicy: "Retain"
+          longhornManager:
+            tolerations:
+              - key: lolice.io/gpu-worker
+                operator: Equal
+                value: "true"
+                effect: NoSchedule
+          longhornDriver:
+            tolerations:
+              - key: lolice.io/gpu-worker
+                operator: Equal
+                value: "true"
+                effect: NoSchedule
           metrics:
             serviceMonitor:
               enabled: true

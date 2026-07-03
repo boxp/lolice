@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llama-server-models
+data:
+  models.ini: |
+    version = 1
+
+    [gemma4-26b]
+    model = /models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
+    ctx-size = 262144
+    batch-size = 2048
+    ubatch-size = 1024
+    threads = 14
+    threads-batch = 14
+
+    [ornith-35b]
+    model = /models/ornith-1.0-35b-Q4_K_M.gguf
+    ctx-size = 65536
+    batch-size = 512
+    ubatch-size = 128
+    threads = 12
+    threads-batch = 12
+    reasoning-budget = 0
