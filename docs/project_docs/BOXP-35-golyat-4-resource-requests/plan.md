@@ -142,6 +142,20 @@ When `local-llm` is running, memory request increases by `12Gi` compared with th
 
 When `stable-diffusion-webui` is running instead of `local-llm`, CPU request decreases by `1` core and memory request stays `24Gi`; memory limit decreases from `80Gi` to `48Gi`. This keeps normal workload scheduling room while avoiding a high memory limit that could consume almost the entire node.
 
+## Non-GPU workload placement
+
+`golyat-4` has `lolice.io/gpu-worker=true:NoSchedule`, so non-GPU workloads also need a toleration before the scheduler can use the CPU / memory room created above.
+
+The monitoring stack already had tolerations for `Prometheus`, `Alertmanager`, `blackbox-exporter`, `kube-state-metrics`, `prometheus-adapter`, and `prometheus-operator`. The remaining explicit GPU-node avoidance in this repository was `argoproj/prometheus-operator/overlays/dashboard-placement.yaml`, which pinned Grafana and the monitoring `cloudflared` Deployment away from nodes with `lolice.io/gpu-worker`.
+
+This patch changes that overlay so:
+
+- `monitoring/grafana` no longer requires `lolice.io/gpu-worker` to be absent.
+- `monitoring/cloudflared` no longer requires `lolice.io/gpu-worker` to be absent.
+- both Deployments tolerate `lolice.io/gpu-worker=true:NoSchedule`.
+
+These workloads do not request `gpu.intel.com/i915`, so they can use spare CPU / memory on `golyat-4` while leaving the Intel GPU allocation exclusive to either `local-llm` or `stable-diffusion-webui`.
+
 ## Validation
 
 Local render validation in this run:
@@ -151,12 +165,14 @@ Local render validation in this run:
 - `go` was unavailable, so `go run sigs.k8s.io/kustomize/kustomize/v5` was not an option.
 - `npx --yes kustomize build argoproj/local-llm` succeeded.
 - `npx --yes kustomize build argoproj/stable-diffusion` succeeded.
+- `npx --yes kustomize build argoproj/prometheus-operator` succeeded after removing the Grafana / monitoring cloudflared hard anti-GPU-node affinity.
 
 The following must be run from an environment with `kubectl` after review/merge:
 
 ```bash
 kubectl kustomize argoproj/local-llm
 kubectl kustomize argoproj/stable-diffusion
+kubectl kustomize argoproj/prometheus-operator
 ```
 
 Post-sync smoke checks:
@@ -184,6 +200,7 @@ Confirm that `kubectl describe node golyat-4` shows the expected request room fo
 
 - local-llm mode: `local-llm` consumes one Intel GPU and requests `4` CPU / `28Gi` memory.
 - stable-diffusion mode: `stable-diffusion-webui` consumes one Intel GPU and requests `3` CPU / `24Gi` memory.
+- normal monitoring workload mode: Grafana / monitoring cloudflared can be scheduled on `golyat-4` if the scheduler chooses it, because they now tolerate the GPU worker taint and no longer have a hard `lolice.io/gpu-worker DoesNotExist` affinity.
 
 ## Rollback
 
@@ -194,6 +211,9 @@ Revert these resource values in GitOps and sync Argo CD:
 - `argoproj/stable-diffusion/deployment.yaml`
   - `sdnext.resources.requests.cpu`: `"4"`
   - `sdnext.resources.limits.memory`: `80Gi`
+- `argoproj/prometheus-operator/overlays/dashboard-placement.yaml`
+  - restore the `requiredDuringSchedulingIgnoredDuringExecution` node affinity with `lolice.io/gpu-worker DoesNotExist`
+  - remove the `lolice.io/gpu-worker=true:NoSchedule` toleration from Grafana and monitoring cloudflared
 
 Rollback commands after reverting the manifest:
 
