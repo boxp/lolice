@@ -15,6 +15,7 @@ spec:
         app: stable-diffusion-webui
     spec:
       automountServiceAccountToken: false
+      priorityClassName: gpu-workload-high
       nodeSelector:
         lolice.io/gpu-worker: "true"
       tolerations:

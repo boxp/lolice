@@ -13,6 +13,7 @@
 - manifest: `argoproj/local-llm/deployment.yaml`
 - replicas: `1`
 - strategy: `Recreate`
+- priorityClassName: `gpu-workload-high`
 - nodeSelector: `lolice.io/gpu-worker: "true"`
 - toleration: `lolice.io/gpu-worker=true:NoSchedule`
 - main container: `llama-server`
@@ -29,6 +30,7 @@
 - manifest: `argoproj/stable-diffusion/deployment.yaml`
 - replicas: `0`
 - strategy: `Recreate`
+- priorityClassName: `gpu-workload-high`
 - nodeSelector: `lolice.io/gpu-worker: "true"`
 - toleration: `lolice.io/gpu-worker=true:NoSchedule`
 - main container: `sdnext`
@@ -113,6 +115,21 @@ Current `local-llm` smoke checks during this run:
 
 ## Chosen values
 
+### Priority
+
+- Add `argoproj/gpu-workload-priority/priorityclass.yaml`.
+- PriorityClass name: `gpu-workload-high`
+- Priority value: `100000`
+- `preemptionPolicy: PreemptLowerPriority`
+- Apply `priorityClassName: gpu-workload-high` to `local-llm` and `stable-diffusion-webui`.
+
+Rationale:
+
+- GPU workloads should win over opportunistic non-GPU workloads on `golyat-4`.
+- Scheduler preemption is request-based. If a GPU workload is Pending because normal workloads consumed the CPU / memory request room, the higher priority allows Kubernetes to preempt lower-priority pods.
+- Runtime CPU burst alone does not make Kubernetes immediately evict other running pods. During node pressure, kubelet eviction can use pod priority and request usage, so the GPU workloads should have both a high priority and realistic memory requests.
+- The value is intentionally below Kubernetes system critical priorities while still above the default priority `0` used by ordinary workloads.
+
 ### `local-llm` / `llama-server`
 
 - after requests: `cpu: "4"`, `memory: 28Gi`, `gpu.intel.com/i915: "1"`
@@ -150,6 +167,7 @@ This PR intentionally does not add `lolice.io/gpu-worker` tolerations to many no
 
 - keep GPU workloads pinned to `golyat-4` with `nodeSelector: lolice.io/gpu-worker=true` and `gpu.intel.com/i915: "1"`;
 - size GPU workload CPU / memory requests so they reserve enough room for stable startup and inference/generation;
+- give GPU workloads `priorityClassName: gpu-workload-high`, so they can preempt lower-priority normal workloads if they otherwise cannot be scheduled;
 - after the PR is merged and synced, remove the node taint from `golyat-4` so ordinary non-GPU workloads can use spare CPU / memory without per-workload toleration changes.
 
 Post-merge taint removal command:
@@ -173,15 +191,20 @@ Local render validation in this run:
 - `go` was unavailable, so `go run sigs.k8s.io/kustomize/kustomize/v5` was not an option.
 - `npx --yes kustomize build argoproj/local-llm` succeeded.
 - `npx --yes kustomize build argoproj/stable-diffusion` succeeded.
+- `npx --yes kustomize build argoproj/gpu-workload-priority` succeeded.
 
 Follow-up validation from a local environment with `kubectl`:
 
 - `kubectl kustomize argoproj/local-llm` succeeded.
 - `kubectl kustomize argoproj/stable-diffusion` succeeded.
+- `kubectl kustomize argoproj/gpu-workload-priority` succeeded.
+- `kubectl apply --dry-run=server -k argoproj/gpu-workload-priority` succeeded.
+- `kubectl apply --dry-run=server -k argoproj/local-llm` and `kubectl apply --dry-run=server -k argoproj/stable-diffusion` timed out at the API server during this follow-up; local render succeeded for both.
 
 The following must be run from an environment with `kubectl` after review/merge:
 
 ```bash
+kubectl kustomize argoproj/gpu-workload-priority
 kubectl kustomize argoproj/local-llm
 kubectl kustomize argoproj/stable-diffusion
 ```
@@ -211,17 +234,22 @@ Confirm that `kubectl describe node golyat-4` shows the expected request room fo
 
 - local-llm mode: `local-llm` consumes one Intel GPU and requests `4` CPU / `28Gi` memory.
 - stable-diffusion mode: `stable-diffusion-webui` consumes one Intel GPU and requests `3` CPU / `24Gi` memory.
+- both GPU workloads use `priorityClassName: gpu-workload-high`, so they can preempt lower-priority pods when scheduler request room is unavailable.
 - after `lolice.io/gpu-worker=true:NoSchedule` is removed from `golyat-4`, normal workloads can be scheduled there if the scheduler chooses it and they do not request the Intel GPU resource.
 
 ## Rollback
 
 Revert these resource values in GitOps and sync Argo CD:
 
+- `argoproj/gpu-workload-priority/`
+  - remove the `gpu-workload-high` `PriorityClass` app if GPU workload priority should be disabled
 - `argoproj/local-llm/deployment.yaml`
   - `llama-server.resources.requests.memory`: `16Gi`
+  - remove `priorityClassName: gpu-workload-high`
 - `argoproj/stable-diffusion/deployment.yaml`
   - `sdnext.resources.requests.cpu`: `"4"`
   - `sdnext.resources.limits.memory`: `80Gi`
+  - remove `priorityClassName: gpu-workload-high`
 
 If normal workloads should again avoid `golyat-4`, restore the node taint:
 
