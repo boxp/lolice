@@ -146,3 +146,26 @@ kubectl -n codex-workspace exec deploy/codex-workspace -c workspace -- \
 kubectl -n codex-workspace exec deploy/codex-workspace -c workspace -- \
   kubectl auth can-i create pod -A
 ```
+
+## 2026-07-04 追加調査: ServiceAccount token audience mismatch
+
+NetworkPolicy 修正後、`kubectl get nodes` は timeout ではなく `Unauthorized` で失敗した。Pod 内の kubeconfig、projected token、RBAC は存在しており、`kubectl auth can-i --as=system:serviceaccount:codex-workspace:codex-workspace get nodes` は `yes`、`get secrets -A` は `no` だった。
+
+TokenReview では Pod に mount された token が次の理由で拒否されていた。
+
+```text
+token audiences ["https://kubernetes.default.svc"] is invalid for the target audiences ["https://kubernetes.default.svc.cluster.local"]
+```
+
+`argoproj/codex-workspace/deployment.yaml` の projected ServiceAccount token `audience` を API server の期待値である `https://kubernetes.default.svc.cluster.local` に変更する。
+
+検証:
+
+```bash
+kubectl kustomize argoproj/codex-workspace >/tmp/boxp-37-codex-workspace-token-audience.yaml
+kubectl apply --dry-run=server -k argoproj/codex-workspace
+kubectl -n codex-workspace exec deploy/codex-workspace -c workspace -- \
+  kubectl get nodes --request-timeout=10s
+kubectl -n codex-workspace exec deploy/codex-workspace -c workspace -- \
+  kubectl auth can-i get secrets -A
+```
