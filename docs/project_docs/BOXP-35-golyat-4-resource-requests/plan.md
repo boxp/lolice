@@ -144,36 +144,25 @@ When `stable-diffusion-webui` is running instead of `local-llm`, CPU request dec
 
 ## Non-GPU workload placement
 
-`golyat-4` has `lolice.io/gpu-worker=true:NoSchedule`, so non-GPU workloads also need a toleration before the scheduler can use the CPU / memory room created above. In this repository, the broad blocker for normal workloads is therefore the missing toleration, not only hard node affinity.
+`golyat-4` currently has `lolice.io/gpu-worker=true:NoSchedule`. That taint is the broad blocker for normal non-GPU workloads, even after CPU / memory request room exists.
 
-The monitoring stack already had tolerations for `Prometheus`, `Alertmanager`, `blackbox-exporter`, `kube-state-metrics`, `prometheus-adapter`, and `prometheus-operator`. The remaining explicit GPU-node avoidance in this repository was `argoproj/prometheus-operator/overlays/dashboard-placement.yaml`, which pinned Grafana and the monitoring `cloudflared` Deployment away from nodes with `lolice.io/gpu-worker`.
+This PR intentionally does not add `lolice.io/gpu-worker` tolerations to many non-GPU workloads. Adding tolerations across unrelated manifests would make the GitOps change larger than needed and would preserve the dedicated-node taint model. The desired operating model after this PR is:
 
-This patch changes that overlay so:
+- keep GPU workloads pinned to `golyat-4` with `nodeSelector: lolice.io/gpu-worker=true` and `gpu.intel.com/i915: "1"`;
+- size GPU workload CPU / memory requests so they reserve enough room for stable startup and inference/generation;
+- after the PR is merged and synced, remove the node taint from `golyat-4` so ordinary non-GPU workloads can use spare CPU / memory without per-workload toleration changes.
 
-- `monitoring/grafana` no longer requires `lolice.io/gpu-worker` to be absent.
-- `monitoring/cloudflared` no longer requires `lolice.io/gpu-worker` to be absent.
-- both Deployments tolerate `lolice.io/gpu-worker=true:NoSchedule`.
+Post-merge taint removal command:
 
-Additional non-GPU workloads now explicitly tolerate `lolice.io/gpu-worker=true:NoSchedule` so they can be scheduled on spare CPU / memory if the scheduler chooses `golyat-4`:
+```bash
+kubectl taint node golyat-4 lolice.io/gpu-worker=true:NoSchedule-
+```
 
-- `codex-workspace/codex-workspace`
-- `even-g2-lab/even-g2-main`
-- `even-g2-lab/even-g2-lab-cloudflared`
-- `bastion/bastion`
-- `boxp-home/cloudflared`
-- `k8s/cloudflared`
-- `kube-dashboard/cloudflared`
-- `argocd/cloudflared`
-- `argocd/cloudflared-api`
-- `minecraft/cloudflared`
+Rollback command if `golyat-4` should become dedicated again:
 
-These workloads do not request `gpu.intel.com/i915`, so they can use spare CPU / memory on `golyat-4` while leaving the Intel GPU allocation exclusive to either `local-llm` or `stable-diffusion-webui`.
-
-Workloads intentionally left without the GPU worker toleration in this patch:
-
-- `hitohub` app Deployments and `hitohub` cloudflared: the app Deployments currently do not declare CPU / memory requests, so enabling them on the GPU worker would make scheduler accounting less predictable.
-- `palserver`, `minecraft` server, `ark-survival-ascended`, `starrupture`, and DB/storage-style workloads: they are stateful/heavier workloads and are not the first candidates for opportunistic GPU-node spare capacity.
-- `stable-diffusion-cloudflared`: replicas remain `0` with the current stable-diffusion switch-over operation, and it is not needed to prove non-GPU workload placement room.
+```bash
+kubectl taint node golyat-4 lolice.io/gpu-worker=true:NoSchedule
+```
 
 ## Validation
 
@@ -184,31 +173,17 @@ Local render validation in this run:
 - `go` was unavailable, so `go run sigs.k8s.io/kustomize/kustomize/v5` was not an option.
 - `npx --yes kustomize build argoproj/local-llm` succeeded.
 - `npx --yes kustomize build argoproj/stable-diffusion` succeeded.
-- `npx --yes kustomize build argoproj/prometheus-operator` succeeded after removing the Grafana / monitoring cloudflared hard anti-GPU-node affinity.
-- `npx --yes kustomize build argoproj/codex-workspace` succeeded after adding the GPU worker toleration.
-- `npx --yes kustomize build argoproj/even-g2-lab` succeeded after adding the GPU worker toleration.
-- `npx --yes kustomize build argoproj/bastion` succeeded after adding the GPU worker toleration.
-- `npx --yes kustomize build argoproj/boxp-home` succeeded after adding the GPU worker toleration.
-- `argoproj/k8s` has no kustomization file and is applied as a raw manifest directory by Argo CD; `for f in argoproj/k8s/*.yaml; do npx --yes js-yaml "$f" >/dev/null; done` parsed the YAML successfully after adding the GPU worker toleration.
-- `npx --yes kustomize build argoproj/kubernetes-dashboard/manifests` succeeded after adding the GPU worker toleration.
-- `npx --yes kustomize build argoproj/argocd` succeeded after adding the GPU worker toleration.
-- `npx --yes kustomize build argoproj/minecraft/overlays/prod` succeeded after adding the GPU worker toleration.
+
+Follow-up validation from a local environment with `kubectl`:
+
+- `kubectl kustomize argoproj/local-llm` succeeded.
+- `kubectl kustomize argoproj/stable-diffusion` succeeded.
 
 The following must be run from an environment with `kubectl` after review/merge:
 
 ```bash
 kubectl kustomize argoproj/local-llm
 kubectl kustomize argoproj/stable-diffusion
-kubectl kustomize argoproj/prometheus-operator
-kubectl kustomize argoproj/codex-workspace
-kubectl kustomize argoproj/even-g2-lab
-kubectl kustomize argoproj/bastion
-kubectl kustomize argoproj/boxp-home
-# argoproj/k8s is a raw manifest directory in Argo CD, not a kustomization.
-for f in argoproj/k8s/*.yaml; do npx --yes js-yaml "$f" >/dev/null; done
-kubectl kustomize argoproj/kubernetes-dashboard/manifests
-kubectl kustomize argoproj/argocd
-kubectl kustomize argoproj/minecraft/overlays/prod
 ```
 
 Post-sync smoke checks:
@@ -236,7 +211,7 @@ Confirm that `kubectl describe node golyat-4` shows the expected request room fo
 
 - local-llm mode: `local-llm` consumes one Intel GPU and requests `4` CPU / `28Gi` memory.
 - stable-diffusion mode: `stable-diffusion-webui` consumes one Intel GPU and requests `3` CPU / `24Gi` memory.
-- normal workload mode: monitoring, `codex-workspace`, selected Cloudflare tunnel Deployments, `even-g2-lab`, and `bastion` can be scheduled on `golyat-4` if the scheduler chooses it, because they now tolerate the GPU worker taint and do not request the Intel GPU resource.
+- after `lolice.io/gpu-worker=true:NoSchedule` is removed from `golyat-4`, normal workloads can be scheduled there if the scheduler chooses it and they do not request the Intel GPU resource.
 
 ## Rollback
 
@@ -247,17 +222,12 @@ Revert these resource values in GitOps and sync Argo CD:
 - `argoproj/stable-diffusion/deployment.yaml`
   - `sdnext.resources.requests.cpu`: `"4"`
   - `sdnext.resources.limits.memory`: `80Gi`
-- `argoproj/prometheus-operator/overlays/dashboard-placement.yaml`
-  - restore the `requiredDuringSchedulingIgnoredDuringExecution` node affinity with `lolice.io/gpu-worker DoesNotExist`
-  - remove the `lolice.io/gpu-worker=true:NoSchedule` toleration from Grafana and monitoring cloudflared
-- Remove the `lolice.io/gpu-worker=true:NoSchedule` toleration from these non-GPU manifests if normal workloads should again avoid the GPU worker:
-  - `argoproj/codex-workspace/deployment.yaml`
-  - `argoproj/even-g2-lab/deployment.yaml`
-  - `argoproj/even-g2-lab/deployment-cloudflared.yaml`
-  - `argoproj/bastion/deployment.yaml`
-  - `argoproj/boxp-home/cloudflared-deployment.yaml`
-  - `argoproj/k8s/cloudflared-deployment.yaml`
-  - `argoproj/kubernetes-dashboard/manifests/cloudflared-deployment.yaml`
+
+If normal workloads should again avoid `golyat-4`, restore the node taint:
+
+```bash
+kubectl taint node golyat-4 lolice.io/gpu-worker=true:NoSchedule
+```
   - `argoproj/argocd/cloudflared-deployment.yaml`
   - `argoproj/argocd/base/cloudflared-api.yaml`
   - `argoproj/minecraft/base/cloudflared-deployment.yaml`

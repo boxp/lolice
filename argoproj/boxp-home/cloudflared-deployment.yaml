@@ -13,11 +13,6 @@ spec:
       labels:
         app: cloudflared
     spec:
-      tolerations:
-      - key: lolice.io/gpu-worker
-        operator: Equal
-        value: "true"
-        effect: NoSchedule
       containers:
       - name: cloudflared
         image: docker.io/cloudflare/cloudflared:latest
@@ -53,4 +48,4 @@ spec:
             memory: 128Mi
           limits:
             cpu: 200m
-            memory: 256Mi
+            memory: 256Mi 

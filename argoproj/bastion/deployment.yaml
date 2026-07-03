@@ -14,11 +14,6 @@ spec:
         app: bastion
     spec:
       automountServiceAccountToken: false
-      tolerations:
-        - key: lolice.io/gpu-worker
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
       securityContext:
         runAsNonRoot: true
         seccompProfile:

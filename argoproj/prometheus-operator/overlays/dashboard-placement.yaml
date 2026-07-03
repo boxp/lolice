@@ -6,12 +6,13 @@ metadata:
 spec:
   template:
     spec:
-      affinity: null
-      tolerations:
-        - key: lolice.io/gpu-worker
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: lolice.io/gpu-worker
+                    operator: DoesNotExist
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -20,9 +21,10 @@ metadata:
 spec:
   template:
     spec:
-      affinity: null
-      tolerations:
-        - key: lolice.io/gpu-worker
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: lolice.io/gpu-worker
+                    operator: DoesNotExist
