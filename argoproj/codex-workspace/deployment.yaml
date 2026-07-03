@@ -293,6 +293,63 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+        - name: task-board-runner
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /opt/codex-workspace/task-board/task_board_runner.bb
+            - loop
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: CODEX_HOME
+              value: /home/boxp/.codex
+            - name: CODEX_TASK_BOARD_ROOT
+              value: /home/boxp/.codex-task-board
+            - name: CODEX_TASK_BOARD_VAULT
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: CODEX_TASK_BOARD_POLL_SECONDS
+              value: "60"
+            - name: CODEX_TASK_BOARD_LOCK_STALE_SECONDS
+              value: "1800"
+            - name: DOCKER_HOST
+              value: tcp://127.0.0.1:2375
+            - name: DOCKER_BUILDKIT
+              value: "1"
+            - name: GRAFANA_URL
+              value: http://grafana.monitoring.svc.cluster.local:3000
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-grafana
+                  key: service-account-token
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+            - name: docker-cli
+              mountPath: /usr/local/bin/docker
+              subPath: docker
+              readOnly: true
       volumes:
         - name: home
           persistentVolumeClaim:
