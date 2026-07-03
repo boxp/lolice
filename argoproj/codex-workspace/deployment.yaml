@@ -222,6 +222,52 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+        - name: hitohako-agent
+          image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/hitohako-agent-main:latest
+          imagePullPolicy: Always
+          ports:
+            - name: hitohako-agent
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: HITOHAKO_VAULT_PATH
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: hitohako-agent
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: hitohako-agent
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
         - name: docker
           image: docker.io/docker:29.6.1-dind
           imagePullPolicy: IfNotPresent
