@@ -15,6 +15,7 @@ spec:
       labels:
         app: codex-workspace
     spec:
+      serviceAccountName: codex-workspace
       automountServiceAccountToken: false
       nodeSelector:
         kubernetes.io/arch: amd64
@@ -105,6 +106,8 @@ spec:
               value: tcp://127.0.0.1:2375
             - name: DOCKER_BUILDKIT
               value: "1"
+            - name: KUBECONFIG
+              value: /var/run/secrets/codex-workspace/kubeconfig/config
           securityContext:
             privileged: true
             runAsNonRoot: false
@@ -152,6 +155,12 @@ spec:
             - name: docker-cli
               mountPath: /usr/local/bin/docker
               subPath: docker
+              readOnly: true
+            - name: kubeconfig
+              mountPath: /var/run/secrets/codex-workspace/kubeconfig
+              readOnly: true
+            - name: kubernetes-api-token
+              mountPath: /var/run/secrets/codex-workspace/k8s
               readOnly: true
         - name: obsidian-sync
           image: ghcr.io/boxp/arch/codex-workspace:latest
@@ -275,6 +284,8 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-gemini
                   key: GEMINI_API_KEY
+            - name: KUBECONFIG
+              value: /var/run/secrets/codex-workspace/kubeconfig/config
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -293,6 +304,12 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+            - name: kubeconfig
+              mountPath: /var/run/secrets/codex-workspace/kubeconfig
+              readOnly: true
+            - name: kubernetes-api-token
+              mountPath: /var/run/secrets/codex-workspace/k8s
+              readOnly: true
         - name: task-board-runner
           image: ghcr.io/boxp/arch/codex-workspace:latest
           imagePullPolicy: Always
@@ -316,6 +333,8 @@ spec:
               value: tcp://127.0.0.1:2375
             - name: DOCKER_BUILDKIT
               value: "1"
+            - name: KUBECONFIG
+              value: /var/run/secrets/codex-workspace/kubeconfig/config
             - name: GRAFANA_URL
               value: http://grafana.monitoring.svc.cluster.local:3000
             - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
@@ -350,6 +369,12 @@ spec:
               mountPath: /usr/local/bin/docker
               subPath: docker
               readOnly: true
+            - name: kubeconfig
+              mountPath: /var/run/secrets/codex-workspace/kubeconfig
+              readOnly: true
+            - name: kubernetes-api-token
+              mountPath: /var/run/secrets/codex-workspace/k8s
+              readOnly: true
       volumes:
         - name: home
           persistentVolumeClaim:
@@ -364,3 +389,23 @@ spec:
           emptyDir: {}
         - name: docker-graph-storage
           emptyDir: {}
+        - name: kubeconfig
+          configMap:
+            name: codex-workspace-kubeconfig
+        - name: kubernetes-api-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+                  audience: https://kubernetes.default.svc
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
