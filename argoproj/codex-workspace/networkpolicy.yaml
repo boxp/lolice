@@ -56,6 +56,31 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
         ports:
           - 8080
+    # Kubernetes API access for in-cluster kubectl.
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 10.96.0.1/32
+        ports:
+          - 443
+    # kube-vip API VIP and the DNAT backend control-plane endpoints.
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 192.168.10.99/32
+        ports:
+          - 6443
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 192.168.10.102/32
+          - 192.168.10.103/32
+          - 192.168.10.104/32
+        ports:
+          - 6443
     - action: Allow
       protocol: TCP
       destination:
