@@ -112,3 +112,37 @@ kubectl auth can-i patch deployment -A
 - `kubectl apply --dry-run=client --validate=false -f /tmp/boxp-37-kustomize.yaml` は kubeconfig なしの discovery で `localhost:8080` に接続しようとして失敗したため、検証結果には含めない。
 - custom resource の read 権限は、リポジトリで利用している API group と主要 Kubernetes 標準 API group を列挙している。新しい CRD group を追加した場合、その group の read 権限追加が必要になる可能性がある。
 - `kubectl logs`, `exec`, `port-forward` は今回の範囲外。
+
+## 2026-07-03 追加調査: kubectl API 接続 timeout
+
+PR merge 後の実 cluster では、`codex-workspace` Pod 内に `kubectl v1.36.1` / `KUBECONFIG` / ServiceAccount token / RBAC は反映済みだったが、`kubectl get nodes` が `https://kubernetes.default.svc` への接続 timeout で失敗した。
+
+切り分け結果:
+
+- 同じ `golyat-4` 上に置いた一時Podからは `https://10.96.0.1/api` と `https://192.168.10.102:6443/api` が `403` を返し、TCP接続自体は正常だった。
+- `codex-workspace` Pod からだけ `10.96.0.1:443` と control-plane node `192.168.10.102-104:6443` が timeout した。
+- `codex-workspace` Pod netns では SYN が `eth0` から出ていた。
+- host 側 Calico chain `cali-fw-calib6ef6beca26` で `codex-workspace/default.codex-workspace-network-policy egress` に入り、`End of tier default. Drop if no policies passed packet` のカウンタが増えた。
+
+原因:
+
+`argoproj/codex-workspace/networkpolicy.yaml` の `codex-workspace-network-policy` が `app == 'codex-workspace'` の egress を制限している。既存ruleは汎用TCP `443` を許可していたが、Kubernetes Service ClusterIP `10.96.0.1:443` は kube-proxy DNAT 後に control-plane endpoint `192.168.10.102-104:6443` として Calico の egress 判定に入るため、`6443` が許可されず drop されていた。
+
+修正:
+
+- Kubernetes Service ClusterIP `10.96.0.1/32:443` を明示許可する。
+- kube-vip API VIP `192.168.10.99/32:6443` を明示許可する。
+- DNAT 後の control-plane endpoint `192.168.10.102/32`, `192.168.10.103/32`, `192.168.10.104/32` の TCP `6443` を明示許可する。
+
+検証コマンド:
+
+```bash
+kubectl kustomize argoproj/codex-workspace >/tmp/boxp-37-codex-workspace.yaml
+kubectl apply --dry-run=server -k argoproj/codex-workspace
+kubectl -n codex-workspace exec deploy/codex-workspace -c workspace -- \
+  kubectl get nodes --request-timeout=10s
+kubectl -n codex-workspace exec deploy/codex-workspace -c workspace -- \
+  kubectl auth can-i get secrets -A
+kubectl -n codex-workspace exec deploy/codex-workspace -c workspace -- \
+  kubectl auth can-i create pod -A
+```
