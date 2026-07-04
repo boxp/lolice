@@ -126,3 +126,43 @@ After the vision rollout, `gemma4-26b` became unavailable from pi agent. Direct 
 - change pi agent `gemma4-26b.input` back from `["text", "image"]` to `["text"]`
 
 Keep the projector file on the host if it exists. Reintroduce vision under a separate model ID, for example `gemma4-26b-vision`, only after validating model/projector compatibility and load behavior on `golyat-4`.
+
+## 2026-07-04 Vision v2
+
+Root cause of the failed rollout was incomplete runtime preparation: `models.ini` referenced `/models/mmproj-Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-BF16.gguf`, but `golyat-4:/var/lib/local-llm/models` did not contain that file. The router stayed healthy, but loading `gemma4-26b` failed when it tried to launch the child `llama-server` with a missing projector.
+
+The projector was downloaded to `golyat-4:/var/lib/local-llm/models`:
+
+```text
+mmproj-Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-BF16.gguf 1194827776 bytes
+sha256 b5346e5bfd906f5e16878c2d0b8243e948ca7410fa28ea35be9b0c54a0ac10b7
+source HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP at revision f9093662a2e7ae0503f637088bc96f77a1a70c83
+```
+
+Validated on `golyat-4` with a temporary host `llama-server`:
+
+```bash
+source /opt/intel/oneapi/setvars.sh
+/home/boxp/src/llama-cpp-turboquant/build-sycl/bin/llama-server \
+  --host 127.0.0.1 --port 18081 --jinja --no-mmap --no-warmup \
+  --alias gemma4-26b-vision \
+  --model /var/lib/local-llm/models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf \
+  --mmproj /var/lib/local-llm/models/mmproj-Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-BF16.gguf \
+  --no-mmproj-offload \
+  --ctx-size 32768 --batch-size 1024 --ubatch-size 512 \
+  --device SYCL0 --n-gpu-layers 99 --flash-attn on --cpu-moe \
+  --cache-type-k q8_0 --cache-type-v q8_0 \
+  --parallel 1 --reasoning off --threads 14 --threads-batch 14
+```
+
+The temporary server loaded the multimodal model and returned `赤` for a 32x32 red PNG sent via OpenAI-compatible `messages[].content[]` with `image_url` data URL.
+
+GitOps reintroduction keeps the stable text model untouched and adds a separate vision alias:
+
+- keep `gemma4-26b` as text-only, `ctx-size = 262144`
+- add `gemma4-26b-vision` with the same text GGUF, the projector, `no-mmproj-offload = 1`, and `ctx-size = 262144`
+- advertise `gemma4-26b-vision` to pi agent with `input = ["text", "image"]`
+
+The router's shared `-c 262144` argument is passed to child model servers and determines the effective context size. A temporary `--models-preset` test confirmed `gemma4-26b-vision` loaded with `n_ctx = 262144` and successfully answered `赤` for a red PNG.
+
+Rollback for v2 is deleting only the `gemma4-26b-vision` model entry from `argoproj/local-llm/models-config.yaml` and `argoproj/codex-workspace/configmap.yaml`. The existing text-only `gemma4-26b` should not be changed.
