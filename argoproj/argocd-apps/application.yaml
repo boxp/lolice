@@ -24,5 +24,8 @@ spec:
     jqPathExpressions:
     - '.metadata.annotations["argocd.argoproj.io/tracking-id"]'
   syncPolicy:
+    automated:
+      prune: false  # 重要: 既存リソースを削除しない
+      selfHeal: true
     syncOptions:
     - CreateNamespace=false

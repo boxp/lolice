@@ -19,6 +19,8 @@ spec:
         valueFiles:
           - $lolice/argoproj/calico/values.yaml
   syncPolicy:
+    automated:
+      prune: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

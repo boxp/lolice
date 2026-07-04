@@ -22,6 +22,9 @@ spec:
     server: https://kubernetes.default.svc
     namespace: tailscale-operator
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
