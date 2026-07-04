@@ -19,6 +19,7 @@ resources:
 - prometheus-servicemonitor-role.yaml
 - prometheus-servicemonitor-role-binding.yaml
 patchesStrategicMerge:
+- patches/remove-crds.yaml
 - overlays/network-policy-grafana.yaml
 - overlays/grafana-datasources.yaml
 - overlays/network-policy-prometheus-k8s.yaml
