@@ -15,6 +15,9 @@ spec:
       helm:
         valueFiles:
           - $lolice/argoproj/loki/helm/values.yaml
+    - path: argoproj/loki/resources
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: main
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
