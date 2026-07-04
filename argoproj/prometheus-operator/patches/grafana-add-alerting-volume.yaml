@@ -1,0 +1,6 @@
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: grafana-alerting
+    configMap:
+      name: grafana-alerting

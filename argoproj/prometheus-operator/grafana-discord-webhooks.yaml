@@ -1,0 +1,20 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: grafana-discord-webhooks
+  namespace: monitoring
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: parameterstore
+    kind: ClusterSecretStore
+  target:
+    name: grafana-discord-webhooks
+    creationPolicy: Owner
+  data:
+    - secretKey: boxlab-alert-webhook-url
+      remoteRef:
+        key: /lolice/grafana/discord-webhook-boxlab-alert
+    - secretKey: onitiku-server-webhook-url
+      remoteRef:
+        key: /lolice/grafana/discord-webhook-onitiku-server

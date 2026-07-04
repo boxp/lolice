@@ -5,9 +5,24 @@ metadata:
   namespace: monitoring
 spec:
   template:
+    metadata:
+      annotations:
+        configmap.reloader.stakater.com/reload: grafana-alerting
+        secret.reloader.stakater.com/reload: grafana-discord-webhooks
     spec:
       containers:
         - name: grafana
+          env:
+            - name: GRAFANA_DISCORD_WEBHOOK_BOXLAB_ALERT
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-discord-webhooks
+                  key: boxlab-alert-webhook-url
+            - name: GRAFANA_DISCORD_WEBHOOK_ONITIKU_SERVER
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-discord-webhooks
+                  key: onitiku-server-webhook-url
           resources:
             requests:
               cpu: 500m
@@ -15,6 +30,10 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+          volumeMounts:
+            - mountPath: /etc/grafana/provisioning/alerting
+              name: grafana-alerting
+              readOnly: true
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:

@@ -6,6 +6,8 @@ resources:
 - grafana-lb.yaml
 - external-secret.yaml
 - cloudflared-deployment.yaml
+- grafana-alerting.yaml
+- grafana-discord-webhooks.yaml
 - grafana-pvc.yaml
 - scrape-config.yaml
 - control-plane-node-rules.yaml
@@ -32,3 +34,10 @@ patchesJson6902:
       name: grafana
       namespace: monitoring
   path: patches/grafana-remove-empty-dir.yaml
+- target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: grafana
+      namespace: monitoring
+  path: patches/grafana-add-alerting-volume.yaml
