@@ -12,6 +12,11 @@ spec:
     path: argoproj/prometheus-operator
     repoURL: https://github.com/boxp/lolice
     targetRevision: main
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Application
+      jqPathExpressions:
+        - '.metadata.annotations["argocd.argoproj.io/tracking-id"]'
   syncPolicy:
     syncOptions:
       - CreateNamespace=true
