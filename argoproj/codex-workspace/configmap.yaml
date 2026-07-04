@@ -39,7 +39,7 @@ data:
               "id": "gemma4-26b",
               "name": "Gemma4 26B local",
               "reasoning": false,
-              "input": ["text"],
+              "input": ["text", "image"],
               "contextWindow": 262144,
               "maxTokens": 4096,
               "cost": {
