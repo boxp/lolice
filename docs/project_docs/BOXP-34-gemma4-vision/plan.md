@@ -111,3 +111,18 @@ EOF
 - `argoproj/local-llm/models-config.yaml` の `mmproj = ...` 行を削除する。
 - `argoproj/codex-workspace/configmap.yaml` の `gemma4-26b.input` を `["text"]` に戻す。
 - 追加した `mmproj` ファイルはホスト上に残置してよい。ディスク容量を戻す必要がある場合のみ `/var/lib/local-llm/models/mmproj-Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-BF16.gguf` を削除する。
+
+## 2026-07-04 Rollback
+
+After the vision rollout, `gemma4-26b` became unavailable from pi agent. Direct health and model list checks against `llama-server.local-llm.svc.cluster.local:8080` still worked, and `ornith-35b` returned `OK` through the same router, but `gemma4-26b` failed with:
+
+```text
+500: {"code":500,"message":"model name=gemma4-26b failed to load","type":"server_error"}
+```
+
+`/v1/models` reported `gemma4-26b` as `failed: true` with `exit_code: 1` after the `mmproj` preset was added. Roll back only the vision-specific parts for service recovery:
+
+- remove `mmproj = /models/mmproj-Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-BF16.gguf`
+- change pi agent `gemma4-26b.input` back from `["text", "image"]` to `["text"]`
+
+Keep the projector file on the host if it exists. Reintroduce vision under a separate model ID, for example `gemma4-26b-vision`, only after validating model/projector compatibility and load behavior on `golyat-4`.
