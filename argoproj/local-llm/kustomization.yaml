@@ -8,4 +8,5 @@ resources:
   - envoy-config.yaml
   - deployment.yaml
   - service.yaml
+  - service-lan.yaml
   - servicemonitor.yaml
