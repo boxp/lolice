@@ -10,6 +10,9 @@ metadata:
 data:
   contact-points.yaml: |
     apiVersion: 1
+    deleteContactPoints:
+      - orgId: 1
+        uid: de96123xro5c0c
     contactPoints:
       - orgId: 1
         name: boxlab alert
@@ -20,16 +23,6 @@ data:
               url: $GRAFANA_DISCORD_WEBHOOK_BOXLAB_ALERT
               use_discord_username: false
             disableResolveMessage: false
-      - orgId: 1
-        name: onitiku server
-        receivers:
-          - uid: de96123xro5c0c
-            type: discord
-            settings:
-              message: '{{ template "default.title" . }}'
-              url: $GRAFANA_DISCORD_WEBHOOK_ONITIKU_SERVER
-              use_discord_username: false
-            disableResolveMessage: false
   notification-policies.yaml: |
     apiVersion: 1
     policies:
@@ -37,6 +30,11 @@ data:
         receiver: boxlab alert
   rules.yaml: |
     apiVersion: 1
+    deleteRules:
+      - orgId: 1
+        uid: fenkaqm8slj40d
+      - orgId: 1
+        uid: be92yxv4y2mf4b
     groups:
       - orgId: 1
         name: Hito Hub Prod
@@ -223,190 +221,3 @@ data:
             isPaused: false
             notification_settings:
               receiver: boxlab alert
-      - orgId: 1
-        name: ark-asa
-        folder: ""
-        interval: 1m
-        rules:
-          - uid: fenkaqm8slj40d
-            title: ark asa server restarts count
-            condition: C
-            data:
-              - refId: A
-                relativeTimeRange:
-                  from: 21600
-                  to: 0
-                datasourceUid: P1809F7CD0C75ACF3
-                model:
-                  datasource:
-                    type: prometheus
-                    uid: P1809F7CD0C75ACF3
-                  disableTextWrap: false
-                  editorMode: builder
-                  expr: delta(kube_pod_container_status_restarts_total{container="ark-server"}[1m])
-                  fullMetaSearch: false
-                  includeNullMetadata: true
-                  instant: false
-                  interval: ""
-                  intervalMs: 15000
-                  legendFormat: '{{container}}'
-                  maxDataPoints: 43200
-                  range: true
-                  refId: A
-                  useBackend: false
-              - refId: B
-                datasourceUid: __expr__
-                model:
-                  conditions:
-                    - evaluator:
-                        params: []
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params:
-                          - B
-                      reducer:
-                        params: []
-                        type: last
-                      type: query
-                  datasource:
-                    type: __expr__
-                    uid: __expr__
-                  expression: A
-                  intervalMs: 1000
-                  maxDataPoints: 43200
-                  reducer: last
-                  refId: B
-                  type: reduce
-              - refId: C
-                datasourceUid: __expr__
-                model:
-                  conditions:
-                    - evaluator:
-                        params:
-                          - 0
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params:
-                          - C
-                      reducer:
-                        params: []
-                        type: last
-                      type: query
-                  datasource:
-                    type: __expr__
-                    uid: __expr__
-                  expression: B
-                  intervalMs: 1000
-                  maxDataPoints: 43200
-                  refId: C
-                  type: threshold
-            dashboardUid: eenkaee7v0tfkf
-            panelId: 1
-            noDataState: NoData
-            execErrState: Error
-            for: 1m
-            annotations:
-              __dashboardUid__: eenkaee7v0tfkf
-              __panelId__: "1"
-              summary: ark asa serverが再起動されました、しばらく接続できない可能性があります
-            isPaused: false
-            notification_settings:
-              receiver: onitiku server
-      - orgId: 1
-        name: onitiku-palserver
-        folder: ""
-        interval: 1m
-        rules:
-          - uid: be92yxv4y2mf4b
-            title: onitiku palworldが稼働していません
-            condition: C
-            data:
-              - refId: A
-                relativeTimeRange:
-                  from: 21600
-                  to: 0
-                datasourceUid: P1809F7CD0C75ACF3
-                model:
-                  datasource:
-                    type: prometheus
-                    uid: P1809F7CD0C75ACF3
-                  disableTextWrap: false
-                  editorMode: builder
-                  expr: kube_deployment_status_replicas_available{deployment="palserver"}
-                  fullMetaSearch: false
-                  includeNullMetadata: true
-                  instant: false
-                  interval: ""
-                  intervalMs: 15000
-                  legendFormat: '{{deployment}}'
-                  maxDataPoints: 43200
-                  range: true
-                  refId: A
-                  useBackend: false
-              - refId: B
-                datasourceUid: __expr__
-                model:
-                  conditions:
-                    - evaluator:
-                        params: []
-                        type: gt
-                      operator:
-                        type: and
-                      query:
-                        params:
-                          - B
-                      reducer:
-                        params: []
-                        type: last
-                      type: query
-                  datasource:
-                    type: __expr__
-                    uid: __expr__
-                  expression: A
-                  intervalMs: 1000
-                  maxDataPoints: 43200
-                  reducer: last
-                  refId: B
-                  type: reduce
-              - refId: C
-                datasourceUid: __expr__
-                model:
-                  conditions:
-                    - evaluator:
-                        params:
-                          - 1
-                        type: lt
-                      operator:
-                        type: and
-                      query:
-                        params:
-                          - C
-                      reducer:
-                        params: []
-                        type: last
-                      type: query
-                  datasource:
-                    type: __expr__
-                    uid: __expr__
-                  expression: B
-                  intervalMs: 1000
-                  maxDataPoints: 43200
-                  refId: C
-                  type: threshold
-            dashboardUid: be92yab5yh69sc
-            panelId: 1
-            noDataState: NoData
-            execErrState: Error
-            for: 1m
-            annotations:
-              __dashboardUid__: be92yab5yh69sc
-              __panelId__: "1"
-              description: <@boxp> 対応してください
-              summary: onitiku palworldが稼働していません
-            isPaused: false
-            notification_settings:
-              receiver: onitiku server

@@ -15,6 +15,3 @@ spec:
     - secretKey: boxlab-alert-webhook-url
       remoteRef:
         key: /lolice/grafana/discord-webhook-boxlab-alert
-    - secretKey: onitiku-server-webhook-url
-      remoteRef:
-        key: /lolice/grafana/discord-webhook-onitiku-server
