@@ -3,8 +3,11 @@ kind: NetworkPolicy
 metadata:
   name: tailscale-operator-network-policy
   namespace: tailscale-operator
+  labels:
+    projectcalico.org/tier: default
 spec:
   selector: all()
+  tier: default
   types:
     - Ingress
     - Egress
@@ -25,6 +28,7 @@ spec:
     # DNS resolution via cluster DNS
     - action: Allow
       protocol: UDP
+      source: {}
       destination:
         selector: k8s-app == 'kube-dns'
         namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
@@ -32,6 +36,7 @@ spec:
           - 53
     - action: Allow
       protocol: TCP
+      source: {}
       destination:
         selector: k8s-app == 'kube-dns'
         namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
@@ -41,6 +46,7 @@ spec:
     # Service ClusterIP (kubernetes.default.svc)
     - action: Allow
       protocol: TCP
+      source: {}
       destination:
         nets:
           - 10.96.0.1/32
@@ -51,6 +57,7 @@ spec:
     # selfsubjectaccessreviews and Secret reads to timeout without this rule.
     - action: Allow
       protocol: TCP
+      source: {}
       destination:
         nets:
           - 192.168.10.99/32
@@ -62,6 +69,7 @@ spec:
     # dropped and cause timeouts on selfsubjectaccessreviews / Secret reads.
     - action: Allow
       protocol: TCP
+      source: {}
       destination:
         nets:
           - 192.168.10.102/32
@@ -72,17 +80,20 @@ spec:
     # Tailscale coordination server (HTTPS)
     - action: Allow
       protocol: TCP
+      source: {}
       destination:
         ports:
           - 443
     # Tailscale DERP relay (STUN)
     - action: Allow
       protocol: UDP
+      source: {}
       destination:
         ports:
           - 3478
     # Proxy pods need to reach target services in other namespaces
     - action: Allow
       protocol: TCP
+      source: {}
       destination:
         namespaceSelector: has(kubernetes.io/metadata.name)
