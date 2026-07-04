@@ -3,6 +3,8 @@ alloy:
     create: false
     name: alloy-config
     key: config.alloy
+  mounts:
+    varlog: true
 controller:
   type: daemonset
   tolerations:

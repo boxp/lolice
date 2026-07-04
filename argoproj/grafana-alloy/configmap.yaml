@@ -21,6 +21,14 @@ data:
         action        = "drop"
       }
 
+      // Keep only pods scheduled on this node. Each Alloy DaemonSet replica only
+      // has the local node's /var/log mounted.
+      rule {
+        source_labels = ["__meta_kubernetes_pod_node_name"]
+        regex         = env("HOSTNAME")
+        action        = "keep"
+      }
+
       // Set namespace label
       rule {
         source_labels = ["__meta_kubernetes_namespace"]
@@ -73,8 +81,9 @@ data:
       }
     }
 
-    // Collect logs from Kubernetes pods
-    loki.source.kubernetes "pods" {
+    // Collect logs from local node log files. Avoid using the Kubernetes
+    // pods/log API from every DaemonSet replica.
+    loki.source.file "pods" {
       targets    = discovery.relabel.pods.output
       forward_to = [loki.process.pods.receiver]
     }
