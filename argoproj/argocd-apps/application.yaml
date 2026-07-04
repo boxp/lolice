@@ -18,6 +18,11 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
+  ignoreDifferences:
+  - group: argoproj.io
+    kind: Application
+    jqPathExpressions:
+    - '.metadata.annotations["argocd.argoproj.io/tracking-id"]'
   syncPolicy:
     syncOptions:
     - CreateNamespace=false
