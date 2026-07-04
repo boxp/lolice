@@ -2,6 +2,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: llama-server
+  annotations:
+    configmap.reloader.stakater.com/reload: "llama-server-models"
 spec:
   replicas: 1
   strategy:
