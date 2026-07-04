@@ -23,6 +23,11 @@ spec:
       source:
         nets:
           - 192.168.10.0/24
+          # kube-vip Service LoadBalancer traffic is SNATed by kube-proxy on the
+          # current control-plane service leader before it reaches the workspace pod.
+          - 192.178.46.166/32
+          - 192.178.48.194/32
+          - 192.178.80.45/32
       destination:
         ports:
           - 2222
@@ -65,6 +70,29 @@ spec:
         ports:
           - 443
     # kube-vip API VIP and the DNAT backend control-plane endpoints.
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 192.168.10.99/32
+        ports:
+          - 6443
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 192.168.10.102/32
+          - 192.168.10.103/32
+          - 192.168.10.104/32
+        ports:
+          - 6443
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 10.96.0.1/32
+        ports:
+          - 443
     - action: Allow
       protocol: TCP
       destination:

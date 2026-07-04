@@ -22,6 +22,14 @@ spec:
               app: codex-workspace
         - ipBlock:
             cidr: 192.168.10.0/24
+        # kube-vip Service LoadBalancer traffic is SNATed by kube-proxy on the
+        # current control-plane service leader before it reaches the Grafana pod.
+        - ipBlock:
+            cidr: 192.178.46.166/32
+        - ipBlock:
+            cidr: 192.178.48.194/32
+        - ipBlock:
+            cidr: 192.178.80.45/32
       ports:
         - port: 3000
           protocol: TCP
