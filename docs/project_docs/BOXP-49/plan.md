@@ -60,7 +60,7 @@ PVC の実容量は 1848Gi として bind されており、モデル本体・ca
 - `stable-diffusion` Application に `comfyui-chroma` Deployment / Service / NetworkPolicy / extra model paths ConfigMap を追加する。
 - `comfyui-chroma` は初期 `replicas: 0`。merge だけでは GPU を奪わない。
 - `priorityClassName: gpu-workload-high`、`nodeSelector: lolice.io/gpu-worker=true`、`gpu.intel.com/i915: "1"` を設定する。
-- image は `ghcr.io/boxp/arch/comfyui-ipex:latest` を仮置きする。別途 `boxp/arch` 側で ComfyUI + Intel IPEX/XPU runtime image を build/publish する必要がある。
+- image は `ghcr.io/boxp/arch/comfyui-ipex:latest` を仮置きし、`stable-diffusion` の Argo CD Image Updater に digest tracking 対象として追加する。別途 `boxp/arch` 側で ComfyUI + Intel IPEX/XPU runtime image を build/publish する必要がある。
 - `codex-workspace` から `comfyui-chroma:8188` への egress を許可し、workspace container に `COMFYUI_CHROMA_URL` を追加する。
 
 ## 起動停止手順
@@ -107,6 +107,7 @@ ComfyUI API の最小 text-to-image smoke は、seed 済みの `ComfyUI_Chroma1-
 
 - `kubectl kustomize argoproj/stable-diffusion` 成功。
 - `kubectl kustomize argoproj/codex-workspace` 成功。
+- `kubectl kustomize argoproj/argocd-image-updater` 成功。
 - `kubectl apply --dry-run=server -k argoproj/stable-diffusion` は、この task-board ServiceAccount が `stable-diffusion` namespace の create/patch 権限を持たないため Forbidden。
 - `kubectl apply --dry-run=server -k argoproj/codex-workspace` は、この task-board ServiceAccount が cluster-scope resource と `codex-workspace` namespace の patch 権限を持たないため Forbidden。
 - `kubectl apply --dry-run=client` は API discovery/validation 待ちが長く、手動中断。render は成功済み。

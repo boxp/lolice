@@ -16,6 +16,15 @@ spec:
           manifestTargets:
             kustomize:
               name: "ghcr.io/boxp/arch/sdnext-ipex"
+        - alias: "comfyui-ipex"
+          imageName: "ghcr.io/boxp/arch/comfyui-ipex:latest"
+          commonUpdateSettings:
+            updateStrategy: "digest"
+            platforms:
+              - "linux/amd64"
+          manifestTargets:
+            kustomize:
+              name: "ghcr.io/boxp/arch/comfyui-ipex"
   writeBackConfig:
     method: "git:secret:argocd/repo-lolice"
     gitConfig:
