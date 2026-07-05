@@ -92,6 +92,7 @@ model:
   model: gemma4-26b-vision
   base_url: http://llama-server.local-llm.svc.cluster.local:8080/v1
   api_key: local-llm
+  supports_vision: true
   context_length: 262144
 
 display:
@@ -145,7 +146,7 @@ non-secret:
 | Models API | `GET /v1/models` |
 | Auth | 現行 cluster 内では認証なし。Hermes config には dummy bearer `local-llm` を置く |
 | Model ID | `gemma4-26b-vision` |
-| Vision support | OpenAI chat completions 互換の `image_url` parts を使う |
+| Vision support | OpenAI chat completions 互換の `image_url` parts を使う。Hermes custom provider では `supports_vision: true` を明示する |
 | Context | `262144` |
 | Max output target | `4096` tokens |
 | GPU | Hermes Pod は GPU 不要。推論は `local-llm` 側の GPU worker |
@@ -448,4 +449,4 @@ Repository: `boxp/lolice` and possibly `boxp/arch`
 ## Notes
 
 - 2026-07-05: BOXP-52 の設計計画として作成。現行 `boxp/lolice` の `local-llm` 実装では `gemma4-26b-vision` が OpenAI-compatible endpoint で公開済みのため、Hermes 側は custom provider で接続する方針にした。
-- 2026-07-05: 計画を実装へ進め、`argoproj/hermes-agent` に公式 `nousresearch/hermes-agent` image ベースの Deployment / PVC 10Gi / ConfigMap / Calico NetworkPolicy / Argo CD Application を追加した。API server は固定 key で公開せず無効化し、Obsidian headless は `codex-workspace` と同じ `ob sync --continuous` sidecar を追加した。`local-llm` 側は現時点で ingress default deny がなく、LAN VIP や kubelet probe への影響が大きいため、この PR では Hermes 側 egress allow のみに留めた。
+- 2026-07-05: 計画を実装へ進め、`argoproj/hermes-agent` に公式 `nousresearch/hermes-agent` image ベースの Deployment / PVC 10Gi / ConfigMap / Calico NetworkPolicy / Argo CD Application を追加した。API server は固定 key で公開せず無効化し、Obsidian headless は `codex-workspace` と同じ `ob sync --continuous` sidecar を追加した。custom provider は vision 入力を native に送るため `supports_vision: true` を明示した。`local-llm` 側は現時点で ingress default deny がなく、LAN VIP や kubelet probe への影響が大きいため、この PR では Hermes 側 egress allow のみに留めた。

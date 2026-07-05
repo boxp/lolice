@@ -28,17 +28,30 @@ spec:
               set -eu
               mkdir -p /opt/data/Documents/obsidian-headless/BOXP
               cp /bootstrap/config.yaml /opt/data/config.yaml
+              chown 10000:10000 /opt/data/config.yaml
+              chmod 0664 /opt/data/config.yaml
               if [ ! -f /opt/data/SOUL.md ]; then
                 cp /bootstrap/SOUL.md /opt/data/SOUL.md
+                chown 10000:10000 /opt/data/SOUL.md
+                chmod 0664 /opt/data/SOUL.md
               fi
-              chgrp -R 10000 /opt/data
-              chmod -R g+rwX /opt/data
+              chgrp 10000 \
+                /opt/data \
+                /opt/data/Documents \
+                /opt/data/Documents/obsidian-headless \
+                /opt/data/Documents/obsidian-headless/BOXP
+              chmod 0775 \
+                /opt/data \
+                /opt/data/Documents \
+                /opt/data/Documents/obsidian-headless \
+                /opt/data/Documents/obsidian-headless/BOXP
           securityContext:
             runAsUser: 0
             runAsGroup: 0
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
           volumeMounts:
             - name: data
               mountPath: /opt/data
