@@ -51,7 +51,7 @@ Kubernetes resources:
 | --- | --- |
 | Repository | `boxp/lolice` |
 | Directory | `argoproj/hermes-agent/` |
-| Argo CD Application | `argoproj/hermes-agent/application.yaml` |
+| Argo CD Application | `argoproj/hermes-agent/argocd-application.yaml` |
 | Namespace | `hermes-agent` |
 | Workload | `Deployment/hermes-agent`, replicas 1 |
 | Service | `Service/hermes-agent`。ClusterIP で API server / health endpoint の 8642 を公開 |
@@ -357,14 +357,14 @@ Status: この PR で実装済み。
 想定変更:
 
 - `argoproj/hermes-agent/namespace.yaml`
-- `argoproj/hermes-agent/application.yaml`
+- `argoproj/hermes-agent/argocd-application.yaml`
 - `argoproj/hermes-agent/kustomization.yaml`
 - `argoproj/hermes-agent/deployment.yaml`
 - `argoproj/hermes-agent/configmap.yaml`
 - `argoproj/hermes-agent/pvc.yaml`
 - `argoproj/hermes-agent/networkpolicy.yaml`
 - `argoproj/hermes-agent/secret.yaml`
-- `argoproj/kustomization.yaml` に `hermes-agent/application.yaml` を追加
+- `argoproj/kustomization.yaml` に `hermes-agent/argocd-application.yaml` を追加
 - `argoproj/local-llm/networkpolicy.yaml`
 - `argoproj/local-llm/kustomization.yaml` に `networkpolicy.yaml` を追加
 - 必要なら `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml`
