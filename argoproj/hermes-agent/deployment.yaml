@@ -29,6 +29,12 @@ spec:
             - |
               set -eu
               mkdir -p /opt/data/Documents/obsidian-headless/BOXP
+              if [ ! -f /opt/data/.shared-uid-gid-migrated ]; then
+                chown -R 1000:10000 /opt/data
+                find /opt/data -type d -exec chmod g+rws {} \;
+                touch /opt/data/.shared-uid-gid-migrated
+                chown 1000:10000 /opt/data/.shared-uid-gid-migrated
+              fi
               if [ ! -f /opt/data/config.yaml ]; then
                 cp /bootstrap/config.yaml /opt/data/config.yaml
                 chown 1000:10000 /opt/data/config.yaml
