@@ -26,10 +26,13 @@ spec:
             - -c
             - |
               set -eu
+              mkdir -p /opt/data/Documents/obsidian-headless/BOXP
               cp /bootstrap/config.yaml /opt/data/config.yaml
               if [ ! -f /opt/data/SOUL.md ]; then
                 cp /bootstrap/SOUL.md /opt/data/SOUL.md
               fi
+              chgrp -R 10000 /opt/data
+              chmod -R g+rwX /opt/data
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -49,28 +52,17 @@ spec:
           args:
             - gateway
             - run
-          ports:
-            - name: api
-              containerPort: 8642
           env:
             - name: API_SERVER_ENABLED
-              value: "true"
-            - name: API_SERVER_HOST
-              value: 0.0.0.0
-            - name: API_SERVER_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: hermes-agent-env
-                  key: API_SERVER_KEY
+              value: "false"
+            - name: HOME
+              value: /opt/data
+            - name: OBSIDIAN_VAULT_PATH
+              value: /home/boxp/Documents/obsidian-headless/BOXP
             - name: LOCAL_LLM_BASE_URL
               value: http://llama-server.local-llm.svc.cluster.local:8080/v1
             - name: LOCAL_LLM_MODEL
               value: gemma4-26b-vision
-            - name: LOCAL_LLM_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: hermes-agent-env
-                  key: LOCAL_LLM_API_KEY
             - name: HERMES_STREAM_READ_TIMEOUT
               value: "1800"
           resources:
@@ -80,31 +72,44 @@ spec:
             limits:
               cpu: "2"
               memory: 4Gi
-          startupProbe:
-            httpGet:
-              path: /health
-              port: api
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 30
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: api
-            periodSeconds: 10
-            timeoutSeconds: 5
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: api
-            initialDelaySeconds: 60
-            periodSeconds: 20
-            timeoutSeconds: 5
           volumeMounts:
             - name: data
               mountPath: /opt/data
+            - name: data
+              mountPath: /home/boxp
             - name: tmp
               mountPath: /tmp
+        - name: obsidian-sync
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              exec ob sync --path "${OBSIDIAN_VAULT_PATH}" --continuous
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: OBSIDIAN_VAULT_PATH
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 10000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /home/boxp
       volumes:
         - name: data
           persistentVolumeClaim:

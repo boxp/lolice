@@ -6,16 +6,7 @@ metadata:
 spec:
   selector: app == 'hermes-agent'
   types:
-    - Ingress
     - Egress
-  ingress:
-    - action: Allow
-      protocol: TCP
-      source:
-        namespaceSelector: kubernetes.io/metadata.name == 'monitoring'
-      destination:
-        ports:
-          - 8642
   egress:
     - action: Allow
       protocol: UDP
@@ -42,4 +33,11 @@ spec:
       protocol: TCP
       destination:
         ports:
+          - 22
+          - 80
           - 443
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports:
+          - 2408
