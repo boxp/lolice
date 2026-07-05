@@ -1,4 +1,4 @@
 kustomize:
   images:
-  - docker.io/nousresearch/hermes-agent=docker.io/nousresearch/hermes-agent:latest@sha256:3c3685e65e596bcf5f08cc8791daebff99bc00436ae258771d60b0d07d1a2777
+  - docker.io/nousresearch/hermes-agent=docker.io/nousresearch/hermes-agent:latest@sha256:1843e0bd5ddc77701ceedb25dc63526ea0db2a749933353b2edf3006caefba22
   - docker.io/library/node=docker.io/node:22-bookworm-slim@sha256:813a7480f28fdadac1f7f5c824bcdad435b5bc1322a5968bbbdef8d058f9dff4
