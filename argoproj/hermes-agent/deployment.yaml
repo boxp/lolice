@@ -29,9 +29,11 @@ spec:
             - |
               set -eu
               mkdir -p /opt/data/Documents/obsidian-headless/BOXP
-              cp /bootstrap/config.yaml /opt/data/config.yaml
-              chown 10000:10000 /opt/data/config.yaml
-              chmod 0664 /opt/data/config.yaml
+              if [ ! -f /opt/data/config.yaml ]; then
+                cp /bootstrap/config.yaml /opt/data/config.yaml
+                chown 10000:10000 /opt/data/config.yaml
+                chmod 0664 /opt/data/config.yaml
+              fi
               if [ ! -f /opt/data/SOUL.md ]; then
                 cp /bootstrap/SOUL.md /opt/data/SOUL.md
                 chown 10000:10000 /opt/data/SOUL.md

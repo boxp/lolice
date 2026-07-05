@@ -87,7 +87,7 @@ Kubernetes manifest では Docker image の entrypoint を維持し、container 
 
 ## Hermes Config
 
-`/opt/data/config.yaml` を ConfigMap から PVC に bootstrap する。local LLM は Hermes の first-class `custom` provider として扱う。
+`/opt/data/config.yaml` を ConfigMap から PVC に初回だけ bootstrap する。公式 image は `/opt/data` を mutable state として扱い、起動時に config migration を行うため、既存の `/opt/data/config.yaml` は init container で上書きしない。local LLM は Hermes の first-class `custom` provider として扱う。
 
 ```yaml
 model:
