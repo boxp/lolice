@@ -31,20 +31,20 @@ spec:
               mkdir -p /opt/data/Documents/obsidian-headless/BOXP
               if [ ! -f /opt/data/config.yaml ]; then
                 cp /bootstrap/config.yaml /opt/data/config.yaml
-                chown 10000:10000 /opt/data/config.yaml
+                chown 1000:10000 /opt/data/config.yaml
                 chmod 0664 /opt/data/config.yaml
               fi
               if [ ! -f /opt/data/SOUL.md ]; then
                 cp /bootstrap/SOUL.md /opt/data/SOUL.md
-                chown 10000:10000 /opt/data/SOUL.md
+                chown 1000:10000 /opt/data/SOUL.md
                 chmod 0664 /opt/data/SOUL.md
               fi
-              chgrp 10000 \
+              chown 1000:10000 \
                 /opt/data \
                 /opt/data/Documents \
                 /opt/data/Documents/obsidian-headless \
                 /opt/data/Documents/obsidian-headless/BOXP
-              chmod 0775 \
+              chmod 2775 \
                 /opt/data \
                 /opt/data/Documents \
                 /opt/data/Documents/obsidian-headless \
@@ -70,6 +70,10 @@ spec:
             - gateway
             - run
           env:
+            - name: HERMES_UID
+              value: "1000"
+            - name: HERMES_GID
+              value: "10000"
             - name: API_SERVER_ENABLED
               value: "false"
             - name: HOME
@@ -103,6 +107,7 @@ spec:
             - /bin/bash
             - -ec
             - |
+              umask 0002
               exec ob sync --path "${OBSIDIAN_VAULT_PATH}" --continuous
           env:
             - name: HOME
