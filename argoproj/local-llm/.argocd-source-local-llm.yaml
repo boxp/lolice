@@ -1,3 +1,3 @@
 kustomize:
   images:
-  - ghcr.io/boxp/arch/llama-sycl=ghcr.io/boxp/arch/llama-sycl:latest@sha256:fc302c5e40a2e03bbea7205942e24fe65cd301c1336143aad6d62ad2baafb302
+  - ghcr.io/boxp/arch/llama-sycl=ghcr.io/boxp/arch/llama-sycl:latest@sha256:efa865071bcd48b59b7c8c9421d6ff5d5a2a989314defae1df477b117324eba6
