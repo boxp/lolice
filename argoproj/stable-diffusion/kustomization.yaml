@@ -7,6 +7,10 @@ resources:
   - pvc.yaml
   - deployment.yaml
   - service.yaml
+  - comfyui-chroma-extra-model-paths.yaml
+  - comfyui-chroma-deployment.yaml
+  - comfyui-chroma-service.yaml
   - cloudflared-deployment.yaml
   - external-secret.yaml
   - networkpolicy.yaml
+  - comfyui-chroma-networkpolicy.yaml

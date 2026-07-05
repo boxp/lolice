@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: comfyui-chroma
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: comfyui-chroma
+  template:
+    metadata:
+      labels:
+        app: comfyui-chroma
+    spec:
+      automountServiceAccountToken: false
+      priorityClassName: gpu-workload-high
+      nodeSelector:
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 1000
+        supplementalGroups:
+          - 44
+          - 110
+      containers:
+        - name: comfyui
+          image: ghcr.io/boxp/arch/comfyui-ipex:latest
+          imagePullPolicy: Always
+          args:
+            - --listen
+            - 0.0.0.0
+            - --port
+            - "8188"
+            - --extra-model-paths-config
+            - /config/extra_model_paths.yaml
+            - --output-directory
+            - /data/comfyui/output
+            - --input-directory
+            - /data/comfyui/input
+            - --temp-directory
+            - /scratch/tmp
+          ports:
+            - name: http
+              containerPort: 8188
+          env:
+            - name: HF_HOME
+              value: /scratch/huggingface
+            - name: XDG_CACHE_HOME
+              value: /scratch/cache
+            - name: TMPDIR
+              value: /scratch/tmp
+            - name: ONEAPI_DEVICE_SELECTOR
+              value: level_zero:gpu
+            - name: ZE_ENABLE_PCI_ID_DEVICE_ORDER
+              value: "1"
+            - name: LLAMA_SERVER_BASE_URL
+              value: http://llama-server.local-llm.svc.cluster.local:8080/v1
+          resources:
+            requests:
+              cpu: "4"
+              memory: 40Gi
+              gpu.intel.com/i915: "1"
+            limits:
+              cpu: "14"
+              memory: 80Gi
+              gpu.intel.com/i915: "1"
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: scratch
+              mountPath: /scratch
+            - name: extra-model-paths
+              mountPath: /config/extra_model_paths.yaml
+              subPath: extra_model_paths.yaml
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: sd-webui-data
+        - name: scratch
+          hostPath:
+            path: /var/lib/comfyui-chroma/scratch
+            type: DirectoryOrCreate
+        - name: extra-model-paths
+          configMap:
+            name: comfyui-chroma-extra-model-paths
