@@ -18,6 +18,7 @@ spec:
         ports:
           - 2222
           - 3456
+          - 8080
     - action: Allow
       protocol: TCP
       source:

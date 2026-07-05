@@ -375,6 +375,56 @@ spec:
             - name: kubernetes-api-token
               mountPath: /var/run/secrets/codex-workspace/k8s
               readOnly: true
+        - name: task-board-dashboard
+          image: docker.io/python:3.13-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/server.py
+          ports:
+            - name: dashboard
+              containerPort: 8080
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PORT
+              value: "8080"
+            - name: TASK_BOARD_ROOT
+              value: /home/boxp/.codex-task-board
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: dashboard
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: dashboard
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+              readOnly: true
+            - name: dashboard-app
+              mountPath: /app
+              readOnly: true
       volumes:
         - name: home
           persistentVolumeClaim:
@@ -409,3 +459,6 @@ spec:
                     - path: namespace
                       fieldRef:
                         fieldPath: metadata.namespace
+        - name: dashboard-app
+          configMap:
+            name: codex-task-board-dashboard
