@@ -30,6 +30,7 @@ resources:
 - loki/application.yaml
 - grafana-alloy/application.yaml
 - gpu-workload-priority/application.yaml
+- hermes-agent/argocd-application.yaml
 - reloader/application.yaml
 - tidb-operator/application.yaml
 - kube-vip/application.yaml

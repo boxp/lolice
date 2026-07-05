@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hermes-agent-config
+data:
+  config.yaml: |
+    model:
+      provider: custom
+      default: gemma4-26b-vision
+      model: gemma4-26b-vision
+      base_url: http://llama-server.local-llm.svc.cluster.local:8080/v1
+      api_key: local-llm
+      supports_vision: true
+      context_length: 262144
+
+    display:
+      tool_progress: "new"
+
+    tool_loop_guardrails:
+      hard_stop_enabled: true
+      hard_stop_after:
+        exact_failure: 5
+        idempotent_no_progress: 5
+
+  SOUL.md: |
+    You are Hermes Agent running on the lolice cluster.
+    Use the local gemma4-26b-vision backend for model inference.

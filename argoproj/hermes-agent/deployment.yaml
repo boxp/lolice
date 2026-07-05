@@ -1,0 +1,179 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hermes-agent
+  template:
+    metadata:
+      labels:
+        app: hermes-agent
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      securityContext:
+        fsGroup: 10000
+      initContainers:
+        - name: bootstrap-config
+          image: docker.io/library/busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /opt/data/Documents/obsidian-headless/BOXP
+              if [ ! -f /opt/data/.shared-uid-gid-migrated ]; then
+                chown -R 1000:10000 /opt/data
+                find /opt/data -type d -exec chmod g+rws {} \;
+                touch /opt/data/.shared-uid-gid-migrated
+                chown 1000:10000 /opt/data/.shared-uid-gid-migrated
+              fi
+              if [ ! -f /opt/data/config.yaml ]; then
+                cp /bootstrap/config.yaml /opt/data/config.yaml
+                chown 1000:10000 /opt/data/config.yaml
+                chmod 0664 /opt/data/config.yaml
+              fi
+              if [ ! -f /opt/data/SOUL.md ]; then
+                cp /bootstrap/SOUL.md /opt/data/SOUL.md
+                chown 1000:10000 /opt/data/SOUL.md
+                chmod 0664 /opt/data/SOUL.md
+              fi
+              chown 1000:10000 \
+                /opt/data \
+                /opt/data/Documents \
+                /opt/data/Documents/obsidian-headless \
+                /opt/data/Documents/obsidian-headless/BOXP
+              chmod 2775 \
+                /opt/data \
+                /opt/data/Documents \
+                /opt/data/Documents/obsidian-headless \
+                /opt/data/Documents/obsidian-headless/BOXP
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: config
+              mountPath: /bootstrap
+              readOnly: true
+        - name: install-obsidian-headless
+          image: docker.io/library/node:22-bookworm-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              npm_config_prefix=/opt/obsidian-headless npm install -g "obsidian-headless@${OBSIDIAN_HEADLESS_VERSION}"
+              chown -R 1000:10000 /opt/obsidian-headless
+          env:
+            - name: OBSIDIAN_HEADLESS_VERSION
+              value: "0.0.12"
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+          volumeMounts:
+            - name: obsidian-headless
+              mountPath: /opt/obsidian-headless
+      containers:
+        - name: hermes-agent
+          image: docker.io/nousresearch/hermes-agent:latest
+          imagePullPolicy: Always
+          args:
+            - gateway
+            - run
+          env:
+            - name: HERMES_UID
+              value: "1000"
+            - name: HERMES_GID
+              value: "10000"
+            - name: API_SERVER_ENABLED
+              value: "false"
+            - name: HOME
+              value: /opt/data
+            - name: OBSIDIAN_VAULT_PATH
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: LOCAL_LLM_BASE_URL
+              value: http://llama-server.local-llm.svc.cluster.local:8080/v1
+            - name: LOCAL_LLM_MODEL
+              value: gemma4-26b-vision
+            - name: HERMES_STREAM_READ_TIMEOUT
+              value: "1800"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: data
+              mountPath: /home/boxp
+            - name: tmp
+              mountPath: /tmp
+        - name: obsidian-sync
+          image: docker.io/library/node:22-bookworm-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              umask 0002
+              exec /opt/obsidian-headless/bin/ob sync --path "${OBSIDIAN_VAULT_PATH}" --continuous
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: PATH
+              value: /opt/obsidian-headless/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            - name: OBSIDIAN_VAULT_PATH
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 10000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /home/boxp
+            - name: obsidian-headless
+              mountPath: /opt/obsidian-headless
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hermes-agent-data
+        - name: obsidian-headless
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: hermes-agent-config
+        - name: tmp
+          emptyDir:
+            sizeLimit: 2Gi
