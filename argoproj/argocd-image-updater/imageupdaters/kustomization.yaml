@@ -7,5 +7,6 @@ resources:
   - ark-discord-bot.yaml
   - even-g2-lab.yaml
   - codex-workspace.yaml
+  - hermes-agent.yaml
   - local-llm.yaml
   - stable-diffusion.yaml

@@ -64,6 +64,7 @@ Kubernetes resources:
 | ConfigMap | `config.yaml`、non-secret の model/provider/runtime 設定 |
 | Secret / ExternalSecret | 今回は Secret なし。messaging token や API key が必要になった時点で ExternalSecret を追加 |
 | Obsidian headless | `ghcr.io/boxp/arch/codex-workspace:latest` の sidecar で `ob sync --continuous` を実行 |
+| Image updates | `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml` で Hermes image と Obsidian sidecar image を追跡 |
 | NetworkPolicy | default deny 前提。DNS、local-llm:8080、Obsidian sync / messaging に必要な outbound のみ許可 |
 | Observability | stdout/stderr logs。必要なら ServiceMonitor は後続で追加 |
 
@@ -71,7 +72,7 @@ Kubernetes resources:
 
 Hermes Agent は公式 container image `docker.io/nousresearch/hermes-agent:latest` を採用する。公式 image は `/opt/data` を mutable state として扱い、`gateway run` を s6 supervision 下で実行する。
 
-後続で image pinning を強める場合は、Argo CD Image Updater または digest pin を追加する。公式 image で不足する system tool が出た場合だけ、`boxp/arch` で派生 image を作る。
+Image rollout は Argo CD Image Updater で管理する。Hermes 公式 image は Docker Hub `latest` を digest strategy で追跡し、Obsidian sidecar は既存 codex-workspace と同じ GHCR image を追跡する。公式 image で不足する system tool が出た場合だけ、`boxp/arch` で派生 image を作る。
 
 起動コマンドの候補:
 
@@ -393,6 +394,7 @@ Status: この PR で実装済み。
 - `argoproj/hermes-agent/configmap.yaml`
 - `argoproj/hermes-agent/pvc.yaml`
 - `argoproj/hermes-agent/networkpolicy.yaml`
+- `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml`
 - `argoproj/kustomization.yaml` に `hermes-agent/argocd-application.yaml` を追加
 - `local-llm` 側 ingress policy は今回の PR では未追加。default deny 導入時の後続 PR で追加する
 - 必要なら `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml`
@@ -401,6 +403,7 @@ Validation:
 
 ```sh
 kubectl kustomize argoproj/hermes-agent
+kubectl kustomize argoproj/argocd-image-updater/imageupdaters
 kubectl kustomize argoproj
 kubectl apply --dry-run=server -k argoproj/hermes-agent
 ```
@@ -410,6 +413,7 @@ kubectl apply --dry-run=server -k argoproj/hermes-agent
 ```sh
 kubectl kustomize argoproj/hermes-agent
 kubectl kustomize argoproj/local-llm
+kubectl kustomize argoproj/argocd-image-updater/imageupdaters
 kubectl kustomize argoproj
 ```
 
@@ -449,4 +453,4 @@ Repository: `boxp/lolice` and possibly `boxp/arch`
 ## Notes
 
 - 2026-07-05: BOXP-52 の設計計画として作成。現行 `boxp/lolice` の `local-llm` 実装では `gemma4-26b-vision` が OpenAI-compatible endpoint で公開済みのため、Hermes 側は custom provider で接続する方針にした。
-- 2026-07-05: 計画を実装へ進め、`argoproj/hermes-agent` に公式 `nousresearch/hermes-agent` image ベースの Deployment / PVC 10Gi / ConfigMap / Calico NetworkPolicy / Argo CD Application を追加した。API server は固定 key で公開せず無効化し、Obsidian headless は `codex-workspace` と同じ `ob sync --continuous` sidecar を追加した。custom provider は vision 入力を native に送るため `supports_vision: true` を明示した。`local-llm` 側は現時点で ingress default deny がなく、LAN VIP や kubelet probe への影響が大きいため、この PR では Hermes 側 egress allow のみに留めた。
+- 2026-07-05: 計画を実装へ進め、`argoproj/hermes-agent` に公式 `nousresearch/hermes-agent` image ベースの Deployment / PVC 10Gi / ConfigMap / Calico NetworkPolicy / Argo CD Application / ImageUpdater を追加した。API server は固定 key で公開せず無効化し、Obsidian headless は `codex-workspace` と同じ `ob sync --continuous` sidecar を追加した。custom provider は vision 入力を native に送るため `supports_vision: true` を明示した。`local-llm` 側は現時点で ingress default deny がなく、LAN VIP や kubelet probe への影響が大きいため、この PR では Hermes 側 egress allow のみに留めた。
