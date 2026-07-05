@@ -25,6 +25,15 @@ spec:
           manifestTargets:
             kustomize:
               name: "docker.io/library/node"
+        - alias: "cloudflared"
+          imageName: "docker.io/cloudflare/cloudflared:2026.6.1"
+          commonUpdateSettings:
+            updateStrategy: "digest"
+            platforms:
+              - "linux/amd64"
+          manifestTargets:
+            kustomize:
+              name: "docker.io/cloudflare/cloudflared"
   writeBackConfig:
     method: "git:secret:argocd/repo-lolice"
     gitConfig:

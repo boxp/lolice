@@ -6,5 +6,6 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - pvc.yaml
+  - external-secret-cloudflared.yaml
   - deployment.yaml
   - networkpolicy.yaml

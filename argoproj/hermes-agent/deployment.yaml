@@ -104,6 +104,14 @@ spec:
               value: "10000"
             - name: API_SERVER_ENABLED
               value: "false"
+            - name: HERMES_DASHBOARD
+              value: "true"
+            - name: HERMES_DASHBOARD_HOST
+              value: 127.0.0.1
+            - name: HERMES_DASHBOARD_PORT
+              value: "9119"
+            - name: HERMES_DASHBOARD_PUBLIC_URL
+              value: https://hermes-agent.b0xp.io
             - name: HOME
               value: /opt/data
             - name: OBSIDIAN_VAULT_PATH
@@ -165,6 +173,45 @@ spec:
             - name: obsidian-headless
               mountPath: /opt/obsidian-headless
               readOnly: true
+        - name: cloudflared
+          image: docker.io/cloudflare/cloudflared:2026.6.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+            - --protocol
+            - http2
+            - --token
+            - $(TUNNEL_TOKEN)
+          ports:
+            - name: metrics
+              containerPort: 2000
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          envFrom:
+            - secretRef:
+                name: hermes-agent-cloudflared-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
       volumes:
         - name: data
           persistentVolumeClaim:

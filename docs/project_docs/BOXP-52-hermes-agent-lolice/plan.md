@@ -37,7 +37,11 @@ lolice cluster 上に NousResearch Hermes Agent を常時稼働させ、外部 h
 第一候補は Kubernetes Deployment + Argo CD/GitOps 管理とする。systemd、tmux、手動 Pod は bootstrap や一時検証だけに限定する。
 
 ```text
-user / messaging platform / optional web UI
+user / messaging platform / Web UI
+  -> Cloudflare Access GitHub authentication for hermes-agent.b0xp.io
+  -> Cloudflare Tunnel
+  -> cloudflared sidecar in Hermes Agent Pod
+  -> Hermes dashboard on 127.0.0.1:9119 in same Pod
   -> Hermes Agent gateway Pod
   -> Hermes Agent runtime in same Pod
   -> custom OpenAI-compatible provider
@@ -60,14 +64,25 @@ Kubernetes resources:
 | Namespace | `hermes-agent` |
 | Workload | `Deployment/hermes-agent`, replicas 1 |
 | Scheduling | Hermes image と ImageUpdater の platform を安定させるため amd64 node に固定 |
-| Service | なし。API server は今回無効化し、外部 inbound を持たせない |
+| Service | なし。Web UI は同一 Pod の cloudflared sidecar から `127.0.0.1:9119` へ転送する |
 | PVC | Longhorn PVC 1 個を `/opt/data` と `/home/boxp` に mount |
 | ConfigMap | `config.yaml`、non-secret の model/provider/runtime 設定 |
-| Secret / ExternalSecret | 今回は Secret なし。messaging token や API key が必要になった時点で ExternalSecret を追加 |
+| Secret / ExternalSecret | Cloudflare Tunnel token は ExternalSecret。messaging token や API key が必要になった時点で追加 |
 | Obsidian headless | `node:22-bookworm-slim` の initContainer で `obsidian-headless@0.0.12` を install し、同じ Node image の sidecar で `ob sync --continuous` を実行 |
-| Image updates | `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml` で Hermes image と Obsidian sidecar image を追跡 |
+| Image updates | `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml` で Hermes image、Obsidian sidecar image、cloudflared image を追跡 |
 | NetworkPolicy | default deny 前提。DNS、local-llm:8080、Obsidian sync / messaging に必要な outbound のみ許可 |
 | Observability | stdout/stderr logs。必要なら ServiceMonitor は後続で追加 |
+
+Web UI public access:
+
+| Item | Decision |
+| --- | --- |
+| Public hostname | `https://hermes-agent.b0xp.io` |
+| Auth boundary | Cloudflare Access GitHub IdP 必須 |
+| Tunnel token | `boxp/arch` Terraform が SSM SecureString `hermes-agent-tunnel-token` に保存し、lolice 側 ExternalSecret が `hermes-agent-cloudflared-secret` へ同期 |
+| Origin | `http://127.0.0.1:9119` inside the Hermes Pod |
+| Origin Host header | `127.0.0.1:9119` に固定し、Hermes dashboard の loopback Host header 防御を満たす |
+| Hermes API server | 引き続き `API_SERVER_ENABLED=false`。Web UI と OpenAI-compatible API server は別物として扱う |
 
 ## Runtime And Image Plan
 
@@ -119,6 +134,10 @@ HERMES_GID=10000
 LOCAL_LLM_BASE_URL=http://llama-server.local-llm.svc.cluster.local:8080/v1
 LOCAL_LLM_MODEL=gemma4-26b-vision
 API_SERVER_ENABLED=false
+HERMES_DASHBOARD=true
+HERMES_DASHBOARD_HOST=127.0.0.1
+HERMES_DASHBOARD_PORT=9119
+HERMES_DASHBOARD_PUBLIC_URL=https://hermes-agent.b0xp.io
 HOME=/opt/data
 OBSIDIAN_VAULT_PATH=/home/boxp/Documents/obsidian-headless/BOXP
 ```
@@ -133,6 +152,7 @@ Secret に入れる候補:
 | `SLACK_BOT_TOKEN` | Slack gateway を使う場合 | ExternalSecret 第一候補 |
 | `HERMES_API_KEY` | Hermes API server を公開する場合 | ExternalSecret 第一候補 |
 | `API_SERVER_KEY` | Hermes API server の OpenAI-compatible API 認証 | API server を有効化する場合のみ ExternalSecret で管理 |
+| `TUNNEL_TOKEN` | Cloudflare Tunnel を起動する token | `hermes-agent-tunnel-token` を ExternalSecret で同期 |
 
 non-secret:
 
@@ -141,6 +161,10 @@ non-secret:
 | `LOCAL_LLM_BASE_URL` | `http://llama-server.local-llm.svc.cluster.local:8080/v1` |
 | `LOCAL_LLM_MODEL` | `gemma4-26b-vision` |
 | `API_SERVER_ENABLED` | `false` |
+| `HERMES_DASHBOARD` | `true` |
+| `HERMES_DASHBOARD_HOST` | `127.0.0.1` |
+| `HERMES_DASHBOARD_PORT` | `9119` |
+| `HERMES_DASHBOARD_PUBLIC_URL` | `https://hermes-agent.b0xp.io` |
 | `HERMES_UID` | `1000` |
 | `HERMES_GID` | `10000` |
 | `HOME` | `/opt/data` |
@@ -207,11 +231,13 @@ Egress:
 - `local-llm` namespace の `app == 'llama-server'` TCP 8080
 - Obsidian sync / git / messaging gateway が必要とする TCP 22/80/443
 - Obsidian sync が必要とする UDP 2408
+- cloudflared tunnel が必要とする TCP 443
 - package update や one-shot setup を Pod 内で実行する場合のみ GitHub / installer 向け HTTPS。通常運用 image では不要化する
 
 Ingress:
 
-- 今回の manifest ではなし
+- Kubernetes Service 経由の ingress はなし
+- Web UI は同一 Pod 内の cloudflared sidecar から loopback origin へ転送するため、Pod への ingress allow は不要
 - messaging gateway が polling 型のみなら原則不要
 - webhook 型や API server / web dashboard を使う場合のみ、Cloudflare tunnel または private Service から限定許可
 - API server を有効化する場合は固定 key を Git 管理せず、ExternalSecret の `API_SERVER_KEY` と送信元 Pod selector まで絞った NetworkPolicy を同時に入れる
@@ -321,6 +347,24 @@ kubectl -n hermes-agent exec -it deploy/hermes-agent -- \
 
 成功条件: `hermes doctor` に provider/config の致命的警告がなく、chat が local LLM から応答する。
 
+### 7. Web UI / Cloudflare Access smoke
+
+Cloudflare Terraform PR apply と Argo CD sync 後に確認する。
+
+```sh
+kubectl -n hermes-agent logs deploy/hermes-agent -c cloudflared --tail=100
+kubectl -n hermes-agent exec deploy/hermes-agent -c hermes-agent -- \
+  sh -lc 'curl -sS -H "Host: 127.0.0.1:9119" http://127.0.0.1:9119/api/status'
+curl -I https://hermes-agent.b0xp.io
+```
+
+成功条件:
+
+- `cloudflared` container が `/ready` で healthy。
+- Pod 内 loopback の `/api/status` が HTTP 200。
+- 未認証ブラウザまたは `curl -I` では Cloudflare Access の login redirect / Access response になり、origin が直接公開されない。
+- GitHub 認証後に Hermes dashboard が表示される。
+
 ## Operations
 
 通常操作:
@@ -329,6 +373,7 @@ kubectl -n hermes-agent exec -it deploy/hermes-agent -- \
 kubectl -n hermes-agent get pod,pvc
 kubectl -n hermes-agent logs deploy/hermes-agent -c hermes-agent -f
 kubectl -n hermes-agent logs deploy/hermes-agent -c obsidian-sync -f
+kubectl -n hermes-agent logs deploy/hermes-agent -c cloudflared -f
 kubectl -n hermes-agent rollout restart deploy/hermes-agent
 kubectl -n hermes-agent rollout status deploy/hermes-agent
 ```
@@ -356,6 +401,7 @@ Resource request 初期値:
 | --- | --- | --- | --- |
 | `hermes-agent` | 500m | 1Gi | CPU 2, memory 4Gi |
 | `obsidian-sync` | 50m | 128Mi | CPU 500m, memory 512Mi |
+| `cloudflared` | 20m | 64Mi | CPU 200m, memory 256Mi |
 
 Hermes Pod は GPU 不要。LLM 推論は `local-llm` Deployment が担当する。
 
@@ -372,6 +418,8 @@ Hermes Pod は GPU 不要。LLM 推論は `local-llm` Deployment が担当する
 | memory/session が消える | PVC mount、`/opt/data` | `/opt/data` が emptyDir/rootfs に書かれている | PVC mount path を修正 |
 | Obsidian vault が見えない | `obsidian-sync` logs、`OBSIDIAN_VAULT_PATH`、PVC mount | sidecar 停止、sync 認証不備、PVC 権限 | `ob sync` logs と `/home/boxp` mount を確認 |
 | Obsidian sync が認証エラーになる | `test -d /home/boxp/.config/obsidian-headless`, `obsidian-sync` logs | Hermes 専用 PVC に headless config が未作成 | 初回だけ `obsidian-sync` container で認証するか codex-workspace の config を移行 |
+| `hermes-agent.b0xp.io` が 502 | `cloudflared` logs、Pod 内 `curl`、Terraform tunnel config | tunnel token 未同期、origin が起動していない、Host header 防御 | ExternalSecret、`HERMES_DASHBOARD=true`、origin host header `127.0.0.1:9119` を確認 |
+| Web UI が Cloudflare Access を通らない | Cloudflare Access application/policy、DNS proxied | Access policy 未作成、DNS が tunnel CNAME でない | `boxp/arch` の `terraform/cloudflare/b0xp.io/hermes-agent` plan/apply を確認 |
 | local LLM 応答が遅い | Grafana local LLM dashboard、Envoy latency、GPU utilization | モデル cold load、GPU worker 負荷、context 過大 | `local-llm` の model load 状態と concurrency を確認 |
 
 ## Implementation PR Units
@@ -405,11 +453,12 @@ Status: この PR で実装済み。
 - `argoproj/hermes-agent/deployment.yaml`
 - `argoproj/hermes-agent/configmap.yaml`
 - `argoproj/hermes-agent/pvc.yaml`
+- `argoproj/hermes-agent/external-secret-cloudflared.yaml`
 - `argoproj/hermes-agent/networkpolicy.yaml`
 - `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml`
 - `argoproj/kustomization.yaml` に `hermes-agent/argocd-application.yaml` を追加
 - `local-llm` 側 ingress policy は今回の PR では未追加。default deny 導入時の後続 PR で追加する
-- 必要なら `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml`
+- `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml`
 
 Validation:
 
@@ -431,19 +480,32 @@ kubectl kustomize argoproj
 
 `kubectl apply --dry-run=client -k argoproj/hermes-agent` は standard resources の dry-run までは成功したが、Calico CRD discovery 待ちで止まったため中断した。server-side dry-run は runner の cluster RBAC / API 到達性に依存するため、Argo CD sync 前に管理者環境で実施する。
 
-### PR 3: Optional ingress / UI / messaging integration
+### PR 3: Cloudflare Web UI exposure
 
-Repository: `boxp/lolice` and possibly `boxp/arch`
+Repository: `boxp/arch`
+
+Status: この run で別 PR として実装。
 
 想定変更:
 
-- Cloudflare Tunnel / WARP private route
-- webhook 型 messaging を使う場合の Service / route
-- dashboard/API を公開する場合の auth と NetworkPolicy
+- `terraform/cloudflare/b0xp.io/hermes-agent/`
+- `cloudflare_tunnel` / `cloudflare_tunnel_config`
+- `cloudflare_record` for `hermes-agent.b0xp.io`
+- `cloudflare_access_application` と GitHub IdP の allow policy
+- `aws_ssm_parameter.hermes_agent_tunnel_token`
+
+Validation:
+
+```sh
+cd terraform/cloudflare/b0xp.io/hermes-agent
+terraform fmt
+terraform init -backend=false
+terraform validate
+```
 
 ## Open Decisions After PR 2
 
-- 常時稼働させる入口を何にするか: Telegram / Discord / Slack / API server / Desktop remote gateway。
+- Web UI 以外の常時稼働入口を何にするか: Telegram / Discord / Slack / API server / Desktop remote gateway。
 - messaging/API secrets を ExternalSecret 化するか。
 - API server を有効化する場合の送信元 selector と ExternalSecret key 名。
 - Hermes の公式 image を digest pin するか、Argo CD Image Updater で追跡するか。
@@ -469,3 +531,4 @@ Repository: `boxp/lolice` and possibly `boxp/arch`
 - 2026-07-05: Codex review の指摘を受け、Hermes と Obsidian sidecar が同じ vault PVC を安全に更新できるように UID/GID を `1000:10000` へ統一した。Hermes 公式 image の `HERMES_UID` / `HERMES_GID` remap を使い、bootstrap directory は setgid `2775`、`obsidian-sync` は `umask 0002` で group write を維持する。既存 PVC が旧 Hermes UID `10000` のファイルを持つ場合も壊れないように、initContainer で一回限りの ownership migration を行う。
 - 2026-07-05: Obsidian headless は専用 PVC では認証 config が自動継承されないため、初回 bootstrap と config 確認を smoke / failure triage に追記した。
 - 2026-07-05: PR review コメントを受け、Obsidian sync のためだけに `ghcr.io/boxp/arch/codex-workspace` を使う構成をやめた。`node:22-bookworm-slim` の initContainer で `obsidian-headless@0.0.12` を install し、同 image の sidecar が install 済み `ob` を使って sync する構成へ変更した。
+- 2026-07-05: Web UI を `hermes-agent.b0xp.io` で Cloudflare 公開する構成を追加した。Hermes dashboard は `127.0.0.1:9119` にだけ bind し、同一 Pod の `cloudflared` sidecar から loopback origin へ転送する。Cloudflare Access は GitHub IdP 必須、tunnel token は `boxp/arch` Terraform の SSM SecureString `hermes-agent-tunnel-token` から lolice ExternalSecret で同期する。
