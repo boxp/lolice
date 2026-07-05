@@ -9,7 +9,9 @@ resources:
   - pvc.yaml
   - configmap.yaml
   - kubeconfig.yaml
+  - dashboard-configmap.yaml
   - external-secret.yaml
   - deployment.yaml
   - service.yaml
+  - dashboard-service.yaml
   - networkpolicy.yaml
