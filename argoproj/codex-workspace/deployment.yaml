@@ -376,7 +376,7 @@ spec:
               mountPath: /var/run/secrets/codex-workspace/k8s
               readOnly: true
         - name: task-board-dashboard
-          image: docker.io/python:3.13-alpine
+          image: docker.io/python:3.14-alpine
           imagePullPolicy: IfNotPresent
           command:
             - python
