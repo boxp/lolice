@@ -59,6 +59,7 @@ Kubernetes resources:
 | Argo CD Application | `argoproj/hermes-agent/argocd-application.yaml` |
 | Namespace | `hermes-agent` |
 | Workload | `Deployment/hermes-agent`, replicas 1 |
+| Scheduling | `ghcr.io/boxp/arch/codex-workspace` sidecar に合わせて amd64 node に固定 |
 | Service | なし。API server は今回無効化し、外部 inbound を持たせない |
 | PVC | Longhorn PVC 1 個を `/opt/data` と `/home/boxp` に mount |
 | ConfigMap | `config.yaml`、non-secret の model/provider/runtime 設定 |
@@ -70,7 +71,7 @@ Kubernetes resources:
 
 ## Runtime And Image Plan
 
-Hermes Agent は公式 container image `docker.io/nousresearch/hermes-agent:latest` を採用する。公式 image は `/opt/data` を mutable state として扱い、`gateway run` を s6 supervision 下で実行する。
+Hermes Agent は公式 container image `docker.io/nousresearch/hermes-agent:latest` を採用する。公式 image は `/opt/data` を mutable state として扱い、`gateway run` を s6 supervision 下で実行する。Obsidian sidecar の `ghcr.io/boxp/arch/codex-workspace:latest` が linux/amd64 image のため、Pod は `kubernetes.io/arch: amd64` に固定する。
 
 Image rollout は Argo CD Image Updater で管理する。Hermes 公式 image は Docker Hub `latest` を digest strategy で追跡し、Obsidian sidecar は既存 codex-workspace と同じ GHCR image を追跡する。公式 image で不足する system tool が出た場合だけ、`boxp/arch` で派生 image を作る。
 
