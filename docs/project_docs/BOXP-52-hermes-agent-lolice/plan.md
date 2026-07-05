@@ -4,7 +4,7 @@
 
 lolice cluster 上に NousResearch Hermes Agent を常時稼働させ、外部 hosted LLM API ではなく既存の local LLM `gemma4-26b-vision` を backend として使う。
 
-このチケットでは実装 manifest は追加せず、後続実装 PR に進められる粒度で、実行環境、設定、Secret/PVC、NetworkPolicy、疎通確認、運用・障害切り分けを確定する。
+このチケットでは実行計画を固めたうえで、lolice GitOps manifest の最小実装まで追加する。Hermes の公式 Docker image を使い、実行環境、設定、Secret/PVC、NetworkPolicy、疎通確認、運用・障害切り分けをレビュー可能な形で残す。
 
 ## Confirmed Facts
 
@@ -13,7 +13,9 @@ lolice cluster 上に NousResearch Hermes Agent を常時稼働させ、外部 h
 - Hermes Agent は `hermes model` / `config.yaml` で custom endpoint を設定でき、OpenAI-compatible な `/v1/chat/completions` endpoint に接続できる。
 - Hermes Agent は self-hosted endpoint / vLLM / Ollama などを custom provider として扱える。
 - Hermes Agent の設定と永続状態は通常 `~/.hermes/` 配下に置かれる。
-- Gateway は foreground の `hermes gateway`、user service の `hermes gateway install`、Linux system service の `sudo hermes gateway install --system` で起動できる。
+- Gateway は公式 Docker image では `nousresearch/hermes-agent gateway run` で起動し、`/opt/data` に mutable state を置く。
+- 公式 Docker image は s6-overlay を entrypoint として使い、起動時に `/opt/data` の ownership 修正と config migration を行ったあと、gateway process を `hermes` user で supervised 実行する。
+- API server を使う場合は `API_SERVER_ENABLED=true`、`API_SERVER_HOST=0.0.0.0`、`API_SERVER_KEY` を設定し、port 8642 の `/health` と OpenAI-compatible API を使う。
 - lolice の local LLM は `argoproj/local-llm` で GitOps 管理されている。
 - lolice cluster 内の OpenAI-compatible endpoint は `http://llama-server.local-llm.svc.cluster.local:8080/v1`。
 - `argoproj/local-llm/models-config.yaml` では `gemma4-26b-vision` がモデル ID として定義済み。
@@ -52,8 +54,8 @@ Kubernetes resources:
 | Argo CD Application | `argoproj/hermes-agent/application.yaml` |
 | Namespace | `hermes-agent` |
 | Workload | `Deployment/hermes-agent`, replicas 1 |
-| Service | cluster 内利用のみなら不要。API server / web UI / gateway health を公開する場合は ClusterIP |
-| PVC | Longhorn PVC 1 個を `/home/hermes/.hermes` に mount |
+| Service | `Service/hermes-agent`。ClusterIP で API server / health endpoint の 8642 を公開 |
+| PVC | Longhorn PVC 1 個を `/opt/data` に mount |
 | ConfigMap | `config.yaml`、non-secret の model/provider/runtime 設定 |
 | Secret / ExternalSecret | messaging token、任意の Hermes API key、必要なら local LLM bearer token |
 | NetworkPolicy | default deny 前提。DNS、local-llm:8080、必要な outbound HTTPS、必要な inbound のみ許可 |
@@ -61,53 +63,50 @@ Kubernetes resources:
 
 ## Runtime And Image Plan
 
-Hermes Agent は公式 container image の有無が安定運用の要になる。後続実装では次の順で採用する。
+Hermes Agent は公式 container image `docker.io/nousresearch/hermes-agent:latest` を採用する。公式 image は `/opt/data` を mutable state として扱い、`gateway run` を s6 supervision 下で実行する。
 
-1. 公式または upstream Helm chart が提供する image が利用可能なら、その image を pin して `argoproj/hermes-agent` で使う。
-2. 公式 image がなければ `boxp/arch` に `ghcr.io/boxp/arch/hermes-agent` image build を追加する。
-3. image は Linux amd64、Python 3.11、Node.js、uv、git、ripgrep、ffmpeg を含む。Hermes installer が導入する依存に合わせる。
-4. root ではなく `hermes` user で実行し、`HOME=/home/hermes`、`HERMES_HOME=/home/hermes/.hermes` を固定する。
+後続で image pinning を強める場合は、Argo CD Image Updater または digest pin を追加する。公式 image で不足する system tool が出た場合だけ、`boxp/arch` で派生 image を作る。
 
 起動コマンドの候補:
 
 ```sh
-hermes gateway
+hermes gateway run
 ```
 
-または、gateway を使わず API server / CLI のみを常時化する場合は、後続調査で Hermes の server mode の正式 command を確認してから manifest 化する。現時点の常時運用単位は messaging gateway とする。
+Kubernetes manifest では Docker image の entrypoint を維持し、container args に `gateway run` を渡す。API server は env var で有効化し、readiness/liveness は `/health` を使う。
 
 ## Hermes Config
 
-`~/.hermes/config.yaml` 相当を ConfigMap から配置する。local LLM は named custom provider として扱う。
+`/opt/data/config.yaml` を ConfigMap から PVC に bootstrap する。local LLM は Hermes の first-class `custom` provider として扱う。
 
 ```yaml
-custom_providers:
-  - name: lolice-local-llm
-    base_url: http://llama-server.local-llm.svc.cluster.local:8080/v1
-    key_env: LOCAL_LLM_API_KEY
-    api_mode: chat_completions
-    model: gemma4-26b-vision
-    models:
-      gemma4-26b-vision:
-        context_length: 262144
-        supports_vision: true
-
 model:
-  provider: custom:lolice-local-llm
+  provider: custom
   default: gemma4-26b-vision
+  model: gemma4-26b-vision
   base_url: http://llama-server.local-llm.svc.cluster.local:8080/v1
+  api_key: local-llm
   context_length: 262144
-  supports_vision: true
+
+display:
+  tool_progress: "new"
+
+tool_loop_guardrails:
+  hard_stop_enabled: true
+  hard_stop_after:
+    exact_failure: 5
+    idempotent_no_progress: 5
 ```
 
-`local-llm` は現在 bearer token を強制していないため、実質的な認証 Secret は必須ではない。ただし Hermes の custom provider から確実に `Authorization` を付与できるように、`key_env: LOCAL_LLM_API_KEY` を設定し、dummy key として `local-llm` を Secret から渡す。
+`local-llm` は現在 bearer token を強制していないため、実質的な認証 Secret は必須ではない。ただし OpenAI-compatible client が non-empty key を要求する経路に備え、dummy key として `local-llm` を Secret から渡す。
 
 ```env
-HERMES_HOME=/home/hermes/.hermes
-HOME=/home/hermes
 LOCAL_LLM_BASE_URL=http://llama-server.local-llm.svc.cluster.local:8080/v1
 LOCAL_LLM_MODEL=gemma4-26b-vision
 LOCAL_LLM_API_KEY=local-llm
+API_SERVER_ENABLED=true
+API_SERVER_HOST=0.0.0.0
+API_SERVER_KEY=local-lolice-hermes
 ```
 
 Secret に入れる候補:
@@ -119,6 +118,7 @@ Secret に入れる候補:
 | `DISCORD_TOKEN` | Discord gateway を使う場合 | ExternalSecret 第一候補 |
 | `SLACK_BOT_TOKEN` | Slack gateway を使う場合 | ExternalSecret 第一候補 |
 | `HERMES_API_KEY` | Hermes API server を公開する場合 | ExternalSecret 第一候補 |
+| `API_SERVER_KEY` | Hermes API server の OpenAI-compatible API 認証 | 今回は cluster 内 health/API 用の dummy。外部公開前に ExternalSecret 化 |
 
 non-secret:
 
@@ -126,7 +126,7 @@ non-secret:
 | --- | --- |
 | `LOCAL_LLM_BASE_URL` | `http://llama-server.local-llm.svc.cluster.local:8080/v1` |
 | `LOCAL_LLM_MODEL` | `gemma4-26b-vision` |
-| `HERMES_HOME` | `/home/hermes/.hermes` |
+| `HERMES_HOME` | 公式 image default の `/opt/data` を使うため明示しない |
 
 ## Backend Connection Conditions
 
@@ -149,8 +149,8 @@ Hermes Agent の永続化対象は `~/.hermes` を中心に扱う。モデル本
 
 | Path | Data | Persistence | Initial Size | Notes |
 | --- | --- | --- | --- | --- |
-| `/home/hermes/.hermes` | config, auth store, sessions, memory, skills, gateway state | Longhorn PVC | 10Gi | 最初の本番 PVC。増加傾向確認後に拡張 |
-| `/workspace` | Hermes が作業生成物を置く場合 | Longhorn PVC または同一 PVC subdir | 10Gi 追加候補 | 初期は `.hermes/workspace` に寄せ、必要なら分離 |
+| `/opt/data` | config, auth store, sessions, memory, skills, gateway state, logs | Longhorn PVC | 10Gi | 公式 Docker image の mutable state path |
+| `/opt/data/workspace` | Hermes が作業生成物を置く場合 | Longhorn PVC または別 PVC | 10Gi 追加候補 | 初期は `/opt/data` に寄せ、必要なら分離 |
 | `/tmp` | runtime cache | `emptyDir` | sizeLimit 2Gi | 再起動で消えてよい |
 | logs | stdout/stderr | PVC 不要 | なし | Loki / kubectl logs 前提 |
 | model weights | GGUF / mmproj | Hermes PVC 不要 | なし | `local-llm` hostPath 管理 |
@@ -193,6 +193,13 @@ Ingress:
 - messaging gateway が polling 型のみなら原則不要
 - webhook 型や API server / web dashboard を使う場合のみ、Cloudflare tunnel または private Service から限定許可
 - health endpoint を Service として公開する場合は monitoring namespace から限定許可
+
+`local-llm` 側は `llama-server` Pod の ingress policy を追加し、少なくとも次を許可する。
+
+- `hermes-agent` namespace の `app == 'hermes-agent'` から TCP 8080
+- 既存 `codex-workspace` namespace の `app == 'codex-workspace'` から TCP 8080
+- `monitoring` namespace から Envoy metrics TCP 9901
+- LAN VIP 用の `192.168.10.0/24` から TCP 8080
 
 ## Minimal Verification
 
@@ -269,10 +276,8 @@ Hermes Pod 起動後に exec で確認する。
 
 ```sh
 kubectl -n hermes-agent exec deploy/hermes-agent -- hermes doctor
-kubectl -n hermes-agent exec -it deploy/hermes-agent -- hermes chat \
-  --provider custom:lolice-local-llm \
-  --model gemma4-26b-vision \
-  -q "日本語でOKとだけ返して"
+kubectl -n hermes-agent exec -it deploy/hermes-agent -- \
+  hermes chat --model gemma4-26b-vision -q "日本語でOKとだけ返して"
 ```
 
 成功条件: `hermes doctor` に provider/config の致命的警告がなく、chat が local LLM から応答する。
@@ -309,7 +314,7 @@ Resource request 初期値:
 
 | Container | CPU request | Memory request | Limit |
 | --- | --- | --- | --- |
-| `hermes-agent` | 500m | 1Gi | CPU limit なし、memory 4Gi |
+| `hermes-agent` | 500m | 1Gi | CPU 2, memory 4Gi |
 
 Hermes Pod は GPU 不要。LLM 推論は `local-llm` Deployment が担当する。
 
@@ -323,7 +328,7 @@ Hermes Pod は GPU 不要。LLM 推論は `local-llm` Deployment が担当する
 | `gemma4-26b-vision` load 失敗 | `local-llm` llama-server logs、`/v1/models` failed flag | GGUF/mmproj 不在、GPU memory、router child 起動失敗 | `golyat-4:/var/lib/local-llm/models` と resource を確認 |
 | text は動くが vision が失敗 | request body、llama-server logs | `supports_vision` 未設定、image_url 形式違い、mmproj load 失敗 | Hermes config と backend vision smoke を確認 |
 | gateway が platform に接続しない | Hermes logs、Secret mount、platform token | token 不正、Secret 未同期、outbound 443 deny | ExternalSecret と NetworkPolicy を確認 |
-| memory/session が消える | PVC mount、`HERMES_HOME` | `~/.hermes` が emptyDir/rootfs に書かれている | PVC mount path と env を修正 |
+| memory/session が消える | PVC mount、`/opt/data` | `/opt/data` が emptyDir/rootfs に書かれている | PVC mount path を修正 |
 | local LLM 応答が遅い | Grafana local LLM dashboard、Envoy latency、GPU utilization | モデル cold load、GPU worker 負荷、context 過大 | `local-llm` の model load 状態と concurrency を確認 |
 
 ## Implementation PR Units
@@ -331,6 +336,8 @@ Hermes Pod は GPU 不要。LLM 推論は `local-llm` Deployment が担当する
 ### PR 1: Hermes Agent runtime image
 
 Repository: `boxp/arch`
+
+Status: 今回は公式 image を採用したため不要。
 
 想定変更:
 
@@ -345,6 +352,8 @@ Repository: `boxp/arch`
 
 Repository: `boxp/lolice`
 
+Status: この PR で実装済み。
+
 想定変更:
 
 - `argoproj/hermes-agent/namespace.yaml`
@@ -354,8 +363,10 @@ Repository: `boxp/lolice`
 - `argoproj/hermes-agent/configmap.yaml`
 - `argoproj/hermes-agent/pvc.yaml`
 - `argoproj/hermes-agent/networkpolicy.yaml`
-- `argoproj/hermes-agent/external-secret.yaml` if messaging/API secrets are used
+- `argoproj/hermes-agent/secret.yaml`
 - `argoproj/kustomization.yaml` に `hermes-agent/application.yaml` を追加
+- `argoproj/local-llm/networkpolicy.yaml`
+- `argoproj/local-llm/kustomization.yaml` に `networkpolicy.yaml` を追加
 - 必要なら `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml`
 
 Validation:
@@ -365,6 +376,16 @@ kubectl kustomize argoproj/hermes-agent
 kubectl kustomize argoproj
 kubectl apply --dry-run=server -k argoproj/hermes-agent
 ```
+
+今回の local validation:
+
+```sh
+kubectl kustomize argoproj/hermes-agent
+kubectl kustomize argoproj/local-llm
+kubectl kustomize argoproj
+```
+
+`kubectl apply --dry-run=client -k argoproj/hermes-agent` は standard resources の dry-run までは成功したが、Calico CRD discovery 待ちで止まったため中断した。server-side dry-run は runner の cluster RBAC / API 到達性に依存するため、Argo CD sync 前に管理者環境で実施する。
 
 ### PR 3: Optional ingress / UI / messaging integration
 
@@ -376,12 +397,11 @@ Repository: `boxp/lolice` and possibly `boxp/arch`
 - webhook 型 messaging を使う場合の Service / route
 - dashboard/API を公開する場合の auth と NetworkPolicy
 
-## Open Decisions Before PR 2
+## Open Decisions After PR 2
 
 - 常時稼働させる入口を何にするか: Telegram / Discord / Slack / API server / Desktop remote gateway。
-- Hermes Agent の公式 image または Helm chart を使うか、`boxp/arch` で image を作るか。
-- Hermes の health endpoint / API server command の現行 version における正式 command。
-- `hermes setup` を bootstrap Job で実行するか、`config.yaml` と Secret を GitOps で完全に生成するか。
+- messaging/API secrets を ExternalSecret 化するか。
+- Hermes の公式 image を digest pin するか、Argo CD Image Updater で追跡するか。
 - `local-llm` の bearer 認証を今後有効化するか。
 - `gemma4-26b-vision` を常用 default にするか、text-only の `gemma4-26b` を primary、vision は必要時切替にするか。
 
@@ -400,3 +420,4 @@ Repository: `boxp/lolice` and possibly `boxp/arch`
 ## Notes
 
 - 2026-07-05: BOXP-52 の設計計画として作成。現行 `boxp/lolice` の `local-llm` 実装では `gemma4-26b-vision` が OpenAI-compatible endpoint で公開済みのため、Hermes 側は custom provider で接続する方針にした。
+- 2026-07-05: 計画を実装へ進め、`argoproj/hermes-agent` に公式 `nousresearch/hermes-agent` image ベースの Deployment / Service / PVC 10Gi / Secret / ConfigMap / Calico NetworkPolicy / Argo CD Application を追加した。`local-llm` 側にも `llama-server` ingress policy を追加し、Hermes、既存 codex-workspace、monitoring、LAN VIP 経路を許可した。

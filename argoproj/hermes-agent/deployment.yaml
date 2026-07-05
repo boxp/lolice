@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hermes-agent
+  template:
+    metadata:
+      labels:
+        app: hermes-agent
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 10000
+      initContainers:
+        - name: bootstrap-config
+          image: docker.io/library/busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cp /bootstrap/config.yaml /opt/data/config.yaml
+              if [ ! -f /opt/data/SOUL.md ]; then
+                cp /bootstrap/SOUL.md /opt/data/SOUL.md
+              fi
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: config
+              mountPath: /bootstrap
+              readOnly: true
+      containers:
+        - name: hermes-agent
+          image: docker.io/nousresearch/hermes-agent:latest
+          imagePullPolicy: Always
+          args:
+            - gateway
+            - run
+          ports:
+            - name: api
+              containerPort: 8642
+          env:
+            - name: API_SERVER_ENABLED
+              value: "true"
+            - name: API_SERVER_HOST
+              value: 0.0.0.0
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-env
+                  key: API_SERVER_KEY
+            - name: LOCAL_LLM_BASE_URL
+              value: http://llama-server.local-llm.svc.cluster.local:8080/v1
+            - name: LOCAL_LLM_MODEL
+              value: gemma4-26b-vision
+            - name: LOCAL_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-env
+                  key: LOCAL_LLM_API_KEY
+            - name: HERMES_STREAM_READ_TIMEOUT
+              value: "1800"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: api
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: api
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: api
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hermes-agent-data
+        - name: config
+          configMap:
+            name: hermes-agent-config
+        - name: tmp
+          emptyDir:
+            sizeLimit: 2Gi

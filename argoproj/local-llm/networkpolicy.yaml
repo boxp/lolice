@@ -1,0 +1,41 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: llama-server-ingress
+  namespace: local-llm
+spec:
+  selector: app == 'llama-server'
+  types:
+    - Ingress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
+        selector: app == 'hermes-agent'
+      destination:
+        ports:
+          - 8080
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        selector: app == 'codex-workspace'
+      destination:
+        ports:
+          - 8080
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'monitoring'
+      destination:
+        ports:
+          - 9901
+    - action: Allow
+      protocol: TCP
+      source:
+        nets:
+          - 192.168.10.0/24
+      destination:
+        ports:
+          - 8080

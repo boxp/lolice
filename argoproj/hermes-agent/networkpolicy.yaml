@@ -1,0 +1,45 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: hermes-agent-network-policy
+  namespace: hermes-agent
+spec:
+  selector: app == 'hermes-agent'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'monitoring'
+      destination:
+        ports:
+          - 8642
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'llama-server'
+        namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
+        ports:
+          - 8080
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports:
+          - 443
