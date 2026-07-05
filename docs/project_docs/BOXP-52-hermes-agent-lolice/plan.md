@@ -75,6 +75,8 @@ Hermes Agent は公式 container image `docker.io/nousresearch/hermes-agent:late
 
 Image rollout は Argo CD Image Updater で管理する。Hermes 公式 image は Docker Hub `latest` を digest strategy で追跡し、Obsidian sidecar は既存 codex-workspace と同じ GHCR image を追跡する。公式 image で不足する system tool が出た場合だけ、`boxp/arch` で派生 image を作る。
 
+Obsidian headless は codex-workspace と同じ image と実行コマンドを使う。ただし Hermes は専用 Longhorn PVC を持つため、初回起動時点では `~/.config/obsidian-headless` の認証状態は codex-workspace から自動継承されない。初回だけ Hermes Pod の `/home/boxp` に Obsidian headless の config を作成または移行し、その後は同じ PVC 上で継続利用する。
+
 起動コマンドの候補:
 
 ```sh
@@ -287,9 +289,11 @@ kubectl -n hermes-agent run hermes-llm-vision \
 
 ### 5. Obsidian headless smoke
 
-Hermes Pod 起動後に Obsidian vault が同期されていることを確認する。
+Hermes Pod 起動後に Obsidian vault が同期されていることを確認する。新規 PVC の初回起動で `~/.config/obsidian-headless` が存在しない場合は、まず `obsidian-sync` container で Obsidian headless の認証を済ませるか、既存 codex-workspace PVC から同設定を手動移行する。
 
 ```sh
+kubectl -n hermes-agent exec deploy/hermes-agent -c obsidian-sync -- \
+  test -d /home/boxp/.config/obsidian-headless
 kubectl -n hermes-agent exec deploy/hermes-agent -c obsidian-sync -- \
   test -d /home/boxp/Documents/obsidian-headless/BOXP
 kubectl -n hermes-agent logs deploy/hermes-agent -c obsidian-sync --tail=100
@@ -297,7 +301,7 @@ kubectl -n hermes-agent exec deploy/hermes-agent -c hermes-agent -- \
   test -d /home/boxp/Documents/obsidian-headless/BOXP
 ```
 
-成功条件: `obsidian-sync` が継続起動しており、Hermes container からも同じ vault path を参照できる。
+成功条件: `obsidian-sync` が継続起動しており、Hermes container からも同じ vault path を参照できる。config 未作成で `ob sync` が認証エラーを出す場合は manifest ではなく初回 bootstrap 未完了として扱う。
 
 ### 6. Hermes direct smoke
 
@@ -361,6 +365,7 @@ Hermes Pod は GPU 不要。LLM 推論は `local-llm` Deployment が担当する
 | gateway が platform に接続しない | Hermes logs、Secret mount、platform token | token 不正、Secret 未同期、outbound 443 deny | ExternalSecret と NetworkPolicy を確認 |
 | memory/session が消える | PVC mount、`/opt/data` | `/opt/data` が emptyDir/rootfs に書かれている | PVC mount path を修正 |
 | Obsidian vault が見えない | `obsidian-sync` logs、`OBSIDIAN_VAULT_PATH`、PVC mount | sidecar 停止、sync 認証不備、PVC 権限 | `ob sync` logs と `/home/boxp` mount を確認 |
+| Obsidian sync が認証エラーになる | `test -d /home/boxp/.config/obsidian-headless`, `obsidian-sync` logs | Hermes 専用 PVC に headless config が未作成 | 初回だけ `obsidian-sync` container で認証するか codex-workspace の config を移行 |
 | local LLM 応答が遅い | Grafana local LLM dashboard、Envoy latency、GPU utilization | モデル cold load、GPU worker 負荷、context 過大 | `local-llm` の model load 状態と concurrency を確認 |
 
 ## Implementation PR Units
@@ -455,3 +460,4 @@ Repository: `boxp/lolice` and possibly `boxp/arch`
 
 - 2026-07-05: BOXP-52 の設計計画として作成。現行 `boxp/lolice` の `local-llm` 実装では `gemma4-26b-vision` が OpenAI-compatible endpoint で公開済みのため、Hermes 側は custom provider で接続する方針にした。
 - 2026-07-05: 計画を実装へ進め、`argoproj/hermes-agent` に公式 `nousresearch/hermes-agent` image ベースの Deployment / PVC 10Gi / ConfigMap / Calico NetworkPolicy / Argo CD Application / ImageUpdater を追加した。API server は固定 key で公開せず無効化し、Obsidian headless は `codex-workspace` と同じ `ob sync --continuous` sidecar を追加した。custom provider は vision 入力を native に送るため `supports_vision: true` を明示した。`local-llm` 側は現時点で ingress default deny がなく、LAN VIP や kubelet probe への影響が大きいため、この PR では Hermes 側 egress allow のみに留めた。
+- 2026-07-05: Obsidian headless は専用 PVC では認証 config が自動継承されないため、初回 bootstrap と config 確認を smoke / failure triage に追記した。
