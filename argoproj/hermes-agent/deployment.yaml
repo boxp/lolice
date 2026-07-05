@@ -21,7 +21,7 @@ spec:
         fsGroup: 10000
       initContainers:
         - name: bootstrap-config
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           imagePullPolicy: IfNotPresent
           command:
             - sh
