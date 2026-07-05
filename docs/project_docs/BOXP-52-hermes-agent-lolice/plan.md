@@ -194,7 +194,7 @@ Ingress:
 - webhook 型や API server / web dashboard を使う場合のみ、Cloudflare tunnel または private Service から限定許可
 - health endpoint を Service として公開する場合は monitoring namespace から限定許可
 
-`local-llm` 側は `llama-server` Pod の ingress policy を追加し、少なくとも次を許可する。
+現時点の `local-llm` namespace には ingress default deny がないため、Hermes 接続に必須なのは `hermes-agent` 側 egress allow である。後続で `local-llm` 側にも ingress policy を導入する場合は、少なくとも次を許可する。
 
 - `hermes-agent` namespace の `app == 'hermes-agent'` から TCP 8080
 - 既存 `codex-workspace` namespace の `app == 'codex-workspace'` から TCP 8080
@@ -365,8 +365,7 @@ Status: この PR で実装済み。
 - `argoproj/hermes-agent/networkpolicy.yaml`
 - `argoproj/hermes-agent/secret.yaml`
 - `argoproj/kustomization.yaml` に `hermes-agent/argocd-application.yaml` を追加
-- `argoproj/local-llm/networkpolicy.yaml`
-- `argoproj/local-llm/kustomization.yaml` に `networkpolicy.yaml` を追加
+- `local-llm` 側 ingress policy は今回の PR では未追加。default deny 導入時の後続 PR で追加する
 - 必要なら `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml`
 
 Validation:
@@ -420,4 +419,4 @@ Repository: `boxp/lolice` and possibly `boxp/arch`
 ## Notes
 
 - 2026-07-05: BOXP-52 の設計計画として作成。現行 `boxp/lolice` の `local-llm` 実装では `gemma4-26b-vision` が OpenAI-compatible endpoint で公開済みのため、Hermes 側は custom provider で接続する方針にした。
-- 2026-07-05: 計画を実装へ進め、`argoproj/hermes-agent` に公式 `nousresearch/hermes-agent` image ベースの Deployment / Service / PVC 10Gi / Secret / ConfigMap / Calico NetworkPolicy / Argo CD Application を追加した。`local-llm` 側にも `llama-server` ingress policy を追加し、Hermes、既存 codex-workspace、monitoring、LAN VIP 経路を許可した。
+- 2026-07-05: 計画を実装へ進め、`argoproj/hermes-agent` に公式 `nousresearch/hermes-agent` image ベースの Deployment / Service / PVC 10Gi / Secret / ConfigMap / Calico NetworkPolicy / Argo CD Application を追加した。`local-llm` 側は現時点で ingress default deny がないため、この PR では Hermes 側 egress allow のみに留めた。

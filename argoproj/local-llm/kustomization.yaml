@@ -10,4 +10,3 @@ resources:
   - service.yaml
   - service-lan.yaml
   - servicemonitor.yaml
-  - networkpolicy.yaml
