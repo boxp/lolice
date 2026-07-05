@@ -17,14 +17,14 @@ spec:
             kustomize:
               name: "docker.io/nousresearch/hermes-agent"
         - alias: "obsidian-sync"
-          imageName: "ghcr.io/boxp/arch/codex-workspace:latest"
+          imageName: "docker.io/library/node:22-bookworm-slim"
           commonUpdateSettings:
-            updateStrategy: "newest-build"
+            updateStrategy: "digest"
             platforms:
               - "linux/amd64"
           manifestTargets:
             kustomize:
-              name: "ghcr.io/boxp/arch/codex-workspace"
+              name: "docker.io/library/node"
   writeBackConfig:
     method: "git:secret:argocd/repo-lolice"
     gitConfig:

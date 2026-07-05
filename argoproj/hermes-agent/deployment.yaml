@@ -68,6 +68,28 @@ spec:
             - name: config
               mountPath: /bootstrap
               readOnly: true
+        - name: install-obsidian-headless
+          image: docker.io/library/node:22-bookworm-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              npm_config_prefix=/opt/obsidian-headless npm install -g "obsidian-headless@${OBSIDIAN_HEADLESS_VERSION}"
+              chown -R 1000:10000 /opt/obsidian-headless
+          env:
+            - name: OBSIDIAN_HEADLESS_VERSION
+              value: "0.0.12"
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+          volumeMounts:
+            - name: obsidian-headless
+              mountPath: /opt/obsidian-headless
       containers:
         - name: hermes-agent
           image: docker.io/nousresearch/hermes-agent:latest
@@ -107,17 +129,19 @@ spec:
             - name: tmp
               mountPath: /tmp
         - name: obsidian-sync
-          image: ghcr.io/boxp/arch/codex-workspace:latest
-          imagePullPolicy: Always
+          image: docker.io/library/node:22-bookworm-slim
+          imagePullPolicy: IfNotPresent
           command:
-            - /bin/bash
+            - sh
             - -ec
             - |
               umask 0002
-              exec ob sync --path "${OBSIDIAN_VAULT_PATH}" --continuous
+              exec /opt/obsidian-headless/bin/ob sync --path "${OBSIDIAN_VAULT_PATH}" --continuous
           env:
             - name: HOME
               value: /home/boxp
+            - name: PATH
+              value: /opt/obsidian-headless/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
             - name: OBSIDIAN_VAULT_PATH
               value: /home/boxp/Documents/obsidian-headless/BOXP
           securityContext:
@@ -138,10 +162,15 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /home/boxp
+            - name: obsidian-headless
+              mountPath: /opt/obsidian-headless
+              readOnly: true
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: hermes-agent-data
+        - name: obsidian-headless
+          emptyDir: {}
         - name: config
           configMap:
             name: hermes-agent-config

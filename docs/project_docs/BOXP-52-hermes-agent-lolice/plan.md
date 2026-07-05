@@ -59,23 +59,23 @@ Kubernetes resources:
 | Argo CD Application | `argoproj/hermes-agent/argocd-application.yaml` |
 | Namespace | `hermes-agent` |
 | Workload | `Deployment/hermes-agent`, replicas 1 |
-| Scheduling | `ghcr.io/boxp/arch/codex-workspace` sidecar に合わせて amd64 node に固定 |
+| Scheduling | Hermes image と ImageUpdater の platform を安定させるため amd64 node に固定 |
 | Service | なし。API server は今回無効化し、外部 inbound を持たせない |
 | PVC | Longhorn PVC 1 個を `/opt/data` と `/home/boxp` に mount |
 | ConfigMap | `config.yaml`、non-secret の model/provider/runtime 設定 |
 | Secret / ExternalSecret | 今回は Secret なし。messaging token や API key が必要になった時点で ExternalSecret を追加 |
-| Obsidian headless | `ghcr.io/boxp/arch/codex-workspace:latest` の sidecar で `ob sync --continuous` を実行 |
+| Obsidian headless | `node:22-bookworm-slim` の initContainer で `obsidian-headless@0.0.12` を install し、同じ Node image の sidecar で `ob sync --continuous` を実行 |
 | Image updates | `argoproj/argocd-image-updater/imageupdaters/hermes-agent.yaml` で Hermes image と Obsidian sidecar image を追跡 |
 | NetworkPolicy | default deny 前提。DNS、local-llm:8080、Obsidian sync / messaging に必要な outbound のみ許可 |
 | Observability | stdout/stderr logs。必要なら ServiceMonitor は後続で追加 |
 
 ## Runtime And Image Plan
 
-Hermes Agent は公式 container image `docker.io/nousresearch/hermes-agent:latest` を採用する。公式 image は `/opt/data` を mutable state として扱い、`gateway run` を s6 supervision 下で実行する。Obsidian sidecar の `ghcr.io/boxp/arch/codex-workspace:latest` が linux/amd64 image のため、Pod は `kubernetes.io/arch: amd64` に固定する。
+Hermes Agent は公式 container image `docker.io/nousresearch/hermes-agent:latest` を採用する。公式 image は `/opt/data` を mutable state として扱い、`gateway run` を s6 supervision 下で実行する。Pod は Hermes image と ImageUpdater の platform を安定させるため `kubernetes.io/arch: amd64` に固定する。
 
-Image rollout は Argo CD Image Updater で管理する。Hermes 公式 image は Docker Hub `latest` を digest strategy で追跡し、Obsidian sidecar は既存 codex-workspace と同じ GHCR image を追跡する。公式 image で不足する system tool が出た場合だけ、`boxp/arch` で派生 image を作る。
+Image rollout は Argo CD Image Updater で管理する。Hermes 公式 image は Docker Hub `latest` を digest strategy で追跡し、Obsidian headless 用の Node image は `node:22-bookworm-slim` を digest strategy で追跡する。公式 image で不足する system tool が出た場合だけ、`boxp/arch` で派生 image を作る。
 
-Obsidian headless は codex-workspace と同じ image と実行コマンドを使う。ただし Hermes は専用 Longhorn PVC を持つため、初回起動時点では `~/.config/obsidian-headless` の認証状態は codex-workspace から自動継承されない。初回だけ Hermes Pod の `/home/boxp` に Obsidian headless の config を作成または移行し、その後は同じ PVC 上で継続利用する。
+Obsidian headless は `node:22-bookworm-slim` の initContainer で `npm install -g obsidian-headless@0.0.12` を実行し、install 先の `emptyDir` を `obsidian-sync` sidecar に read-only mount して使う。Pod 再起動時に npm の latest が変わらないよう、確認済み version を manifest に固定する。Hermes は専用 Longhorn PVC を持つため、初回起動時点では `~/.config/obsidian-headless` の認証状態は codex-workspace から自動継承されない。初回だけ Hermes Pod の `/home/boxp` に Obsidian headless の config を作成または移行し、その後は同じ PVC 上で継続利用する。
 
 Hermes container と `obsidian-sync` sidecar は同じ PVC を `/opt/data` と `/home/boxp` として共有するため、実行 UID/GID を `1000:10000` に揃える。Hermes 公式 image には `HERMES_UID=1000` / `HERMES_GID=10000` を渡して runtime user を remap し、`obsidian-sync` も `runAsUser: 1000` / `runAsGroup: 10000` で実行する。初期化 container は共有 directory を `1000:10000`、mode `2775` に整え、sidecar は `umask 0002` で同期ファイルの group write を維持する。旧 UID `10000` で作られた既存 PVC にも対応するため、marker file がない初回だけ `/opt/data` 全体を `1000:10000` へ移行する。
 
@@ -468,3 +468,4 @@ Repository: `boxp/lolice` and possibly `boxp/arch`
 - 2026-07-05: 計画を実装へ進め、`argoproj/hermes-agent` に公式 `nousresearch/hermes-agent` image ベースの Deployment / PVC 10Gi / ConfigMap / Calico NetworkPolicy / Argo CD Application / ImageUpdater を追加した。API server は固定 key で公開せず無効化し、Obsidian headless は `codex-workspace` と同じ `ob sync --continuous` sidecar を追加した。custom provider は vision 入力を native に送るため `supports_vision: true` を明示した。`local-llm` 側は現時点で ingress default deny がなく、LAN VIP や kubelet probe への影響が大きいため、この PR では Hermes 側 egress allow のみに留めた。
 - 2026-07-05: Codex review の指摘を受け、Hermes と Obsidian sidecar が同じ vault PVC を安全に更新できるように UID/GID を `1000:10000` へ統一した。Hermes 公式 image の `HERMES_UID` / `HERMES_GID` remap を使い、bootstrap directory は setgid `2775`、`obsidian-sync` は `umask 0002` で group write を維持する。既存 PVC が旧 Hermes UID `10000` のファイルを持つ場合も壊れないように、initContainer で一回限りの ownership migration を行う。
 - 2026-07-05: Obsidian headless は専用 PVC では認証 config が自動継承されないため、初回 bootstrap と config 確認を smoke / failure triage に追記した。
+- 2026-07-05: PR review コメントを受け、Obsidian sync のためだけに `ghcr.io/boxp/arch/codex-workspace` を使う構成をやめた。`node:22-bookworm-slim` の initContainer で `obsidian-headless@0.0.12` を install し、同 image の sidecar が install 済み `ob` を使って sync する構成へ変更した。
