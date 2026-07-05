@@ -11,4 +11,6 @@ spec:
       protocol: TCP
       targetPort: 8443
   selector:
-    k8s-app: kubernetes-dashboard
+    app.kubernetes.io/component: app
+    app.kubernetes.io/instance: kubernetes-dashboard-app
+    app.kubernetes.io/name: kong
