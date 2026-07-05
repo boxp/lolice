@@ -22,6 +22,14 @@ TASK_BOARD_ROOT=/home/boxp/.codex-task-board PORT=8080 python3 /tmp/server.py
 
 Kubernetes 上では `codex-task-board-dashboard` ClusterIP Service の port 8080 として公開され、Cloudflare Access GitHub login の背後で `https://codex-task-board.b0xp.io` から参照する想定です。既存の `codex-workspace` LoadBalancer Service には Dashboard port を載せません。
 
+確認観点:
+
+- `kubectl kustomize argoproj/codex-workspace` で manifest を生成できること。
+- 空の `runs/` では `/api/runs` が空配列を返すこと。
+- 完了済み run fixture では `summary.edn` から ticket / run id / lane / status を表示できること。
+- 欠損ログでは log API が `missing: true` を返し、UI が missing 表示へフォールバックできること。
+- lock file がある run fixture では status が `running` になり、`events.jsonl` / `stderr.log` / `last-message.md` を offset 付きで読めること。
+
 ## Read-only boundary
 
 Dashboard サイドカーは `/home/boxp` PVC を `readOnly: true` で mount します。HTTP API は `GET` のみを受け付け、Task Board card、ticket file、run directory、lock file を変更しません。
