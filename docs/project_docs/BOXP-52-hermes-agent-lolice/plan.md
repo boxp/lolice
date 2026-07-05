@@ -78,7 +78,7 @@ Web UI public access:
 | Item | Decision |
 | --- | --- |
 | Public hostname | `https://hermes-agent.b0xp.io` |
-| Auth boundary | Cloudflare Access GitHub IdP 必須 |
+| Auth boundary | Cloudflare Access GitHub IdP 必須。`boxp` GitHub organization membership を allow policy にする |
 | Tunnel token | `boxp/arch` Terraform が SSM SecureString `hermes-agent-tunnel-token` に保存し、lolice 側 ExternalSecret が `hermes-agent-cloudflared-secret` へ同期 |
 | Origin | `http://127.0.0.1:9119` inside the Hermes Pod |
 | Origin Host header | `127.0.0.1:9119` に固定し、Hermes dashboard の loopback Host header 防御を満たす |
@@ -363,7 +363,8 @@ curl -I https://hermes-agent.b0xp.io
 - `cloudflared` container が `/ready` で healthy。
 - Pod 内 loopback の `/api/status` が HTTP 200。
 - 未認証ブラウザまたは `curl -I` では Cloudflare Access の login redirect / Access response になり、origin が直接公開されない。
-- GitHub 認証後に Hermes dashboard が表示される。
+- `boxp` GitHub organization member として認証後に Hermes dashboard が表示される。
+- `boxp` GitHub organization に属さない GitHub account は Cloudflare Access で拒否される。
 
 ## Operations
 
@@ -491,7 +492,7 @@ Status: この run で別 PR として実装。
 - `terraform/cloudflare/b0xp.io/hermes-agent/`
 - `cloudflare_tunnel` / `cloudflare_tunnel_config`
 - `cloudflare_record` for `hermes-agent.b0xp.io`
-- `cloudflare_access_application` と GitHub IdP の allow policy
+- `cloudflare_access_application` と GitHub IdP + `boxp` organization allow policy
 - `aws_ssm_parameter.hermes_agent_tunnel_token`
 
 Validation:
@@ -531,4 +532,4 @@ terraform validate
 - 2026-07-05: Codex review の指摘を受け、Hermes と Obsidian sidecar が同じ vault PVC を安全に更新できるように UID/GID を `1000:10000` へ統一した。Hermes 公式 image の `HERMES_UID` / `HERMES_GID` remap を使い、bootstrap directory は setgid `2775`、`obsidian-sync` は `umask 0002` で group write を維持する。既存 PVC が旧 Hermes UID `10000` のファイルを持つ場合も壊れないように、initContainer で一回限りの ownership migration を行う。
 - 2026-07-05: Obsidian headless は専用 PVC では認証 config が自動継承されないため、初回 bootstrap と config 確認を smoke / failure triage に追記した。
 - 2026-07-05: PR review コメントを受け、Obsidian sync のためだけに `ghcr.io/boxp/arch/codex-workspace` を使う構成をやめた。`node:22-bookworm-slim` の initContainer で `obsidian-headless@0.0.12` を install し、同 image の sidecar が install 済み `ob` を使って sync する構成へ変更した。
-- 2026-07-05: Web UI を `hermes-agent.b0xp.io` で Cloudflare 公開する構成を追加した。Hermes dashboard は `127.0.0.1:9119` にだけ bind し、同一 Pod の `cloudflared` sidecar から loopback origin へ転送する。Cloudflare Access は GitHub IdP 必須、tunnel token は `boxp/arch` Terraform の SSM SecureString `hermes-agent-tunnel-token` から lolice ExternalSecret で同期する。
+- 2026-07-05: Web UI を `hermes-agent.b0xp.io` で Cloudflare 公開する構成を追加した。Hermes dashboard は `127.0.0.1:9119` にだけ bind し、同一 Pod の `cloudflared` sidecar から loopback origin へ転送する。Cloudflare Access は GitHub IdP 必須かつ `boxp` organization member のみ許可し、tunnel token は `boxp/arch` Terraform の SSM SecureString `hermes-agent-tunnel-token` から lolice ExternalSecret で同期する。
