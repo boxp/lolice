@@ -9,3 +9,9 @@ resources:
   - external-secret-cloudflared.yaml
   - deployment.yaml
   - networkpolicy.yaml
+
+configMapGenerator:
+  - name: hermes-agent-obsidian-task-board-skill
+    files:
+      - SKILL.md=skills/obsidian-task-board/SKILL.md
+      - task-board.bb=skills/obsidian-task-board/bin/task-board.bb
