@@ -40,11 +40,6 @@ spec:
                 chown 1000:10000 /opt/data/config.yaml
                 chmod 0664 /opt/data/config.yaml
               fi
-              if [ ! -f /opt/data/SOUL.md ]; then
-                cp /bootstrap/SOUL.md /opt/data/SOUL.md
-                chown 1000:10000 /opt/data/SOUL.md
-                chmod 0664 /opt/data/SOUL.md
-              fi
               chown 1000:10000 \
                 /opt/data \
                 /opt/data/Documents \
