@@ -110,6 +110,34 @@ spec:
           volumeMounts:
             - name: hermes-tools
               mountPath: /opt/hermes-tools
+        - name: install-obsidian-task-board-skill
+          image: docker.io/library/busybox:1.38.0
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              skill_dir=/opt/data/skills/note-taking/obsidian-task-board
+              rm -rf "$skill_dir"
+              mkdir -p "$skill_dir/bin"
+              cp /bootstrap-task-board-skill/SKILL.md "$skill_dir/SKILL.md"
+              cp /bootstrap-task-board-skill/task-board.bb "$skill_dir/bin/task-board.bb"
+              chmod 0644 "$skill_dir/SKILL.md"
+              chmod 0755 "$skill_dir/bin/task-board.bb"
+              chown -R 1000:10000 "$skill_dir"
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN"]
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: obsidian-task-board-skill
+              mountPath: /bootstrap-task-board-skill
+              readOnly: true
       containers:
         - name: hermes-agent
           image: docker.io/nousresearch/hermes-agent@sha256:a8b7831d55e753c25ce7d86ac1e6d5b0721634233fcbefe08c3b4d4eb9730009
@@ -244,6 +272,10 @@ spec:
           emptyDir: {}
         - name: hermes-tools
           emptyDir: {}
+        - name: obsidian-task-board-skill
+          configMap:
+            name: hermes-agent-obsidian-task-board-skill
+            defaultMode: 0755
         - name: config
           configMap:
             name: hermes-agent-config
