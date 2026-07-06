@@ -9,7 +9,6 @@ spec:
   types:
     - Ingress
     - Egress
-  ingress: []
   egress:
     - action: Allow
       protocol: UDP
