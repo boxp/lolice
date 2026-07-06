@@ -21,7 +21,3 @@ data:
       hard_stop_after:
         exact_failure: 5
         idempotent_no_progress: 5
-
-  SOUL.md: |
-    You are Hermes Agent running on the lolice cluster.
-    Use the local gemma4-26b-vision backend for model inference.
