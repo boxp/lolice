@@ -167,7 +167,7 @@ spec:
             - name: LOCAL_LLM_BASE_URL
               value: http://llama-server.local-llm.svc.cluster.local:8080/v1
             - name: LOCAL_LLM_MODEL
-              value: gemma4-26b-vision
+              value: ornith-35b
             - name: HERMES_STREAM_READ_TIMEOUT
               value: "1800"
           resources:

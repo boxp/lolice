@@ -6,12 +6,12 @@ data:
   config.yaml: |
     model:
       provider: custom
-      default: gemma4-26b-vision
-      model: gemma4-26b-vision
+      default: ornith-35b
+      model: ornith-35b
       base_url: http://llama-server.local-llm.svc.cluster.local:8080/v1
       api_key: local-llm
-      supports_vision: true
-      context_length: 262144
+      supports_vision: false
+      context_length: 65536
 
     display:
       tool_progress: "new"

@@ -25,7 +25,7 @@ data:
     threads-batch = 14
 
     [ornith-35b]
-    model = /models/ornith-1.0-35b-Q4_K_M.gguf
+    model = /models/Ornith-1.0-35B-uncensored-heretic-Q5_K_M.gguf
     ctx-size = 65536
     batch-size = 512
     ubatch-size = 128
