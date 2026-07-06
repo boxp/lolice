@@ -21,7 +21,7 @@ spec:
         fsGroup: 10000
       initContainers:
         - name: bootstrap-config
-          image: docker.io/library/busybox:1.38.0
+          image: docker.io/library/busybox:1.38.0@sha256:fd8d9aa63ba2f0982b5304e1ee8d3b90a210bc1ffb5314d980eb6962f1a9715d
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -64,7 +64,7 @@ spec:
               mountPath: /bootstrap
               readOnly: true
         - name: install-obsidian-headless
-          image: docker.io/library/node:24-bookworm-slim
+          image: docker.io/library/node:24-bookworm-slim@sha256:b31e7a42fdf8b8aa5f5ed477c72d694301273f1069c5a2f71d53c6482e99a2fc
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -87,7 +87,7 @@ spec:
               mountPath: /opt/obsidian-headless
       containers:
         - name: hermes-agent
-          image: docker.io/nousresearch/hermes-agent:latest
+          image: docker.io/nousresearch/hermes-agent@sha256:a8b7831d55e753c25ce7d86ac1e6d5b0721634233fcbefe08c3b4d4eb9730009
           imagePullPolicy: Always
           args:
             - gateway
@@ -99,6 +99,14 @@ spec:
               value: "10000"
             - name: API_SERVER_ENABLED
               value: "false"
+            - name: HERMES_DASHBOARD
+              value: "true"
+            - name: HERMES_DASHBOARD_HOST
+              value: "127.0.0.1"
+            - name: HERMES_DASHBOARD_PORT
+              value: "9119"
+            - name: HERMES_DASHBOARD_PUBLIC_URL
+              value: "https://hermes-agent.b0xp.io"
             - name: HOME
               value: /opt/data
             - name: OBSIDIAN_VAULT_PATH
@@ -124,7 +132,7 @@ spec:
             - name: tmp
               mountPath: /tmp
         - name: obsidian-sync
-          image: docker.io/library/node:24-bookworm-slim
+          image: docker.io/library/node:24-bookworm-slim@sha256:b31e7a42fdf8b8aa5f5ed477c72d694301273f1069c5a2f71d53c6482e99a2fc
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -160,6 +168,45 @@ spec:
             - name: obsidian-headless
               mountPath: /opt/obsidian-headless
               readOnly: true
+        - name: cloudflared
+          image: docker.io/cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+            - --protocol
+            - http2
+            - --token
+            - $(TUNNEL_TOKEN)
+          ports:
+            - name: metrics
+              containerPort: 2000
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          envFrom:
+            - secretRef:
+                name: hermes-agent-cloudflared-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
       volumes:
         - name: data
           persistentVolumeClaim:

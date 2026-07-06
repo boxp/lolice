@@ -6,7 +6,9 @@ metadata:
 spec:
   selector: app == 'hermes-agent'
   types:
+    - Ingress
     - Egress
+  ingress: []
   egress:
     - action: Allow
       protocol: UDP
@@ -36,6 +38,7 @@ spec:
           - 22
           - 80
           - 443
+          - 7844
     - action: Allow
       protocol: UDP
       destination:
