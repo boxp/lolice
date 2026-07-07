@@ -1,0 +1,23 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: hermes-agent
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: "hermes-agent"
+      images:
+        - alias: "hermes-agent"
+          imageName: "ghcr.io/boxp/arch/hermes-agent:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            platforms:
+              - "linux/amd64"
+          manifestTargets:
+            kustomize:
+              name: "ghcr.io/boxp/arch/hermes-agent"
+  writeBackConfig:
+    method: "git:secret:argocd/repo-lolice"
+    gitConfig:
+      repository: "git@github.com:boxp/lolice.git"
+      branch: "main"
