@@ -140,7 +140,7 @@ spec:
               readOnly: true
       containers:
         - name: hermes-agent
-          image: docker.io/nousresearch/hermes-agent@sha256:94f90d3cb66c848e6d7465fb7ca11dc485f096700edc26f571fedab59f4274f7
+          image: docker.io/nousresearch/hermes-agent@sha256:88345c993cb212980d0a68425b02c70aae5270e5450c51ca3a8026e6d8d75072
           imagePullPolicy: Always
           args:
             - gateway
