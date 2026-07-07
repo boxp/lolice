@@ -21,7 +21,7 @@ spec:
         fsGroup: 10000
       initContainers:
         - name: bootstrap-config
-          image: docker.io/library/busybox:1.38.0@sha256:fd8d9aa63ba2f0982b5304e1ee8d3b90a210bc1ffb5314d980eb6962f1a9715d
+          image: ghcr.io/boxp/arch/hermes-agent:latest
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -29,6 +29,7 @@ spec:
             - |
               set -eu
               mkdir -p /opt/data/Documents/obsidian-headless/BOXP
+              skill_dir=/opt/data/skills/note-taking/obsidian-task-board
               if [ ! -f /opt/data/.shared-uid-gid-migrated ]; then
                 chown -R 1000:10000 /opt/data
                 find /opt/data -type d -exec chmod g+rws {} \;
@@ -39,6 +40,14 @@ spec:
                 cp /bootstrap/config.yaml /opt/data/config.yaml
                 chown 1000:10000 /opt/data/config.yaml
                 chmod 0664 /opt/data/config.yaml
+              fi
+              if [ ! -f "$skill_dir/SKILL.md" ] || [ ! -f "$skill_dir/bin/task-board.bb" ]; then
+                mkdir -p "$skill_dir/bin"
+                cp /opt/boxp/hermes-agent/skills/obsidian-task-board/SKILL.md "$skill_dir/SKILL.md"
+                cp /opt/boxp/hermes-agent/skills/obsidian-task-board/bin/task-board.bb "$skill_dir/bin/task-board.bb"
+                chown -R 1000:10000 "$skill_dir"
+                chmod 0644 "$skill_dir/SKILL.md"
+                chmod 0755 "$skill_dir/bin/task-board.bb"
               fi
               chown 1000:10000 \
                 /opt/data \
@@ -63,84 +72,9 @@ spec:
             - name: config
               mountPath: /bootstrap
               readOnly: true
-        - name: install-obsidian-headless
-          image: docker.io/library/node:24-bookworm-slim@sha256:b31e7a42fdf8b8aa5f5ed477c72d694301273f1069c5a2f71d53c6482e99a2fc
-          imagePullPolicy: IfNotPresent
-          command:
-            - sh
-            - -ec
-            - |
-              npm_config_prefix=/opt/obsidian-headless npm install -g "obsidian-headless@${OBSIDIAN_HEADLESS_VERSION}"
-              chown -R 1000:10000 /opt/obsidian-headless
-          env:
-            - name: OBSIDIAN_HEADLESS_VERSION
-              value: "0.0.12"
-          securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
-          volumeMounts:
-            - name: obsidian-headless
-              mountPath: /opt/obsidian-headless
-        - name: install-babashka
-          image: docker.io/library/busybox:1.38.0
-          imagePullPolicy: IfNotPresent
-          command:
-            - sh
-            - -ec
-            - |
-              wget -O /tmp/babashka.tar.gz "https://github.com/babashka/babashka/releases/download/v${BABASHKA_VERSION}/babashka-${BABASHKA_VERSION}-linux-amd64-static.tar.gz"
-              echo "${BABASHKA_SHA256}  /tmp/babashka.tar.gz" | sha256sum -c -
-              tar -xzf /tmp/babashka.tar.gz -C /opt/hermes-tools bb
-              chmod 0755 /opt/hermes-tools/bb
-          env:
-            - name: BABASHKA_VERSION
-              value: "1.12.218"
-            - name: BABASHKA_SHA256
-              value: 7bd028cc794732ffde3da31ce4379840893c8e54f1046f92a8dfc4f4b3cddaf8
-          securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          volumeMounts:
-            - name: hermes-tools
-              mountPath: /opt/hermes-tools
-        - name: install-obsidian-task-board-skill
-          image: docker.io/library/busybox:1.38.0
-          imagePullPolicy: IfNotPresent
-          command:
-            - sh
-            - -ec
-            - |
-              skill_dir=/opt/data/skills/note-taking/obsidian-task-board
-              rm -rf "$skill_dir"
-              mkdir -p "$skill_dir/bin"
-              cp /bootstrap-task-board-skill/SKILL.md "$skill_dir/SKILL.md"
-              cp /bootstrap-task-board-skill/task-board.bb "$skill_dir/bin/task-board.bb"
-              chmod 0644 "$skill_dir/SKILL.md"
-              chmod 0755 "$skill_dir/bin/task-board.bb"
-              chown -R 1000:10000 "$skill_dir"
-          securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-              add: ["CHOWN"]
-          volumeMounts:
-            - name: data
-              mountPath: /opt/data
-            - name: obsidian-task-board-skill
-              mountPath: /bootstrap-task-board-skill
-              readOnly: true
       containers:
         - name: hermes-agent
-          image: docker.io/nousresearch/hermes-agent@sha256:94f90d3cb66c848e6d7465fb7ca11dc485f096700edc26f571fedab59f4274f7
+          image: ghcr.io/boxp/arch/hermes-agent:latest
           imagePullPolicy: Always
           args:
             - gateway
@@ -184,12 +118,8 @@ spec:
               mountPath: /home/boxp
             - name: tmp
               mountPath: /tmp
-            - name: hermes-tools
-              mountPath: /usr/local/bin/bb
-              subPath: bb
-              readOnly: true
         - name: obsidian-sync
-          image: docker.io/library/node:24-bookworm-slim@sha256:b31e7a42fdf8b8aa5f5ed477c72d694301273f1069c5a2f71d53c6482e99a2fc
+          image: ghcr.io/boxp/arch/hermes-agent:latest
           imagePullPolicy: IfNotPresent
           command:
             - sh
@@ -201,7 +131,7 @@ spec:
             - name: HOME
               value: /home/boxp
             - name: PATH
-              value: /opt/obsidian-headless/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+              value: /opt/obsidian-headless/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
             - name: OBSIDIAN_VAULT_PATH
               value: /home/boxp/Documents/obsidian-headless/BOXP
           securityContext:
@@ -222,9 +152,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /home/boxp
-            - name: obsidian-headless
-              mountPath: /opt/obsidian-headless
-              readOnly: true
         - name: cloudflared
           image: docker.io/cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
           imagePullPolicy: IfNotPresent
@@ -268,14 +195,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: hermes-agent-data
-        - name: obsidian-headless
-          emptyDir: {}
-        - name: hermes-tools
-          emptyDir: {}
-        - name: obsidian-task-board-skill
-          configMap:
-            name: hermes-agent-obsidian-task-board-skill
-            defaultMode: 0755
         - name: config
           configMap:
             name: hermes-agent-config
