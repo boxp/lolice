@@ -1,0 +1,3 @@
+kustomize:
+  images:
+  - ghcr.io/boxp/arch/hermes-agent=ghcr.io/boxp/arch/hermes-agent:sha-abd3ca7
