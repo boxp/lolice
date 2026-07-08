@@ -1,0 +1,96 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hermes-agent-oauth-egress-check
+  namespace: hermes-agent
+  labels:
+    app: hermes-agent
+    app.kubernetes.io/name: hermes-agent-oauth-egress-check
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: hermes-agent
+        app.kubernetes.io/name: hermes-agent-oauth-egress-check
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      securityContext:
+        fsGroup: 10000
+      containers:
+        - name: oauth-egress-check
+          image: ghcr.io/boxp/arch/hermes-agent:latest
+          imagePullPolicy: Always
+          command:
+            - python3
+            - -c
+            - |
+              import socket
+              import ssl
+              import sys
+              import urllib.error
+              import urllib.request
+
+              hosts = (
+                  "oauth2.googleapis.com",
+                  "accounts.google.com",
+                  "www.googleapis.com",
+              )
+
+              with open("/etc/gai.conf", encoding="utf-8") as f:
+                  gai_conf = f.read()
+              print("/etc/gai.conf:")
+              print(gai_conf.rstrip())
+              if "precedence ::ffff:0:0/96" not in gai_conf:
+                  raise SystemExit("missing IPv4 precedence rule in /etc/gai.conf")
+
+              for host in hosts:
+                  infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+                  print(f"{host} getaddrinfo first={infos[0]!r}")
+                  if infos[0][0] != socket.AF_INET:
+                      raise SystemExit(f"{host} first address is not IPv4: {infos[0]!r}")
+
+                  context = ssl.create_default_context()
+                  with socket.create_connection((host, 443), timeout=10) as sock:
+                      with context.wrap_socket(sock, server_hostname=host) as tls:
+                          print(f"{host} tls={tls.version()} peer={tls.getpeername()}")
+
+              try:
+                  urllib.request.urlopen("https://oauth2.googleapis.com/token", timeout=10)
+              except urllib.error.HTTPError as e:
+                  print(f"oauth2.googleapis.com/token http_status={e.code}")
+                  if e.code != 404:
+                      raise
+              except Exception:
+                  raise
+
+              print("oauth egress check passed")
+              sys.exit(0)
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 10000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gai.conf
+              subPath: gai.conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: hermes-agent-config

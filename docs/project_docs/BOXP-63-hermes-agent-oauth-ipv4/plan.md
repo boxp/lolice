@@ -13,7 +13,7 @@ hermes-agent sandbox の Google Workspace OAuth token exchange が `https://oaut
 - 同じ runner から IPv6 は到達できない。
   - `curl -6 https://oauth2.googleapis.com/token`: 5/5 失敗。
 - hermes-agent namespace の Calico NetworkPolicy は外部 TCP `443` を許可しているため、少なくとも GitOps manifest 上は Google OAuth への IPv4 HTTPS egress はブロックしていない。
-- この runner の ServiceAccount には `hermes-agent` Pod への `pods/exec` 権限がないため、Pod 内の `/opt/data/.venv-google` で実 token exchange までは確認できない。
+- この runner の ServiceAccount は `hermes-agent` namespace で `get pods` は可能だが、`create pods/exec` と `create pods` は不可。そのため、この runner から Pod 内の Python `getaddrinfo` や `/opt/data/.venv-google` での実 token exchange までは確認できない。
 
 ## Root Cause
 
@@ -33,6 +33,24 @@ hermes-agent sandbox の Google Workspace OAuth token exchange が `https://oaut
 OAuth token exchange は `hermes-agent` container の `/opt/data/.venv-google` から実行される想定。initContainer にも同じ mount を入れ、起動時の helper/setup が外部 HTTPS を使う場合にも同じ名前解決方針に揃える。
 
 NetworkPolicy は既に外部 TCP 443 を許可しているため、今回の変更では allowlist 追加は行わない。
+
+追加検証用に `argoproj/hermes-agent/oauth-egress-check-job.yaml` を用意した。この Job は Argo CD の通常 sync 対象には含めず、exec 権限がない環境でも管理者が一時的に `kubectl apply -f` できる手動検証用 manifest として扱う。
+
+Job の Pod は以下を本番 `hermes-agent` container と揃える。
+
+- namespace: `hermes-agent`
+- image: 実行時に Deployment の `hermes-agent` container image を注入する
+- label: `app=hermes-agent`
+- `/etc/gai.conf` ConfigMap mount
+
+`app=hermes-agent` label を付与することで、Calico NetworkPolicy `selector: app == 'hermes-agent'` の対象として、hermes-agent Pod と同じ egress policy で検証する。
+
+Job は次を検証する。
+
+- `/etc/gai.conf` に `precedence ::ffff:0:0/96` があること。
+- `oauth2.googleapis.com` / `accounts.google.com` / `www.googleapis.com` の `socket.getaddrinfo(..., 443, type=SOCK_STREAM)` 先頭が IPv4 (`socket.AF_INET`) になること。
+- 上記 3 host へ IPv4 優先のデフォルト名前解決で TLS handshake できること。
+- `https://oauth2.googleapis.com/token` へ IPv4 強制なしの Python HTTPS request で HTTP 応答が得られること。GET `/token` は OAuth token exchange としては 404 になるため、HTTP 404 を到達成功として扱う。
 
 ## Verification Performed
 
@@ -54,18 +72,103 @@ kubectl -n hermes-agent get networkpolicies.projectcalico.org hermes-agent-netwo
 
 外部 TCP `443` が許可されていることを確認した。
 
-## Post-Apply Verification
+Argo CD sync 後、実 cluster の Pod spec と ConfigMap 反映状態を確認した。
 
-Argo CD sync 後、exec 権限を持つ管理者環境で以下を確認する。
+```bash
+kubectl -n hermes-agent get pods -l app=hermes-agent -o wide
+kubectl -n hermes-agent get pod -l app=hermes-agent -o yaml
+kubectl -n hermes-agent get cm hermes-agent-config -o yaml
+```
+
+確認結果:
+
+- `hermes-agent-77b6498978-z8mlm` は `3/3 Running`。
+- `hermes-agent` container に `config` volume の `/etc/gai.conf` read-only mount がある。
+- `bootstrap-config` initContainer にも `config` volume の `/etc/gai.conf` read-only mount がある。
+- `hermes-agent-config` ConfigMap に `precedence ::ffff:0:0/96  100` が入っている。
+
+この runner では以下の権限確認により、Pod 内での Python 実行確認は未実施。
+
+```bash
+kubectl auth can-i get pods -n hermes-agent          # yes
+kubectl auth can-i create pods/exec -n hermes-agent  # no
+kubectl auth can-i create pods -n hermes-agent       # no
+```
+
+## Required Acceptance Verification
+
+この変更は、exec 権限を持つ管理者環境で以下が成功するまで完了扱いにしない。`curl -4` は IPv4 を強制するため、`/etc/gai.conf` によるデフォルトのアドレス選択改善の確認としては使わない。
+
+まず検証 Job を実行し、hermes-agent と同じ label / namespace / ConfigMap mount / image で OAuth 関連 FQDN の到達性を確認する。
+
+```bash
+DEPLOY_IMAGE="$(kubectl -n hermes-agent get deploy hermes-agent -o jsonpath='{.spec.template.spec.containers[?(@.name=="hermes-agent")].image}')"
+test -n "$DEPLOY_IMAGE"
+echo "$DEPLOY_IMAGE"
+kubectl -n hermes-agent delete job hermes-agent-oauth-egress-check --ignore-not-found
+kubectl set image --local -f argoproj/hermes-agent/oauth-egress-check-job.yaml \
+  oauth-egress-check="$DEPLOY_IMAGE" -o yaml | kubectl apply -f -
+kubectl -n hermes-agent wait --for=condition=complete job/hermes-agent-oauth-egress-check --timeout=90s
+kubectl -n hermes-agent logs job/hermes-agent-oauth-egress-check
+```
+
+成功条件:
+
+- Job が `Complete` になる。
+- Job Pod の image が Deployment の `hermes-agent` container image と一致する。
+- logs に `oauth egress check passed` が出る。
+- 各 host の `getaddrinfo first=` が `AddressFamily.AF_INET` または値 `2` の IPv4 family になる。
+- 各 host で `tls=TLS...` と peer address が出る。
+
+失敗時の追加確認:
+
+```bash
+kubectl -n hermes-agent describe job hermes-agent-oauth-egress-check
+kubectl -n hermes-agent get pods -l job-name=hermes-agent-oauth-egress-check -o wide
+kubectl -n hermes-agent describe pod -l job-name=hermes-agent-oauth-egress-check
+```
+
+`Network is unreachable` が出る場合は `/etc/gai.conf` ではなく、hermes-agent Pod と同じ NetworkPolicy / node / egress gateway 側の問題として扱う。`getaddrinfo first=` が IPv6 の場合は ConfigMap mount または glibc address selection の問題として扱う。
 
 ```bash
 kubectl -n hermes-agent rollout status deploy/hermes-agent
 
 kubectl -n hermes-agent exec deploy/hermes-agent -c hermes-agent -- \
-  sh -lc 'cat /etc/gai.conf; getent ahosts oauth2.googleapis.com | head -20'
+  sh -lc 'cat /etc/gai.conf'
 
 kubectl -n hermes-agent exec deploy/hermes-agent -c hermes-agent -- \
-  sh -lc 'for i in $(seq 1 10); do curl -4 -sS -o /dev/null -w "%{http_code} %{remote_ip} %{time_connect} %{time_total}\n" --connect-timeout 5 --max-time 10 https://oauth2.googleapis.com/token; done'
+  sh -lc 'python3 - <<'"'"'PY'"'"'
+import socket
+infos = socket.getaddrinfo("oauth2.googleapis.com", 443, type=socket.SOCK_STREAM)
+for info in infos[:10]:
+    print(info)
+first = infos[0]
+if first[0] != socket.AF_INET:
+    raise SystemExit(f"first address is not IPv4: {first!r}")
+PY'
+```
+
+成功条件:
+
+- `/etc/gai.conf` に `precedence ::ffff:0:0/96  100` がある。
+- Python `socket.getaddrinfo("oauth2.googleapis.com", 443, type=socket.SOCK_STREAM)` の先頭が `socket.AF_INET` の IPv4 address になる。
+- 先頭が IPv6 の場合は、今回の恒久対応が Python OAuth client に効いていないため不合格。
+
+ネットワーク到達性は、IPv4を強制しない Python HTTPS request で確認する。GET `/token` は OAuth token exchange としては 404 になるが、TLS接続とHTTP応答が取れれば到達性確認として扱える。
+
+```bash
+kubectl -n hermes-agent exec deploy/hermes-agent -c hermes-agent -- \
+  sh -lc 'python3 - <<'"'"'PY'"'"'
+import urllib.error
+import urllib.request
+
+try:
+    urllib.request.urlopen("https://oauth2.googleapis.com/token", timeout=10)
+except urllib.error.HTTPError as e:
+    print("http_status", e.code)
+    if e.code != 404:
+        raise
+PY'
 ```
 
 OAuth 認可コードを取得した後、同じ Pod で以下を実行する。
