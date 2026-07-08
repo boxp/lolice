@@ -70,6 +70,10 @@ spec:
             - name: data
               mountPath: /opt/data
             - name: config
+              mountPath: /etc/gai.conf
+              subPath: gai.conf
+              readOnly: true
+            - name: config
               mountPath: /bootstrap
               readOnly: true
       containers:
@@ -118,6 +122,10 @@ spec:
               mountPath: /home/boxp
             - name: tmp
               mountPath: /tmp
+            - name: config
+              mountPath: /etc/gai.conf
+              subPath: gai.conf
+              readOnly: true
         - name: obsidian-sync
           image: ghcr.io/boxp/arch/hermes-agent:latest
           imagePullPolicy: IfNotPresent
