@@ -7,7 +7,6 @@ spec:
   tier: default
   selector: app == 'hermes-agent'
   types:
-    - Ingress
     - Egress
   egress:
     - action: Allow
