@@ -16,6 +16,17 @@ spec:
           manifestTargets:
             kustomize:
               name: "ghcr.io/boxp/arch/hermes-agent"
+    - namePattern: "hermes-agent-cloudflared"
+      images:
+        - alias: "hermes-agent"
+          imageName: "ghcr.io/boxp/arch/hermes-agent:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            platforms:
+              - "linux/amd64"
+          manifestTargets:
+            kustomize:
+              name: "ghcr.io/boxp/arch/hermes-agent"
   writeBackConfig:
     method: "git:secret:argocd/repo-lolice"
     gitConfig:

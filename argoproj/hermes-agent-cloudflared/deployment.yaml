@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-agent-cloudflared
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+      app.kubernetes.io/name: hermes-agent-cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+        app.kubernetes.io/name: hermes-agent-cloudflared
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      containers:
+        - name: dashboard-loopback-proxy
+          image: ghcr.io/boxp/arch/hermes-agent:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - -u
+            - -c
+            - |
+              import socket
+              import socketserver
+              import threading
+
+              TARGET = ("hermes-agent-dashboard.hermes-agent.svc.cluster.local", 9119)
+
+              class Handler(socketserver.BaseRequestHandler):
+                  def handle(self):
+                      with socket.create_connection(TARGET, timeout=10) as upstream:
+                          upstream.settimeout(None)
+                          def pump(src, dst):
+                              try:
+                                  while True:
+                                      data = src.recv(65536)
+                                      if not data:
+                                          break
+                                      dst.sendall(data)
+                              finally:
+                                  try:
+                                      dst.shutdown(socket.SHUT_WR)
+                                  except OSError:
+                                      pass
+                          threads = (
+                              threading.Thread(target=pump, args=(self.request, upstream), daemon=True),
+                              threading.Thread(target=pump, args=(upstream, self.request), daemon=True),
+                          )
+                          for thread in threads:
+                              thread.start()
+                          for thread in threads:
+                              thread.join()
+
+              socketserver.ThreadingTCPServer.allow_reuse_address = True
+              with socketserver.ThreadingTCPServer(("127.0.0.1", 9119), Handler) as server:
+                  server.serve_forever()
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 10000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+        - name: cloudflared
+          image: docker.io/cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+            - --protocol
+            - http2
+            - --token
+            - $(TUNNEL_TOKEN)
+          ports:
+            - name: metrics
+              containerPort: 2000
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          envFrom:
+            - secretRef:
+                name: hermes-agent-cloudflared-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

@@ -36,7 +36,7 @@ Dashboard サイドカーは `/home/boxp` PVC を `readOnly: true` で mount し
 
 ## Runner Kubernetes debug access
 
-`task-board-runner` は `system:serviceaccount:codex-workspace:codex-workspace` の projected token と `codex-workspace-kubeconfig` を使って Kubernetes API に接続します。既存の cluster-wide 権限は read-only で、debug 用の write/connect 権限は `codex-workspace` と `hermes-agent` namespace の `Role/codex-workspace-debug` に限定しています。
+`task-board-runner` は `system:serviceaccount:codex-workspace:codex-workspace` の projected token と `codex-workspace-kubeconfig` を使って Kubernetes API に接続します。既存の cluster-wide 権限は read-only で、debug 用の write/connect 権限は `codex-workspace` と `hermes-agent` namespace の `Role/codex-workspace-debug` に限定しています。`hermes-agent` の tunnel token を持つ `cloudflared` は `hermes-agent-cloudflared` namespace の別 Pod に分離し、この namespace には debug RoleBinding を作りません。
 
 許可する subresource:
 
@@ -50,7 +50,7 @@ Dashboard サイドカーは `/home/boxp` PVC を `readOnly: true` で mount し
 - `pods create/update/delete`: `kubectl debug --copy-to` や任意 Pod 作成は許可しない。
 - `secrets get/list/watch`: Secret の直接参照は許可しない。
 
-RBAC では Pod label selector を強制できないため、対象 Pod の境界は `codex-workspace` / `hermes-agent` namespace と ServiceAccount によって管理します。これらの namespace には debug 対象外の workload を同居させない運用にします。対象コンテナに mount 済みの Secret、ServiceAccount token、PVC、到達可能なクラスタ内 network resource は `exec` / `debug` から参照できるため、必要な Secret と network egress だけを対象 Pod に持たせる前提です。
+RBAC では Pod label selector を強制できないため、対象 Pod の境界は `codex-workspace` / `hermes-agent` namespace と ServiceAccount によって管理します。これらの namespace には debug 対象外の workload を同居させない運用にします。対象コンテナに mount 済みの Secret、ServiceAccount token、PVC、到達可能なクラスタ内 network resource は `exec` / `debug` から参照できるため、Secret を持つ sidecar は debug RoleBinding のない namespace に分離します。
 
 確認コマンド:
 
@@ -71,11 +71,14 @@ kubectl auth can-i create pods -n codex-workspace --as="${SA}"
 kubectl auth can-i create pods -n hermes-agent --as="${SA}"
 kubectl auth can-i get secrets -n codex-workspace --as="${SA}"
 kubectl auth can-i get secrets -n hermes-agent --as="${SA}"
+kubectl auth can-i create pods/exec -n hermes-agent-cloudflared --as="${SA}"
+kubectl auth can-i patch pods/ephemeralcontainers -n hermes-agent-cloudflared --as="${SA}"
+kubectl auth can-i get secrets -n hermes-agent-cloudflared --as="${SA}"
 kubectl auth can-i create pods/exec -n default --as="${SA}"
 kubectl auth can-i patch pods/ephemeralcontainers -n default --as="${SA}"
 ```
 
-期待値は `codex-workspace` と `hermes-agent` namespace の `pods/exec`、`pods/log`、`pods/ephemeralcontainers`、`pods/attach` が `yes`、Pod 作成、Secret 参照、その他 namespace の exec/debug/attach が `no` です。
+期待値は `codex-workspace` と `hermes-agent` namespace の `pods/exec`、`pods/log`、`pods/ephemeralcontainers`、`pods/attach` が `yes`、Pod 作成、Secret 参照、`hermes-agent-cloudflared` とその他 namespace の exec/debug/attach が `no` です。
 
 実操作確認:
 
@@ -86,6 +89,7 @@ kubectl -n codex-workspace debug "${POD}" -it --image=docker.io/library/busybox:
 HERMES_POD=$(kubectl -n hermes-agent get pod -l app=hermes-agent -o jsonpath='{.items[0].metadata.name}')
 kubectl -n hermes-agent exec "${HERMES_POD}" -c hermes-agent -- id
 kubectl -n hermes-agent debug "${HERMES_POD}" -it --image=docker.io/library/busybox:1.37 --target=hermes-agent -- /bin/sh
+kubectl -n hermes-agent-cloudflared exec deploy/hermes-agent-cloudflared -c cloudflared -- printenv
 kubectl -n default exec deploy/some-target-outside-debug-scope -- id
 ```
 

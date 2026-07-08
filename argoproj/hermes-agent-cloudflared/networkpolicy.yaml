@@ -1,23 +1,14 @@
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
 metadata:
-  name: hermes-agent-network-policy
-  namespace: hermes-agent
+  name: hermes-agent-cloudflared-network-policy
+  namespace: hermes-agent-cloudflared
 spec:
   tier: default
-  selector: app == 'hermes-agent'
+  selector: app == 'cloudflared'
   types:
     - Ingress
     - Egress
-  ingress:
-    - action: Allow
-      protocol: TCP
-      source:
-        selector: app == 'cloudflared'
-        namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent-cloudflared'
-      destination:
-        ports:
-          - 9119
   egress:
     - action: Allow
       protocol: UDP
@@ -39,22 +30,14 @@ spec:
       protocol: TCP
       source: {}
       destination:
-        selector: app == 'llama-server'
-        namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
+        selector: app == 'hermes-agent'
+        namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
         ports:
-          - 8080
+          - 9119
     - action: Allow
       protocol: TCP
       source: {}
       destination:
         ports:
-          - 22
-          - 80
           - 443
           - 7844
-    - action: Allow
-      protocol: UDP
-      source: {}
-      destination:
-        ports:
-          - 2408

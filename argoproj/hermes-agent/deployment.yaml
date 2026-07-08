@@ -83,6 +83,9 @@ spec:
           args:
             - gateway
             - run
+          ports:
+            - name: dashboard
+              containerPort: 9119
           env:
             - name: HERMES_UID
               value: "1000"
@@ -93,7 +96,7 @@ spec:
             - name: HERMES_DASHBOARD
               value: "true"
             - name: HERMES_DASHBOARD_HOST
-              value: "127.0.0.1"
+              value: "0.0.0.0"
             - name: HERMES_DASHBOARD_PORT
               value: "9119"
             - name: HERMES_DASHBOARD_PUBLIC_URL
@@ -160,45 +163,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /home/boxp
-        - name: cloudflared
-          image: docker.io/cloudflare/cloudflared:2026.6.1@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
-          imagePullPolicy: IfNotPresent
-          args:
-            - tunnel
-            - --metrics
-            - 0.0.0.0:2000
-            - run
-            - --protocol
-            - http2
-            - --token
-            - $(TUNNEL_TOKEN)
-          ports:
-            - name: metrics
-              containerPort: 2000
-          livenessProbe:
-            httpGet:
-              path: /ready
-              port: metrics
-            failureThreshold: 1
-            initialDelaySeconds: 10
-            periodSeconds: 10
-          envFrom:
-            - secretRef:
-                name: hermes-agent-cloudflared-secret
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 65532
-            runAsGroup: 65532
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-          resources:
-            requests:
-              cpu: 20m
-              memory: 64Mi
-            limits:
-              cpu: 200m
-              memory: 256Mi
       volumes:
         - name: data
           persistentVolumeClaim:

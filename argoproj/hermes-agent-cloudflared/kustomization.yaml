@@ -1,12 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: hermes-agent
+namespace: hermes-agent-cloudflared
 
 resources:
   - namespace.yaml
-  - configmap.yaml
-  - pvc.yaml
+  - external-secret-cloudflared.yaml
   - deployment.yaml
-  - service-dashboard.yaml
-  - rbac.yaml
   - networkpolicy.yaml
