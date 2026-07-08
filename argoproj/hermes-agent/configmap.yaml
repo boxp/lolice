@@ -3,6 +3,13 @@ kind: ConfigMap
 metadata:
   name: hermes-agent-config
 data:
+  gai.conf: |
+    # Prefer IPv4-mapped addresses because the lolice cluster currently has no
+    # working IPv6 egress route. Google OAuth endpoints publish AAAA records,
+    # and Python OAuth clients can otherwise try IPv6 first and fail with
+    # ENETUNREACH before falling back reliably.
+    precedence ::ffff:0:0/96  100
+
   config.yaml: |
     model:
       provider: custom
