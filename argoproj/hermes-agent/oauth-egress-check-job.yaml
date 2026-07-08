@@ -23,7 +23,7 @@ spec:
         fsGroup: 10000
       containers:
         - name: oauth-egress-check
-          image: ghcr.io/boxp/arch/hermes-agent:sha-abd3ca7
+          image: ghcr.io/boxp/arch/hermes-agent:latest
           imagePullPolicy: Always
           command:
             - python3

@@ -39,7 +39,7 @@ NetworkPolicy は既に外部 TCP 443 を許可しているため、今回の変
 Job の Pod は以下を本番 `hermes-agent` container と揃える。
 
 - namespace: `hermes-agent`
-- image: `ghcr.io/boxp/arch/hermes-agent:sha-abd3ca7` (`.argocd-source-hermes-agent.yaml` の現在の解決済み image)
+- image: 実行時に Deployment の `hermes-agent` container image を注入する
 - label: `app=hermes-agent`
 - `/etc/gai.conf` ConfigMap mount
 
@@ -102,10 +102,12 @@ kubectl auth can-i create pods -n hermes-agent       # no
 まず検証 Job を実行し、hermes-agent と同じ label / namespace / ConfigMap mount / image で OAuth 関連 FQDN の到達性を確認する。
 
 ```bash
-kubectl -n hermes-agent get deploy hermes-agent -o jsonpath='{.spec.template.spec.containers[?(@.name=="hermes-agent")].image}{"\n"}'
-grep 'ghcr.io/boxp/arch/hermes-agent=' argoproj/hermes-agent/.argocd-source-hermes-agent.yaml
+DEPLOY_IMAGE="$(kubectl -n hermes-agent get deploy hermes-agent -o jsonpath='{.spec.template.spec.containers[?(@.name=="hermes-agent")].image}')"
+test -n "$DEPLOY_IMAGE"
+echo "$DEPLOY_IMAGE"
 kubectl -n hermes-agent delete job hermes-agent-oauth-egress-check --ignore-not-found
-kubectl apply -f argoproj/hermes-agent/oauth-egress-check-job.yaml
+kubectl set image --local -f argoproj/hermes-agent/oauth-egress-check-job.yaml \
+  oauth-egress-check="$DEPLOY_IMAGE" -o yaml | kubectl apply -f -
 kubectl -n hermes-agent wait --for=condition=complete job/hermes-agent-oauth-egress-check --timeout=90s
 kubectl -n hermes-agent logs job/hermes-agent-oauth-egress-check
 ```
@@ -113,7 +115,7 @@ kubectl -n hermes-agent logs job/hermes-agent-oauth-egress-check
 成功条件:
 
 - Job が `Complete` になる。
-- Job manifest の image が Deployment の `hermes-agent` container image と一致する。
+- Job Pod の image が Deployment の `hermes-agent` container image と一致する。
 - logs に `oauth egress check passed` が出る。
 - 各 host の `getaddrinfo first=` が `AddressFamily.AF_INET` または値 `2` の IPv4 family になる。
 - 各 host で `tls=TLS...` と peer address が出る。
