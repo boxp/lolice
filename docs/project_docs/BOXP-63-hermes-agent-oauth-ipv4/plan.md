@@ -13,7 +13,7 @@ hermes-agent sandbox の Google Workspace OAuth token exchange が `https://oaut
 - 同じ runner から IPv6 は到達できない。
   - `curl -6 https://oauth2.googleapis.com/token`: 5/5 失敗。
 - hermes-agent namespace の Calico NetworkPolicy は外部 TCP `443` を許可しているため、少なくとも GitOps manifest 上は Google OAuth への IPv4 HTTPS egress はブロックしていない。
-- この runner の ServiceAccount は `hermes-agent` namespace で `get pods` は可能だが、`create pods/exec` と `create pods` は不可。そのため、この runner から Pod 内の Python `getaddrinfo` や `/opt/data/.venv-google` での実 token exchange までは確認できない。
+- 2026-07-08 の追加権限付与後、この runner から `hermes-agent` Pod へ直接 `exec` できるようになった。
 
 ## Root Cause
 
@@ -87,7 +87,7 @@ kubectl -n hermes-agent get cm hermes-agent-config -o yaml
 - `bootstrap-config` initContainer にも `config` volume の `/etc/gai.conf` read-only mount がある。
 - `hermes-agent-config` ConfigMap に `precedence ::ffff:0:0/96  100` が入っている。
 
-この runner では以下の権限確認により、Pod 内での Python 実行確認は未実施。
+当初、この runner では以下の権限確認により Pod 内での Python 実行確認は未実施だった。
 
 ```bash
 kubectl auth can-i get pods -n hermes-agent          # yes
@@ -95,9 +95,76 @@ kubectl auth can-i create pods/exec -n hermes-agent  # no
 kubectl auth can-i create pods -n hermes-agent       # no
 ```
 
+2026-07-08 に `hermes-agent` への `exec` 権限が付与された後、実 Pod と検証 Job で以下を直接確認した。
+
+```bash
+kubectl logs -n hermes-agent job/hermes-agent-oauth-egress-check
+```
+
+結果:
+
+- Job は `Complete` 済み。
+- logs に `oauth egress check passed` が出力された。
+- Job logs では `/etc/gai.conf` に `precedence ::ffff:0:0/96  100` があり、`oauth2.googleapis.com` / `accounts.google.com` / `www.googleapis.com` の `getaddrinfo first=` がすべて `AddressFamily.AF_INET` だった。
+- 同じ 3 host で TLS handshake に成功した。
+- `https://oauth2.googleapis.com/token` は HTTP 404 を返し、到達性確認として成功した。
+
+実 `hermes-agent` Pod の `/opt/data/.venv-google` でも、IPv4 優先と OAuth token endpoint 到達性を確認した。
+
+```bash
+kubectl exec -n hermes-agent deploy/hermes-agent -c hermes-agent -- \
+  sh -lc 'HERMES_HOME=/opt/data /opt/data/.venv-google/bin/python - <<'"'"'PY'"'"'
+import socket
+import urllib.error
+import urllib.request
+
+infos = socket.getaddrinfo("oauth2.googleapis.com", 443, type=socket.SOCK_STREAM)
+print("first", infos[0][0], infos[0][4])
+try:
+    urllib.request.urlopen("https://oauth2.googleapis.com/token", timeout=10)
+except urllib.error.HTTPError as e:
+    print("http_status", e.code)
+PY'
+```
+
+結果:
+
+- Python interpreter は `/opt/data/.venv-google/bin/python`。
+- `socket.getaddrinfo("oauth2.googleapis.com", 443, type=SOCK_STREAM)` の先頭は `socket.AF_INET` / IPv4。
+- IPv4 強制なしの HTTPS request は `http_status 404` まで到達した。
+
+さらに、OAuth token exchange の実コードパスでネットワークエラーが消えていることを、無効な認可コードで確認した。有効な認可コードはこの runner に渡されていないため `google_token.json` の生成までは行わず、Google token endpoint から期待どおり `invalid_grant` が返ることを確認した。
+
+```bash
+kubectl exec -n hermes-agent deploy/hermes-agent -c hermes-agent -- \
+  sh -lc 'cd /opt/data && HERMES_HOME=/opt/data \
+    /opt/data/.venv-google/bin/python \
+    /opt/data/skills/productivity/google-workspace/scripts/setup.py \
+    --auth-code invalid_codex_connectivity_probe_20260708'
+```
+
+結果:
+
+- `ERROR: Token exchange failed: (invalid_grant) Malformed auth code.`
+- `Network is unreachable` / timeout / DNS error は発生しなかった。
+- `/opt/data/google_token.json` は作成されなかった。
+
+`oauth2.googleapis.com/token` への IPv4 到達性は、実 Pod から 10 回連続で確認した。
+
+```bash
+kubectl exec -n hermes-agent deploy/hermes-agent -c hermes-agent -- \
+  sh -lc 'for i in $(seq 1 10); do
+    curl -4 -sS -o /dev/null \
+      -w "%{http_code} %{remote_ip} %{time_connect} %{time_total}\n" \
+      --connect-timeout 5 https://oauth2.googleapis.com/token
+  done'
+```
+
+結果は 10/10 で HTTP 404、connect time はおおむね 12-18 ms だった。
+
 ## Required Acceptance Verification
 
-この変更は、exec 権限を持つ管理者環境で以下が成功するまで完了扱いにしない。`curl -4` は IPv4 を強制するため、`/etc/gai.conf` によるデフォルトのアドレス選択改善の確認としては使わない。
+この変更は、exec 権限を持つ環境で以下が成功するまで完了扱いにしない。2026-07-08 時点で、検証 Job と実 `hermes-agent` Pod での IPv4 優先、HTTPS 到達性、無効コードによる token exchange コードパス到達までは確認済み。`curl -4` は IPv4 を強制するため、`/etc/gai.conf` によるデフォルトのアドレス選択改善の確認としては使わない。
 
 まず Argo CD sync 後に検証 Job が実行され、hermes-agent と同じ label / namespace / ConfigMap mount / image で OAuth 関連 FQDN の到達性を確認できることを見る。
 
@@ -170,7 +237,7 @@ OAuth 認可コードを取得した後、同じ Pod で以下を実行する。
 
 ```bash
 kubectl -n hermes-agent exec -it deploy/hermes-agent -c hermes-agent -- \
-  sh -lc 'cd /opt/data && /opt/data/.venv-google/bin/python setup.py --auth-code "$AUTH_CODE" && test -s google_token.json && ls -l google_token.json'
+  sh -lc 'cd /opt/data && HERMES_HOME=/opt/data /opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/setup.py --auth-code "$AUTH_CODE" && test -s google_token.json && ls -l google_token.json'
 ```
 
 成功条件:
