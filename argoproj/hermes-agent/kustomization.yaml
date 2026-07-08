@@ -8,4 +8,5 @@ resources:
   - pvc.yaml
   - external-secret-cloudflared.yaml
   - deployment.yaml
+  - rbac.yaml
   - networkpolicy.yaml
