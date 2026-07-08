@@ -237,7 +237,7 @@ OAuth 認可コードを取得した後、同じ Pod で以下を実行する。
 
 ```bash
 kubectl -n hermes-agent exec -it deploy/hermes-agent -c hermes-agent -- \
-  sh -lc 'cd /opt/data && HERMES_HOME=/opt/data /opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/setup.py --auth-code "$AUTH_CODE" && test -s google_token.json && ls -l google_token.json'
+  env AUTH_CODE="$AUTH_CODE" sh -lc 'cd /opt/data && HERMES_HOME=/opt/data /opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/setup.py --auth-code "$AUTH_CODE" && test -s google_token.json && ls -l google_token.json'
 ```
 
 成功条件:
