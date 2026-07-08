@@ -6,6 +6,9 @@ metadata:
   labels:
     app: hermes-agent
     app.kubernetes.io/name: hermes-agent-oauth-egress-check
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600
