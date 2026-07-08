@@ -6,7 +6,7 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - pvc.yaml
+  - external-secret-cloudflared.yaml
   - deployment.yaml
-  - service-dashboard.yaml
   - rbac.yaml
   - networkpolicy.yaml

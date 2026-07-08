@@ -7,17 +7,7 @@ spec:
   tier: default
   selector: app == 'hermes-agent'
   types:
-    - Ingress
     - Egress
-  ingress:
-    - action: Allow
-      protocol: TCP
-      source:
-        selector: app == 'cloudflared'
-        namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent-cloudflared'
-      destination:
-        ports:
-          - 9119
   egress:
     - action: Allow
       protocol: UDP
