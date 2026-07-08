@@ -9,3 +9,4 @@ resources:
   - external-secret-cloudflared.yaml
   - deployment.yaml
   - networkpolicy.yaml
+  - oauth-egress-check-job.yaml
