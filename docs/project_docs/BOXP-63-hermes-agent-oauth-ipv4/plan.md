@@ -13,7 +13,7 @@ hermes-agent sandbox の Google Workspace OAuth token exchange が `https://oaut
 - 同じ runner から IPv6 は到達できない。
   - `curl -6 https://oauth2.googleapis.com/token`: 5/5 失敗。
 - hermes-agent namespace の Calico NetworkPolicy は外部 TCP `443` を許可しているため、少なくとも GitOps manifest 上は Google OAuth への IPv4 HTTPS egress はブロックしていない。
-- この runner の ServiceAccount には `hermes-agent` Pod への `pods/exec` 権限がないため、Pod 内の `/opt/data/.venv-google` で実 token exchange までは確認できない。
+- この runner の ServiceAccount は `hermes-agent` namespace で `get pods` は可能だが、`create pods/exec` と `create pods` は不可。そのため、この runner から Pod 内の Python `getaddrinfo` や `/opt/data/.venv-google` での実 token exchange までは確認できない。
 
 ## Root Cause
 
@@ -54,18 +54,72 @@ kubectl -n hermes-agent get networkpolicies.projectcalico.org hermes-agent-netwo
 
 外部 TCP `443` が許可されていることを確認した。
 
-## Post-Apply Verification
+Argo CD sync 後、実 cluster の Pod spec と ConfigMap 反映状態を確認した。
 
-Argo CD sync 後、exec 権限を持つ管理者環境で以下を確認する。
+```bash
+kubectl -n hermes-agent get pods -l app=hermes-agent -o wide
+kubectl -n hermes-agent get pod -l app=hermes-agent -o yaml
+kubectl -n hermes-agent get cm hermes-agent-config -o yaml
+```
+
+確認結果:
+
+- `hermes-agent-77b6498978-z8mlm` は `3/3 Running`。
+- `hermes-agent` container に `config` volume の `/etc/gai.conf` read-only mount がある。
+- `bootstrap-config` initContainer にも `config` volume の `/etc/gai.conf` read-only mount がある。
+- `hermes-agent-config` ConfigMap に `precedence ::ffff:0:0/96  100` が入っている。
+
+この runner では以下の権限確認により、Pod 内での Python 実行確認は未実施。
+
+```bash
+kubectl auth can-i get pods -n hermes-agent          # yes
+kubectl auth can-i create pods/exec -n hermes-agent  # no
+kubectl auth can-i create pods -n hermes-agent       # no
+```
+
+## Required Acceptance Verification
+
+この変更は、exec 権限を持つ管理者環境で以下が成功するまで完了扱いにしない。`curl -4` は IPv4 を強制するため、`/etc/gai.conf` によるデフォルトのアドレス選択改善の確認としては使わない。
 
 ```bash
 kubectl -n hermes-agent rollout status deploy/hermes-agent
 
 kubectl -n hermes-agent exec deploy/hermes-agent -c hermes-agent -- \
-  sh -lc 'cat /etc/gai.conf; getent ahosts oauth2.googleapis.com | head -20'
+  sh -lc 'cat /etc/gai.conf'
 
 kubectl -n hermes-agent exec deploy/hermes-agent -c hermes-agent -- \
-  sh -lc 'for i in $(seq 1 10); do curl -4 -sS -o /dev/null -w "%{http_code} %{remote_ip} %{time_connect} %{time_total}\n" --connect-timeout 5 --max-time 10 https://oauth2.googleapis.com/token; done'
+  sh -lc 'python3 - <<'"'"'PY'"'"'
+import socket
+infos = socket.getaddrinfo("oauth2.googleapis.com", 443, type=socket.SOCK_STREAM)
+for info in infos[:10]:
+    print(info)
+first = infos[0]
+if first[0] != socket.AF_INET:
+    raise SystemExit(f"first address is not IPv4: {first!r}")
+PY'
+```
+
+成功条件:
+
+- `/etc/gai.conf` に `precedence ::ffff:0:0/96  100` がある。
+- Python `socket.getaddrinfo("oauth2.googleapis.com", 443, type=socket.SOCK_STREAM)` の先頭が `socket.AF_INET` の IPv4 address になる。
+- 先頭が IPv6 の場合は、今回の恒久対応が Python OAuth client に効いていないため不合格。
+
+ネットワーク到達性は、IPv4を強制しない Python HTTPS request で確認する。GET `/token` は OAuth token exchange としては 404 になるが、TLS接続とHTTP応答が取れれば到達性確認として扱える。
+
+```bash
+kubectl -n hermes-agent exec deploy/hermes-agent -c hermes-agent -- \
+  sh -lc 'python3 - <<'"'"'PY'"'"'
+import urllib.error
+import urllib.request
+
+try:
+    urllib.request.urlopen("https://oauth2.googleapis.com/token", timeout=10)
+except urllib.error.HTTPError as e:
+    print("http_status", e.code)
+    if e.code != 404:
+        raise
+PY'
 ```
 
 OAuth 認可コードを取得した後、同じ Pod で以下を実行する。
