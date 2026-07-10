@@ -76,7 +76,7 @@ runner image の変更は [boxp/arch PR #11010](https://github.com/boxp/arch/pul
 - rollout は通常の Argo CD sync / image updater に任せ、Pod の force delete は行わない。
 - rollout 前に Deployment が `replicas: 1` / `Recreate` であることを確認する。
 - 初回導入では lolice PR #723 を先に sync し、実 Pod の stale 180 秒 / poll 30 秒と受付再開を確認するまで arch PR #11010 を merge しない。
-- rollback は両 repository の変更を revert する。runner image を先に戻す場合も lock の追加 key は EDN の未知 key として無害で、lolice manifest の preStop は対応 command を含む image と同時に戻す。
+- rollback は active lock がない maintenance window で両 repository の変更を一体として revert し、image updater / Argo CD sync を調整して旧 runner image と旧 manifest を同じ変更単位で適用する。旧 image だけを先行 rollout すると新 manifest の `preStop prepare-shutdown` が失敗するため、単独 image downgrade は行わない。両方を調整できない場合は downgrade せず forward fix を優先する。lock の追加 key は旧 runner から未知 key として無視される。
 - lock の手動削除は、現 Pod UID と lock owner が不一致、該当 owner Pod が存在しない、heartbeat が stale であることを確認し、`task_board_runner.bb recover` が失敗した場合の最終手段に限定する。
 
 ## 残る単一障害点

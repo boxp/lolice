@@ -52,9 +52,9 @@ Codex run <run-id> was marked interrupted after planned workspace shutdown of ow
 
 ### Rollback
 
-`boxp/arch` の runner image とこの manifest は対になるため、通常は両 PR を revert して Argo CD sync します。先に manifest だけ戻すと Pod UID と preStop は使われなくなりますが、新 runner は hostname owner と SIGTERM hook で marker を維持します。既存 lock の追加 EDN key は旧 runner から無視され、180 秒設定を戻した場合は旧 timeout に戻ります。先に image だけ戻すと manifest の `prepare-shutdown` hook が失敗するため避けてください。
+`boxp/arch` の runner image とこの manifest は対になるため、rollback は active lock がない maintenance window で両 PR の revert を一体として適用します。image updater / Argo CD sync を調整し、旧 runner image と旧 manifest の desired revision を同じ変更単位で反映してください。旧 image だけを先行 rollout すると新 manifest の `prepare-shutdown` hook が失敗するため、単独 image downgrade は行いません。両 repository の適用を調整できない場合は downgrade せず forward fix を優先します。既存 lock の追加 EDN key は旧 runner から無視されます。
 
-rollback 中も `replicas: 1` / `Recreate` と RWO PVC は変更しません。rollback 後は上記 rollout 手順と同じ観点で Pod Ready、runner log、active lock を確認します。
+rollback 前後で `replicas: 1` / `Recreate` と RWO PVC は変更しません。適用直前に active lock がないことを再確認し、rollback 後は上記 rollout 手順と同じ観点で Pod Ready、runner log、active lock を確認します。
 
 ### Lock diagnosis and safe recovery
 
