@@ -37,6 +37,7 @@ Service は `app=codex-workspace` の単一 Pod を選択し、image updater の
 - loop process の SIGTERM shutdown hook からも同じ marker を永続化し、manifest hook がない場合も計画停止を通知する。
 - startup / `recover` で marker と lock owner が一致する fresh lock を `:interrupted` にし、Notes に計画停止理由を残す。
 - marker のない fresh active lock と、別 owner の lock は維持する。
+- run ID を秒 timestamp + UUID とし、即時再開が旧 run と同じ秒でも summary / workspace / branch を再利用しない。
 - stale / corrupt lock の既存復旧と Task Board lane source-of-truth は変更しない。
 - black-box test で即時回収、owner 不一致の非回収、owner metadata、lane/frontmatter/Notes の整合を検証する。
 
@@ -67,6 +68,7 @@ runner image の変更は [boxp/arch PR #11010](https://github.com/boxp/arch/pul
 - 一時 vault / state を使い、fresh heartbeat の旧 owner lock + shutdown marker を新 owner が即時回収し、同じ tick で再実行できることを時間計測する。
 - loop process へ直接 SIGTERM を送り、preStop command なしでも owner / instance 一致の shutdown marker が作成されることを確認する。
 - marker のない fresh lock、owner 不一致の marker、現在 heartbeat 中の lock が回収されないことを確認する。
+- 同一 timestamp の旧 run を planned shutdown で回収しても、置換 run が別 UUID の artifact directory を使い、旧 summary を上書きしないことを確認する。
 - `kubectl kustomize argoproj/codex-workspace` と repository の Argo CD manifest validation を通す。
 - render 後 manifest で replica / strategy、Pod UID env、preStop、timeout、既存 container / Service / PVC mount が維持されることを確認する。
 - merge 後の実環境 rollout では旧 Pod UID、停止開始時刻、新 Pod Ready 時刻、planned recovery log、最初の新規 ticket 開始時刻を採取し、5 分以内と二重起動なしを確認する。
@@ -91,6 +93,7 @@ runner image の変更は [boxp/arch PR #11010](https://github.com/boxp/arch/pul
 - validation environment: 一時 vault / state、fake Codex、旧 owner の fresh lock と planned-shutdown marker を使う black-box rollout simulation は 1 秒で `interrupted` 記録、Notes 追記、新 owner lock 取得、同 tick 再実行、最終 lane/frontmatter 更新まで完了した。
 - graceful signal: loop process に直接 SIGTERM を送り、preStop command を実行しない条件でも owner / instance 一致の shutdown marker が書かれる black-box test が通過した。
 - active safety: 現 owner marker と owner-instance 不一致 marker の fresh lock は回収されず、新 run が開始されないテストが通った。replacement lock 取得後は旧 heartbeat / release が別 owner lock を更新・削除しない実装とした。
+- same-second recovery: 旧 run と同じ timestamp を固定して planned recovery を実行し、置換 run が UUID suffix 付きの別 summary directory を使い、旧 summary の `interrupted` 状態を維持するテストが通った。
 - `tests/codex-workspace/task-board-runner-test.sh`、runner 内蔵 test、`tests/codex-workspace/recurring-events-test.sh` が通過した。recurring-events の passwordless sudo を要する ownership test だけは環境条件により skip された。
 - `kustomize build argoproj/codex-workspace` と、Calico NetworkPolicy 文書を除く client-side `kubectl apply --dry-run=client --validate=false` が通過した。Calico 文書は kubectl client の CRD patch 構造化変換制約のため render 成功で確認した。
 - companion の lolice PR #723 で ArgoCD diff と gitleaks が成功し、rendered Deployment に `preStop prepare-shutdown`、Pod UID の `CODEX_TASK_BOARD_OWNER_ID`、stale 180 秒、poll 30 秒、grace 60 秒が現れることを確認した。
