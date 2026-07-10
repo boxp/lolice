@@ -19,6 +19,7 @@ spec:
       automountServiceAccountToken: false
       nodeSelector:
         kubernetes.io/arch: amd64
+      terminationGracePeriodSeconds: 60
       initContainers:
         - name: fetch-ssh-keys
           image: docker.io/curlimages/curl:8.21.0
@@ -316,6 +317,12 @@ spec:
           command:
             - /opt/codex-workspace/task-board/task_board_runner.bb
             - loop
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /opt/codex-workspace/task-board/task_board_runner.bb
+                  - prepare-shutdown
           env:
             - name: HOME
               value: /home/boxp
@@ -326,9 +333,13 @@ spec:
             - name: CODEX_TASK_BOARD_VAULT
               value: /home/boxp/Documents/obsidian-headless/BOXP
             - name: CODEX_TASK_BOARD_POLL_SECONDS
-              value: "60"
+              value: "30"
             - name: CODEX_TASK_BOARD_LOCK_STALE_SECONDS
-              value: "1800"
+              value: "180"
+            - name: CODEX_TASK_BOARD_OWNER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
             - name: DOCKER_HOST
               value: tcp://127.0.0.1:2375
             - name: DOCKER_BUILDKIT

@@ -1,4 +1,81 @@
-# codex-workspace Task Board Dashboard
+# codex-workspace
+
+## Availability model
+
+`codex-workspace` は `/home/boxp` の RWO PVC と singleton writer の整合性を優先し、`replicas: 1` / `Recreate` を維持します。workspace、Obsidian sync、Task Board draft watcher、Codex cron、Task Board runner、Docker daemon は複製しません。Dashboard は PVC を read-only mount しますが、単独で複製しても runner の可用性は改善しないため同じ Pod に置きます。
+
+Task Board lock には downward API から渡した Pod UID (`CODEX_TASK_BOARD_OWNER_ID`) と runner instance ID を記録します。計画 rollout の `preStop` は `/home/boxp/.codex-task-board/terminating-owners/` に owner marker を書きます。`Recreate` で旧 Pod が完全に終了した後、別 UID の新 Pod だけが marker と owner / instance の一致する lock を `interrupted` にして再受付します。
+
+旧 image からの初回 rollout、SIGKILL、node 障害など preStop が実行されない場合は heartbeat を使います。stale timeout は 180 秒、poll は 30 秒なので、最後の heartbeat から通常 210 秒以内に lock を回収します。marker のない fresh lock、owner または instance が一致しない marker、現在の Pod UID が所有する planned-shutdown markerは回収しません。
+
+### Rollout
+
+force delete は使わず、通常の Argo CD sync / image updater による Deployment rollout を使います。
+
+```sh
+NS=codex-workspace
+DEPLOY=codex-workspace
+
+kubectl -n "${NS}" get deploy "${DEPLOY}" \
+  -o jsonpath='replicas={.spec.replicas} strategy={.spec.strategy.type}{"\n"}'
+OLD_POD=$(kubectl -n "${NS}" get pod -l app=codex-workspace -o jsonpath='{.items[0].metadata.name}')
+OLD_UID=$(kubectl -n "${NS}" get pod "${OLD_POD}" -o jsonpath='{.metadata.uid}')
+STARTED_AT=$(date -u +%FT%TZ)
+
+# Git merge / Argo CD sync または image updater の更新後
+kubectl -n "${NS}" rollout status deploy/"${DEPLOY}" --timeout=5m
+kubectl -n "${NS}" get pod -l app=codex-workspace \
+  -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,READY:.status.containerStatuses[*].ready,START:.status.startTime'
+NEW_POD=$(kubectl -n "${NS}" get pod -l app=codex-workspace -o jsonpath='{.items[0].metadata.name}')
+kubectl -n "${NS}" logs "${NEW_POD}" -c task-board-runner --since-time="${STARTED_AT}" --timestamps
+```
+
+2 回目以降の計画 rollout では、実行中 run があった場合に次の log と ticket Notes を確認します。
+
+```text
+closing lock from planned owner shutdown: BOXP-N owner=<OLD_UID>
+Codex run <run-id> was marked interrupted after planned workspace shutdown of owner <OLD_UID>.
+```
+
+初回 rollout で旧 lock に owner metadata がない場合は `closing stale lock` が 180 秒後に出るのが fallback の期待動作です。受付再開時間は新 Pod の `processing BOXP-N` log から計測し、停止開始から 5 分未満であること、同じ ticket の lock / run が同時に 2 個存在しないことを記録します。
+
+### Rollback
+
+`boxp/arch` の runner image とこの manifest は対になるため、通常は両 PR を revert して Argo CD sync します。先に manifest だけ戻すと preStop marker は使われなくなりますが、既存 lock の追加 EDN key は旧 runner から無視され、180 秒設定を戻した場合は旧 timeout に戻ります。先に image だけ戻すと manifest の `prepare-shutdown` hook が失敗するため避けてください。
+
+rollback 中も `replicas: 1` / `Recreate` と RWO PVC は変更しません。rollback 後は上記 rollout 手順と同じ観点で Pod Ready、runner log、active lock を確認します。
+
+### Lock diagnosis and safe recovery
+
+```sh
+NS=codex-workspace
+POD=$(kubectl -n "${NS}" get pod -l app=codex-workspace -o jsonpath='{.items[0].metadata.name}')
+POD_UID=$(kubectl -n "${NS}" get pod "${POD}" -o jsonpath='{.metadata.uid}')
+
+kubectl -n "${NS}" exec "${POD}" -c task-board-runner -- \
+  find /home/boxp/.codex-task-board/locks -maxdepth 1 -type f -print
+kubectl -n "${NS}" exec "${POD}" -c task-board-runner -- \
+  find /home/boxp/.codex-task-board/terminating-owners -maxdepth 1 -type f -print
+kubectl -n "${NS}" logs "${POD}" -c task-board-runner --since=10m --timestamps
+```
+
+lock の `:owner-id`、`:owner-instance-id`、`:heartbeat-at` と現在の `POD_UID` を比較します。current Pod UID の fresh lock は active とみなし、削除しません。別 owner の marker が lock と完全一致する場合、または heartbeat が 180 秒を超えた場合は loop の次 tick が自動回収します。自動回収されない場合は、まず非受付の recovery command を実行します。
+
+```sh
+kubectl -n "${NS}" exec "${POD}" -c task-board-runner -- \
+  /opt/codex-workspace/task-board/task_board_runner.bb recover
+```
+
+lock の手動削除は、Deployment が 1 replica、旧 owner UID の Pod が存在しない、heartbeat が stale、`recover` が error になったことをすべて確認した場合の最終手段です。削除前に lock と run directory を退避し、対応 run の `summary.edn` を `interrupted` として残し、ticket Notes に理由を追記します。Task Board lane を source of truth とし、frontmatter や card status を古い run state から巻き戻しません。
+
+### Remaining single points of failure
+
+- 単一 `codex-workspace` Pod、RWO home PVC、配置 node
+- Kubernetes control plane / Longhorn、Obsidian remote、GitHub / agent API
+- Pod 再作成中の SSH / Even Terminal 切断と、agent session の非 live-migration
+- preStop が実行されない障害で必要になる 180 秒 heartbeat fallback
+
+## Task Board Dashboard
 
 codex-workspace Pod に同居する読み取り専用 Dashboard です。Task Board runner が PVC 上へ出力する `/home/boxp/.codex-task-board` を読み、agent run とログを PC-98 風 UI で表示します。
 
