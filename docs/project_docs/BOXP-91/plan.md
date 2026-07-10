@@ -52,7 +52,14 @@ Service は `app=codex-workspace` の単一 Pod を選択し、image updater の
 
 runner image の変更は [boxp/arch PR #11010](https://github.com/boxp/arch/pull/11010)、Deployment の変更は [boxp/lolice PR #723](https://github.com/boxp/lolice/pull/723) で同時にレビューする。lolice 側には `task-board-runner` の `preStop` から `prepare-shutdown` を呼ぶ設定、downward API の `metadata.uid` を `CODEX_TASK_BOARD_OWNER_ID` へ注入する設定、stale 180 秒 / poll 30 秒 / grace 60 秒が含まれる。PR #723 の ArgoCD diff と gitleaks は成功しており、render 上でもこれらの Deployment 差分を確認済みである。
 
-適用順は arch → lolice とする。arch の image だけが先に rollout した場合、終了する旧 image は marker を作れないが、新 image の default stale 180 秒と既存 poll 60 秒により最大約 240 秒で復旧する。以後は runner 自身の SIGTERM hook が hostname owner marker を作り、lolice 適用後は Pod UID と preStop を加えた二重化された経路になる。
+初回導入は次の順序を必須とし、arch image を先に rollout しない。
+
+1. lolice PR #723 を先に merge / Argo CD sync し、現行 arch image のまま Deployment を rollout する。終了する旧 Pod は新しい preStop をまだ持たないため、この1回目は marker なしの fallback になる。
+2. rollout 完了後、実 Pod の `CODEX_TASK_BOARD_LOCK_STALE_SECONDS=180` と `CODEX_TASK_BOARD_POLL_SECONDS=30` を確認する。停止した旧 lock は最後の heartbeat から最大約 210 秒で回収される。
+3. timeout 低減と受付再開を確認してから arch PR #11010 を merge し、image updater による rollout を許可する。この2回目に終了する Pod は preStop を持つが旧 runner は `prepare-shutdown` に未対応のため、hook が失敗しても先に適用済みの 180 秒 / 30 秒設定により最大約 210 秒で復旧する。
+4. 新 arch image の起動後は Pod UID owner、runner の SIGTERM hook、preStop の二重化された経路が有効になり、以後の計画 rollout は一致 lock を即時回収する。
+
+手順 2 の確認前に arch PR を merge しないことを cross-repository deployment gate とする。これにより、旧 manifest の明示値 1,800 秒が runner の default 180 秒を上書きする arch-only rollout を防ぐ。
 
 ## 検証計画
 
@@ -68,6 +75,7 @@ runner image の変更は [boxp/arch PR #11010](https://github.com/boxp/arch/pul
 
 - rollout は通常の Argo CD sync / image updater に任せ、Pod の force delete は行わない。
 - rollout 前に Deployment が `replicas: 1` / `Recreate` であることを確認する。
+- 初回導入では lolice PR #723 を先に sync し、実 Pod の stale 180 秒 / poll 30 秒と受付再開を確認するまで arch PR #11010 を merge しない。
 - rollback は両 repository の変更を revert する。runner image を先に戻す場合も lock の追加 key は EDN の未知 key として無害で、lolice manifest の preStop は対応 command を含む image と同時に戻す。
 - lock の手動削除は、現 Pod UID と lock owner が不一致、該当 owner Pod が存在しない、heartbeat が stale であることを確認し、`task_board_runner.bb recover` が失敗した場合の最終手段に限定する。
 

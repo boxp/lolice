@@ -12,6 +12,15 @@ Task Board lock には downward API から渡した Pod UID (`CODEX_TASK_BOARD_O
 
 force delete は使わず、通常の Argo CD sync / image updater による Deployment rollout を使います。
 
+初回導入では、旧 manifest の `CODEX_TASK_BOARD_LOCK_STALE_SECONDS=1800` が runner の default を上書きしないよう、次の順序を必須とします。
+
+1. [boxp/lolice PR #723](https://github.com/boxp/lolice/pull/723) を先に merge / Argo CD sync し、現行 arch image のまま Deployment を rollout します。終了する旧 Pod は新しい preStop をまだ持たないため、この1回目は marker なしの fallback になります。
+2. rollout 完了後、実 Pod の stale 180 秒 / poll 30 秒を確認し、旧 lock がある場合も最後の heartbeat から約 210 秒以内に受付が再開することを確認します。
+3. 上記を確認してから [boxp/arch PR #11010](https://github.com/boxp/arch/pull/11010) を merge し、image updater の rollout を許可します。この2回目に終了する Pod は preStop を持ちますが、旧 runner の `prepare-shutdown` は失敗します。それでも先に適用済みの timeout で約 210 秒以内に復旧します。
+4. 新 image の起動後は SIGTERM hook と preStop が有効になり、以後の計画 rollout では owner / instance が一致する lock を即時回収します。
+
+手順 2 が完了するまで arch PR を merge しません。arch を先に rollout すると、既存 manifest の 1,800 秒設定により初回復旧が5分を超えるためです。
+
 ```sh
 NS=codex-workspace
 DEPLOY=codex-workspace
@@ -27,6 +36,8 @@ kubectl -n "${NS}" rollout status deploy/"${DEPLOY}" --timeout=5m
 kubectl -n "${NS}" get pod -l app=codex-workspace \
   -o custom-columns='NAME:.metadata.name,UID:.metadata.uid,READY:.status.containerStatuses[*].ready,START:.status.startTime'
 NEW_POD=$(kubectl -n "${NS}" get pod -l app=codex-workspace -o jsonpath='{.items[0].metadata.name}')
+kubectl -n "${NS}" exec "${NEW_POD}" -c task-board-runner -- sh -c \
+  'printf "stale=%s poll=%s\n" "$CODEX_TASK_BOARD_LOCK_STALE_SECONDS" "$CODEX_TASK_BOARD_POLL_SECONDS"'
 kubectl -n "${NS}" logs "${NEW_POD}" -c task-board-runner --since-time="${STARTED_AT}" --timestamps
 ```
 
