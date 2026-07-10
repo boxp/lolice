@@ -9,4 +9,4 @@ spec:
   storageClassName: codex-workspace-longhorn
   resources:
     requests:
-      storage: 10Gi
+      storage: 50Gi
