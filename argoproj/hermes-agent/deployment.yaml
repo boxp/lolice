@@ -102,6 +102,8 @@ spec:
               value: /opt/data
             - name: OBSIDIAN_VAULT_PATH
               value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: HERMES_WRITE_SAFE_ROOT
+              value: /opt/data:/home/boxp/Documents/obsidian-headless/BOXP
             - name: LOCAL_LLM_BASE_URL
               value: http://llama-server.local-llm.svc.cluster.local:8080/v1
             - name: LOCAL_LLM_MODEL
