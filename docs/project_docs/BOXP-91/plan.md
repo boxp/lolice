@@ -36,6 +36,7 @@ Service は `app=codex-workspace` の単一 Pod を選択し、image updater の
 - `prepare-shutdown` command で owner-scoped marker を永続化する。
 - loop process の SIGTERM shutdown hook からも同じ marker を永続化し、manifest hook がない場合も計画停止を通知する。
 - startup / `recover` で marker と lock owner が一致する fresh lock を `:interrupted` にし、Notes に計画停止理由を残す。
+- owner ごとの永続 guard file を Java `FileLock` で共有し、marker 作成、lock acquire、全 lock の最終再走査、marker 削除を owner guard → ticket guard の順序で直列化する。marker 削除前に owner state を `:terminated` tombstone に更新する。
 - marker のない fresh active lock と、別 owner の lock は維持する。
 - run ID を秒 timestamp + UUID とし、即時再開が旧 run と同じ秒でも summary / workspace / branch を再利用しない。
 - ticket ごとの永続 guard file を Java `FileLock` で共有し、runner / helper / replacement JVM 間でも lock の compare-and-delete、acquire、heartbeat、release を同じ critical section で行う。
@@ -70,7 +71,7 @@ runner image の変更は [boxp/arch PR #11010](https://github.com/boxp/arch/pul
 - loop process へ直接 SIGTERM を送り、preStop command なしでも owner / instance 一致の shutdown marker が作成されることを確認する。
 - marker のない fresh lock、owner 不一致の marker、現在 heartbeat 中の lock が回収されないことを確認する。
 - 同一 timestamp の旧 run を planned shutdown で回収しても、置換 run が別 UUID の artifact directory を使い、旧 summary を上書きしないことを確認する。
-- 別 JVM が旧 lock の比較後に replacement lock を作ろうとする競合を再現し、guard 解放後に作られた replacement lock を旧 recovery が削除しないことを確認する。
+- 別 JVM が旧 lock の比較後に replacement lock を作ろうとする競合を再現し、guard 解放後に作られた replacement lock を旧 recovery が削除しないこと、および marker cleanup 後の `:terminated` owner が新しい lock を取得できないことを確認する。
 - `kubectl kustomize argoproj/codex-workspace` と repository の Argo CD manifest validation を通す。
 - render 後 manifest で replica / strategy、Pod UID env、preStop、timeout、既存 container / Service / PVC mount が維持されることを確認する。
 - merge 後の実環境 rollout では旧 Pod UID、停止開始時刻、新 Pod Ready 時刻、planned recovery log、最初の新規 ticket 開始時刻を採取し、5 分以内と二重起動なしを確認する。
@@ -97,6 +98,7 @@ runner image の変更は [boxp/arch PR #11010](https://github.com/boxp/arch/pul
 - active safety: 現 owner marker と owner-instance 不一致 marker の fresh lock は回収されず、新 run が開始されないテストが通った。replacement lock 取得後は旧 heartbeat / release が別 owner lock を更新・削除しない実装とした。
 - same-second recovery: 旧 run と同じ timestamp を固定して planned recovery を実行し、置換 run が UUID suffix 付きの別 summary directory を使い、旧 summary の `interrupted` 状態を維持するテストが通った。
 - cross-process ownership: recovery JVM を compare-and-delete 中で停止し、別 JVM が同じ永続 guard を取得して replacement lock を作る競合テストで、replacement lock が維持されることを確認した。
+- owner marker cleanup: owner guard 内で一致 lock の最終再走査と marker 世代の再確認を行い、旧 owner state を `:terminated` にしてから marker を削除する。cleanup 後に同じ owner / instance から agent と lock が開始されない black-box test が通過した。
 - `tests/codex-workspace/task-board-runner-test.sh`、runner 内蔵 test、`tests/codex-workspace/recurring-events-test.sh` が通過した。recurring-events の passwordless sudo を要する ownership test だけは環境条件により skip された。
 - `kustomize build argoproj/codex-workspace` と、Calico NetworkPolicy 文書を除く client-side `kubectl apply --dry-run=client --validate=false` が通過した。Calico 文書は kubectl client の CRD patch 構造化変換制約のため render 成功で確認した。
 - companion の lolice PR #723 で ArgoCD diff と gitleaks が成功し、rendered Deployment に `preStop prepare-shutdown`、Pod UID の `CODEX_TASK_BOARD_OWNER_ID`、stale 180 秒、poll 30 秒、grace 60 秒が現れることを確認した。

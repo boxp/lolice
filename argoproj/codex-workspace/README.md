@@ -4,7 +4,7 @@
 
 `codex-workspace` は `/home/boxp` の RWO PVC と singleton writer の整合性を優先し、`replicas: 1` / `Recreate` を維持します。workspace、Obsidian sync、Task Board draft watcher、Codex cron、Task Board runner、Docker daemon は複製しません。Dashboard は PVC を read-only mount しますが、単独で複製しても runner の可用性は改善しないため同じ Pod に置きます。
 
-Task Board lock には downward API から渡した Pod UID (`CODEX_TASK_BOARD_OWNER_ID`) と runner instance ID を記録します。計画 rollout では runner process 自身の SIGTERM shutdown hook と container の `preStop` が `/home/boxp/.codex-task-board/terminating-owners/` に同じ owner marker を書きます。`Recreate` で旧 Pod が完全に終了した後、別 UID の新 Pod だけが marker と owner / instance の一致する lock を `interrupted` にして再受付します。
+Task Board lock には downward API から渡した Pod UID (`CODEX_TASK_BOARD_OWNER_ID`) と runner instance ID を記録します。計画 rollout では runner process 自身の SIGTERM shutdown hook と container の `preStop` が `/home/boxp/.codex-task-board/terminating-owners/` に同じ owner marker を書きます。`Recreate` で旧 Pod が完全に終了した後、別 UID の新 Pod だけが marker と owner / instance の一致する lock を `interrupted` にして再受付します。marker の作成・lock acquire・最終再走査・marker 削除は PVC 上の owner guard で直列化し、削除前に `/home/boxp/.codex-task-board/owners/` の旧 owner state を `:terminated` にするため、待機していた旧 owner が marker 削除直後に lock を作ることもありません。
 
 旧 image からの初回 rollout、SIGKILL、node 障害など shutdown hook と preStop の両方が実行されない場合は heartbeat を使います。stale timeout は 180 秒、poll は 30 秒なので、最後の heartbeat から通常 210 秒以内に lock を回収します。marker のない fresh lock、owner または instance が一致しない marker、現在の Pod UID が所有する planned-shutdown markerは回収しません。
 
@@ -67,10 +67,12 @@ kubectl -n "${NS}" exec "${POD}" -c task-board-runner -- \
   find /home/boxp/.codex-task-board/locks -maxdepth 1 -type f -print
 kubectl -n "${NS}" exec "${POD}" -c task-board-runner -- \
   find /home/boxp/.codex-task-board/terminating-owners -maxdepth 1 -type f -print
+kubectl -n "${NS}" exec "${POD}" -c task-board-runner -- \
+  find /home/boxp/.codex-task-board/owners -maxdepth 1 -type f -print
 kubectl -n "${NS}" logs "${POD}" -c task-board-runner --since=10m --timestamps
 ```
 
-lock の `:owner-id`、`:owner-instance-id`、`:heartbeat-at` と現在の `POD_UID` を比較します。current Pod UID の fresh lock は active とみなし、削除しません。別 owner の marker が lock と完全一致する場合、または heartbeat が 180 秒を超えた場合は loop の次 tick が自動回収します。自動回収されない場合は、まず非受付の recovery command を実行します。
+lock の `:owner-id`、`:owner-instance-id`、`:heartbeat-at` と現在の `POD_UID` を比較します。current Pod UID の fresh lock は active とみなし、削除しません。別 owner の marker が lock と完全一致する場合、または heartbeat が 180 秒を超えた場合は loop の次 tick が自動回収します。marker 回収後に残る旧 owner state の `:status :terminated` は lock 再作成を防ぐ正常な tombstone です。自動回収されない場合は、まず非受付の recovery command を実行します。
 
 ```sh
 kubectl -n "${NS}" exec "${POD}" -c task-board-runner -- \
