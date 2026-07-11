@@ -111,6 +111,8 @@ kubectl -n "${NS}" exec "${POD}" -c novel-board-runner -- sh -c \
 
 rollout 後は `Novel Board has no cards` または対象カードの処理 log、`Boards/Novel Board.md` の5レーン、`/home/boxp/.novel-board` の mode、既存 `task-board-runner` と `codex-cron-scheduler` の継続稼働を確認します。
 
+実行中の Novel lock がある状態で `Recreate` rollout した場合、planned-shutdown marker は停止理由を記録しますが、marker だけでは lock を即時回収しません。旧 runner または agent の停止を heartbeat で確認するため、新 Pod は最後の heartbeat が 180 秒を超えるまで待機します。poll は 30 秒なので、受入条件は最後の heartbeat から通常 180〜210 秒以内に `planned owner shutdown with stale heartbeat` として lock が回収され、現在の Novel Board lane から処理を再開することです。この待機中に同一カードの agent を二重起動しないことも確認します。
+
 ### Lock diagnosis and recovery
 
 ```sh
@@ -120,7 +122,7 @@ kubectl -n "${NS}" exec "${POD}" -c novel-board-runner -- \
   /opt/codex-workspace/novel-board/novel_board_runner.bb recover
 ```
 
-fresh lock は削除しません。別 Pod UID の planned-shutdown marker と一致する lock、または heartbeat が180秒を超えた lock は runner が回収し、管理ノートと run summary に `interrupted` を残します。復旧後も Novel Board lane を優先し、過去 run から状態や完成版を巻き戻しません。
+fresh lock は planned-shutdown marker と一致していても削除しません。別 Pod UID の marker と一致し、かつ heartbeat が180秒を超えた lock は `planned owner shutdown with stale heartbeat` として回収します。marker がない異常終了でも、heartbeat が180秒を超えれば `stale heartbeat` として回収します。いずれも管理ノートと run summary に `interrupted` を残し、poll 30秒を含めると最後の heartbeat から通常210秒以内に再開します。復旧後も Novel Board lane を優先し、過去 run から状態や完成版を巻き戻しません。
 
 ### Rollback
 

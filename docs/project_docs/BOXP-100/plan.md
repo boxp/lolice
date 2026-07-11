@@ -17,6 +17,7 @@ Deploy the independent Novel Board runner shipped by `boxp/arch` alongside the e
 
 - `kubectl kustomize argoproj/codex-workspace` renders successfully.
 - The rendered Deployment contains exactly one `novel-board-runner` container, private root, vault path, Pod UID owner, poll/stale values, resource limits, restricted security context, and home PVC mount.
+- During a `Recreate` rollout with an active Novel lock, the planned-shutdown marker does not bypass the heartbeat guard: recovery occurs after the 180-second stale threshold (normally within 210 seconds with the 30-second poll), without launching duplicate work.
 - Existing `task-board-runner`, `codex-cron-scheduler`, workspace, and daily novel configuration remain unchanged.
 
 ## Rollout order
