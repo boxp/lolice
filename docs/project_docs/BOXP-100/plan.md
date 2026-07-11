@@ -13,17 +13,19 @@ Deploy the independent Novel Board runner shipped by `boxp/arch` alongside the e
 5. Add a preStop hook that records planned shutdown for Novel Board locks.
 6. Document rollout, diagnosis, and rollback ordering with the companion `boxp/arch` PR.
 7. Mount the Pi model ConfigMap in the Novel sidecar and explicitly select `llama.cpp/gemma4-26b-vision`, so image attachments supplied by the runner reach an image-capable model.
+8. Document the title-only Backlog scaffold, template-backed management notes, Board lane rules, and the default human assignee used to stop automatic writing after manual creation.
 
 ## Validation
 
 - `kubectl kustomize argoproj/codex-workspace` renders successfully.
-- The Argo CD kustomize image override resolves every codex-workspace container to the verified, published `sha-d7bd1bb` image built from the companion PR head and containing the Novel runner, Pi vision input support, process-shared note update locking, and its root/non-root entrypoint role contract.
+- The Argo CD kustomize image override resolves every codex-workspace container to the verified, published `sha-1d32a00` image built from the companion PR head and containing the Novel runner, title-only scaffold, operating-rule seeds, Pi vision input support, process-shared note update locking, and its root/non-root entrypoint role contract.
 - The rendered Deployment contains exactly one `novel-board-runner` container, private root, vault path, Pod UID owner, poll/stale values, resource limits, restricted security context, and home PVC mount.
 - The Novel sidecar has no command override and selects the image-owned runner lifecycle with `CODEX_WORKSPACE_ROLE=novel-board-runner`; its init path is owned by UID/GID 1000 with mode `0700`, and the normal workspace container does not set this role.
 - During a `Recreate` rollout with an active Novel lock, the planned-shutdown marker does not bypass the heartbeat guard: recovery occurs after the 180-second stale threshold (normally within 210 seconds with the 30-second poll), without launching duplicate work.
 - Existing `task-board-runner`, `codex-cron-scheduler`, workspace, and daily novel configuration remain unchanged.
 - The Novel sidecar mounts `/etc/pi-agent-config`, sets `PI_CODING_AGENT_DIR`, and selects `llama.cpp/gemma4-26b-vision`; the model declaration keeps `input: ["text", "image"]`.
+- The seeded vault contains the Board-level operating rules, `Templates/Novel Management.md`, and `Novels/README.md`; a title-only Backlog card is scaffolded once and remains human-assigned by default.
 
 ## Rollout order
 
-The companion `boxp/arch` PR #11014 workflow dispatch published `sha-d7bd1bb` from head commit `d7bd1bb6174a6e8209ce61add0001f3278061634`. This manifest pins that verified image in `.argocd-source-codex-workspace.yaml`; the publishing run is [Build Codex Workspace Image #29147948885](https://github.com/boxp/arch/actions/runs/29147948885), and the verified registry digest is `sha256:6d4f28113b0b8b9baeb9c74b2f9027ef06ba78c46f058ef1a1c9baee9342bd46`. A later image-updater commit may advance the tag only to another image that also contains `novel_board_runner.bb`, Pi vision input support, process-shared note update locking, and the root/non-root `CODEX_WORKSPACE_ROLE=novel-board-runner` entrypoint contract.
+The companion `boxp/arch` PR #11014 workflow dispatch published `sha-1d32a00` from head commit `1d32a00709fd68decbe5713014b2fa3ac5d2e29e`. This manifest pins that verified image in `.argocd-source-codex-workspace.yaml`; the publishing run is [Build Codex Workspace Image #29149479751](https://github.com/boxp/arch/actions/runs/29149479751), and the verified registry digest is `sha256:87a02852d13d79802bb8a1a2df40f113a4d09149a1a7033b9d79d207d6e559cb`. A later image-updater commit may advance the tag only to another image that also contains `novel_board_runner.bb`, title-only scaffold and operating-rule seeds, Pi vision input support, process-shared note update locking, and the root/non-root `CODEX_WORKSPACE_ROLE=novel-board-runner` entrypoint contract.
