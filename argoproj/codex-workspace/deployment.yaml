@@ -405,6 +405,10 @@ spec:
               value: novel-board-runner
             - name: CODEX_HOME
               value: /home/boxp/.codex
+            - name: PI_CODING_AGENT_DIR
+              value: /home/boxp/.pi/agent
+            - name: CODEX_NOVEL_BOARD_PI_MODEL
+              value: llama.cpp/gemma4-26b-vision
             - name: CODEX_NOVEL_BOARD_ROOT
               value: /home/boxp/.novel-board
             - name: CODEX_NOVEL_BOARD_VAULT
@@ -440,6 +444,9 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+            - name: pi-config
+              mountPath: /etc/pi-agent-config
+              readOnly: true
         - name: task-board-dashboard
           image: docker.io/python:3.14-alpine
           imagePullPolicy: IfNotPresent
