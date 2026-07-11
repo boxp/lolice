@@ -386,6 +386,58 @@ spec:
             - name: kubernetes-api-token
               mountPath: /var/run/secrets/codex-workspace/k8s
               readOnly: true
+        - name: novel-board-runner
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /opt/codex-workspace/novel-board/novel_board_runner.bb
+            - loop
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /opt/codex-workspace/novel-board/novel_board_runner.bb
+                  - prepare-shutdown
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: CODEX_HOME
+              value: /home/boxp/.codex
+            - name: CODEX_NOVEL_BOARD_ROOT
+              value: /home/boxp/.novel-board
+            - name: CODEX_NOVEL_BOARD_VAULT
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: CODEX_NOVEL_BOARD_POLL_SECONDS
+              value: "30"
+            - name: CODEX_NOVEL_BOARD_LOCK_STALE_SECONDS
+              value: "180"
+            - name: CODEX_NOVEL_BOARD_OWNER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
         - name: task-board-dashboard
           image: docker.io/python:3.14-alpine
           imagePullPolicy: IfNotPresent
