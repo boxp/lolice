@@ -16,10 +16,11 @@ Deploy the independent Novel Board runner shipped by `boxp/arch` alongside the e
 ## Validation
 
 - `kubectl kustomize argoproj/codex-workspace` renders successfully.
+- The Argo CD kustomize image override resolves every codex-workspace container to the verified `sha-3759085` image built from the companion PR and containing `novel_board_runner.bb`.
 - The rendered Deployment contains exactly one `novel-board-runner` container, private root, vault path, Pod UID owner, poll/stale values, resource limits, restricted security context, and home PVC mount.
 - During a `Recreate` rollout with an active Novel lock, the planned-shutdown marker does not bypass the heartbeat guard: recovery occurs after the 180-second stale threshold (normally within 210 seconds with the 30-second poll), without launching duplicate work.
 - Existing `task-board-runner`, `codex-cron-scheduler`, workspace, and daily novel configuration remain unchanged.
 
 ## Rollout order
 
-Merge and publish the companion `boxp/arch` image first. After image updater has selected an image containing `novel_board_runner.bb`, merge this manifest PR. This avoids starting a sidecar with a path absent from the current image.
+The companion `boxp/arch` PR #11014 build published `sha-3759085` from its latest CI merge commit. This manifest pins that verified image in `.argocd-source-codex-workspace.yaml`, so merge only while the pin is present and the build-and-push check remains successful. A later image-updater commit may advance the tag only to another image that also contains `novel_board_runner.bb`.
