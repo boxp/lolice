@@ -29,16 +29,13 @@ spec:
             - |
               mkdir -p /home/boxp/.ssh
               mkdir -p /home/boxp/.pi/agent
-              mkdir -p /home/boxp/.novel-board
               rm -f /home/boxp/.pi/agent/models.json
               ln -s /etc/pi-agent-config/models.json /home/boxp/.pi/agent/models.json
               curl -fsSL https://github.com/boxp.keys -o /home/boxp/.ssh/authorized_keys
               test -s /home/boxp/.ssh/authorized_keys
               chown -R 1000:1000 /home/boxp/.ssh
-              chown -R 1000:1000 /home/boxp/.novel-board
               chown -h 1000:1000 /home/boxp/.pi/agent/models.json
               chmod 700 /home/boxp/.ssh
-              chmod 700 /home/boxp/.novel-board
               chmod 600 /home/boxp/.ssh/authorized_keys
           securityContext:
             runAsNonRoot: false
@@ -388,64 +385,6 @@ spec:
               readOnly: true
             - name: kubernetes-api-token
               mountPath: /var/run/secrets/codex-workspace/k8s
-              readOnly: true
-        - name: novel-board-runner
-          image: ghcr.io/boxp/arch/codex-workspace:latest
-          imagePullPolicy: Always
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /opt/codex-workspace/novel-board/novel_board_runner.bb
-                  - prepare-shutdown
-          env:
-            - name: HOME
-              value: /home/boxp
-            - name: CODEX_WORKSPACE_ROLE
-              value: novel-board-runner
-            - name: CODEX_HOME
-              value: /home/boxp/.codex
-            - name: PI_CODING_AGENT_DIR
-              value: /home/boxp/.pi/agent
-            - name: CODEX_NOVEL_BOARD_PI_MODEL
-              value: llama.cpp/gemma4-26b-vision
-            - name: CODEX_NOVEL_BOARD_ROOT
-              value: /home/boxp/.novel-board
-            - name: CODEX_NOVEL_BOARD_VAULT
-              value: /home/boxp/Documents/obsidian-headless/BOXP
-            - name: CODEX_NOVEL_BOARD_POLL_SECONDS
-              value: "30"
-            - name: CODEX_NOVEL_BOARD_LOCK_STALE_SECONDS
-              value: "180"
-            - name: CODEX_NOVEL_BOARD_OWNER_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.uid
-            - name: GEMINI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: codex-workspace-gemini
-                  key: GEMINI_API_KEY
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-            readOnlyRootFilesystem: false
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "128Mi"
-            limits:
-              cpu: "2"
-              memory: "4Gi"
-          volumeMounts:
-            - name: home
-              mountPath: /home/boxp
-            - name: pi-config
-              mountPath: /etc/pi-agent-config
               readOnly: true
         - name: task-board-dashboard
           image: docker.io/python:3.14-alpine
