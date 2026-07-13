@@ -7,3 +7,4 @@ resources:
 - pvc-v2.yaml
 - deployment.yaml
 - service.yaml
+- service-account.yaml
