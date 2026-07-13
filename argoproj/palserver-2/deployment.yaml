@@ -37,12 +37,3 @@ spec:
       - name: saved-volume
         persistentVolumeClaim:
           claimName: palserver-2-saved-claim
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                - golyat-1
