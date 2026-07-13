@@ -11,3 +11,4 @@ resources:
   - local-llm.yaml
   - stable-diffusion.yaml
   - palserver.yaml
+  - palserver-2.yaml

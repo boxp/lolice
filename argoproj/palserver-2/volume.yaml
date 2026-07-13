@@ -1,0 +1,10 @@
+apiVersion: longhorn.io/v1beta2
+kind: Volume
+metadata:
+  name: palserver-2-saved-claim
+  namespace: longhorn-system
+spec:
+  numberOfReplicas: 2
+  size: "1073741824"
+  accessMode: rwo
+  frontend: blockdev
