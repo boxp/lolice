@@ -8,3 +8,4 @@ spec:
   numberOfReplicas: 2
   size: "1073741824"
   accessMode: rwo
+  frontend: blockdev
