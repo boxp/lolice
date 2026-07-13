@@ -7,4 +7,3 @@ resources:
   - cloudflare-deployment.yaml
   - settings.yaml
   - recurring-jobs.yaml
-  - palserver-volume.yaml
