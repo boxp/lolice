@@ -35,3 +35,5 @@ resources:
 - tidb-operator/application.yaml
 - kube-vip/application.yaml
 - tailscale-operator/application.yaml
+- palserver-longhorn/application.yaml
+- palserver/application.yaml
