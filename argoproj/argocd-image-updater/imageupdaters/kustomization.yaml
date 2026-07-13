@@ -10,3 +10,4 @@ resources:
   - hermes-agent.yaml
   - local-llm.yaml
   - stable-diffusion.yaml
+  - palserver.yaml
