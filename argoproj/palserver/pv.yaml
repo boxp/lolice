@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: palserver-saved-pv-v2
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: longhorn
+  csi:
+    driver: driver.longhorn.io
+    fsType: ext4
+    volumeHandle: palserver-saved-claim-v2
+    volumeAttributes:
+      numberOfReplicas: "2"
+  claimRef:
+    namespace: palserver
+    name: palserver-saved-claim-v2

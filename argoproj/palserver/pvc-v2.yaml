@@ -6,6 +6,7 @@ spec:
   accessModes:
   - ReadWriteOnce
   storageClassName: longhorn
+  volumeName: palserver-saved-pv-v2
   resources:
     requests:
       storage: 1Gi
