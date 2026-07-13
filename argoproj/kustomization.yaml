@@ -36,3 +36,4 @@ resources:
 - kube-vip/application.yaml
 - tailscale-operator/application.yaml
 - palserver/application.yaml
+- palserver-2/application.yaml
