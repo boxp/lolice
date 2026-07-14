@@ -1,11 +1,11 @@
 apiVersion: argocd-image-updater.argoproj.io/v1alpha1
 kind: ImageUpdater
 metadata:
-  name: arc-runners
+  name: arc-runners-arch
   namespace: argocd
 spec:
   applicationRefs:
-    - namePattern: "arc-runners"
+    - namePattern: "arc-runners-arch"
       images:
         - alias: "arc-runner"
           imageName: "ghcr.io/boxp/arch/arc-runner:latest"
@@ -23,4 +23,4 @@ spec:
     gitConfig:
       repository: "git@github.com:boxp/lolice.git"
       branch: "main"
-      writeBackTarget: "helmvalues:./argoproj/actions-runner-controller/runner-scale-set/helm/values.yaml"
+      writeBackTarget: "helmvalues:./argoproj/actions-runner-controller/runner-scale-set-arch/helm/values.yaml"

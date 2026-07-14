@@ -8,7 +8,7 @@ resources:
   - even-g2-lab.yaml
   - codex-workspace.yaml
   - hermes-agent.yaml
-  - arc-runners.yaml
+  - arc-runners-arch.yaml
   - arc-runners-is01-linux.yaml
   - local-llm.yaml
   - stable-diffusion.yaml

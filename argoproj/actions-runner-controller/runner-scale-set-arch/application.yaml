@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: arc-runners
+  name: arc-runners-arch
   namespace: argocd
 spec:
   project: default
@@ -14,13 +14,13 @@ spec:
       chart: gha-runner-scale-set
       helm:
         valueFiles:
-          - $lolice/argoproj/actions-runner-controller/runner-scale-set/helm/values.yaml
-    - path: argoproj/actions-runner-controller/runner-scale-set
+          - $lolice/argoproj/actions-runner-controller/runner-scale-set-arch/helm/values.yaml
+    - path: argoproj/actions-runner-controller/runner-scale-set-arch
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
   destination:
     server: https://kubernetes.default.svc
-    namespace: arc-runners
+    namespace: arc-runners-arch
   syncPolicy:
     automated:
       prune: true
