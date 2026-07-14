@@ -1,0 +1,15 @@
+# ARC Controller (gha-runner-scale-set-controller) Helm values
+# Ref: https://github.com/actions/actions-runner-controller/tree/main/charts/gha-runner-scale-set-controller
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+metrics:
+  controllerManagerAddr: ":8080"
+  listenerAddr: ":8080"
+  listenerEndpoint: "/metrics"

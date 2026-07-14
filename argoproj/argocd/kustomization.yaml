@@ -7,6 +7,7 @@ resources:
 - base/external-secrets.yaml
 - base/external-secret-repo.yaml
 - base/cloudflared-api.yaml
+- base/helm-repo-arc.yaml
 patchesStrategicMerge:
 - overlays/argocd-redis-network-policy.yaml
 - overlays/argocd-repo-server-network-policy.yaml

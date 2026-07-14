@@ -37,3 +37,5 @@ resources:
 - tailscale-operator/application.yaml
 - palserver/application.yaml
 - palserver-2/application.yaml
+- actions-runner-controller/controller/application.yaml
+- actions-runner-controller/runner-scale-set/application.yaml
