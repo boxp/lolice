@@ -1,0 +1,36 @@
+# ARC Runner Scale Set (gha-runner-scale-set) Helm values
+# Ref: https://github.com/actions/actions-runner-controller/tree/main/charts/gha-runner-scale-set
+#
+# githubConfigSecret は ExternalSecret (arc-github-app-secret) で SSM から注入する。
+# GitHub App を以下の手順で作成してから SSM へ格納すること:
+#   1. GitHub Settings > Developer Settings > GitHub Apps でアプリ作成
+#   2. 必要権限: Actions (R/W), Administration (R/W for runners), Metadata (R)
+#   3. boxp organization にインストール
+#   4. App ID, Installation ID, Private Key を SSM へ格納:
+#      - /lolice/arc/github-app-id
+#      - /lolice/arc/github-app-installation-id
+#      - /lolice/arc/github-app-private-key
+
+githubConfigUrl: "https://github.com/boxp"
+githubConfigSecret: "arc-github-app-secret"
+
+# ARC コントローラーの ServiceAccount 情報
+controllerServiceAccount:
+  namespace: arc-systems
+  name: arc-controller-gha-rs-controller
+
+minRunners: 0
+maxRunners: 4
+
+template:
+  spec:
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
