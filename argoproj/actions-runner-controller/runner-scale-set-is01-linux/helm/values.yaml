@@ -11,7 +11,7 @@ template:
   spec:
     containers:
     - name: runner
-      image: ghcr.io/boxp/arch/arc-runner:sha-b85cf91
+      image: ghcr.io/boxp/arch/arc-runner:sha-a938c1e
       command:
       - /home/runner/run.sh
       resources:
