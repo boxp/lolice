@@ -1,0 +1,26 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: arc-runners-arch
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: "arc-runners-arch"
+      images:
+        - alias: "arc-runner"
+          imageName: "ghcr.io/boxp/arch/arc-runner:latest"
+          commonUpdateSettings:
+            forceUpdate: true
+            updateStrategy: "newest-build"
+            allowTags: "regexp:^sha-[0-9a-f]+$"
+            platforms:
+              - "linux/amd64"
+          manifestTargets:
+            helm:
+              spec: "template.spec.containers[0].image"
+  writeBackConfig:
+    method: "git:secret:argocd/repo-lolice"
+    gitConfig:
+      repository: "git@github.com:boxp/lolice.git"
+      branch: "main"
+      writeBackTarget: "helmvalues:./argoproj/actions-runner-controller/runner-scale-set-arch/helm/values.yaml"

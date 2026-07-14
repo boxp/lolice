@@ -1,0 +1,28 @@
+# ARC Runner Scale Set for boxp/arch.
+# Ref: https://github.com/actions/actions-runner-controller/tree/main/charts/gha-runner-scale-set
+#
+# githubConfigSecret is populated by ExternalSecret from SSM.
+githubConfigUrl: "https://github.com/boxp/arch"
+githubConfigSecret: "arc-github-app-secret"
+
+controllerServiceAccount:
+  namespace: arc-systems
+  name: arc-controller-gha-rs-controller
+
+minRunners: 0
+maxRunners: 4
+
+template:
+  spec:
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        command:
+          - /home/runner/run.sh
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
