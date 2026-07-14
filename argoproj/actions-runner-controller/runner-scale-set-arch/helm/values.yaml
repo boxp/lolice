@@ -8,9 +8,15 @@ controllerServiceAccount:
   namespace: arc-systems
   name: arc-controller-gha-rs-controller
 minRunners: 0
-maxRunners: 4
+maxRunners: 2
+
+containerMode:
+  type: dind
+
 template:
   spec:
+    nodeSelector:
+      lolice.io/gpu-worker: "true"
     containers:
     - name: runner
       image: ghcr.io/boxp/arch/arc-runner:sha-d92365b
@@ -18,8 +24,10 @@ template:
       - /home/runner/run.sh
       resources:
         requests:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 4
+          memory: 8Gi
+          ephemeral-storage: 100Gi
         limits:
-          cpu: 2000m
-          memory: 4Gi
+          cpu: 8
+          memory: 32Gi
+          ephemeral-storage: 250Gi
