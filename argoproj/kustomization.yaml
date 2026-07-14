@@ -39,3 +39,4 @@ resources:
 - palserver-2/application.yaml
 - actions-runner-controller/controller/application.yaml
 - actions-runner-controller/runner-scale-set/application.yaml
+- actions-runner-controller/runner-scale-set-is01-linux/application.yaml
