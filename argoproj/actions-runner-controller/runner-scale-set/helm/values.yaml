@@ -15,8 +15,9 @@ githubConfigUrl: "https://github.com/boxp"
 githubConfigSecret: "arc-github-app-secret"
 
 # ARC コントローラーの ServiceAccount 情報
-controllerServiceAccountNamespace: arc-systems
-controllerServiceAccountName: arc-gha-rs-controller
+controllerServiceAccount:
+  namespace: arc-systems
+  name: arc-controller-gha-rs-controller
 
 minRunners: 0
 maxRunners: 4
