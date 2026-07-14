@@ -5,13 +5,15 @@
 # GitHub App を以下の手順で作成してから SSM へ格納すること:
 #   1. GitHub Settings > Developer Settings > GitHub Apps でアプリ作成
 #   2. 必要権限: Actions (R/W), Administration (R/W for runners), Metadata (R)
-#   3. boxp organization にインストール
+#   3. 対象の GitHub アカウントまたは Organization にインストール
 #   4. App ID, Installation ID, Private Key を SSM へ格納:
 #      - /lolice/arc/github-app-id
 #      - /lolice/arc/github-app-installation-id
 #      - /lolice/arc/github-app-private-key
 
-githubConfigUrl: "https://github.com/boxp"
+# 個人アカウントでは組織全体の Runner Scale Set は利用できないため、
+# GitHub のリポジトリ単位で Scale Set を設定する。
+githubConfigUrl: "https://github.com/boxp/arch"
 githubConfigSecret: "arc-github-app-secret"
 
 # ARC コントローラーの ServiceAccount 情報

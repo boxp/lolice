@@ -1,0 +1,24 @@
+# ARC Runner Scale Set for boxp/is01-linux.
+# GitHub App credentials are synchronized from SSM by ExternalSecret.
+githubConfigUrl: "https://github.com/boxp/is01-linux"
+githubConfigSecret: "arc-github-app-secret"
+
+controllerServiceAccount:
+  namespace: arc-systems
+  name: arc-controller-gha-rs-controller
+
+minRunners: 0
+maxRunners: 4
+
+template:
+  spec:
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
