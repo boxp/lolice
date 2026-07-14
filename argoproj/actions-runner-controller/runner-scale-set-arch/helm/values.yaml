@@ -9,17 +9,38 @@ controllerServiceAccount:
   name: arc-controller-gha-rs-controller
 minRunners: 0
 maxRunners: 2
-containerMode:
-  type: dind
 template:
   spec:
     nodeSelector:
       lolice.io/gpu-worker: "true"
+    initContainers:
+    - name: init-dind-externals
+      image: ghcr.io/boxp/arch/arc-runner:sha-b85cf91
+      command:
+      - cp
+      args:
+      - -r
+      - -v
+      - /home/runner/externals/.
+      - /home/runner/tmpDir/
+      volumeMounts:
+      - name: dind-externals
+        mountPath: /home/runner/tmpDir
     containers:
     - name: runner
       image: ghcr.io/boxp/arch/arc-runner:sha-b85cf91
       command:
       - /home/runner/run.sh
+      env:
+      - name: DOCKER_HOST
+        value: unix:///var/run/docker.sock
+      - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+        value: "120"
+      volumeMounts:
+      - name: work
+        mountPath: /home/runner/_work
+      - name: dind-sock
+        mountPath: /var/run
       resources:
         requests:
           cpu: 4
@@ -29,3 +50,32 @@ template:
           cpu: 8
           memory: 32Gi
           ephemeral-storage: 250Gi
+    - name: dind
+      image: docker:dind
+      args:
+      - dockerd
+      - --host=unix:///var/run/docker.sock
+      - --group=$(DOCKER_GROUP_GID)
+      # The node filesystem cannot use containerd's overlay snapshotter from
+      # within DIND. Use Docker's portable vfs backend instead.
+      - --feature=containerd-snapshotter=false
+      - --storage-driver=vfs
+      env:
+      - name: DOCKER_GROUP_GID
+        value: "123"
+      securityContext:
+        privileged: true
+      volumeMounts:
+      - name: work
+        mountPath: /home/runner/_work
+      - name: dind-sock
+        mountPath: /var/run
+      - name: dind-externals
+        mountPath: /home/runner/externals
+    volumes:
+    - name: work
+      emptyDir: {}
+    - name: dind-sock
+      emptyDir: {}
+    - name: dind-externals
+      emptyDir: {}
