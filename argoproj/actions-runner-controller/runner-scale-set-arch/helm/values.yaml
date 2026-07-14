@@ -9,10 +9,8 @@ controllerServiceAccount:
   name: arc-controller-gha-rs-controller
 minRunners: 0
 maxRunners: 2
-
 containerMode:
   type: dind
-
 template:
   spec:
     nodeSelector:
