@@ -4,7 +4,8 @@
 # githubConfigSecret は ExternalSecret (arc-github-app-secret) で SSM から注入する。
 # GitHub App を以下の手順で作成してから SSM へ格納すること:
 #   1. GitHub Settings > Developer Settings > GitHub Apps でアプリ作成
-#   2. 必要権限: Actions (R/W), Administration (R/W for runners), Metadata (R)
+#   2. 必要権限: Actions (R/W), Administration (R/W for runners), Metadata (R),
+#      Organization > Self-hosted runners (R/W) ※ org レベルランナーに必須
 #   3. boxp organization にインストール
 #   4. App ID, Installation ID, Private Key を SSM へ格納:
 #      - /lolice/arc/github-app-id
@@ -22,8 +23,17 @@ controllerServiceAccount:
 minRunners: 0
 maxRunners: 4
 
+# リスナー Pod を amd64 ワーカーノード (golyat) に配置
+listenerTemplate:
+  spec:
+    nodeSelector:
+      kubernetes.io/arch: amd64
+
 template:
   spec:
+    # ランナー Pod を amd64 ワーカーノード (golyat) に配置
+    nodeSelector:
+      kubernetes.io/arch: amd64
     containers:
       - name: runner
         image: ghcr.io/actions/actions-runner:latest
