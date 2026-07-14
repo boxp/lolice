@@ -8,7 +8,10 @@ controllerServiceAccount:
   namespace: arc-systems
   name: arc-controller-gha-rs-controller
 minRunners: 0
-maxRunners: 2
+# These image builds are intentionally serialized on the single GPU worker.
+# Its CPU is heavily reserved by other workloads, so a modest request lets the
+# runner schedule while retaining headroom through the 8 CPU limit.
+maxRunners: 1
 template:
   spec:
     nodeSelector:
@@ -43,7 +46,7 @@ template:
         mountPath: /var/run
       resources:
         requests:
-          cpu: 4
+          cpu: 2
           memory: 8Gi
           ephemeral-storage: 100Gi
         limits:
