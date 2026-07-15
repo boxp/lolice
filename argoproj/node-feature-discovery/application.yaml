@@ -13,6 +13,21 @@ spec:
     chart: node-feature-discovery
     helm:
       values: |
+        master:
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: 500m
+            requests:
+              memory: 128Mi
+              cpu: 100m
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role.kubernetes.io/control-plane
+                        operator: DoesNotExist
         worker:
           tolerations:
             - key: lolice.io/gpu-worker
