@@ -33,6 +33,9 @@ spec:
               ln -s /etc/pi-agent-config/models.json /home/boxp/.pi/agent/models.json
               curl -fsSL https://github.com/boxp.keys -o /home/boxp/.ssh/authorized_keys
               test -s /home/boxp/.ssh/authorized_keys
+              # IS01(実機Codex端末)専用の公開鍵。github.com/boxp.keys には含まれず、
+              # authorized_keys は毎起動で上書きされるため、ここで追記して永続化する。
+              printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH+VDgWCQqbWKHLHa/Wz2Up4duDjPYJ/GCx2hsfU/+s/ is01-terminal-20260712' >> /home/boxp/.ssh/authorized_keys
               chown -R 1000:1000 /home/boxp/.ssh
               chown -h 1000:1000 /home/boxp/.pi/agent/models.json
               chmod 700 /home/boxp/.ssh
@@ -75,6 +78,9 @@ spec:
               containerPort: 2222
             - name: even-terminal
               containerPort: 3456
+            - name: mosh
+              containerPort: 60001
+              protocol: UDP
           env:
             - name: EVEN_TERMINAL_PORT
               value: "3456"

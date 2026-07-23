@@ -37,6 +37,23 @@ spec:
         ports:
           - 2222
           - 3456
+    # mosh (IS01実機Codex端末の安定transport) の UDP データグラム。
+    # SSHで起動された mosh-server が待ち受ける 60001/UDP を LAN と SNAT元から許可する。
+    - action: Allow
+      protocol: UDP
+      source:
+        nets:
+          - 192.168.10.0/24
+          - 192.178.60.120/32
+          - 192.178.252.77/32
+          - 192.178.151.187/32
+          - 192.178.123.0/32
+          - 192.178.46.166/32
+          - 192.178.48.194/32
+          - 192.178.80.45/32
+      destination:
+        ports:
+          - 60001
   egress:
     - action: Allow
       protocol: UDP
