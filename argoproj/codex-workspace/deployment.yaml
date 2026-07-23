@@ -103,6 +103,8 @@ spec:
                   key: GEMINI_API_KEY
             - name: PI_CODING_AGENT_DIR
               value: /home/boxp/.pi/agent
+            - name: COMFYUI_CHROMA_URL
+              value: http://comfyui-chroma.stable-diffusion.svc.cluster.local:8188
             - name: DOCKER_HOST
               value: tcp://127.0.0.1:2375
             - name: DOCKER_BUILDKIT

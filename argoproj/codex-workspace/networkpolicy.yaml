@@ -66,6 +66,13 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
         ports:
           - 8080
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'comfyui-chroma'
+        namespaceSelector: kubernetes.io/metadata.name == 'stable-diffusion'
+        ports:
+          - 8188
     # Kubernetes API access for in-cluster kubectl.
     - action: Allow
       protocol: TCP

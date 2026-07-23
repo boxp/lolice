@@ -1,0 +1,54 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: comfyui-chroma
+spec:
+  selector: app == 'comfyui-chroma'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        selector: app == 'codex-workspace'
+      destination:
+        ports:
+          - 8188
+    - action: Allow
+      protocol: TCP
+      source:
+        nets:
+          - 192.168.10.0/24
+      destination:
+        ports:
+          - 8188
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'llama-server'
+        namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
+        ports:
+          - 8080
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports:
+          - 80
+          - 443
