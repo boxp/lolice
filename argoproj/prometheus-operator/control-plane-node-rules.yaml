@@ -24,3 +24,64 @@ spec:
           annotations:
             summary: Control-plane node is not Ready
             description: Control-plane node {{ $labels.node }} has been NotReady or Unknown for more than 5 minutes.
+
+    - name: etcd.rules
+      rules:
+        - alert: EtcdMemberDown
+          expr: |
+            count(etcd_server_id) < 2
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: etcd quorum is at risk
+            description: Only {{ $value }} etcd member(s) are reachable. Quorum requires at least 2 of 3 members.
+
+        - alert: EtcdHighFsyncDuration
+          expr: |
+            histogram_quantile(0.99,
+              rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])
+            ) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: etcd WAL fsync p99 latency is high
+            description: etcd WAL fsync p99={{ printf "%.3f" $value }}s on instance {{ $labels.instance }}. High latency indicates storage stress; SD card wear is a likely cause on Orange Pi control-plane nodes.
+
+    - name: control-plane-storage.rules
+      rules:
+        - alert: ControlPlaneFilesystemReadOnly
+          expr: |
+            node_filesystem_readonly{
+              mountpoint=~"^/$|^/var$|^/var/lib$",
+              fstype!~"tmpfs|ramfs|overlay"
+            } == 1
+            and on (instance)
+            label_replace(
+              kube_node_role{role=~"control-plane|master"} == 1,
+              "instance", "$1", "node", "(.+)"
+            )
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: Control-plane filesystem is read-only
+            description: Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} is read-only. This is a strong indicator of SD card failure on Orange Pi control-plane nodes (INC-2/INC-4 pattern).
+
+        - alert: ControlPlaneHighDiskIOWait
+          expr: |
+            rate(node_disk_io_time_seconds_total{
+              device=~"mmcblk.+"
+            }[5m]) > 0.9
+            and on (instance)
+            label_replace(
+              kube_node_role{role=~"control-plane|master"} == 1,
+              "instance", "$1", "node", "(.+)"
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Control-plane SD card is under sustained high I/O
+            description: SD card device {{ $labels.device }} on {{ $labels.instance }} has been >90% busy for 15 minutes. This accelerates wear on microSD cards used in Orange Pi control-plane nodes.
