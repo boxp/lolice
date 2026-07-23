@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hermes-agent
+  namespace: argocd
+spec:
+  destination:
+    namespace: hermes-agent
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    path: argoproj/hermes-agent
+    repoURL: https://github.com/boxp/lolice
+    targetRevision: main
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

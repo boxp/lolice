@@ -16,3 +16,68 @@ data:
     ClientAliveInterval 60
     ClientAliveCountMax 3
     Subsystem sftp /usr/lib/openssh/sftp-server
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: codex-workspace-pi-config
+  namespace: codex-workspace
+data:
+  models.json: |
+    {
+      "providers": {
+        "llama.cpp": {
+          "baseUrl": "http://llama-server.local-llm.svc.cluster.local:8080/v1",
+          "api": "openai-completions",
+          "apiKey": "local-llm",
+          "compat": {
+            "supportsDeveloperRole": false,
+            "supportsReasoningEffort": false
+          },
+          "models": [
+            {
+              "id": "gemma4-26b",
+              "name": "Gemma4 26B local",
+              "reasoning": false,
+              "input": ["text"],
+              "contextWindow": 262144,
+              "maxTokens": 4096,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0
+              }
+            },
+            {
+              "id": "gemma4-26b-vision",
+              "name": "Gemma4 26B local vision",
+              "reasoning": false,
+              "input": ["text", "image"],
+              "contextWindow": 262144,
+              "maxTokens": 4096,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0
+              }
+            },
+            {
+              "id": "ornith-35b",
+              "name": "Ornith 35B local",
+              "reasoning": false,
+              "input": ["text"],
+              "contextWindow": 65536,
+              "maxTokens": 4096,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0
+              }
+            }
+          ]
+        }
+      }
+    }

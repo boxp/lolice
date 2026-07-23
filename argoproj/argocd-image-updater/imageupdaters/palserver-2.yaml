@@ -1,0 +1,21 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: palserver-2
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: "palserver-2"
+      images:
+        - alias: "myimage"
+          imageName: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/palserver:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            pullSecret: "pullsecret:argocd/regcred"
+          manifestTargets:
+            kustomize:
+              name: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/palserver"
+  writeBackConfig:
+    method: "git:secret:argocd/repo-lolice"
+    gitConfig:
+      branch: "main"

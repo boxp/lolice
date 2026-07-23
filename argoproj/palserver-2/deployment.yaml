@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: palserver-2
+  namespace: palserver-2
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: palserver-2
+  template:
+    metadata:
+      labels:
+        app: palserver-2
+    spec:
+      securityContext:
+        fsGroup: 65532
+      containers:
+      - name: palserver-2
+        image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/palserver:a1475970bfd9050f180d7d76cc280dabad937f16
+        ports:
+        - containerPort: 8211
+          protocol: UDP
+        volumeMounts:
+        - name: saved-volume
+          mountPath: /home/nonroot/PalServer/Pal/Saved
+        resources:
+          limits:
+            cpu: 3500m
+            memory: 8Gi
+          requests:
+            cpu: 1000m
+            memory: 8Gi
+      volumes:
+      - name: saved-volume
+        persistentVolumeClaim:
+          claimName: palserver-2-saved-claim

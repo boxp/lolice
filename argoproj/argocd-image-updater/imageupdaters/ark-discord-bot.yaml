@@ -4,7 +4,6 @@ metadata:
   name: ark-discord-bot
   namespace: argocd
 spec:
-  namespace: argocd
   applicationRefs:
     - namePattern: "ark-discord-bot"
       images:

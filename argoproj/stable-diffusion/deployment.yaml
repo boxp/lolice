@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stable-diffusion-webui
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: stable-diffusion-webui
+  template:
+    metadata:
+      labels:
+        app: stable-diffusion-webui
+    spec:
+      automountServiceAccountToken: false
+      priorityClassName: gpu-workload-high
+      nodeSelector:
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 1000
+        supplementalGroups:
+          - 44
+          - 110
+      containers:
+        - name: sdnext
+          image: ghcr.io/boxp/arch/sdnext-ipex:latest
+          imagePullPolicy: Always
+          args:
+            - --use-ipex
+            - --listen
+            - --server-name
+            - 0.0.0.0
+            - --port
+            - "7860"
+            - --skip-git
+            - --skip-requirements
+            - --skip-extensions
+            - --skip-torch
+            - --api
+            - --log
+            - /scratch/sdnext.log
+          ports:
+            - name: http
+              containerPort: 7860
+          env:
+            - name: SD_DATADIR
+              value: /data
+            - name: SD_MODELSDIR
+              value: /data/models
+            - name: HF_HOME
+              value: /scratch/huggingface
+            - name: XDG_CACHE_HOME
+              value: /scratch/cache
+            - name: TMPDIR
+              value: /scratch/tmp
+            - name: ONEAPI_DEVICE_SELECTOR
+              value: level_zero:gpu
+            - name: ZE_ENABLE_PCI_ID_DEVICE_ORDER
+              value: "1"
+          resources:
+            requests:
+              cpu: "3"
+              memory: 24Gi
+              gpu.intel.com/i915: "1"
+            limits:
+              cpu: "14"
+              memory: 48Gi
+              gpu.intel.com/i915: "1"
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 120
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: sd-webui-data
+        - name: scratch
+          hostPath:
+            path: /var/lib/stable-diffusion-webui/scratch
+            type: DirectoryOrCreate

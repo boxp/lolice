@@ -25,7 +25,7 @@ apiServer:
 
 defaultFelixConfiguration:
   enabled: true
-  nftablesMode: Auto
+  nftablesMode: Disabled
   iptablesBackend: Auto
   mtuIfacePattern: "en.*"
 

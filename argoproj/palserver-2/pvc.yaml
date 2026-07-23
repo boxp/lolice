@@ -1,0 +1,13 @@
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: palserver-2-saved-claim
+  namespace: palserver-2
+spec:
+  accessModes:
+  - ReadWriteOnce
+  storageClassName: longhorn
+  volumeName: palserver-2-saved-pv
+  resources:
+    requests:
+      storage: 1Gi

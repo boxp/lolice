@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: even-g2-lab
+  namespace: argocd
+spec:
+  destination:
+    namespace: even-g2-lab
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    repoURL: https://github.com/boxp/lolice
+    targetRevision: main
+    path: argoproj/even-g2-lab
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+

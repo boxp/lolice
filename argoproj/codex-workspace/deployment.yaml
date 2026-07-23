@@ -15,20 +15,26 @@ spec:
       labels:
         app: codex-workspace
     spec:
+      serviceAccountName: codex-workspace
       automountServiceAccountToken: false
       nodeSelector:
         kubernetes.io/arch: amd64
+      terminationGracePeriodSeconds: 60
       initContainers:
         - name: fetch-ssh-keys
-          image: docker.io/curlimages/curl:8.20.0
+          image: docker.io/curlimages/curl:8.21.0
           command:
             - /bin/sh
             - -ec
             - |
               mkdir -p /home/boxp/.ssh
+              mkdir -p /home/boxp/.pi/agent
+              rm -f /home/boxp/.pi/agent/models.json
+              ln -s /etc/pi-agent-config/models.json /home/boxp/.pi/agent/models.json
               curl -fsSL https://github.com/boxp.keys -o /home/boxp/.ssh/authorized_keys
               test -s /home/boxp/.ssh/authorized_keys
               chown -R 1000:1000 /home/boxp/.ssh
+              chown -h 1000:1000 /home/boxp/.pi/agent/models.json
               chmod 700 /home/boxp/.ssh
               chmod 600 /home/boxp/.ssh/authorized_keys
           securityContext:
@@ -43,7 +49,7 @@ spec:
             - name: home
               mountPath: /home/boxp
         - name: install-docker-cli
-          image: docker.io/docker:29.5.2-cli
+          image: docker.io/docker:29.6.2-cli
           command:
             - /bin/sh
             - -ec
@@ -90,16 +96,34 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-grafana
                   key: service-account-token
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
+            - name: PI_CODING_AGENT_DIR
+              value: /home/boxp/.pi/agent
             - name: DOCKER_HOST
               value: tcp://127.0.0.1:2375
             - name: DOCKER_BUILDKIT
               value: "1"
+            - name: KUBECONFIG
+              value: /var/run/secrets/codex-workspace/kubeconfig/config
           securityContext:
+            privileged: true
             runAsNonRoot: false
             runAsUser: 0
             allowPrivilegeEscalation: true
             capabilities:
-              add: ["AUDIT_WRITE", "CHOWN", "FOWNER", "SETGID", "SETUID", "SYS_CHROOT"]
+              add:
+                - AUDIT_WRITE
+                - CHOWN
+                - FOWNER
+                - NET_ADMIN
+                - NET_RAW
+                - SETGID
+                - SETUID
+                - SYS_CHROOT
               drop: ["ALL"]
             readOnlyRootFilesystem: false
           resources:
@@ -122,6 +146,9 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+            - name: pi-config
+              mountPath: /etc/pi-agent-config
+              readOnly: true
             - name: sshd-config
               mountPath: /etc/ssh/sshd_config
               subPath: sshd_config
@@ -129,6 +156,12 @@ spec:
             - name: docker-cli
               mountPath: /usr/local/bin/docker
               subPath: docker
+              readOnly: true
+            - name: kubeconfig
+              mountPath: /var/run/secrets/codex-workspace/kubeconfig
+              readOnly: true
+            - name: kubernetes-api-token
+              mountPath: /var/run/secrets/codex-workspace/k8s
               readOnly: true
         - name: obsidian-sync
           image: ghcr.io/boxp/arch/codex-workspace:latest
@@ -161,8 +194,46 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+        - name: obsidian-task-board-draft
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              watch_script="${OBSIDIAN_VAULT_PATH}/Scripts/task-board-draft-watch.sh"
+              while [ ! -f "${watch_script}" ]; do
+                echo "Waiting for ${watch_script}"
+                sleep 5
+              done
+              exec /bin/bash "${watch_script}"
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: OBSIDIAN_VAULT_PATH
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: TASK_BOARD_DRAFT_WATCH_INTERVAL
+              value: "1"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
         - name: docker
-          image: docker.io/docker:29.5.2-dind
+          image: docker.io/docker:29.6.2-dind
           imagePullPolicy: IfNotPresent
           args:
             - dockerd
@@ -188,6 +259,183 @@ spec:
           volumeMounts:
             - name: docker-graph-storage
               mountPath: /var/lib/docker
+        - name: codex-cron-scheduler
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /opt/codex-workspace/cron/scheduler.bb
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: CODEX_HOME
+              value: /home/boxp/.codex
+            - name: CODEX_CRON_ROOT
+              value: /home/boxp/Documents/obsidian-headless/BOXP/Infrastructure/Codex Cron
+            - name: CODEX_CRON_POLL_SECONDS
+              value: "30"
+            - name: GRAFANA_URL
+              value: http://grafana.monitoring.svc.cluster.local:3000
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-grafana
+                  key: service-account-token
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
+            - name: KUBECONFIG
+              value: /var/run/secrets/codex-workspace/kubeconfig/config
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+            - name: kubeconfig
+              mountPath: /var/run/secrets/codex-workspace/kubeconfig
+              readOnly: true
+            - name: kubernetes-api-token
+              mountPath: /var/run/secrets/codex-workspace/k8s
+              readOnly: true
+        - name: task-board-runner
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /opt/codex-workspace/task-board/task_board_runner.bb
+            - loop
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /opt/codex-workspace/task-board/task_board_runner.bb
+                  - prepare-shutdown
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: CODEX_HOME
+              value: /home/boxp/.codex
+            - name: CODEX_TASK_BOARD_ROOT
+              value: /home/boxp/.codex-task-board
+            - name: CODEX_TASK_BOARD_VAULT
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: CODEX_TASK_BOARD_POLL_SECONDS
+              value: "30"
+            - name: CODEX_TASK_BOARD_LOCK_STALE_SECONDS
+              value: "180"
+            - name: CODEX_TASK_BOARD_OWNER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: DOCKER_HOST
+              value: tcp://127.0.0.1:2375
+            - name: DOCKER_BUILDKIT
+              value: "1"
+            - name: KUBECONFIG
+              value: /var/run/secrets/codex-workspace/kubeconfig/config
+            - name: GRAFANA_URL
+              value: http://grafana.monitoring.svc.cluster.local:3000
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-grafana
+                  key: service-account-token
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+            - name: docker-cli
+              mountPath: /usr/local/bin/docker
+              subPath: docker
+              readOnly: true
+            - name: kubeconfig
+              mountPath: /var/run/secrets/codex-workspace/kubeconfig
+              readOnly: true
+            - name: kubernetes-api-token
+              mountPath: /var/run/secrets/codex-workspace/k8s
+              readOnly: true
+        - name: task-board-dashboard
+          image: docker.io/python:3.14-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/server.py
+          ports:
+            - name: dashboard
+              containerPort: 8080
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PORT
+              value: "8080"
+            - name: TASK_BOARD_ROOT
+              value: /home/boxp/.codex-task-board
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: dashboard
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: dashboard
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+              readOnly: true
+            - name: dashboard-app
+              mountPath: /app
+              readOnly: true
       volumes:
         - name: home
           persistentVolumeClaim:
@@ -195,7 +443,33 @@ spec:
         - name: sshd-config
           configMap:
             name: codex-workspace-sshd-config
+        - name: pi-config
+          configMap:
+            name: codex-workspace-pi-config
         - name: docker-cli
           emptyDir: {}
         - name: docker-graph-storage
           emptyDir: {}
+        - name: kubeconfig
+          configMap:
+            name: codex-workspace-kubeconfig
+        - name: kubernetes-api-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+                  audience: https://kubernetes.default.svc.cluster.local
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+        - name: dashboard-app
+          configMap:
+            name: codex-task-board-dashboard

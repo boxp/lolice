@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: even-g2-main
+  namespace: even-g2-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: even-g2-main
+  template:
+    metadata:
+      labels:
+        app: even-g2-main
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      containers:
+        - name: web
+          image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main:bootstrap
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+

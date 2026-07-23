@@ -11,3 +11,7 @@ data:
       credentials: pullsecret:argocd/regcred
       default: true
       insecure: false
+    - name: GitHub Container Registry
+      prefix: ghcr.io
+      api_url: https://ghcr.io
+      insecure: false

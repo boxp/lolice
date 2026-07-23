@@ -3,10 +3,15 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
+  - service-account.yaml
+  - rbac.yaml
   - storageclass.yaml
   - pvc.yaml
   - configmap.yaml
+  - kubeconfig.yaml
+  - dashboard-configmap.yaml
   - external-secret.yaml
   - deployment.yaml
   - service.yaml
+  - dashboard-service.yaml
   - networkpolicy.yaml

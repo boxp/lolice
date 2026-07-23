@@ -15,15 +15,23 @@ spec:
       helm:
         valueFiles:
           - $lolice/argoproj/loki/helm/values.yaml
-    - path: argoproj/loki
+    - path: argoproj/loki/resources
       repoURL: https://github.com/boxp/lolice
       targetRevision: main
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      name: loki
+      namespace: monitoring
+      jsonPointers:
+        - /spec/volumeClaimTemplates
   syncPolicy:
     automated:
       prune: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - RespectIgnoreDifferences=true

@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   sources:
-    - repoURL: https://kubernetes.github.io/dashboard
+    - repoURL: https://kubernetes-retired.github.io/dashboard
       targetRevision: 7.1.2
       chart: kubernetes-dashboard
     - repoURL: https://github.com/boxp/lolice.git
@@ -21,3 +21,22 @@ spec:
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
+    - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - kind: Secret
+      name: kubernetes-dashboard-app-csrf
+      namespace: kube-dashboard
+      jsonPointers:
+        - /data/private.key
+    - group: apps
+      kind: Deployment
+      name: kubernetes-dashboard-app-api
+      namespace: kube-dashboard
+      jqPathExpressions:
+        - .spec.template.metadata.annotations.rollme
+    - group: apps
+      kind: Deployment
+      name: kubernetes-dashboard-app-auth
+      namespace: kube-dashboard
+      jqPathExpressions:
+        - .spec.template.metadata.annotations.rollme

@@ -3,6 +3,14 @@ kind: Kustomization
 resources:
   - stage-hitohub.yaml
   - prod-hitohub.yaml
-  - palserver.yaml
   - ark-survival-ascended.yaml
   - ark-discord-bot.yaml
+  - even-g2-lab.yaml
+  - codex-workspace.yaml
+  - hermes-agent.yaml
+  - arc-runners-arch.yaml
+  - arc-runners-is01-linux.yaml
+  - local-llm.yaml
+  - stable-diffusion.yaml
+  - palserver.yaml
+  - palserver-2.yaml

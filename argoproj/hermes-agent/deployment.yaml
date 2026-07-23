@@ -1,0 +1,213 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hermes-agent
+  template:
+    metadata:
+      labels:
+        app: hermes-agent
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      securityContext:
+        fsGroup: 10000
+      initContainers:
+        - name: bootstrap-config
+          image: ghcr.io/boxp/arch/hermes-agent:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /opt/data/Documents/obsidian-headless/BOXP
+              skill_dir=/opt/data/skills/note-taking/obsidian-task-board
+              if [ ! -f /opt/data/.shared-uid-gid-migrated ]; then
+                chown -R 1000:10000 /opt/data
+                find /opt/data -type d -exec chmod g+rws {} \;
+                touch /opt/data/.shared-uid-gid-migrated
+                chown 1000:10000 /opt/data/.shared-uid-gid-migrated
+              fi
+              if [ ! -f /opt/data/config.yaml ]; then
+                cp /bootstrap/config.yaml /opt/data/config.yaml
+                chown 1000:10000 /opt/data/config.yaml
+                chmod 0664 /opt/data/config.yaml
+              fi
+              if [ ! -f "$skill_dir/SKILL.md" ] || [ ! -f "$skill_dir/bin/task-board.bb" ]; then
+                mkdir -p "$skill_dir/bin"
+                cp /opt/boxp/hermes-agent/skills/obsidian-task-board/SKILL.md "$skill_dir/SKILL.md"
+                cp /opt/boxp/hermes-agent/skills/obsidian-task-board/bin/task-board.bb "$skill_dir/bin/task-board.bb"
+                chown -R 1000:10000 "$skill_dir"
+                chmod 0644 "$skill_dir/SKILL.md"
+                chmod 0755 "$skill_dir/bin/task-board.bb"
+              fi
+              chown 1000:10000 \
+                /opt/data \
+                /opt/data/Documents \
+                /opt/data/Documents/obsidian-headless \
+                /opt/data/Documents/obsidian-headless/BOXP
+              chmod 2775 \
+                /opt/data \
+                /opt/data/Documents \
+                /opt/data/Documents/obsidian-headless \
+                /opt/data/Documents/obsidian-headless/BOXP
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: config
+              mountPath: /etc/gai.conf
+              subPath: gai.conf
+              readOnly: true
+            - name: config
+              mountPath: /bootstrap
+              readOnly: true
+      containers:
+        - name: hermes-agent
+          image: ghcr.io/boxp/arch/hermes-agent:latest
+          imagePullPolicy: Always
+          args:
+            - gateway
+            - run
+          env:
+            - name: HERMES_UID
+              value: "1000"
+            - name: HERMES_GID
+              value: "10000"
+            - name: API_SERVER_ENABLED
+              value: "false"
+            - name: HERMES_DASHBOARD
+              value: "true"
+            - name: HERMES_DASHBOARD_HOST
+              value: "127.0.0.1"
+            - name: HERMES_DASHBOARD_PORT
+              value: "9119"
+            - name: HERMES_DASHBOARD_PUBLIC_URL
+              value: "https://hermes-agent.b0xp.io"
+            - name: HOME
+              value: /opt/data
+            - name: OBSIDIAN_VAULT_PATH
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: HERMES_WRITE_SAFE_ROOT
+              value: /opt/data:/home/boxp/Documents/obsidian-headless/BOXP
+            - name: LOCAL_LLM_BASE_URL
+              value: http://llama-server.local-llm.svc.cluster.local:8080/v1
+            - name: LOCAL_LLM_MODEL
+              value: ornith-35b
+            - name: HERMES_STREAM_READ_TIMEOUT
+              value: "1800"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: data
+              mountPath: /home/boxp
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /etc/gai.conf
+              subPath: gai.conf
+              readOnly: true
+        - name: obsidian-sync
+          image: ghcr.io/boxp/arch/hermes-agent:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              umask 0002
+              exec /opt/obsidian-headless/bin/ob sync --path "${OBSIDIAN_VAULT_PATH}" --continuous
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: PATH
+              value: /opt/obsidian-headless/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+            - name: OBSIDIAN_VAULT_PATH
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 10000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /home/boxp
+        - name: cloudflared
+          image: docker.io/cloudflare/cloudflared:2026.7.2@sha256:4f6655284ab3d252b7f28fedb19fe6c8fc82ee5b1295c20ac74d475e5398a52d
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+            - --protocol
+            - http2
+            - --token
+            - $(TUNNEL_TOKEN)
+          ports:
+            - name: metrics
+              containerPort: 2000
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          envFrom:
+            - secretRef:
+                name: hermes-agent-cloudflared-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hermes-agent-data
+        - name: config
+          configMap:
+            name: hermes-agent-config
+        - name: tmp
+          emptyDir:
+            sizeLimit: 2Gi

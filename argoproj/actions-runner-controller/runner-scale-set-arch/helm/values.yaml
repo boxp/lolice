@@ -1,0 +1,32 @@
+# ARC Runner Scale Set for boxp/arch.
+# Ref: https://github.com/actions/actions-runner-controller/tree/main/charts/gha-runner-scale-set
+#
+# githubConfigSecret is populated by ExternalSecret from SSM.
+githubConfigUrl: "https://github.com/boxp/arch"
+githubConfigSecret: "arc-github-app-secret"
+controllerServiceAccount:
+  namespace: arc-systems
+  name: arc-controller-gha-rs-controller
+minRunners: 0
+# These image builds are intentionally serialized on the single GPU worker.
+# Its CPU is heavily reserved by other workloads, so a modest request lets the
+# runner schedule while retaining headroom through the 8 CPU limit.
+maxRunners: 1
+template:
+  spec:
+    nodeSelector:
+      lolice.io/gpu-worker: "true"
+    containers:
+    - name: runner
+      image: ghcr.io/boxp/arch/arc-runner:sha-a938c1e
+      command:
+      - /home/runner/run.sh
+      resources:
+        requests:
+          cpu: 2
+          memory: 8Gi
+          ephemeral-storage: 100Gi
+        limits:
+          cpu: 8
+          memory: 32Gi
+          ephemeral-storage: 250Gi

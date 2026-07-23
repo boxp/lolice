@@ -3,15 +3,6 @@ kind: ConfigMap
 metadata:
   name: argocd-cm
 data:
-  resource.exclusions: |
-    - apiGroups:
-      - "*"
-      kinds:
-      - PersistentVolume
-      clusters:
-      - "*"
-      namespaces:
-      - "*-hitohub"
   # GitHub Actions用のAPIアクセス専用アカウント
   # apiKey - API Key生成機能を有効化
   accounts.github-actions: apiKey

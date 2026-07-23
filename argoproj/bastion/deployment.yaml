@@ -21,7 +21,7 @@ spec:
       initContainers:
         # Fetch SSH public keys from GitHub
         - name: fetch-keys
-          image: docker.io/curlimages/curl:8.20.0
+          image: docker.io/curlimages/curl:8.21.0
           command:
             - /bin/sh
             - -ec
@@ -87,7 +87,7 @@ spec:
             failureThreshold: 3
         # Cloudflared
         - name: cloudflared
-          image: docker.io/cloudflare/cloudflared:2026.5.1
+          image: docker.io/cloudflare/cloudflared:2026.7.2
           args:
             - tunnel
             - --metrics

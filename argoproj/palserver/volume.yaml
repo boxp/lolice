@@ -1,0 +1,11 @@
+apiVersion: longhorn.io/v1beta2
+kind: Volume
+metadata:
+  name: palserver-saved-claim-v2
+  namespace: longhorn-system
+spec:
+  fromBackup: "s3://boxp-longhorn-backup@ap-northeast-1/?backup=backup-cfad6afbebd74a66&volume=pvc-085699a2-44ea-4bdd-baf6-ed37c93963ff"
+  numberOfReplicas: 2
+  size: "1073741824"
+  accessMode: rwo
+  frontend: blockdev

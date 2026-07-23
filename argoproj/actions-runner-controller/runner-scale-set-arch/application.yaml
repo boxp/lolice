@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: arc-runners-arch
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+      ref: lolice
+    - repoURL: ghcr.io/actions/actions-runner-controller-charts
+      targetRevision: 0.9.3
+      chart: gha-runner-scale-set
+      helm:
+        valueFiles:
+          - $lolice/argoproj/actions-runner-controller/runner-scale-set-arch/helm/values.yaml
+    - path: argoproj/actions-runner-controller/runner-scale-set-arch
+      repoURL: https://github.com/boxp/lolice
+      targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: arc-runners-arch
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -5,6 +5,11 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  tolerations:
+    - key: lolice.io/gpu-worker
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
   storage:
     volumeClaimTemplate:
       spec:
@@ -14,4 +19,3 @@ spec:
           requests:
             storage: 1Gi
         storageClassName: longhorn
-

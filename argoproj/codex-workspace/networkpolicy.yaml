@@ -18,11 +18,21 @@ spec:
         ports:
           - 2222
           - 3456
+          - 8080
     - action: Allow
       protocol: TCP
       source:
         nets:
           - 192.168.10.0/24
+          # kube-vip LoadBalancer traffic is SNATed by kube-proxy to the node's
+          # Calico tunnel IP before it reaches the workspace pod.
+          - 192.178.60.120/32
+          - 192.178.252.77/32
+          - 192.178.151.187/32
+          - 192.178.123.0/32
+          - 192.178.46.166/32
+          - 192.178.48.194/32
+          - 192.178.80.45/32
       destination:
         ports:
           - 2222
@@ -52,7 +62,44 @@ spec:
     - action: Allow
       protocol: TCP
       destination:
+        selector: app == 'llama-server'
+        namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
+        ports:
+          - 8080
+    # Kubernetes API access for in-cluster kubectl.
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 10.96.0.1/32
+        ports:
+          - 443
+    # kube-vip API VIP and the DNAT backend control-plane endpoints.
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 192.168.10.99/32
+        ports:
+          - 6443
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 192.168.10.102/32
+          - 192.168.10.103/32
+          - 192.168.10.104/32
+        ports:
+          - 6443
+    - action: Allow
+      protocol: TCP
+      destination:
         ports:
           - 22
           - 80
           - 443
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports:
+          - 2408
