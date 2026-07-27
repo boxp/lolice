@@ -53,7 +53,7 @@ spec:
               cat > /opt/data/scripts/quiet_gate.sh << 'SCRIPT_EOF'
 #!/bin/sh
 # Returns 0 during active hours, 1 during quiet hours (02:00-09:00 JST)
-hour=$(date +%H)
+hour=$(TZ=Asia/Tokyo date +%H)
 if [ "$hour" -ge 2 ] && [ "$hour" -lt 9 ]; then
   exit 1
 fi
