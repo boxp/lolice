@@ -69,6 +69,14 @@ cd /home/boxp/Documents/obsidian-headless/BOXP && exec bb calendar_reminder.clj
 SCRIPT_EOF
               chmod 0755 /opt/data/scripts/calendar_reminder.sh
               chown 1000:10000 /opt/data/scripts/calendar_reminder.sh
+              cat > /opt/data/scripts/email_check.sh << 'SCRIPT_EOF'
+#!/bin/sh
+set -eu
+/opt/data/scripts/quiet_gate.sh || exit 0
+cd /home/boxp/Documents/obsidian-headless/BOXP && exec bb email_check.clj
+SCRIPT_EOF
+              chmod 0755 /opt/data/scripts/email_check.sh
+              chown 1000:10000 /opt/data/scripts/email_check.sh
               chown 1000:10000 \
                 /opt/data \
                 /opt/data/Documents \
