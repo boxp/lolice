@@ -7,6 +7,7 @@ resources:
   - configmap.yaml
   - pvc.yaml
   - external-secret-cloudflared.yaml
+  - external-secret-openweathermap.yaml
   - deployment.yaml
   - rbac.yaml
   - networkpolicy.yaml
