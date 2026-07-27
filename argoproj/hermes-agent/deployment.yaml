@@ -181,10 +181,13 @@ SCRIPT_EOF
       (let [events (json/parse-string output true)]
         (filter
          (fn [ev]
-           (when-let [start-str (get-in ev [:start :dateTime])]
+           (if-let [start-str (get-in ev [:start :dateTime])]
+             ;; 時刻付きイベント: 指定ウィンドウ内か確認
              (let [ev-start (ZonedDateTime/parse start-str DateTimeFormatter/ISO_OFFSET_DATE_TIME)
                    mins (minutes-until now ev-start)]
-               (and (>= mins min-min) (< mins max-min)))))
+               (and (>= mins min-min) (< mins max-min)))
+             ;; 終日イベント (:start.date): 特定の開始時刻がないため30分前リマインダーの対象外
+             false))
          events)))))
 
 (defn -main [& _args]
@@ -207,9 +210,9 @@ SCRIPT_EOF
                              (concat catchup-events regular-events))]
       (when (seq all-events)
         (doseq [ev all-events]
-          (let [mins (when-let [start-str (get-in ev [:start :dateTime])]
-                       (let [ev-start (ZonedDateTime/parse start-str DateTimeFormatter/ISO_OFFSET_DATE_TIME)]
-                         (minutes-until now ev-start)))
+          (let [start-str (get-in ev [:start :dateTime])
+                mins (when start-str
+                       (minutes-until now (ZonedDateTime/parse start-str DateTimeFormatter/ISO_OFFSET_DATE_TIME)))
                 label (if (and mins (< mins 25))
                         "まもなく（静音中に通知できなかった予定）"
                         "30分後に")]
