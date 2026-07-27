@@ -142,7 +142,8 @@ SCRIPT_EOF
 #!/usr/bin/env bb
 
 ;; カレンダーイベント事前通知スクリプト
-;; 30分後（25〜35分以内）に開始するイベントを検出して通知する
+;; cronは15分間隔のため、ウィンドウを15分幅（25〜40分後）に設定してイベントの取りこぼしを防ぐ
+;; 09:00静音時間終了時には直近25分以内の予定を補足通知する（静音中に見逃した予定を救済）
 ;; 対象イベントがない場合は完全沈黙する
 
 (ns calendar-reminder
@@ -166,27 +167,53 @@ SCRIPT_EOF
                       {:exit (:exit result) :stderr (:err result)})))
     (:out result)))
 
+(defn minutes-until [now ev-start]
+  (-> (Duration/between now ev-start) .toMinutes))
+
+(defn fetch-events-in-window [now min-min max-min]
+  (let [window-start (.plusMinutes now min-min)
+        window-end (.plusMinutes now max-min)
+        fmt DateTimeFormatter/ISO_OFFSET_DATE_TIME
+        output (run-google-api "calendar" "list"
+                               "--start" (.format window-start fmt)
+                               "--end" (.format window-end fmt))]
+    (when (and output (not (str/blank? output)))
+      (let [events (json/parse-string output true)]
+        (filter
+         (fn [ev]
+           (when-let [start-str (get-in ev [:start :dateTime])]
+             (let [ev-start (ZonedDateTime/parse start-str DateTimeFormatter/ISO_OFFSET_DATE_TIME)
+                   mins (minutes-until now ev-start)]
+               (and (>= mins min-min) (< mins max-min)))))
+         events)))))
+
 (defn -main [& _args]
   (try
     (let [now (ZonedDateTime/now jst)
-          end (.plusMinutes now 90)
-          fmt DateTimeFormatter/ISO_OFFSET_DATE_TIME
-          output (run-google-api "calendar" "list"
-                                 "--start" (.format now fmt)
-                                 "--end" (.format end fmt))]
-      (when (and output (not (str/blank? output)))
-        (let [events (json/parse-string output true)
-              target-events
-              (filter
-               (fn [ev]
-                 (when-let [start (get-in ev [:start :dateTime])]
-                   (let [ev-start (ZonedDateTime/parse start DateTimeFormatter/ISO_OFFSET_DATE_TIME)
-                         minutes-until (-> (Duration/between now ev-start) .toMinutes)]
-                     (and (>= minutes-until 25) (<= minutes-until 35)))))
-               events)]
-          (when (seq target-events)
-            (doseq [ev target-events]
-              (println (str "📅 30分後に「" (or (:summary ev) "（タイトルなし）") "」が始まります")))))))
+          hour (.getHour now)
+          minute (.getMinute now)
+          ;; 通常ウィンドウ: 25〜40分後（15分幅）でcron間隔と一致、取りこぼしなし
+          regular-events (fetch-events-in-window now 25 40)
+          ;; 09:00静音解除後の補足: 直近1〜25分以内の予定を通知（静音時間中に見逃した予定を救済）
+          catchup-events (when (and (= hour 9) (< minute 15))
+                           (fetch-events-in-window now 1 25))
+          ;; IDで重複排除
+          seen (atom #{})
+          all-events (filter (fn [ev]
+                               (let [id (or (:id ev) (:summary ev))]
+                                 (when-not (@seen id)
+                                   (swap! seen conj id)
+                                   true)))
+                             (concat catchup-events regular-events))]
+      (when (seq all-events)
+        (doseq [ev all-events]
+          (let [mins (when-let [start-str (get-in ev [:start :dateTime])]
+                       (let [ev-start (ZonedDateTime/parse start-str DateTimeFormatter/ISO_OFFSET_DATE_TIME)]
+                         (minutes-until now ev-start)))
+                label (if (and mins (< mins 25))
+                        "まもなく（静音中に通知できなかった予定）"
+                        "30分後に")]
+            (println (str "📅 " label "「" (or (:summary ev) "（タイトルなし）") "」が始まります"))))))
     (catch Exception e
       (binding [*out* *err*]
         (println (str "⚠️ カレンダーリマインダーエラー: " (ex-message e))))
