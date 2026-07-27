@@ -291,10 +291,10 @@ SCRIPT_EOF
             [babashka.http-client :as http]
             [cheshire.core :as json]
             [clojure.string :as str]
-            [clojure.xml :as xml])
+            [clojure.data.xml :as xml])
   (:import [java.time ZonedDateTime ZoneId LocalDate]
            [java.time.format DateTimeFormatter]
-           [java.io ByteArrayInputStream File]))
+           [java.io File]))
 
 (def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
 (def google-token-file "/home/boxp/google_token.json")
@@ -355,8 +355,8 @@ SCRIPT_EOF
 (defn fetch-news []
   (try
     (let [resp (http/get "https://news.yahoo.co.jp/rss/topics/top-picks.xml")
-          root (xml/parse (ByteArrayInputStream. (.getBytes (:body resp) "UTF-8")))
-          items (->> (xml-seq root)
+          root (xml/parse-str (:body resp))
+          items (->> (tree-seq (comp seq :content) :content root)
                      (filter #(= :item (:tag %)))
                      (take 3)
                      (map #(->> (:content %)
