@@ -210,10 +210,15 @@ SCRIPT_EOF
 (defn minutes-until [now ev-start]
   (-> (Duration/between now ev-start) .toMinutes))
 
-(defn fetch-upcoming-events [now]
-  ;; 5〜50分後のウィンドウで検索: cron15分間隔でも全イベントが少なくとも1回は検出される
-  (let [window-start (.plusMinutes now 5)
-        window-end (.plusMinutes now 50)
+(defn quiet-just-ended? [now]
+  ;; 09:00-09:14 JSTは静音解除直後のウィンドウ（補足通知を送るタイミング）
+  (let [h (.getHour now) m (.getMinute now)]
+    (and (= h 9) (< m 15))))
+
+(defn fetch-events-in-range [now from-mins to-mins]
+  ;; from-mins〜to-mins後のウィンドウでイベントを取得（負値は過去を意味する）
+  (let [window-start (.plusMinutes now from-mins)
+        window-end (.plusMinutes now to-mins)
         fmt DateTimeFormatter/ISO_OFFSET_DATE_TIME
         output (run-google-api "calendar" "list"
                                "--start" (.format window-start fmt)
@@ -223,10 +228,10 @@ SCRIPT_EOF
         (filter
          (fn [ev]
            (if-let [start-str (get-in ev [:start :dateTime])]
-             ;; 時刻付きイベント: 5〜50分後の範囲内か確認
+             ;; 時刻付きイベント: 指定範囲内か確認
              (let [ev-start (ZonedDateTime/parse start-str DateTimeFormatter/ISO_OFFSET_DATE_TIME)
                    mins (minutes-until now ev-start)]
-               (and (>= mins 5) (< mins 50)))
+               (and (>= mins from-mins) (< mins to-mins)))
              ;; 終日イベント (:start.date): 特定の開始時刻がないため30分前リマインダーの対象外
              false))
          events)))))
@@ -237,22 +242,34 @@ SCRIPT_EOF
           now-epoch (.toEpochSecond now)
           ;; 通知済みIDをロードし、古いエントリを削除
           notified (-> (load-notified) (cleanup-old-entries now-epoch))
-          events (fetch-upcoming-events now)
-          ;; 未通知のイベントのみ抽出（永続化により重複通知を防止）
-          new-events (remove (fn [ev] (contains? notified (or (:id ev) (:summary ev)))) events)]
-      (when (seq new-events)
-        (doseq [ev new-events]
-          (let [start-str (get-in ev [:start :dateTime])
-                ev-start (ZonedDateTime/parse start-str DateTimeFormatter/ISO_OFFSET_DATE_TIME)
-                mins (int (minutes-until now ev-start))]
-            (println (str "📅 " mins "分後に「" (or (:summary ev) "（タイトルなし）") "」が始まります"))))
-        ;; 通知済みIDを永続化して次回以降の重複通知を防ぐ
-        (let [updated (reduce (fn [acc ev]
-                                (assoc acc (or (:id ev) (:summary ev)) now-epoch))
-                              notified new-events)]
-          (save-notified! updated)
-          (doseq [ev new-events]
-            (append-memory! "カレンダー" (str "「" (or (:summary ev) "（タイトルなし）") "」通知"))))))
+          ;; 通常ウィンドウ: 25〜40分後（PR要件の「30分前」通知に一致; 15分幅>=15分cron間隔で取りこぼしなし）
+          regular-events (fetch-events-in-range now 25 40)
+          ;; 静音解除補足: 09:00-09:14 JSTのみ、過去25分〜25分後の静音中見逃しイベント
+          catchup-events (when (quiet-just-ended? now)
+                           (fetch-events-in-range now -25 25))
+          new-regular (remove #(contains? notified (or (:id %) (:summary %))) regular-events)
+          new-catchup (remove #(contains? notified (or (:id %) (:summary %))) (or catchup-events []))]
+      ;; 約30分前リマインダー（通常）
+      (doseq [ev new-regular]
+        (let [ev-start (ZonedDateTime/parse (get-in ev [:start :dateTime]) DateTimeFormatter/ISO_OFFSET_DATE_TIME)
+              mins (int (minutes-until now ev-start))]
+          (println (str "📅 約30分後に「" (or (:summary ev) "（タイトルなし）") "」が始まります（" mins "分後）"))))
+      ;; 補足通知（静音時間中に通知できなかったイベント）
+      (doseq [ev new-catchup]
+        (let [ev-start (ZonedDateTime/parse (get-in ev [:start :dateTime]) DateTimeFormatter/ISO_OFFSET_DATE_TIME)
+              mins (int (minutes-until now ev-start))]
+          (if (>= mins 0)
+            (println (str "📅 【補足】まもなく「" (or (:summary ev) "（タイトルなし）") "」が始まります（" mins "分後）"))
+            (println (str "📅 【補足】「" (or (:summary ev) "（タイトルなし）") "」が" (- mins) "分前に開始しました（静音中の見逃し）")))))
+      ;; 通知済みIDを永続化して次回以降の重複通知を防ぐ
+      (let [all-new (concat new-regular new-catchup)]
+        (when (seq all-new)
+          (let [updated (reduce (fn [acc ev]
+                                  (assoc acc (or (:id ev) (:summary ev)) now-epoch))
+                                notified all-new)]
+            (save-notified! updated)
+            (doseq [ev all-new]
+              (append-memory! "カレンダー" (str "「" (or (:summary ev) "（タイトルなし）") "」通知")))))))
     (catch Exception e
       (binding [*out* *err*]
         (println (str "⚠️ カレンダーリマインダーエラー: " (ex-message e))))
@@ -309,8 +326,7 @@ SCRIPT_EOF
                              (try (not (.isBefore (LocalDate/parse m) cutoff))
                                   (catch Exception _ true))))
                          lines)]
-        (when (seq kept)
-          (spit memory-file (str (str/join "\n" kept) "\n")))))
+        (spit memory-file (if (seq kept) (str (str/join "\n" kept) "\n") ""))))
     (catch Exception _ nil)))
 
 (defn run-google-api [& args]
