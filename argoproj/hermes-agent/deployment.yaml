@@ -49,6 +49,17 @@ spec:
                 chmod 0644 "$skill_dir/SKILL.md"
                 chmod 0755 "$skill_dir/bin/task-board.bb"
               fi
+              if [ ! -f /opt/data/scripts/calendar_reminder.sh ]; then
+                mkdir -p /opt/data/scripts
+                cat > /opt/data/scripts/calendar_reminder.sh << 'SCRIPT_EOF'
+#!/bin/sh
+set -eu
+/opt/data/scripts/quiet_gate.sh || exit 0
+cd /home/boxp/Documents/obsidian-headless/BOXP && exec bb calendar_reminder.clj
+SCRIPT_EOF
+                chmod 0755 /opt/data/scripts/calendar_reminder.sh
+                chown 1000:10000 /opt/data/scripts/calendar_reminder.sh
+              fi
               chown 1000:10000 \
                 /opt/data \
                 /opt/data/Documents \
