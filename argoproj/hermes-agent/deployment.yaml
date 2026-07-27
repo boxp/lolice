@@ -138,6 +138,180 @@ SCRIPT_EOF
 (apply -main *command-line-args*)
 SCRIPT_EOF
               chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/email_check.clj
+              cat > /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj << 'SCRIPT_EOF'
+#!/usr/bin/env bb
+
+;; カレンダーイベント事前通知スクリプト
+;; 30分後（25〜35分以内）に開始するイベントを検出して通知する
+;; 対象イベントがない場合は完全沈黙する
+
+(ns calendar-reminder
+  (:require [babashka.process :as proc]
+            [cheshire.core :as json]
+            [clojure.string :as str])
+  (:import [java.time ZonedDateTime ZoneId Duration]
+           [java.time.format DateTimeFormatter]))
+
+(def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
+(def google-token-file "/home/boxp/google_token.json")
+(def jst (ZoneId/of "Asia/Tokyo"))
+
+(defn run-google-api [& args]
+  (let [cmd (str/join " " (concat [google-api-py] args))
+        result (proc/shell {:out :string :err :string :continue true
+                            :extra-env {"GOOGLE_TOKEN_FILE" google-token-file}}
+                           "sh" "-c" cmd)]
+    (when-not (zero? (:exit result))
+      (throw (ex-info (str "Calendar API error: " (:err result))
+                      {:exit (:exit result) :stderr (:err result)})))
+    (:out result)))
+
+(defn -main [& _args]
+  (try
+    (let [now (ZonedDateTime/now jst)
+          end (.plusMinutes now 90)
+          fmt DateTimeFormatter/ISO_OFFSET_DATE_TIME
+          output (run-google-api "calendar" "list"
+                                 "--start" (.format now fmt)
+                                 "--end" (.format end fmt))]
+      (when (and output (not (str/blank? output)))
+        (let [events (json/parse-string output true)
+              target-events
+              (filter
+               (fn [ev]
+                 (when-let [start (get-in ev [:start :dateTime])]
+                   (let [ev-start (ZonedDateTime/parse start DateTimeFormatter/ISO_OFFSET_DATE_TIME)
+                         minutes-until (-> (Duration/between now ev-start) .toMinutes)]
+                     (and (>= minutes-until 25) (<= minutes-until 35)))))
+               events)]
+          (when (seq target-events)
+            (doseq [ev target-events]
+              (println (str "📅 30分後に「" (or (:summary ev) "（タイトルなし）") "」が始まります")))))))
+    (catch Exception e
+      (binding [*out* *err*]
+        (println (str "⚠️ カレンダーリマインダーエラー: " (ex-message e))))
+      (System/exit 1))))
+
+(apply -main *command-line-args*)
+SCRIPT_EOF
+              chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj
+              cat > /opt/data/Documents/obsidian-headless/BOXP/morning_report.clj << 'SCRIPT_EOF'
+#!/usr/bin/env bb
+
+;; 朝のブリーフィングスクリプト
+;; 天気・ニュース・今日のカレンダー予定・要対応メールを報告する
+
+(ns morning-report
+  (:require [babashka.process :as proc]
+            [babashka.http-client :as http]
+            [cheshire.core :as json]
+            [clojure.string :as str]
+            [clojure.xml :as xml])
+  (:import [java.time ZonedDateTime ZoneId]
+           [java.time.format DateTimeFormatter]
+           [java.io ByteArrayInputStream]))
+
+(def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
+(def google-token-file "/home/boxp/google_token.json")
+(def jst (ZoneId/of "Asia/Tokyo"))
+(def openweather-api-key (System/getenv "OPENWEATHERMAP_API_KEY"))
+(def city "Tokyo")
+
+(defn run-google-api [& args]
+  (let [cmd (str/join " " (concat [google-api-py] args))
+        result (proc/shell {:out :string :err :string :continue true
+                            :extra-env {"GOOGLE_TOKEN_FILE" google-token-file}}
+                           "sh" "-c" cmd)]
+    (when-not (zero? (:exit result))
+      (throw (ex-info (str "Google API error: " (:err result))
+                      {:exit (:exit result) :stderr (:err result)})))
+    (:out result)))
+
+(defn fetch-weather []
+  (try
+    (when openweather-api-key
+      (let [url (str "https://api.openweathermap.org/data/2.5/weather?q=" city "&appid=" openweather-api-key "&units=metric&lang=ja")
+            resp (http/get url)
+            data (json/parse-string (:body resp) true)]
+        (str "🌤 天気: " (get-in data [:weather 0 :description])
+             " / 気温: " (int (get-in data [:main :temp])) "°C"
+             " (体感 " (int (get-in data [:main :feels_like])) "°C)")))
+    (catch Exception _ nil)))
+
+(defn fetch-news []
+  (try
+    (let [resp (http/get "https://news.yahoo.co.jp/rss/topics/top-picks.xml")
+          root (xml/parse (ByteArrayInputStream. (.getBytes (:body resp) "UTF-8")))
+          items (->> (xml-seq root)
+                     (filter #(= :item (:tag %)))
+                     (take 3)
+                     (map #(->> (:content %)
+                                (filter (fn [c] (= :title (:tag c))))
+                                first :content first))
+                     (remove nil?))]
+      (when (seq items)
+        (str "📰 ニュース:\n" (str/join "\n" (map #(str "・" %) items)))))
+    (catch Exception _ nil)))
+
+(defn fetch-todays-events []
+  (try
+    (let [now (ZonedDateTime/now jst)
+          start (.withHour (.withMinute (.withSecond (.withNano now 0) 0) 0) 0)
+          end (.withHour (.withMinute (.withSecond (.withNano now 0) 59) 59) 23)
+          fmt DateTimeFormatter/ISO_OFFSET_DATE_TIME
+          output (run-google-api "calendar" "list"
+                                 "--start" (.format start fmt)
+                                 "--end" (.format end fmt))]
+      (when (and output (not (str/blank? output)))
+        (let [events (json/parse-string output true)]
+          (when (seq events)
+            (str "📅 今日の予定:\n"
+                 (str/join "\n"
+                           (map (fn [ev]
+                                  (let [title (or (:summary ev) "（タイトルなし）")
+                                        time-str (or (get-in ev [:start :dateTime])
+                                                     (get-in ev [:start :date])
+                                                     "")]
+                                    (str "・" time-str " " title)))
+                                events)))))))
+    (catch Exception e
+      (str "⚠️ カレンダー取得エラー: " (ex-message e)))))
+
+(defn actionable? [email]
+  (let [from (str/lower-case (or (:from email) (:From email) ""))
+        no-reply-pattern #"(no.?reply|noreply|donotreply|notifications?@|automated|mailer.daemon|bounce)"]
+    (not (re-find no-reply-pattern from))))
+
+(defn fetch-actionable-emails []
+  (try
+    (let [output (run-google-api "gmail" "search"
+                                 "\"is:unread is:inbox newer_than:2d\""
+                                 "--max-results" "10")]
+      (when (and output (not (str/blank? output)))
+        (let [emails (json/parse-string output true)
+              actionable (filter actionable? emails)]
+          (when (seq actionable)
+            (str "📬 要対応メール:\n"
+                 (str/join "\n"
+                           (map (fn [e]
+                                  (str "・[" (or (:from e) (:From e) "不明") "] "
+                                       (or (:subject e) (:Subject e) "（件名なし）")))
+                                actionable)))))))
+    (catch Exception e
+      (str "⚠️ メール取得エラー: " (ex-message e)))))
+
+(defn -main [& _args]
+  (let [sections (remove nil? [(fetch-weather)
+                               (fetch-todays-events)
+                               (fetch-actionable-emails)
+                               (fetch-news)])]
+    (when (seq sections)
+      (println "おはようございます。本日のブリーフィングです。\n")
+      (println (str/join "\n\n" sections)))))
+
+(apply -main *command-line-args*)
+SCRIPT_EOF
+              chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/morning_report.clj
               chown 1000:10000 \
                 /opt/data \
                 /opt/data/Documents \
