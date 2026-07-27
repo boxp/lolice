@@ -77,6 +77,62 @@ cd /home/boxp/Documents/obsidian-headless/BOXP && exec bb email_check.clj
 SCRIPT_EOF
               chmod 0755 /opt/data/scripts/email_check.sh
               chown 1000:10000 /opt/data/scripts/email_check.sh
+              cat > /opt/data/Documents/obsidian-headless/BOXP/email_check.clj << 'SCRIPT_EOF'
+#!/usr/bin/env bb
+
+;; 毎時メールチェックスクリプト
+;; Gmailの2日以内の未読メールをトリアージし、要対応のみ出力する
+;; 要対応メールが0件の場合は完全沈黙する
+
+(ns email-check
+  (:require [babashka.process :as proc]
+            [cheshire.core :as json]
+            [clojure.string :as str]))
+
+(def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
+(def google-token-file "/home/boxp/google_token.json")
+
+(defn run-google-api
+  [& args]
+  (let [cmd (str/join " " (concat [google-api-py] args))
+        result (proc/shell {:out :string :err :string :continue true
+                            :extra-env {"GOOGLE_TOKEN_FILE" google-token-file}}
+                           "sh" "-c" cmd)]
+    (when (zero? (:exit result))
+      (:out result))))
+
+(defn actionable?
+  [email]
+  (let [subject (str/lower-case (or (:subject email) (:Subject email) ""))
+        from (str/lower-case (or (:from email) (:From email) ""))
+        no-reply-pattern #"(no.?reply|noreply|donotreply|notifications?@|automated|mailer.daemon|bounce)"]
+    (not (re-find no-reply-pattern (str from " " subject)))))
+
+(defn fetch-actionable-emails
+  []
+  (try
+    (let [output (run-google-api "gmail" "search"
+                                 "\"is:unread is:inbox newer_than:2d\""
+                                 "--max-results" "10")]
+      (when (and output (not (str/blank? output)))
+        (let [emails (json/parse-string output true)]
+          (when (seq emails)
+            (filter actionable? emails)))))
+    (catch Exception _e nil)))
+
+(defn -main
+  [& _args]
+  (let [emails (fetch-actionable-emails)]
+    (when (seq emails)
+      (println "📬 要対応メールがあります:")
+      (doseq [email emails]
+        (let [subject (or (:subject email) (:Subject email) "(件名なし)")
+              from (or (:from email) (:From email) "不明")]
+          (println (format "・[%s] %s" from subject)))))))
+
+(apply -main *command-line-args*)
+SCRIPT_EOF
+              chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/email_check.clj
               chown 1000:10000 \
                 /opt/data \
                 /opt/data/Documents \
