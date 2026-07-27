@@ -73,7 +73,7 @@ Telegram または hermes-agent ダッシュボードから実行すること。
     何も特筆すべきことがなければ沈黙してください。
     1. 今日のGmail未対応メール: /opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py gmail search "is:unread is:inbox newer_than:1d" で確認
     2. 明日のGoogleカレンダー予定: google_api.py calendar list で明日の予定を確認
-    3. Task Boardの未完了チケット: bb ~/.claude/skills/obsidian-task-board/bin/task-board.bb list-tickets で確認
+    3. Task Boardの未完了チケット: bb /opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb list-tickets で確認
 ```
 
 ### Step D: Xタイムライン監視 cron（xurl認証設定後に追加）
