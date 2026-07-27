@@ -118,10 +118,9 @@ SCRIPT_EOF
 
 (defn actionable?
   [email]
-  (let [subject (str/lower-case (or (:subject email) (:Subject email) ""))
-        from (str/lower-case (or (:from email) (:From email) ""))
+  (let [from (str/lower-case (or (:from email) (:From email) ""))
         no-reply-pattern #"(no.?reply|noreply|donotreply|notifications?@|automated|mailer.daemon|bounce)"]
-    (not (re-find no-reply-pattern (str from " " subject)))))
+    (not (re-find no-reply-pattern from))))
 
 (defn fetch-actionable-emails
   []
