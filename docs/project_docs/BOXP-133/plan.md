@@ -4,6 +4,16 @@
 
 hermes-agent（コハコ）に Gmail・Google Calendar 連携を追加し、cronによる定期的なプロアクティブ通知を実現する。
 
+## スコープ境界（このPRの範囲と後続タスク）
+
+**このPR（BOXP-133 / #752）の範囲:**
+- hermes-agent Deploymentのinit containerでスクリプト（quiet_gate.sh / calendar_reminder.sh / email_check.sh / email_check.clj）をPVCへ毎デプロイ配置
+- Obsidian vault内のスクリプト（morning_report.clj / calendar_reminder.clj）更新
+
+**後続タスク: BOXP-134**
+cron登録（Step A〜D）はhermes-agentダッシュボードまたはTelegram経由の手動操作が必要なため、**BOXP-134** として後続タスクに分離。
+このPRがマージ・デプロイされた後にBOXP-134で実施する。
+
 ## 変更内容
 
 ### 1. Obsidian vault変更（Obsidian Syncで自動反映）
