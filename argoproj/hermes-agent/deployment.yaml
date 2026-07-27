@@ -87,10 +87,23 @@ SCRIPT_EOF
 (ns email-check
   (:require [babashka.process :as proc]
             [cheshire.core :as json]
-            [clojure.string :as str]))
+            [clojure.string :as str])
+  (:import [java.time LocalDateTime ZoneId]
+           [java.time.format DateTimeFormatter]
+           [java.io File]))
 
 (def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
 (def google-token-file "/home/boxp/google_token.json")
+(def memory-file "/home/boxp/Documents/obsidian-headless/BOXP/hermes_memory.md")
+(def jst (ZoneId/of "Asia/Tokyo"))
+
+(defn append-memory! [tag content]
+  (try
+    (let [now (LocalDateTime/now jst)
+          entry (str (.format now (DateTimeFormatter/ofPattern "yyyy-MM-dd HH:mm"))
+                     " [" tag "]: " content "\n")]
+      (spit memory-file entry :append true))
+    (catch Exception _ nil)))
 
 (defn run-google-api
   [& args]
@@ -129,7 +142,8 @@ SCRIPT_EOF
         (doseq [email emails]
           (let [subject (or (:subject email) (:Subject email) "(件名なし)")
                 from (or (:from email) (:From email) "不明")]
-            (println (format "・[%s] %s" from subject))))))
+            (println (format "・[%s] %s" from subject))
+            (append-memory! "メール" (str from " - " subject))))))
     (catch Exception e
       (binding [*out* *err*]
         (println (str "⚠️ メールチェックエラー: " (ex-message e))))
@@ -151,11 +165,21 @@ SCRIPT_EOF
             [cheshire.core :as json]
             [clojure.string :as str])
   (:import [java.time ZonedDateTime ZoneId Duration]
-           [java.time.format DateTimeFormatter]))
+           [java.time.format DateTimeFormatter]
+           [java.io File]))
 
 (def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
 (def google-token-file "/home/boxp/google_token.json")
+(def memory-file "/home/boxp/Documents/obsidian-headless/BOXP/hermes_memory.md")
 (def jst (ZoneId/of "Asia/Tokyo"))
+
+(defn append-memory! [tag content]
+  (try
+    (let [now (.toLocalDateTime (ZonedDateTime/now jst))
+          entry (str (.format now (DateTimeFormatter/ofPattern "yyyy-MM-dd HH:mm"))
+                     " [" tag "]: " content "\n")]
+      (spit memory-file entry :append true))
+    (catch Exception _ nil)))
 
 (defn run-google-api [& args]
   (let [cmd (str/join " " (concat [google-api-py] args))
@@ -216,7 +240,8 @@ SCRIPT_EOF
                 label (if (and mins (< mins 25))
                         "まもなく（静音中に通知できなかった予定）"
                         "30分後に")]
-            (println (str "📅 " label "「" (or (:summary ev) "（タイトルなし）") "」が始まります"))))))
+            (println (str "📅 " label "「" (or (:summary ev) "（タイトルなし）") "」が始まります"))
+            (append-memory! "カレンダー" (str "「" (or (:summary ev) "（タイトルなし）") "」" label "通知"))))))
     (catch Exception e
       (binding [*out* *err*]
         (println (str "⚠️ カレンダーリマインダーエラー: " (ex-message e))))
@@ -237,15 +262,45 @@ SCRIPT_EOF
             [cheshire.core :as json]
             [clojure.string :as str]
             [clojure.xml :as xml])
-  (:import [java.time ZonedDateTime ZoneId]
+  (:import [java.time ZonedDateTime ZoneId LocalDate]
            [java.time.format DateTimeFormatter]
-           [java.io ByteArrayInputStream]))
+           [java.io ByteArrayInputStream File]))
 
 (def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
 (def google-token-file "/home/boxp/google_token.json")
 (def jst (ZoneId/of "Asia/Tokyo"))
 (def openweather-api-key (System/getenv "OPENWEATHERMAP_API_KEY"))
 (def city "Tokyo")
+(def memory-file "/home/boxp/Documents/obsidian-headless/BOXP/hermes_memory.md")
+
+(defn fetch-recent-context []
+  (try
+    (when (.exists (File. memory-file))
+      (let [cutoff (.minusDays (LocalDate/now jst) 3)
+            lines (str/split-lines (slurp memory-file))
+            recent (filter (fn [line]
+                             (when-let [m (re-find #"^\d{4}-\d{2}-\d{2}" line)]
+                               (try (not (.isBefore (LocalDate/parse m) cutoff))
+                                    (catch Exception _ false))))
+                           lines)]
+        (when (seq recent)
+          (str "🧠 直近3日のメモ:\n"
+               (str/join "\n" (map #(str "・" %) (take-last 20 recent)))))))
+    (catch Exception _ nil)))
+
+(defn prune-memory! []
+  (try
+    (when (.exists (File. memory-file))
+      (let [cutoff (.minusDays (LocalDate/now jst) 7)
+            lines (str/split-lines (slurp memory-file))
+            kept (filter (fn [line]
+                           (when-let [m (re-find #"^\d{4}-\d{2}-\d{2}" line)]
+                             (try (not (.isBefore (LocalDate/parse m) cutoff))
+                                  (catch Exception _ true))))
+                         lines)]
+        (when (seq kept)
+          (spit memory-file (str (str/join "\n" kept) "\n")))))
+    (catch Exception _ nil)))
 
 (defn run-google-api [& args]
   (let [cmd (str/join " " (concat [google-api-py] args))
@@ -331,7 +386,9 @@ SCRIPT_EOF
       (str "⚠️ メール取得エラー: " (ex-message e)))))
 
 (defn -main [& _args]
+  (prune-memory!)
   (let [sections (remove nil? [(fetch-weather)
+                               (fetch-recent-context)
                                (fetch-todays-events)
                                (fetch-actionable-emails)
                                (fetch-news)])]
