@@ -98,8 +98,10 @@ SCRIPT_EOF
         result (proc/shell {:out :string :err :string :continue true
                             :extra-env {"GOOGLE_TOKEN_FILE" google-token-file}}
                            "sh" "-c" cmd)]
-    (when (zero? (:exit result))
-      (:out result))))
+    (when-not (zero? (:exit result))
+      (throw (ex-info (str "Gmail API error (exit=" (:exit result) "): " (:err result))
+                      {:exit (:exit result) :stderr (:err result)})))
+    (:out result)))
 
 (defn actionable?
   [email]
@@ -110,25 +112,28 @@ SCRIPT_EOF
 
 (defn fetch-actionable-emails
   []
-  (try
-    (let [output (run-google-api "gmail" "search"
-                                 "\"is:unread is:inbox newer_than:2d\""
-                                 "--max-results" "10")]
-      (when (and output (not (str/blank? output)))
-        (let [emails (json/parse-string output true)]
-          (when (seq emails)
-            (filter actionable? emails)))))
-    (catch Exception _e nil)))
+  (let [output (run-google-api "gmail" "search"
+                               "\"is:unread is:inbox newer_than:2d\""
+                               "--max-results" "10")]
+    (when (and output (not (str/blank? output)))
+      (let [emails (json/parse-string output true)]
+        (when (seq emails)
+          (filter actionable? emails))))))
 
 (defn -main
   [& _args]
-  (let [emails (fetch-actionable-emails)]
-    (when (seq emails)
-      (println "📬 要対応メールがあります:")
-      (doseq [email emails]
-        (let [subject (or (:subject email) (:Subject email) "(件名なし)")
-              from (or (:from email) (:From email) "不明")]
-          (println (format "・[%s] %s" from subject)))))))
+  (try
+    (let [emails (fetch-actionable-emails)]
+      (when (seq emails)
+        (println "📬 要対応メールがあります:")
+        (doseq [email emails]
+          (let [subject (or (:subject email) (:Subject email) "(件名なし)")
+                from (or (:from email) (:From email) "不明")]
+            (println (format "・[%s] %s" from subject))))))
+    (catch Exception e
+      (binding [*out* *err*]
+        (println (str "⚠️ メールチェックエラー: " (ex-message e))))
+      (System/exit 1))))
 
 (apply -main *command-line-args*)
 SCRIPT_EOF
