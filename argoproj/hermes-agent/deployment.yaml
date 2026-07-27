@@ -155,14 +155,15 @@ SCRIPT_EOF
               cat > /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj << 'SCRIPT_EOF'
 #!/usr/bin/env bb
 
-;; カレンダーイベント事前通知スクリプト
-;; cronは15分間隔のため、ウィンドウを15分幅（25〜40分後）に設定してイベントの取りこぼしを防ぐ
-;; 09:00静音時間終了時には直近25分以内の予定を補足通知する（静音中に見逃した予定を救済）
+;; カレンダーイベント事前通知スクリプト（永続化ID版）
+;; 通知済みイベントIDをEDNファイルに保存し重複通知を防ぎつつ、5〜50分の広いウィンドウで検索する
+;; cron15分間隔でも全イベントを確実に一度だけ通知できる（取りこぼしなし）
 ;; 対象イベントがない場合は完全沈黙する
 
 (ns calendar-reminder
   (:require [babashka.process :as proc]
             [cheshire.core :as json]
+            [clojure.edn :as edn]
             [clojure.string :as str])
   (:import [java.time ZonedDateTime ZoneId Duration]
            [java.time.format DateTimeFormatter]
@@ -171,6 +172,7 @@ SCRIPT_EOF
 (def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
 (def google-token-file "/home/boxp/google_token.json")
 (def memory-file "/home/boxp/Documents/obsidian-headless/BOXP/hermes_memory.md")
+(def notified-file "/home/boxp/Documents/obsidian-headless/BOXP/calendar_notified.edn")
 (def jst (ZoneId/of "Asia/Tokyo"))
 
 (defn append-memory! [tag content]
@@ -180,6 +182,20 @@ SCRIPT_EOF
                      " [" tag "]: " content "\n")]
       (spit memory-file entry :append true))
     (catch Exception _ nil)))
+
+(defn load-notified []
+  (try
+    (if (.exists (File. notified-file))
+      (edn/read-string (slurp notified-file))
+      {})
+    (catch Exception _ {})))
+
+(defn save-notified! [notified]
+  (try (spit notified-file (pr-str notified)) (catch Exception _ nil)))
+
+(defn cleanup-old-entries [notified now-epoch]
+  ;; 2時間以上前の通知済みエントリを削除してファイルが肥大化しないようにする
+  (into {} (filter (fn [[_id ts]] (< (- now-epoch ts) 7200)) notified)))
 
 (defn run-google-api [& args]
   (let [cmd (str/join " " (concat [google-api-py] args))
@@ -194,9 +210,10 @@ SCRIPT_EOF
 (defn minutes-until [now ev-start]
   (-> (Duration/between now ev-start) .toMinutes))
 
-(defn fetch-events-in-window [now min-min max-min]
-  (let [window-start (.plusMinutes now min-min)
-        window-end (.plusMinutes now max-min)
+(defn fetch-upcoming-events [now]
+  ;; 5〜50分後のウィンドウで検索: cron15分間隔でも全イベントが少なくとも1回は検出される
+  (let [window-start (.plusMinutes now 5)
+        window-end (.plusMinutes now 50)
         fmt DateTimeFormatter/ISO_OFFSET_DATE_TIME
         output (run-google-api "calendar" "list"
                                "--start" (.format window-start fmt)
@@ -206,10 +223,10 @@ SCRIPT_EOF
         (filter
          (fn [ev]
            (if-let [start-str (get-in ev [:start :dateTime])]
-             ;; 時刻付きイベント: 指定ウィンドウ内か確認
+             ;; 時刻付きイベント: 5〜50分後の範囲内か確認
              (let [ev-start (ZonedDateTime/parse start-str DateTimeFormatter/ISO_OFFSET_DATE_TIME)
                    mins (minutes-until now ev-start)]
-               (and (>= mins min-min) (< mins max-min)))
+               (and (>= mins 5) (< mins 50)))
              ;; 終日イベント (:start.date): 特定の開始時刻がないため30分前リマインダーの対象外
              false))
          events)))))
@@ -217,31 +234,25 @@ SCRIPT_EOF
 (defn -main [& _args]
   (try
     (let [now (ZonedDateTime/now jst)
-          hour (.getHour now)
-          minute (.getMinute now)
-          ;; 通常ウィンドウ: 25〜40分後（15分幅）でcron間隔と一致、取りこぼしなし
-          regular-events (fetch-events-in-window now 25 40)
-          ;; 09:00静音解除後の補足: 直近1〜25分以内の予定を通知（静音時間中に見逃した予定を救済）
-          catchup-events (when (and (= hour 9) (< minute 15))
-                           (fetch-events-in-window now 1 25))
-          ;; IDで重複排除
-          seen (atom #{})
-          all-events (filter (fn [ev]
-                               (let [id (or (:id ev) (:summary ev))]
-                                 (when-not (@seen id)
-                                   (swap! seen conj id)
-                                   true)))
-                             (concat catchup-events regular-events))]
-      (when (seq all-events)
-        (doseq [ev all-events]
+          now-epoch (.toEpochSecond now)
+          ;; 通知済みIDをロードし、古いエントリを削除
+          notified (-> (load-notified) (cleanup-old-entries now-epoch))
+          events (fetch-upcoming-events now)
+          ;; 未通知のイベントのみ抽出（永続化により重複通知を防止）
+          new-events (remove (fn [ev] (contains? notified (or (:id ev) (:summary ev)))) events)]
+      (when (seq new-events)
+        (doseq [ev new-events]
           (let [start-str (get-in ev [:start :dateTime])
-                mins (when start-str
-                       (minutes-until now (ZonedDateTime/parse start-str DateTimeFormatter/ISO_OFFSET_DATE_TIME)))
-                label (if (and mins (< mins 25))
-                        "まもなく（静音中に通知できなかった予定）"
-                        "30分後に")]
-            (println (str "📅 " label "「" (or (:summary ev) "（タイトルなし）") "」が始まります"))
-            (append-memory! "カレンダー" (str "「" (or (:summary ev) "（タイトルなし）") "」" label "通知"))))))
+                ev-start (ZonedDateTime/parse start-str DateTimeFormatter/ISO_OFFSET_DATE_TIME)
+                mins (int (minutes-until now ev-start))]
+            (println (str "📅 " mins "分後に「" (or (:summary ev) "（タイトルなし）") "」が始まります"))))
+        ;; 通知済みIDを永続化して次回以降の重複通知を防ぐ
+        (let [updated (reduce (fn [acc ev]
+                                (assoc acc (or (:id ev) (:summary ev)) now-epoch))
+                              notified new-events)]
+          (save-notified! updated)
+          (doseq [ev new-events]
+            (append-memory! "カレンダー" (str "「" (or (:summary ev) "（タイトルなし）") "」通知"))))))
     (catch Exception e
       (binding [*out* *err*]
         (println (str "⚠️ カレンダーリマインダーエラー: " (ex-message e))))
