@@ -152,6 +152,7 @@ SCRIPT_EOF
 SCRIPT_EOF
               chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/email_check.clj
               chown 1000:10000 /opt/data/Documents/obsidian-headless/BOXP/email_check.clj
+              if [ ! -f /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj ]; then
               cat > /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj << 'SCRIPT_EOF'
 #!/usr/bin/env bb
 
@@ -279,6 +280,8 @@ SCRIPT_EOF
 SCRIPT_EOF
               chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj
               chown 1000:10000 /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj
+              fi
+              if [ ! -f /opt/data/Documents/obsidian-headless/BOXP/morning_report.clj ]; then
               cat > /opt/data/Documents/obsidian-headless/BOXP/morning_report.clj << 'SCRIPT_EOF'
 #!/usr/bin/env bb
 
@@ -428,6 +431,7 @@ SCRIPT_EOF
 SCRIPT_EOF
               chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/morning_report.clj
               chown 1000:10000 /opt/data/Documents/obsidian-headless/BOXP/morning_report.clj
+              fi
               chown 1000:10000 \
                 /opt/data \
                 /opt/data/Documents \
