@@ -14,6 +14,23 @@ hermes-agent（コハコ）に Gmail・Google Calendar 連携を追加し、cron
 cron登録（Step A〜D）はhermes-agentダッシュボードまたはTelegram経由の手動操作が必要なため、**BOXP-134** として後続タスクに分離。
 このPRがマージ・デプロイされた後にBOXP-134で実施する。
 
+## デプロイ前提条件
+
+このPRをマージ・デプロイする前に、以下のAWS SSMパラメータを事前に作成する必要があります。
+
+### 必須: OpenWeatherMap APIキー
+
+```bash
+aws ssm put-parameter \
+  --name "hermes-agent-openweathermap-api-key" \
+  --value "<YOUR_OPENWEATHERMAP_API_KEY>" \
+  --type "SecureString"
+```
+
+- APIキーは https://openweathermap.org/api で取得
+- このパラメータが存在しない場合、ExternalSecretの同期に失敗し、PodがCreateContainerConfigErrorで起動できません
+- SSMパラメータ作成後、ExternalSecretが同期完了するまで最大1時間待つか、`kubectl annotate externalsecret external-secret-hermes-agent-openweathermap force-sync=$(date +%s) -n hermes-agent` で強制同期
+
 ## 変更内容
 
 ### 1. Obsidian vault変更（Obsidian Syncで自動反映）
