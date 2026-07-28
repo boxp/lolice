@@ -281,12 +281,14 @@ SCRIPT_EOF
               chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj
               chown 1000:10000 /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj
               fi
-              if [ ! -f /opt/data/Documents/obsidian-headless/BOXP/morning_report.clj ]; then
-              cat > /opt/data/Documents/obsidian-headless/BOXP/morning_report.clj << 'SCRIPT_EOF'
+              VAULT_MORNING="/opt/data/Documents/obsidian-headless/BOXP/morning_report.clj"
+              if [ ! -f "$VAULT_MORNING" ] || ! grep -q "; hermes-bootstrap-version: v2-calendar-gmail-20260728" "$VAULT_MORNING"; then
+              cat > "$VAULT_MORNING" << 'SCRIPT_EOF'
 #!/usr/bin/env bb
 
 ;; 朝のブリーフィングスクリプト
 ;; 天気・ニュース・今日のカレンダー予定・要対応メールを報告する
+;; hermes-bootstrap-version: v2-calendar-gmail-20260728
 
 (ns morning-report
   (:require [babashka.process :as proc]
@@ -429,8 +431,8 @@ SCRIPT_EOF
 
 (apply -main *command-line-args*)
 SCRIPT_EOF
-              chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/morning_report.clj
-              chown 1000:10000 /opt/data/Documents/obsidian-headless/BOXP/morning_report.clj
+              chmod 0644 "$VAULT_MORNING"
+              chown 1000:10000 "$VAULT_MORNING"
               fi
               chown 1000:10000 \
                 /opt/data \
