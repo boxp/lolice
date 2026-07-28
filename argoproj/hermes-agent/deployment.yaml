@@ -91,7 +91,6 @@ SCRIPT_EOF
 
 (def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
 (def google-token-file "/home/boxp/google_token.json")
-(def jst (ZoneId/of "Asia/Tokyo"))
 
 (defn run-google-api
   [& args]
