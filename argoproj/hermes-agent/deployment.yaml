@@ -444,6 +444,7 @@ MORNING_REPORT_CLJ_EOF
                 secretKeyRef:
                   name: hermes-agent-openweathermap-secret
                   key: OPENWEATHERMAP_API_KEY
+                  optional: true
           resources:
             requests:
               cpu: 500m

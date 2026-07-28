@@ -18,7 +18,7 @@ cron登録（Step A〜D）はhermes-agentダッシュボードまたはTelegram�
 
 このPRをマージ・デプロイする前に、以下のAWS SSMパラメータを事前に作成する必要があります。
 
-### 必須: OpenWeatherMap APIキー
+### オプション: OpenWeatherMap APIキー
 
 ```bash
 aws ssm put-parameter \
@@ -28,7 +28,8 @@ aws ssm put-parameter \
 ```
 
 - APIキーは https://openweathermap.org/api で取得
-- このパラメータが存在しない場合、ExternalSecretの同期に失敗し、PodがCreateContainerConfigErrorで起動できません
+- **このパラメータは省略可能**: `secretKeyRef` に `optional: true` を設定済みのため、SSMパラメータが存在しなくても Pod は正常に起動します
+- APIキーが未設定の場合、`morning_report.clj` の天気セクションが省略されます（コード側で `when openweather-api-key` によるグレースフルデグラデーション済み）
 - SSMパラメータ作成後、ExternalSecretが同期完了するまで最大1時間待つか、`kubectl annotate externalsecret external-secret-hermes-agent-openweathermap force-sync=$(date +%s) -n hermes-agent` で強制同期
 
 ## 変更内容
