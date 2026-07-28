@@ -138,12 +138,14 @@ SCRIPT_EOF
 SCRIPT_EOF
               chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/email_check.clj
               chown 1000:10000 /opt/data/Documents/obsidian-headless/BOXP/email_check.clj
-              if [ ! -f /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj ]; then
-              cat > /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj << 'SCRIPT_EOF'
+              VAULT_CALENDAR="/opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj"
+              if [ ! -f "$VAULT_CALENDAR" ] || ! grep -q "; hermes-bootstrap-version: v2-catchup-dedup-20260728" "$VAULT_CALENDAR"; then
+              cat > "$VAULT_CALENDAR" << 'SCRIPT_EOF'
 #!/usr/bin/env bb
 
+;; hermes-bootstrap-version: v2-catchup-dedup-20260728
 ;; カレンダーイベント事前通知スクリプト（永続化ID版）
-;; 通知済みイベントIDをEDNファイルに保存し重複通知を防ぎつつ、5〜50分の広いウィンドウで検索する
+;; 通知済みイベントIDをEDNファイルに保存し重複通知を防ぎつつ、20〜45分の広いウィンドウで検索する
 ;; cron15分間隔でも全イベントを確実に一度だけ通知できる（取りこぼしなし）
 ;; 対象イベントがない場合は完全沈黙する
 
@@ -252,8 +254,8 @@ SCRIPT_EOF
 
 (apply -main *command-line-args*)
 SCRIPT_EOF
-              chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj
-              chown 1000:10000 /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj
+              chmod 0644 "$VAULT_CALENDAR"
+              chown 1000:10000 "$VAULT_CALENDAR"
               fi
               VAULT_MORNING="/opt/data/Documents/obsidian-headless/BOXP/morning_report.clj"
               if [ ! -f "$VAULT_MORNING" ] || ! grep -q "; hermes-bootstrap-version: v3-no-custom-memory-20260728" "$VAULT_MORNING"; then
