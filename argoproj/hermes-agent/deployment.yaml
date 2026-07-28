@@ -87,23 +87,11 @@ SCRIPT_EOF
 (ns email-check
   (:require [babashka.process :as proc]
             [cheshire.core :as json]
-            [clojure.string :as str])
-  (:import [java.time LocalDateTime ZoneId]
-           [java.time.format DateTimeFormatter]
-           [java.io File]))
+            [clojure.string :as str]))
 
 (def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
 (def google-token-file "/home/boxp/google_token.json")
-(def memory-file "/home/boxp/Documents/obsidian-headless/BOXP/hermes_memory.md")
 (def jst (ZoneId/of "Asia/Tokyo"))
-
-(defn append-memory! [tag content]
-  (try
-    (let [now (LocalDateTime/now jst)
-          entry (str (.format now (DateTimeFormatter/ofPattern "yyyy-MM-dd HH:mm"))
-                     " [" tag "]: " content "\n")]
-      (spit memory-file entry :append true))
-    (catch Exception _ nil)))
 
 (defn run-google-api
   [& args]
@@ -141,8 +129,7 @@ SCRIPT_EOF
         (doseq [email emails]
           (let [subject (or (:subject email) (:Subject email) "(件名なし)")
                 from (or (:from email) (:From email) "不明")]
-            (println (format "・[%s] %s" from subject))
-            (append-memory! "メール" (str from " - " subject))))))
+            (println (format "・[%s] %s" from subject))))))
     (catch Exception e
       (binding [*out* *err*]
         (println (str "⚠️ メールチェックエラー: " (ex-message e))))
@@ -169,20 +156,10 @@ SCRIPT_EOF
   (:import [java.time ZonedDateTime ZoneId Duration]
            [java.time.format DateTimeFormatter]
            [java.io File]))
-
 (def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
 (def google-token-file "/home/boxp/google_token.json")
-(def memory-file "/home/boxp/Documents/obsidian-headless/BOXP/hermes_memory.md")
 (def notified-file "/home/boxp/Documents/obsidian-headless/BOXP/calendar_notified.edn")
 (def jst (ZoneId/of "Asia/Tokyo"))
-
-(defn append-memory! [tag content]
-  (try
-    (let [now (.toLocalDateTime (ZonedDateTime/now jst))
-          entry (str (.format now (DateTimeFormatter/ofPattern "yyyy-MM-dd HH:mm"))
-                     " [" tag "]: " content "\n")]
-      (spit memory-file entry :append true))
-    (catch Exception _ nil)))
 
 (defn load-notified []
   (try
@@ -268,9 +245,7 @@ SCRIPT_EOF
           (let [updated (reduce (fn [acc ev]
                                   (assoc acc (or (:id ev) (:summary ev)) now-epoch))
                                 notified all-new)]
-            (save-notified! updated)
-            (doseq [ev all-new]
-              (append-memory! "カレンダー" (str "「" (or (:summary ev) "（タイトルなし）") "」通知")))))))
+            (save-notified! updated)))))
     (catch Exception e
       (binding [*out* *err*]
         (println (str "⚠️ カレンダーリマインダーエラー: " (ex-message e))))
@@ -282,13 +257,13 @@ SCRIPT_EOF
               chown 1000:10000 /opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj
               fi
               VAULT_MORNING="/opt/data/Documents/obsidian-headless/BOXP/morning_report.clj"
-              if [ ! -f "$VAULT_MORNING" ] || ! grep -q "; hermes-bootstrap-version: v2-calendar-gmail-20260728" "$VAULT_MORNING"; then
+              if [ ! -f "$VAULT_MORNING" ] || ! grep -q "; hermes-bootstrap-version: v3-no-custom-memory-20260728" "$VAULT_MORNING"; then
               cat > "$VAULT_MORNING" << 'SCRIPT_EOF'
 #!/usr/bin/env bb
 
 ;; 朝のブリーフィングスクリプト
 ;; 天気・ニュース・今日のカレンダー予定・要対応メールを報告する
-;; hermes-bootstrap-version: v2-calendar-gmail-20260728
+;; hermes-bootstrap-version: v3-no-custom-memory-20260728
 
 (ns morning-report
   (:require [babashka.process :as proc]
@@ -296,44 +271,14 @@ SCRIPT_EOF
             [cheshire.core :as json]
             [clojure.string :as str]
             [clojure.data.xml :as xml])
-  (:import [java.time ZonedDateTime ZoneId LocalDate]
-           [java.time.format DateTimeFormatter]
-           [java.io File]))
+  (:import [java.time ZonedDateTime ZoneId]
+           [java.time.format DateTimeFormatter]))
 
 (def google-api-py "/opt/data/.venv-google/bin/python /opt/data/skills/productivity/google-workspace/scripts/google_api.py")
 (def google-token-file "/home/boxp/google_token.json")
 (def jst (ZoneId/of "Asia/Tokyo"))
 (def openweather-api-key (System/getenv "OPENWEATHERMAP_API_KEY"))
 (def city "Tokyo")
-(def memory-file "/home/boxp/Documents/obsidian-headless/BOXP/hermes_memory.md")
-
-(defn fetch-recent-context []
-  (try
-    (when (.exists (File. memory-file))
-      (let [cutoff (.minusDays (LocalDate/now jst) 3)
-            lines (str/split-lines (slurp memory-file))
-            recent (filter (fn [line]
-                             (when-let [m (re-find #"^\d{4}-\d{2}-\d{2}" line)]
-                               (try (not (.isBefore (LocalDate/parse m) cutoff))
-                                    (catch Exception _ false))))
-                           lines)]
-        (when (seq recent)
-          (str "🧠 直近3日のメモ:\n"
-               (str/join "\n" (map #(str "・" %) (take-last 20 recent)))))))
-    (catch Exception _ nil)))
-
-(defn prune-memory! []
-  (try
-    (when (.exists (File. memory-file))
-      (let [cutoff (.minusDays (LocalDate/now jst) 7)
-            lines (str/split-lines (slurp memory-file))
-            kept (filter (fn [line]
-                           (when-let [m (re-find #"^\d{4}-\d{2}-\d{2}" line)]
-                             (try (not (.isBefore (LocalDate/parse m) cutoff))
-                                  (catch Exception _ true))))
-                         lines)]
-        (spit memory-file (if (seq kept) (str (str/join "\n" kept) "\n") ""))))
-    (catch Exception _ nil)))
 
 (defn run-google-api [& args]
   (let [cmd (str/join " " (concat [google-api-py] args))
@@ -419,9 +364,7 @@ SCRIPT_EOF
       (str "⚠️ メール取得エラー: " (ex-message e)))))
 
 (defn -main [& _args]
-  (prune-memory!)
   (let [sections (remove nil? [(fetch-weather)
-                               (fetch-recent-context)
                                (fetch-todays-events)
                                (fetch-actionable-emails)
                                (fetch-news)])]
