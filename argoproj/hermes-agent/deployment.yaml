@@ -28,7 +28,7 @@ spec:
             - -c
             - |
               set -eu
-              mkdir -p /opt/data/Documents/obsidian-headless/BOXP
+              mkdir -p /opt/data/scripts /opt/data/Documents/obsidian-headless/BOXP
               skill_dir=/opt/data/skills/note-taking/obsidian-task-board
               if [ ! -f /opt/data/.shared-uid-gid-migrated ]; then
                 chown -R 1000:10000 /opt/data
@@ -48,6 +48,30 @@ spec:
                 chown -R 1000:10000 "$skill_dir"
                 chmod 0644 "$skill_dir/SKILL.md"
                 chmod 0755 "$skill_dir/bin/task-board.bb"
+              fi
+              cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
+              chmod 0755 /opt/data/scripts/quiet_gate.sh
+              chown 1000:10000 /opt/data/scripts/quiet_gate.sh
+              cp /bootstrap/calendar_reminder.sh /opt/data/scripts/calendar_reminder.sh
+              chmod 0755 /opt/data/scripts/calendar_reminder.sh
+              chown 1000:10000 /opt/data/scripts/calendar_reminder.sh
+              cp /bootstrap/email_check.sh /opt/data/scripts/email_check.sh
+              chmod 0755 /opt/data/scripts/email_check.sh
+              chown 1000:10000 /opt/data/scripts/email_check.sh
+              cp /bootstrap/email_check.clj /opt/data/Documents/obsidian-headless/BOXP/email_check.clj
+              chmod 0644 /opt/data/Documents/obsidian-headless/BOXP/email_check.clj
+              chown 1000:10000 /opt/data/Documents/obsidian-headless/BOXP/email_check.clj
+              VAULT_CALENDAR="/opt/data/Documents/obsidian-headless/BOXP/calendar_reminder.clj"
+              if [ ! -f "$VAULT_CALENDAR" ] || ! grep -q "; hermes-bootstrap-version: v2-catchup-dedup-20260728" "$VAULT_CALENDAR"; then
+                cp /bootstrap/calendar_reminder.clj "$VAULT_CALENDAR"
+                chmod 0644 "$VAULT_CALENDAR"
+                chown 1000:10000 "$VAULT_CALENDAR"
+              fi
+              VAULT_MORNING="/opt/data/Documents/obsidian-headless/BOXP/morning_report.clj"
+              if [ ! -f "$VAULT_MORNING" ] || ! grep -q "; hermes-bootstrap-version: v3-no-custom-memory-20260728" "$VAULT_MORNING"; then
+                cp /bootstrap/morning_report.clj "$VAULT_MORNING"
+                chmod 0644 "$VAULT_MORNING"
+                chown 1000:10000 "$VAULT_MORNING"
               fi
               chown 1000:10000 \
                 /opt/data \
@@ -110,6 +134,12 @@ spec:
               value: ornith-35b
             - name: HERMES_STREAM_READ_TIMEOUT
               value: "1800"
+            - name: OPENWEATHERMAP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-openweathermap-secret
+                  key: OPENWEATHERMAP_API_KEY
+                  optional: true
           resources:
             requests:
               cpu: 500m
