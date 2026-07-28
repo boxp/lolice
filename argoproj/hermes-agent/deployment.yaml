@@ -219,8 +219,8 @@ SCRIPT_EOF
           now-epoch (.toEpochSecond now)
           ;; 通知済みIDをロードし、古いエントリを削除
           notified (-> (load-notified) (cleanup-old-entries now-epoch))
-          ;; 通常ウィンドウ: 25〜40分後（PR要件の「30分前」通知に一致; 15分幅>=15分cron間隔で取りこぼしなし）
-          regular-events (fetch-events-in-range now 25 40)
+          ;; 通常ウィンドウ: 20〜45分後（25分幅で15分間隔cronの境界ずれ・遅延時の取りこぼしを防ぐ; 重複はID永続化で抑止）
+          regular-events (fetch-events-in-range now 20 45)
           ;; 静音解除補足: 09:00-09:14 JSTのみ、過去25分〜25分後の静音中見逃しイベント
           catchup-events (when (quiet-just-ended? now)
                            (fetch-events-in-range now -25 25))
