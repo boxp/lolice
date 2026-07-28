@@ -86,7 +86,7 @@ data:
       []
       (let [output (run-google-api "gmail" "search"
                                    "\"is:unread is:inbox newer_than:2d\""
-                                   "--max-results" "10")]
+                                   "--max" "10")]
         (when (and output (not (str/blank? output)))
           (let [emails (json/parse-string output true)]
             (when (seq emails)
@@ -228,7 +228,7 @@ data:
 
     ;; 朝のブリーフィングスクリプト
     ;; 天気・ニュース・今日のカレンダー予定・要対応メールを報告する
-    ;; hermes-bootstrap-version: v3-no-custom-memory-20260728
+    ;; hermes-bootstrap-version: v4-google-api-max-20260728
 
     (ns morning-report
       (:require [babashka.process :as proc]
@@ -314,7 +314,7 @@ data:
       (try
         (let [output (run-google-api "gmail" "search"
                                      "\"is:unread is:inbox newer_than:2d\""
-                                     "--max-results" "10")]
+                                     "--max" "10")]
           (when (and output (not (str/blank? output)))
             (let [emails (json/parse-string output true)
                   actionable (filter actionable? emails)]

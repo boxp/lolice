@@ -68,7 +68,7 @@ spec:
                 chown 1000:10000 "$VAULT_CALENDAR"
               fi
               VAULT_MORNING="/opt/data/Documents/obsidian-headless/BOXP/morning_report.clj"
-              if [ ! -f "$VAULT_MORNING" ] || ! grep -q "; hermes-bootstrap-version: v3-no-custom-memory-20260728" "$VAULT_MORNING"; then
+              if [ ! -f "$VAULT_MORNING" ] || ! grep -q "; hermes-bootstrap-version: v4-google-api-max-20260728" "$VAULT_MORNING"; then
                 cp /bootstrap/morning_report.clj "$VAULT_MORNING"
                 chmod 0644 "$VAULT_MORNING"
                 chown 1000:10000 "$VAULT_MORNING"
