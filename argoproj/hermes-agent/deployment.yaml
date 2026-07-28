@@ -228,11 +228,11 @@ EMAIL_CHECK_CLJ_EOF
                            (fetch-events-in-range now -25 20))
           new-regular (remove #(contains? notified (or (:id %) (:summary %))) regular-events)
           new-catchup (remove #(contains? notified (or (:id %) (:summary %))) (or catchup-events []))]
-      ;; 約30分前リマインダー（通常）
+      ;; 事前リマインダー（通常: 20〜45分前）
       (doseq [ev new-regular]
         (let [ev-start (ZonedDateTime/parse (get-in ev [:start :dateTime]) DateTimeFormatter/ISO_OFFSET_DATE_TIME)
               mins (int (minutes-until now ev-start))]
-          (println (str "📅 約30分後に「" (or (:summary ev) "（タイトルなし）") "」が始まります（" mins "分後）"))))
+          (println (str "📅 " mins "分後に「" (or (:summary ev) "（タイトルなし）") "」が始まります"))))
       ;; 補足通知（静音時間中に通知できなかったイベント）
       (doseq [ev new-catchup]
         (let [ev-start (ZonedDateTime/parse (get-in ev [:start :dateTime]) DateTimeFormatter/ISO_OFFSET_DATE_TIME)
