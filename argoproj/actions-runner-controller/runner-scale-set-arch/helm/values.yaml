@@ -18,7 +18,7 @@ template:
       lolice.io/gpu-worker: "true"
     containers:
     - name: runner
-      image: ghcr.io/boxp/arch/arc-runner:sha-7d8cc36
+      image: ghcr.io/boxp/arch/arc-runner:sha-d119758
       command:
       - /home/runner/run.sh
       resources:
