@@ -12,9 +12,16 @@ spec:
     - name: ssh
       port: 22
       targetPort: ssh
+      # Explicit NodePort so LAN clients that cannot reach the kube-vip
+      # LoadBalancer VIP (192.168.10.98) can hit a node's real IP instead.
+      # IS01 (WiFi) times out on TCP to the VIP's virtual MAC (02:00:6f:...)
+      # while node real IPs (e.g. 192.168.10.102) are reachable; it connects
+      # via <node-ip>:30022. LoadBalancer/VIP path is unchanged.
+      nodePort: 30022
     - name: even-terminal
       port: 3456
       targetPort: even-terminal
+      nodePort: 30456
     - name: mosh
       port: 60001
       targetPort: mosh
