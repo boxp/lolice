@@ -26,3 +26,7 @@ spec:
       port: 60001
       targetPort: mosh
       protocol: UDP
+      # Explicit UDP NodePort so IS01(WiFi) reaches mosh via a node real IP,
+      # bypassing the kube-vip VIP (whose virtual MAC drops WiFi datagrams).
+      # is01-mosh points mosh-client at <node-ip>:30601 with mosh-server -p 60001.
+      nodePort: 30601
