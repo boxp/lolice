@@ -121,6 +121,38 @@ Alertmanager は既存の設定のまま変わらない (停止はしない)。
 
 最後の2つが本質。設定が入っただけでは「届かないアラート」を作り直すだけになる。
 
+## 適用時に踏んだ罠 (2026-08-05)
+
+SSM に実値を設定し #763 をマージしたところ、ExternalSecret が
+`SecretSyncedError` になり Secret が作られなかった。
+
+```
+could not apply template: ... unable to parse template at key alertmanager.yaml:
+template: alertmanager.yaml:60: missing value for command
+```
+
+**原因: コメント行に書いた二重波括弧。**
+`alertmanager.yaml` はブロックスカラー (`|`) なので、`#` で始まる行も
+YAML のコメントではなく**文字列の一部**として ESO の Go template に渡る。
+そこに空の波括弧があると「空アクション」として実行され、テンプレート全体が
+parse に失敗する。皮肉なことに、テンプレートのエスケープに注意しろという
+コメント自体がテンプレートを壊していた。
+
+Alertmanager は既存設定のまま動き続けたので停止はしていない (設計どおり)。
+
+### 再発防止
+
+`scripts/verify-alertmanager-template.py` を追加した。
+テンプレート中の波括弧アクションを列挙し、
+
+- `{{ .foo }}` の形以外が含まれていないか
+- 使われている変数が `spec.data` に定義されているか
+- 展開後に波括弧が残っていないか
+- 展開後が妥当な YAML か
+
+を検証する。**YAML として parse するだけでは足りない**というのが今回の教訓で、
+実際に修正前のファイルに対して FAIL することを確認済み。
+
 ## 残課題
 
 - 高耐久 microSD への交換 (shanghai-1 のカードは write await が兄弟機の4倍まで劣化)
