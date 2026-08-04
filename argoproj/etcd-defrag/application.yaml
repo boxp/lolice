@@ -1,0 +1,17 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: etcd-defrag
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/boxp/lolice.git
+    targetRevision: main
+    path: argoproj/etcd-defrag
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      selfHeal: true
