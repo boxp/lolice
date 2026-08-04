@@ -1,0 +1,120 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etcd-defrag
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: etcd-defrag
+spec:
+  # 毎週日曜 04:00 JST。2026-08-04 時点で DB 626MB のうち 94% が未使用で、
+  # shanghai-* (Orange Pi Zero 3, rootfs=microSD) への書き込み増幅を押し上げていた。
+  # 詳細: docs/project_docs/shanghai-node-resilience/plan.md
+  schedule: "0 4 * * 0"
+  timeZone: Asia/Tokyo
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      # 完了した Job/Pod を残し続けると、削減したいはずの etcd 書き込みを自分で増やしてしまう。
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: etcd-defrag
+        spec:
+          restartPolicy: Never
+          # etcd は 127.0.0.1:2379 で待ち受けているため、CNI に依存せず host network で叩く。
+          hostNetwork: true
+          priorityClassName: system-cluster-critical
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: ""
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+          securityContext:
+            # 証明書の秘密鍵が root:root 0600 のため root で読む必要がある。
+            runAsUser: 0
+            runAsGroup: 0
+          # etcd イメージは distroless でシェルを持たないため、シェルスクリプトは使えない。
+          # 代わりに initContainer を健全性ゲートとして使い、1 台でも落ちていれば
+          # defrag を実行しないようにする (defrag 中のメンバーはブロックするため、
+          # 既に 1 台落ちている状態で走らせると quorum を失う)。
+          initContainers:
+            - name: health-gate
+              # 第三者イメージは digest 固定 (argoproj/argocd-image-updater/imageupdaters/README.md)。
+              # etcd の秘密鍵を root で読むワークロードなので同一性を保証する。
+              # multi-arch manifest list の digest なので control-plane の arm64 でも解決される。
+              image: registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5
+              command: ["etcdctl"]
+              args:
+                - --endpoints=https://127.0.0.1:2379
+                - --cacert=/etc/etcd-certs/ca.crt
+                - --cert=/etc/etcd-certs/client.crt
+                - --key=/etc/etcd-certs/client.key
+                # 既定の 5s では Orange Pi Zero 3 上の MemberList が間に合わず
+                # DeadlineExceeded になる (実測)。
+                - --dial-timeout=15s
+                - --command-timeout=60s
+                - endpoint
+                - health
+                - --cluster
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              volumeMounts: &etcdCertMounts
+                - name: etcd-ca
+                  mountPath: /etc/etcd-certs/ca.crt
+                  readOnly: true
+                - name: etcd-client-cert
+                  mountPath: /etc/etcd-certs/client.crt
+                  readOnly: true
+                - name: etcd-client-key
+                  mountPath: /etc/etcd-certs/client.key
+                  readOnly: true
+          containers:
+            # etcdctl defrag --cluster はメンバーを 1 台ずつ順番に処理し、
+            # 各メンバーの完了を待ってから次へ進む。同時にブロックされるのは常に 1 台なので
+            # 3 メンバー構成では quorum が維持される。
+            - name: defrag
+              image: registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5
+              command: ["etcdctl"]
+              args:
+                - --endpoints=https://127.0.0.1:2379
+                - --cacert=/etc/etcd-certs/ca.crt
+                - --cert=/etc/etcd-certs/client.crt
+                - --key=/etc/etcd-certs/client.key
+                - --dial-timeout=15s
+                # microSD 上での defrag は時間がかかるため長めに取る。
+                - --command-timeout=600s
+                - defrag
+                - --cluster
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  memory: 256Mi
+              volumeMounts: *etcdCertMounts
+          # /etc/kubernetes/pki/etcd をディレクトリごと渡すと server.key / peer.key / ca.key まで
+          # 見えてしまうため、必要な 3 ファイルだけを個別に read-only で渡す。
+          volumes:
+            - name: etcd-ca
+              hostPath:
+                path: /etc/kubernetes/pki/etcd/ca.crt
+                type: File
+            - name: etcd-client-cert
+              hostPath:
+                path: /etc/kubernetes/pki/etcd/healthcheck-client.crt
+                type: File
+            - name: etcd-client-key
+              hostPath:
+                path: /etc/kubernetes/pki/etcd/healthcheck-client.key
+                type: File

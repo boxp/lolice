@@ -46,7 +46,11 @@ namespaceOverride: ""
 commonLabels: {}
 
 cronJobApiVersion: "batch/v1"
-schedule: "*/2 * * * *"
+# 2分ごと(720回/日)は shanghai-* (Orange Pi Zero 3, rootfs=microSD) の etcd 書き込みを
+# 押し上げるだけの価値がない。1回ごとに Job/Pod の生成・更新・削除が etcd に書かれる。
+# 2026-08-01 の shanghai-1 ハング調査を受けて 30分ごと(48回/日)へ緩和した。
+# 詳細: docs/project_docs/shanghai-node-resilience/plan.md
+schedule: "*/30 * * * *"
 suspend: false
 # startingDeadlineSeconds: 200
 # successfulJobsHistoryLimit: 3
