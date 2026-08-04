@@ -15,6 +15,7 @@ resources:
 - cloudflared-pod-monitor.yaml
 - etcd-service.yaml
 - etcd-servicemonitor.yaml
+- control-plane-metrics-services.yaml
 - pod-monitor-role.yaml
 - pod-monitor-role-binding.yaml
 - prometheus-servicemonitor-role.yaml
@@ -25,6 +26,7 @@ patchesStrategicMerge:
 - overlays/grafana-datasources.yaml
 - overlays/network-policy-prometheus-k8s.yaml
 - overlays/alertmanager.yaml
+- overlays/network-policy-alertmanager.yaml
 - overlays/prometheus.yaml
 - overlays/grafana.yaml
 - overlays/monitoring-deployment-tolerations.yaml

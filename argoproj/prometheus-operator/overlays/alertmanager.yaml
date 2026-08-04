@@ -9,6 +9,12 @@ spec:
   # kube-prometheus 既定の alertmanager-main は receiver がすべて空で、
   # critical アラートが発火しても誰にも届かなかった (2026-08-01 の shanghai-1 の3日間停止)。
   configSecret: alertmanager-main-config
+  # メール本文の「View in AlertManager」/ silence リンクの宛先。
+  # 未設定だと Alertmanager は Pod のアドレスを使うため、受信したメールの
+  # リンクが全て機能しない (2026-08-05 に実際に発生)。
+  # 公開は boxp/arch の terraform/cloudflare/b0xp.io/prometheus-operator。
+  # Cloudflare Access (GitHub ログイン) で保護している。
+  externalUrl: https://alertmanager.b0xp.io
   tolerations:
     - key: lolice.io/gpu-worker
       operator: Equal

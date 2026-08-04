@@ -6,6 +6,9 @@ metadata:
 spec:
   replicas: 1
   retention: 31d
+  # アラートメール内の各アラートの Source リンク (generatorURL) の宛先。
+  # 未設定だと Pod のアドレスになりリンクが機能しない。
+  externalUrl: https://prometheus-web.b0xp.io
   tolerations:
     - key: lolice.io/gpu-worker
       operator: Equal
