@@ -49,7 +49,7 @@ spec:
               # 第三者イメージは digest 固定 (argoproj/argocd-image-updater/imageupdaters/README.md)。
               # etcd の秘密鍵を root で読むワークロードなので同一性を保証する。
               # multi-arch manifest list の digest なので control-plane の arm64 でも解決される。
-              image: registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5
+              image: registry.k8s.io/etcd:3.7.1-0@sha256:a9983dd6d9283138ab926daa307c6c25623636703ecf5645d5df4d666ce9eba2
               command: ["etcdctl"]
               args:
                 - --endpoints=https://127.0.0.1:2379
@@ -84,7 +84,7 @@ spec:
             # 各メンバーの完了を待ってから次へ進む。同時にブロックされるのは常に 1 台なので
             # 3 メンバー構成では quorum が維持される。
             - name: defrag
-              image: registry.k8s.io/etcd:3.6.8-0@sha256:397189418d1a00e500c0605ad18d1baf3b541a1004d768448c367e48071622e5
+              image: registry.k8s.io/etcd:3.7.1-0@sha256:a9983dd6d9283138ab926daa307c6c25623636703ecf5645d5df4d666ce9eba2
               command: ["etcdctl"]
               args:
                 - --endpoints=https://127.0.0.1:2379
