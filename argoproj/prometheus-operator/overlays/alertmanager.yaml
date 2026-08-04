@@ -5,6 +5,10 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
+  # 設定本体は ExternalSecret が SSM から生成する (external-secret-alertmanager.yaml)。
+  # kube-prometheus 既定の alertmanager-main は receiver がすべて空で、
+  # critical アラートが発火しても誰にも届かなかった (2026-08-01 の shanghai-1 の3日間停止)。
+  configSecret: alertmanager-main-config
   tolerations:
     - key: lolice.io/gpu-worker
       operator: Equal
