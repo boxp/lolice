@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: comfyui-chroma-extra-model-paths
+data:
+  extra_model_paths.yaml: |
+    chroma:
+      base_path: /data/comfyui
+      diffusion_models: models/diffusion_models
+      text_encoders: models/text_encoders
+      clip: models/text_encoders
+      vae: models/vae
+      checkpoints: models/checkpoints
+      loras: models/loras
