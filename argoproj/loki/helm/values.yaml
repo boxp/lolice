@@ -29,7 +29,7 @@ singleBinary:
   persistence:
     enabled: true
     storageClass: longhorn
-    size: 100Gi
+    size: 60Gi
   nodeSelector:
     kubernetes.io/arch: amd64
 read:
