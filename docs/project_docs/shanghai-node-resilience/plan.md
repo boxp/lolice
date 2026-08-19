@@ -87,8 +87,9 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
   ループバックインターフェースへは到達できず、localhost バインドでは scrape が引き続き失敗する。
   **アクセス制御の注意**: etcd は `hostNetwork: true` で動作するため、標準 Kubernetes NetworkPolicy は
   このポートに適用されない（NetworkPolicy は Pod ネットワーク上の通信にのみ適用）。
-  2381/TCP を Prometheus のみに制限するには **ホスト側 iptables/nftables** が必須。
-  Calico GlobalNetworkPolicy でも host-network traffic を制御可能だが、利用 CNI での動作を事前に検証すること。
+  2381/TCP を Prometheus のみに制限する手段として **ホスト側 iptables/nftables** がある。
+  Calico 等の CNI では GlobalNetworkPolicy で host-network traffic を制御できる場合もあるが、
+  適用可否は CNI 実装・バージョン・設定に依存するため、実環境で事前検証すること。
   なお etcd metrics は WAL fsync latency・backend commit latency 等を公開するが、
   `mmcblk0` の write await は `node_exporter` が担当する別レイヤーの指標である。
 
