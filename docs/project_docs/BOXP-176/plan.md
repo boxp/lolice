@@ -71,8 +71,7 @@
 **にもかかわらず 9 時間の無応答が発生した**ことは、watchdog が機能しなかった可能性を示す。
 考えられる原因:
 1. **電源断またはハードウェア障害** — 電源が物理的に切れると watchdog ハードウェアリセットは発生しない。
-2. **Ansible タスク順序の問題** — `main.yml` は `journald.yml` → `node_resilience.yml` の順で実行する。初回適用時 (2026-08-05) は armbian-ramlog がまだ有効だったため、`journald.yml` が `/var/log/journal` を zram 上に作成した後 `node_resilience.yml` が armbian-ramlog を停止した可能性がある。この場合、journald は lazy umount 後に `/var/log/journal` が実 SD 上にないと判断してvolatile storageにフォールバックする。2 回目以降の apply (2026-08-10 以降) では armbian-ramlog が既に無効なため `/var/log/journal` は正しく実 SD 上に作成される。
-3. **I/O障害でjournalバッファ書き込み失敗** — SD カードの I/O が破綻するとjournaldもバッファをdisk flushできず、persistent設定でもクラッシュログが失われる。
+2. **I/O障害でjournalバッファ書き込み失敗** — SD カードの I/O が破綻するとjournaldもバッファをdisk flushできず、persistent設定でもクラッシュログが失われる。
 
 ### 参考: 適用済み施策の内容 (arch リポジトリ側)
 
@@ -125,4 +124,3 @@
 - [x] `docs/project_docs/shanghai-node-resilience/plan.md` に INC-5 の再発を記録
 - [x] arch リポジトリ: A / B / D3 — boxp/arch PR #11944 (2026-08-05 マージ) で実装済み、2026-08-17 の CI apply で全ノード (shanghai-1/2/3) に適用確認済み
 - [x] lolice リポジトリ: D1 / D2 の実装 — commit #115db69 (#761) で実装済み
-- [ ] 要追跡: Ansible タスク順序の問題 (journald.yml が node_resilience.yml より前に実行されるため、初回適用時に `/var/log/journal` が zram 上に作成される可能性) を boxp/arch で別途修正 (BOXP-176 後続タスクとして)
