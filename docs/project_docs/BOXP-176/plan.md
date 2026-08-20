@@ -58,15 +58,16 @@
 
 ## 再発防止策
 
-`docs/project_docs/shanghai-node-resilience/plan.md` に定義済みの施策のうち、**A / B / D1 / D2 / D3 はすべて実装済み**。
+`docs/project_docs/shanghai-node-resilience/plan.md` に定義済みの施策の適用状況。
+**A / B / D1 / D2 は実装済み。D3 はメトリクス URL 設定のみ実装済みで、アクセス制御は未実施（BOXP-177 で追跡中）。**
 
-| 施策 | 実装場所 | 実装日 | ノード適用日 |
-|---|---|---|---|
-| A (watchdog) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ |
-| B (armbian-ramlog無効化 + journal永続化) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ |
-| D1 (etcd defrag CronJob) | boxp/lolice #761 (commit #115db69) | 2026-08-05以前 | ArgoCD 同期済み |
-| D2 (descheduler 間隔削減) | boxp/lolice #761 (commit #115db69) | 2026-08-05以前 | ArgoCD 同期済み |
-| D3 (etcd metrics URL) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ |
+| 施策 | 実装場所 | 実装日 | ノード適用日 | 備考 |
+|---|---|---|---|---|
+| A (watchdog) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ | 完了 |
+| B (armbian-ramlog無効化 + journal永続化) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ | 次回クラッシュまで実効性未確認 |
+| D1 (etcd defrag CronJob) | boxp/lolice #761 (commit #115db69) | 2026-08-05以前 | ArgoCD 同期済み | 完了 |
+| D2 (descheduler 間隔削減) | boxp/lolice #761 (commit #115db69) | 2026-08-05以前 | ArgoCD 同期済み | 完了 |
+| D3 (etcd metrics URL) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ | ⚠️ アクセス制御未実施 (BOXP-177) |
 
 **にもかかわらず 9 時間の無応答が発生した**ことは、watchdog が機能しなかった可能性を示す。
 考えられる原因:
@@ -83,24 +84,13 @@
   `Storage=persistent` + armbian-ramlog ENABLED=false。  
   効果: クラッシュ直前のログが次回起動後に参照可能になる（SDカードI/O完全破綻時を除く）。
 
-- **[D3] etcd `--listen-metrics-urls` 追加**  
-  `/etc/kubernetes/manifests/etcd.yaml` に `--listen-metrics-urls=http://0.0.0.0:2381` を追加する。  
-  **注意: `127.0.0.1:2381` (localhost バインド) は不可**。Prometheus は別 Pod で動作するため
-  ループバックインターフェースには到達できず、localhost バインドでは scrape が引き続き失敗する。
-  そのためノード IP へのバインド (`0.0.0.0:2381` または各ノード固有 IP) が必須。  
-  **アクセス制御**: etcd は `hostNetwork: true` で動作するため、標準 Kubernetes NetworkPolicy は
-  このポートには適用されない。ホスト側 iptables/nftables で 2381/TCP を制限する場合、
-  **許可対象の送信元 IP は CNI/SNAT 設定に依存するため、実装前に実測で確認すること**。
-  Calico を使用する環境では Pod → hostNetwork 宛の通信は通常 SNAT されず、
-  iptables が観測する送信元は Prometheus Pod IP (Pod CIDR 内) となる可能性が高い。
-  ただし kube-proxy モードや CNI 設定によってはノード IP に SNAT される場合もある。
-  実測手順: etcd ノード上で `tcpdump -i any -n port 2381` を実行した状態で
-  Prometheus に scrape させ、実際の送信元 IP を確認してからルールを設定すること。
-  （Calico GlobalNetworkPolicy でも代替可能だが host-network Pod への適用を事前に検証すること）。  
-  効果: Prometheus が etcd の WAL fsync latency・backend commit latency を収集し、etcd 書き込み性能の悪化を早期検知できる。  
-  注: `mmcblk0` の write await (block device 指標) は `node_exporter` の block-device メトリクス
-  (`node_disk_write_time_seconds_total` 等) で別途収集する。D3 は etcd アプリケーション層の
-  指標を補完するものであり、block device 層は node_exporter が担当する。
+- **[D3] etcd `--listen-metrics-urls` 追加** (メトリクスURL設定: 実装済み / アクセス制御: **未実施**)  
+  `--listen-metrics-urls=http://0.0.0.0:2381` は boxp/arch PR #11944 で追加済み。  
+  **⚠️ セキュリティギャップ**: 現在 2381/TCP は認証なしで全インターフェースに公開されており、
+  ホスト側のアクセス制御が未実施。etcd は `hostNetwork: true` のため標準 NetworkPolicy は適用不可。
+  アクセス制御の実装（ホスト側 iptables/nftables またはCalico GlobalNetworkPolicy）は BOXP-177 で追跡中。
+  実装前に `tcpdump -i any -n port 2381` で実際の Prometheus Pod からの送信元 IP を実測してからルールを設定すること。  
+  効果: Prometheus が etcd の WAL fsync latency・backend commit latency を収集し、etcd 書き込み性能の悪化を早期検知できる。
 
 ### 高 (本リポジトリ = lolice)
 
@@ -122,5 +112,7 @@
 - [x] Incident Board 更新 (Monitoring レーンに INC-5 追加)
 - [x] Runbook 更新 (`Incidents/Runbooks/shanghai-control-plane-sdcard-failure.md`): transient hang vs SD 完全損傷の判定フロー、インシデント履歴表、prevention tasks を追記
 - [x] `docs/project_docs/shanghai-node-resilience/plan.md` に INC-5 の再発を記録
-- [x] arch リポジトリ: A / B / D3 — boxp/arch PR #11944 (2026-08-05 マージ) で実装済み、2026-08-17 の CI apply で全ノード (shanghai-1/2/3) に適用確認済み
+- [x] arch リポジトリ: A / B / D3メトリクスURL — boxp/arch PR #11944 (2026-08-05 マージ) で実装済み、2026-08-17 の CI apply で全ノード (shanghai-1/2/3) に適用確認済み
 - [x] lolice リポジトリ: D1 / D2 の実装 — commit #115db69 (#761) で実装済み
+- [ ] D3 アクセス制御 — 2381/TCP のホスト側フィルタリング未実施 (BOXP-177 で追跡)
+- [ ] B 実効性確認 — journal persistent 設定が次回クラッシュ時に実際にログを保持するかの実測未完了

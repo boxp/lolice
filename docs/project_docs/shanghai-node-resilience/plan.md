@@ -27,7 +27,7 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 (journald の書き込みが2分遅延 → `systemd-journald.service: Watchdog timeout (limit 3min)!`
 → CRI-O `DeadlineExceeded` → ログが途切れて凍結)。
 
-**2026-08-19 追記 (INC-5)**: `shanghai-3` (192.168.10.104) が約 9 時間ハングし、物理再起動で復旧（SD カード交換不要）。根本原因は確定不能。微妙な点として、本計画の施策 A・B・D3 は boxp/arch PR #11944 (2026-08-05 マージ) で実装済みで、2026-08-17 CI apply でノードにも適用済みだった。ただし watchdog 設定にもかかわらず 9 時間の無応答が続いた点は未解明。推測: ①電源断（watchdogが効かない）または ② Ansible task ordering issue（journald.yml が node_resilience.yml より前に実行されるため、初回適用時に /var/log/journal が zram 上に作成→armbian-ramlog umount後に消失する可能性）。前回 boot の journal 消失については、journal persistent 設定が有効でも SD I/O 破綻でjournalバッファが flush できなかった可能性が高い。
+**2026-08-19 追記 (INC-5)**: `shanghai-3` (192.168.10.104) が約 9 時間ハングし、物理再起動で復旧（SD カード交換不要）。根本原因は確定不能。施策 A・B・D3（メトリクスURL設定部分）は boxp/arch PR #11944 (2026-08-05 マージ) で設定済みで、2026-08-17 CI apply でノードにも適用済みだった。ただし watchdog 設定にもかかわらず 9 時間の無応答が続いた点は未解明。推測: ①電源断（watchdogが効かない）。前回 boot の journal 消失については、journal persistent 設定が有効でも SD I/O 破綻でjournalバッファが flush できなかった可能性が高い。なお D3 のアクセス制御（2381/TCP の制限）は未実施のまま（BOXP-177 で追跡中）。
 
 ## 本リポジトリでの対応 (D1 / D2)
 
@@ -79,18 +79,14 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 - **B.** `armbian-ramlog` の無効化。`/var/log` が zram (RAM) 上にあったため、
   導入済みの `journald_persistent_storage` が実際には永続化されておらず、
   ハング時のログが毎回全消失していた
-- **D3.** 稼働中の `/etc/kubernetes/manifests/etcd.yaml` へ `--listen-metrics-urls` を追加。
-  PR #319 の `monitoring/etcd` ServiceMonitor は 3 ノードとも
-  `2381: connection refused` で **scrape に失敗し続けていた**。
-  実装時は `http://0.0.0.0:2381` にバインドすること。
-  **`127.0.0.1:2381` (localhost) は不可** — Prometheus は別 Pod で動作するため
-  ループバックインターフェースへは到達できず、localhost バインドでは scrape が引き続き失敗する。
-  **アクセス制御の注意**: etcd は `hostNetwork: true` で動作するため、標準 Kubernetes NetworkPolicy は
-  このポートに適用されない（NetworkPolicy は Pod ネットワーク上の通信にのみ適用）。
-  2381/TCP を Prometheus のみに制限する手段として **ホスト側 iptables/nftables** がある。
-  Calico 等の CNI では GlobalNetworkPolicy で host-network traffic を制御できる場合もあるが、
-  適用可否は CNI 実装・バージョン・設定に依存するため、実環境で事前検証すること。
-  なお etcd metrics は WAL fsync latency・backend commit latency 等を公開するが、
+- **D3.** etcd `--listen-metrics-urls=http://0.0.0.0:2381` 追加 (メトリクスURL: 実装済み / **アクセス制御: 未実施**)  
+  boxp/arch PR #11944 でメトリクス URL を追加し、2026-08-17 全ノードに適用済み。  
+  **⚠️ 残作業 (BOXP-177)**: 現在 2381/TCP は認証なしで全クライアントからアクセス可能。
+  etcd が `hostNetwork: true` のため標準 NetworkPolicy 非適用。
+  Prometheus からの scrape を実測確認後、ホスト側 iptables/nftables または Calico GlobalNetworkPolicy で
+  Prometheus のみに制限する必要がある。
+  実測手順: etcd ノード上で `tcpdump -i any -n port 2381` を実行して Prometheus の実際の送信元 IP を確認してからルールを設定すること。
+  なお etcd metrics は WAL fsync latency・backend commit latency を公開し、
   `mmcblk0` の write await は `node_exporter` が担当する別レイヤーの指標である。
 
 ## 検証項目
@@ -110,14 +106,6 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
   backend commit latency を確認して再調査する。
   なお `mmcblk0` の write await (block device 指標) は既存の `node_exporter` が収集済みで
   あり、D3 は etcd アプリケーション層の指標を追加するものである。
-- **D3 のアクセス制御**: `--listen-metrics-urls=http://0.0.0.0:2381` は認証なしで
-  全インターフェースに公開される。etcd が `hostNetwork: true` で動作するため、
-  標準 Kubernetes NetworkPolicy は適用されない点に注意。
-  ホスト側 iptables/nftables で 2381/TCP を制限する場合、**許可対象の送信元 IP は
-  CNI/SNAT 設定に依存するため実装前に実測で確認すること**。Calico 環境では
-  Pod → hostNetwork 宛の通信は通常 SNAT されず etcd ホストが観測する送信元は
-  Prometheus の Pod IP (Pod CIDR 内) になる可能性が高いが、kube-proxy モードや
-  CNI 設定によってはノード IP に SNAT される場合もある。
-  実測手順: etcd ノード上で `tcpdump -i any -n port 2381` を実行した状態で
-  Prometheus に scrape させ、実際の送信元 IP を確認してからルールを設定すること。
-  （Calico GlobalNetworkPolicy を使う場合も host-network Pod への適用を事前に検証が必要）。
+- **D3 アクセス制御 (BOXP-177)**: `--listen-metrics-urls=http://0.0.0.0:2381` は現在認証なし・アクセス制御なしで公開中。
+  etcd が `hostNetwork: true` のため標準 NetworkPolicy は適用不可。
+  ホスト側iptables/nftablesまたはCalico GlobalNetworkPolicyで制御する必要がある（BOXP-177で追跡中）。
