@@ -74,7 +74,7 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 
 ## 対で入る変更 (boxp/arch 側)
 
-- **A.** systemd hardware watchdog (`RuntimeWatchdogSec=30`) + `kernel.hung_task_panic=1`
+- **A.** systemd hardware watchdog (`RuntimeWatchdogSec=15`) + `kernel.hung_task_panic=1`
   (`hung_task_timeout_secs=300`)。3日間の無応答を数分に縮める
 - **B.** `armbian-ramlog` の無効化。`/var/log` が zram (RAM) 上にあったため、
   導入済みの `journald_persistent_storage` が実際には永続化されておらず、
