@@ -27,7 +27,7 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 (journald の書き込みが2分遅延 → `systemd-journald.service: Watchdog timeout (limit 3min)!`
 → CRI-O `DeadlineExceeded` → ログが途切れて凍結)。
 
-**2026-08-19 追記 (INC-5)**: この施策が未適用の状態で `shanghai-3` (192.168.10.104) が約 9 時間ハングし、物理再起動で復旧（SD カード交換不要）。前回 boot の journal は消失（armbian-ramlog が有効でログが RAM 上にあったため）、根本原因は確定不能。ただし microSD I/O 破綻によるハードハング（INC-2 / INC-4 と同様の兆候）が最有力仮説であり、本計画の A・B・D1〜D3 の早期適用が必要。
+**2026-08-19 追記 (INC-5)**: `shanghai-3` (192.168.10.104) が約 9 時間ハングし、物理再起動で復旧（SD カード交換不要）。根本原因は確定不能。微妙な点として、本計画の施策 A・B・D3 は boxp/arch PR #11944 (2026-08-05 マージ) で実装済みで、2026-08-17 CI apply でノードにも適用済みだった。ただし watchdog 設定にもかかわらず 9 時間の無応答が続いた点は未解明。推測: ①電源断（watchdogが効かない）または ② Ansible task ordering issue（journald.yml が node_resilience.yml より前に実行されるため、初回適用時に /var/log/journal が zram 上に作成→armbian-ramlog umount後に消失する可能性）。前回 boot の journal 消失については、journal persistent 設定が有効でも SD I/O 破綻でjournalバッファが flush できなかった可能性が高い。
 
 ## 本リポジトリでの対応 (D1 / D2)
 

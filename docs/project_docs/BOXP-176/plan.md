@@ -30,7 +30,7 @@
 - SD カード: SanDisk SA32G 29.1 GiB (manfid 0x000002)。現 boot で I/O エラーなし。
 - `dmesg` および `journalctl -k` での I/O エラー確認: 現 boot では `mmcblk0` 関連の I/O エラーなし。
 - `life_time` sysfs: SDHC カードは非対応のため取得不可。
-- 前回 boot の journal: **消失**。`armbian-ramlog` が有効で `/var/log` が zram 上にあるため。
+- 前回 boot の journal: **消失**。`armbian-ramlog` は boxp/arch PR #11944 (2026-08-05) で無効化済みのはずだが、再起動後の実測で `/etc/default/armbian-ramlog` の `ENABLED=false` と `/var/log/journal` の存在を確認できておらず、SDカードI/Oエラーによりjournaldバッファがdisk flushされる前にクラッシュした可能性が高い。
 - Armbian には RTC バッテリーがないため起動時のクロックが不正確。journal の "first entry 02:00:04" は NTP 同期前の誤ったタイムスタンプ。実際の起動は `uptime` と dmesg から 11:30 UTC と推定。
 
 ### 根本原因
@@ -58,19 +58,31 @@
 
 ## 再発防止策
 
-`docs/project_docs/shanghai-node-resilience/plan.md` に定義済みの施策のうち、**A / B / D3 が未適用のまま再発した**。
-D1（etcd defrag CronJob）と D2（descheduler 間隔削減）は commit #115db69 (#761) で実装済みだった。
-残存する未適用施策 A / B / D3 を優先的に実施する。
+`docs/project_docs/shanghai-node-resilience/plan.md` に定義済みの施策のうち、**A / B / D1 / D2 / D3 はすべて実装済み**。
 
-### 緊急 (arch リポジトリ側)
+| 施策 | 実装場所 | 実装日 | ノード適用日 |
+|---|---|---|---|
+| A (watchdog) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ |
+| B (armbian-ramlog無効化 + journal永続化) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ |
+| D1 (etcd defrag CronJob) | boxp/lolice #761 (commit #115db69) | 2026-08-05以前 | ArgoCD 同期済み |
+| D2 (descheduler 間隔削減) | boxp/lolice #761 (commit #115db69) | 2026-08-05以前 | ArgoCD 同期済み |
+| D3 (etcd metrics URL) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ |
 
-- **[A] systemd hardware watchdog**  
-  `RuntimeWatchdogSec=30` + `kernel.hung_task_panic=1` (`hung_task_timeout_secs=300`)  
-  効果: フリーズを数分以内に自動再起動に変える。3日間の無応答 → 5分以内の自動復旧。
+**にもかかわらず 9 時間の無応答が発生した**ことは、watchdog が機能しなかった可能性を示す。
+考えられる原因:
+1. **電源断またはハードウェア障害** — 電源が物理的に切れると watchdog ハードウェアリセットは発生しない。
+2. **Ansible タスク順序の問題** — `main.yml` は `journald.yml` → `node_resilience.yml` の順で実行する。初回適用時 (2026-08-05) は armbian-ramlog がまだ有効だったため、`journald.yml` が `/var/log/journal` を zram 上に作成した後 `node_resilience.yml` が armbian-ramlog を停止した可能性がある。この場合、journald は lazy umount 後に `/var/log/journal` が実 SD 上にないと判断してvolatile storageにフォールバックする。2 回目以降の apply (2026-08-10 以降) では armbian-ramlog が既に無効なため `/var/log/journal` は正しく実 SD 上に作成される。
+3. **I/O障害でjournalバッファ書き込み失敗** — SD カードの I/O が破綻するとjournaldもバッファをdisk flushできず、persistent設定でもクラッシュログが失われる。
 
-- **[B] armbian-ramlog の無効化 + journal 永続化**  
-  `/etc/systemd/journald.conf` に `Storage=persistent` を設定。  
-  効果: クラッシュ直前のログが次回起動後に参照可能になり、根本原因特定が可能になる。
+### 参考: 適用済み施策の内容 (arch リポジトリ側)
+
+- **[A] systemd hardware watchdog** (実装済み)  
+  `RuntimeWatchdogSec=15` + `kernel.hung_task_panic=1` (`hung_task_timeout_secs=300`)  
+  効果: フリーズを数分以内に自動再起動に変える。ただし電源断では効かない。
+
+- **[B] armbian-ramlog の無効化 + journal 永続化** (実装済み)  
+  `Storage=persistent` + armbian-ramlog ENABLED=false。  
+  効果: クラッシュ直前のログが次回起動後に参照可能になる（SDカードI/O完全破綻時を除く）。
 
 - **[D3] etcd `--listen-metrics-urls` 追加**  
   `/etc/kubernetes/manifests/etcd.yaml` に `--listen-metrics-urls=http://0.0.0.0:2381` を追加する。  
@@ -111,5 +123,6 @@ D1（etcd defrag CronJob）と D2（descheduler 間隔削減）は commit #115db
 - [x] Incident Board 更新 (Monitoring レーンに INC-5 追加)
 - [x] Runbook 更新 (`Incidents/Runbooks/shanghai-control-plane-sdcard-failure.md`): transient hang vs SD 完全損傷の判定フロー、インシデント履歴表、prevention tasks を追記
 - [x] `docs/project_docs/shanghai-node-resilience/plan.md` に INC-5 の再発を記録
-- [ ] arch リポジトリ: A / B / D3 の実装 PR (boxp への作業依頼)
+- [x] arch リポジトリ: A / B / D3 — boxp/arch PR #11944 (2026-08-05 マージ) で実装済み、2026-08-17 の CI apply で全ノード (shanghai-1/2/3) に適用確認済み
 - [x] lolice リポジトリ: D1 / D2 の実装 — commit #115db69 (#761) で実装済み
+- [ ] 要追跡: Ansible タスク順序の問題 (journald.yml が node_resilience.yml より前に実行されるため、初回適用時に `/var/log/journal` が zram 上に作成される可能性) を boxp/arch で別途修正 (BOXP-176 後続タスクとして)
