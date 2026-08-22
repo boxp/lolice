@@ -27,6 +27,8 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 (journald の書き込みが2分遅延 → `systemd-journald.service: Watchdog timeout (limit 3min)!`
 → CRI-O `DeadlineExceeded` → ログが途切れて凍結)。
 
+**2026-08-19 追記 (INC-5)**: `shanghai-3` (192.168.10.104) が約 9 時間ハングし、物理再起動で復旧（SD カード交換不要）。根本原因は確定不能。施策 A・B・D3（メトリクスURL設定部分）は boxp/arch PR #11944 (2026-08-05 マージ) で設定済みで、2026-08-17 CI apply でノードにも適用済みだった。ただし watchdog 設定にもかかわらず 9 時間の無応答が続いた点は未解明。推測: ①電源断（watchdogが効かない）。前回 boot の journal 消失については、journal persistent 設定が有効でも SD I/O 破綻でjournalバッファが flush できなかった可能性が高い。なお D3 のアクセス制御（2381/TCP の制限）は未実施のまま（BOXP-177 で追跡中）。
+
 ## 本リポジトリでの対応 (D1 / D2)
 
 ### D1. etcd defrag の定期自動化 — `argoproj/etcd-defrag/`
@@ -72,14 +74,20 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 
 ## 対で入る変更 (boxp/arch 側)
 
-- **A.** systemd hardware watchdog (`RuntimeWatchdogSec=30`) + `kernel.hung_task_panic=1`
+- **A.** systemd hardware watchdog (`RuntimeWatchdogSec=15`) + `kernel.hung_task_panic=1`
   (`hung_task_timeout_secs=300`)。3日間の無応答を数分に縮める
 - **B.** `armbian-ramlog` の無効化。`/var/log` が zram (RAM) 上にあったため、
   導入済みの `journald_persistent_storage` が実際には永続化されておらず、
   ハング時のログが毎回全消失していた
-- **D3.** 稼働中の `/etc/kubernetes/manifests/etcd.yaml` へ `--listen-metrics-urls` を追加。
-  PR #319 の `monitoring/etcd` ServiceMonitor は 3 ノードとも
-  `2381: connection refused` で **scrape に失敗し続けていた**
+- **D3.** etcd `--listen-metrics-urls=http://0.0.0.0:2381` 追加 (メトリクスURL: 実装済み / **アクセス制御: 未実施**)  
+  boxp/arch PR #11944 でメトリクス URL を追加し、2026-08-17 全ノードに適用済み。  
+  **⚠️ 残作業 (BOXP-177)**: 現在 2381/TCP は認証なしで全クライアントからアクセス可能。
+  etcd が `hostNetwork: true` のため標準 NetworkPolicy 非適用。
+  Prometheus からの scrape を実測確認後、ホスト側 iptables/nftables または Calico GlobalNetworkPolicy で
+  Prometheus のみに制限する必要がある。
+  実測手順: etcd ノード上で `tcpdump -i any -n port 2381` を実行して Prometheus の実際の送信元 IP を確認してからルールを設定すること。
+  なお etcd metrics は WAL fsync latency・backend commit latency を公開し、
+  `mmcblk0` の write await は `node_exporter` が担当する別レイヤーの指標である。
 
 ## 検証項目
 
@@ -94,4 +102,10 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 - **C. etcd を microSD から外す (USB SSD)** — 本命の恒久対策。別途
 - 2026-07-25 19:00 UTC に書き込みが 27 → 64 GiB/日 へ倍増した原因。
   3ノード同時・同幅だったため etcd 起因なのは確実だが、
-  etcd メトリクスが未収集で犯人を特定できていない。D3 適用後に再調査する
+  etcd メトリクスが未収集で犯人を特定できていない。D3 適用後に etcd WAL fsync /
+  backend commit latency を確認して再調査する。
+  なお `mmcblk0` の write await (block device 指標) は既存の `node_exporter` が収集済みで
+  あり、D3 は etcd アプリケーション層の指標を追加するものである。
+- **D3 アクセス制御 (BOXP-177)**: `--listen-metrics-urls=http://0.0.0.0:2381` は現在認証なし・アクセス制御なしで公開中。
+  etcd が `hostNetwork: true` のため標準 NetworkPolicy は適用不可。
+  ホスト側iptables/nftablesまたはCalico GlobalNetworkPolicyで制御する必要がある（BOXP-177で追跡中）。
