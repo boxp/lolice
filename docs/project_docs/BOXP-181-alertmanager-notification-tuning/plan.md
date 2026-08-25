@@ -4,7 +4,7 @@
 
 | 対象 | GitOps desired state | live 状態・観測 | 判断と対処 |
 | --- | --- | --- | --- |
-| grafana-alloy | `default` の ServiceMonitor は lolice 管理外 | DaemonSet は 7/7 Ready。ServiceAccount 不在の FailedCreate event あり | Prometheus を `release=prometheus` opt-in に変更し、未所有 Monitor を収集対象外にする。 |
+| grafana-alloy | GitOps 管理の ServiceMonitor を使用 | DaemonSet は 7/7 Ready。ServiceAccount 不在の FailedCreate event あり | ServiceMonitor に `release=prometheus` を明示し、収集を継続する。未所有 `default/grafana-alloy` は opt-in label がないため収集しない。 |
 | stage-hitohub TiDB | PD/TiDB/TiKV は各 1 replica | PD と TiDB が CrashLoopBackOff | 必要サービスの障害。通知を抑制せず、別の原因調査チケットで追跡する。 |
 | stable-diffusion | WebUI と cloudflared は `replicas: 0` | 0/0 | 意図的停止。専用 PrometheusRule を desired state から除去する。 |
 | prod-hitohub cloudflared | Deployment は `replicas: 0` | 0/0 | 意図的停止。静的 scrape target を desired state から除去する。 |
@@ -13,8 +13,8 @@
 
 ## 通知設計
 
-- ServiceMonitor は `release=prometheus` を明示したものだけを収集する。local-llm と Longhorn は GitOps desired state で label を付与する。
-- warning は `alertname, namespace` 単位で集約し、初回 15 分待機、group interval 6 時間、repeat 7 日にする。既存 warning を設定反映直後に一斉送信しない。
+- ServiceMonitor は `release=prometheus` を明示したものだけを収集する。local-llm、Longhorn、Intel GPU exporter、Grafana Alloy、Loki の GitOps managed Monitor に label を付与する。
+- warning は `alertname, namespace` 単位で集約し、初回 15 分待機、group interval 6 時間、repeat 7 日にする。親 route は `Default` のままとし、`severity=warning` のみを Warning receiver に送るため、info を設定反映直後に一斉送信しない。
 - critical は 30 秒待機・5 分 group interval・6 時間 repeat を維持する。ControlPlaneNodeNotReady、etcd quorum/healthy endpoint と snapshot 系の critical を warning の抑制対象にしない。
 
 ## 検証

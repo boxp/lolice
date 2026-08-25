@@ -56,7 +56,7 @@ monitoring:
   serviceMonitor:
     enabled: true
     labels:
-      release: prometheus-operator
+      release: prometheus
   selfMonitoring:
     enabled: false
     grafanaAgent:

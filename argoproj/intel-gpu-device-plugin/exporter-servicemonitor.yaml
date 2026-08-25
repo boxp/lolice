@@ -4,6 +4,7 @@ metadata:
   name: intel-gpu-exporter
   labels:
     app: intel-gpu-exporter
+    release: prometheus
 spec:
   selector:
     matchLabels:

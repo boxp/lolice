@@ -14,7 +14,7 @@ controller:
 serviceMonitor:
   enabled: true
   labels:
-    release: prometheus-operator
+    release: prometheus
 resources:
   requests:
     cpu: 100m
