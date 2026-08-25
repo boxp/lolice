@@ -125,11 +125,8 @@ spec:
               /
               clamp_min(rate(node_disk_reads_completed_total{device=~"mmcblk.+"}[5m]), 0.001)
             ) > 0.1
-            and on (instance)
-            label_replace(
-              kube_node_role{role=~"control-plane|master"} == 1,
-              "instance", "$1", "node", "(.+)"
-            )
+            and on (node)
+            kube_node_role{role=~"control-plane|master"} == 1
           for: 10m
           labels:
             severity: warning

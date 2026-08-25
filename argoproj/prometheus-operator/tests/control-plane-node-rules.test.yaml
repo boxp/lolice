@@ -61,9 +61,11 @@ tests:
     input_series:
       - series: 'kube_node_role{node="shanghai-3",role="control-plane"}'
         values: '1+0x20'
-      - series: 'node_disk_read_time_seconds_total{instance="shanghai-3",device="mmcblk0"}'
+      # node-exporter scrape endpoints use an address for instance while the
+      # Kubernetes node identity is exposed separately as node.
+      - series: 'node_disk_read_time_seconds_total{instance="10.0.0.13:9100",node="shanghai-3",device="mmcblk0"}'
         values: '0+12x20'
-      - series: 'node_disk_reads_completed_total{instance="shanghai-3",device="mmcblk0"}'
+      - series: 'node_disk_reads_completed_total{instance="10.0.0.13:9100",node="shanghai-3",device="mmcblk0"}'
         values: '0+60x20'
     alert_rule_test:
       - eval_time: 15m
@@ -71,9 +73,10 @@ tests:
         exp_alerts:
           - exp_labels:
               device: mmcblk0
-              instance: shanghai-3
+              instance: 10.0.0.13:9100
+              node: shanghai-3
               severity: warning
             exp_annotations:
               summary: Control-plane disk read latency is high
-              description: SD card device mmcblk0 on shanghai-3 has averaged more than 100ms per read for 10 minutes. Investigate storage pressure and replace failing media.
+              description: SD card device mmcblk0 on 10.0.0.13:9100 has averaged more than 100ms per read for 10 minutes. Investigate storage pressure and replace failing media.
               runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-179/runbook.md#control-plane-disk-io-latency
