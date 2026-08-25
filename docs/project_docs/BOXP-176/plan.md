@@ -70,8 +70,10 @@ INC-5 後に「再発防止策 A・B が本当に機能しているか」を全 
 | ノード | journald.conf Storage | /var/log/journal/ | 表示 boot 数 | 前回 boot ログ |
 |---|---|---|---|---|
 | shanghai-1 | `volatile` | 存在（ディレクトリのみ） | 1 boot（現 boot: 2026-08-24 02:42 UTC） | **なし** |
-| shanghai-2 | `volatile` | 存在（ディレクトリのみ） | 2 boot（前回: 8/15-8/23, 現在: 8/25） | **あり**（正常シャットダウンだったため） |
+| shanghai-2 | `volatile` | 存在（ディレクトリのみ） | 2 boot（前回: 8/15-8/23, 現在: 8/25） | **あり**（理由不明 ※1） |
 | shanghai-3 | `volatile` | 存在（ディレクトリのみ） | 1 boot（現 boot: 2026-08-19 16:03 UTC） | **なし** |
+
+※1: `Storage=volatile` ではジャーナルは tmpfs (`/run/log/journal/`) にのみ書かれ、正常シャットダウンでも `/var/log/journal/` には永続化されない。shanghai-2 に前回 boot ログが存在する理由は現状不明（過去に `Storage=persistent` が設定されていた際のジャーナルバイナリが `/var/log/journal/` に残留している可能性、または測定時点の特殊な状態）。本番への影響を評価するため、実際に `reboot` 後も前回 boot ログが読めるかを確認する必要がある（可逆操作として次回メンテナンス時に検証を推奨）。
 
 **原因**: `/etc/systemd/journald.conf` の `Storage=volatile` が適用されたまま。
 `Storage=volatile` のとき journald は tmpfs (`/run/log/journal/`) にログを書く。
@@ -191,20 +193,27 @@ Ansible での設定変更が実際のノード設定に反映されていない
 
 ### 現在の監視状況
 
-- `node_disk_write_time_seconds_total / node_disk_writes_completed_total` (mmcblk0) を Prometheus で収集済み。
-- etcd メトリクス (`etcd_disk_wal_fsync_duration_seconds` 等) は D3 で収集可能（アラート未定義）。
+- `node_disk_write_time_seconds_total / node_disk_writes_completed_total` (mmcblk0) を Prometheus で収集済み（平均書き込みレイテンシ。累積カウンタの除算のため p99 は算出不可）。
+- etcd メトリクス (`etcd_disk_wal_fsync_duration_seconds_bucket` 等) は D3 で収集中。
 - Kubernetes Node Ready/NotReady は kube-state-metrics 経由で収集済み。
 - Alertmanager でメール通知設定済み（PR #763 で実装）。
 
-### 推奨アラート設計（未実装・後続チケット化予定）
+### 実装済みアラートルール（`argoproj/prometheus-operator/control-plane-node-rules.yaml`）
 
-| アラート名 | 条件 | 重要度 | 推奨 RTO |
-|---|---|---|---|
-| MMCWriteLatencyHigh | mmcblk0 write await p99 > 10ms (5分継続) | warning | 監視・調査 |
-| MMCWriteLatencyCritical | mmcblk0 write await p99 > 50ms (2分継続) | critical | 即時対応 |
-| EtcdWALFsyncSlow | etcd WAL fsync p99 > 10ms (5分継続) | warning | 30分以内調査 |
-| EtcdWALFsyncCritical | etcd WAL fsync p99 > 50ms (1分継続) | critical | 即時対応 |
-| ControlPlaneNodeNotReady | Node.Ready == False or Unknown (2分以上) | critical | 即時確認・30分以内復旧 |
+| アラート名 | 条件 | 重要度 |
+|---|---|---|
+| ControlPlaneNodeNotReady | control-plane Node の Ready 条件が true 以外 (5 分以上) | critical |
+| EtcdMemberDown | etcd member 数 < 2 (2 分以上) | critical |
+| EtcdHighFsyncDuration | etcd WAL fsync p99 > 500 ms (10 分継続) | warning |
+| ControlPlaneFilesystemReadOnly | rootfs / var 等が read-only (1 分以上) | critical |
+| ControlPlaneHighDiskIOWait | mmcblk0 I/O busy 率 > 90% (15 分継続) | warning |
+
+### 不足・要改善のアラート（後続チケット化予定）
+
+| アラート名 | 現状の問題 | 推奨改善内容 |
+|---|---|---|
+| EtcdHighFsyncDuration の閾値 | 現行 p99 > 500ms は重篤な状態のみ検知。INC-5 時点の shanghai-1 p99=84ms は通知されない | 早期検知のため p99 > 50ms (warning) / > 200ms (critical) への引き下げを検討 |
+| mmcblk0 書き込みレイテンシ | 現行は I/O busy 率 (> 90%) のみ。平均書き込みレイテンシ高値の検知がない | 平均書き込みレイテンシ (`node_disk_write_time_seconds_total / node_disk_writes_completed_total`) の閾値アラート追加を検討（p99 はヒストグラム非収集のため算出不可） |
 
 ### 検知から復旧までの時間目標
 
