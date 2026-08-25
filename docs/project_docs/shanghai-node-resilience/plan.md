@@ -30,9 +30,9 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 **2026-08-19 追記 (INC-5)**: `shanghai-3` (192.168.10.104) が約 9 時間ハングし、物理再起動で復旧（SD カード交換不要）。根本原因は確定不能。施策 A・B・D3（メトリクスURL設定部分）は boxp/arch PR #11944 (2026-08-05 マージ) で設定済みで、2026-08-17 CI apply でノードにも適用済みとされていた。ただし watchdog 設定にもかかわらず 9 時間の無応答が続いた点は未解明だった。
 
 **2026-08-25 追記 (実効性確認)**:
-全 3 control-plane で設定を実測確認した結果、**A・B は実際には未動作であることが判明**した。
+全 3 control-plane で設定を確認した結果、**B は未動作と判明**した。**A の実効状態は未確認**。
 
-- **A (watchdog)**: `/etc/systemd/system.conf` の `RuntimeWatchdogSec` はコメントアウト状態（`#RuntimeWatchdogSec=off`）、kubelet `WatchdogUSec=0` より、全 3 ノードで watchdog は設定未適用と推定される。なお `systemctl show --property=RuntimeWatchdogUSec` および `/dev/watchdog` デバイスの直接確認は実施できなかったため断定は避ける。INC-5 での 9 時間無応答への寄与は考えられるが、単一主因と断定するには証拠が不十分。
+- **A (watchdog)**: `/etc/systemd/system.conf` 本体の `RuntimeWatchdogSec` はコメントアウト状態（`#RuntimeWatchdogSec=off`）だが、systemd は drop-in ディレクトリ (`/etc/systemd/system.conf.d/*.conf`) の設定を優先するため、これだけでは未動作と断定できない。`systemctl show --property=RuntimeWatchdogUSec` および drop-in ファイルの確認が未実施のため、実効状態は**未確認**とする。なお kubelet の `WatchdogUSec` は kubelet 自身の設定であり systemd PID 1 の hardware watchdog 状態とは無関係。INC-5 での 9 時間無応答への寄与は断定できない。
 - **B (journal 永続化)**: `journald.conf` の `Storage=volatile` が全ノードで有効なまま。`/var/log/journal/` ディレクトリは存在するが、`Storage=volatile` 優先で RAM にしか書かれない。ハードリブート時のログ全消失は防げていない。
 - **D3 (etcd metrics)**: ポート 2381 は実際に応答確認済み。アクセス制御は BOXP-177 で追跡中。
 
@@ -87,7 +87,7 @@ shanghai-1 の I/O 劣化が継続しており、INC-2 (2026-08-01) 時と同様
 
 - **A.** systemd hardware watchdog (`RuntimeWatchdogSec=15`) + `kernel.hung_task_panic=1`
   (`hung_task_timeout_secs=300`)。3日間の無応答を数分に縮める。
-  **⚠️ 2026-08-25 実測確認: 全ノードで設定未適用（推定）。`system.conf` の `RuntimeWatchdogSec` がコメントアウト状態のまま、`systemctl show --property=RuntimeWatchdogUSec` による直接確認は未実施。要修正。**
+  **⚠️ 2026-08-25 確認: `system.conf` 本体はコメントアウト状態。drop-in (`system.conf.d/*.conf`) および `systemctl show --property=RuntimeWatchdogUSec` は未確認のため、実効状態は不明。要確認。**
 - **B.** `armbian-ramlog` の無効化 + `Storage=persistent` 設定でジャーナル永続化。
   **⚠️ 2026-08-25 実測確認: 全ノードで `Storage=volatile` のまま未修正。ハングログが消失し続けている。要修正。**
 - **D3.** etcd `--listen-metrics-urls=http://0.0.0.0:2381` 追加 (メトリクスURL: 実装済み / **アクセス制御: 未実施**)  
@@ -110,7 +110,8 @@ shanghai-1 の I/O 劣化が継続しており、INC-2 (2026-08-01) 時と同様
 
 ## 残課題
 
-- **⚠️ A・B の実効性修正（最優先）**: boxp/arch 側の Ansible playbook で `RuntimeWatchdogSec=15` と `Storage=persistent` が実際のノード設定に反映されるよう調査・修正が必要。CI apply は成功しているが実ノードに設定が適用されていない。
+- **⚠️ A の実効性確認（要対応）**: `systemctl show --property=RuntimeWatchdogUSec` および `/etc/systemd/system.conf.d/` drop-in の確認が未実施。CI apply は成功しているが実際の有効値を直接確認する必要がある。
+- **⚠️ B の実効性修正（最優先）**: 全ノードで `Storage=volatile` のまま。boxp/arch 側の Ansible playbook で `Storage=persistent` が正しく適用されるよう修正が必要。
 - **C. etcd を microSD から外す (USB SSD)** — 本命の恒久対策。別途チケット化。
 - **D3 アクセス制御 (BOXP-177)**: `--listen-metrics-urls=http://0.0.0.0:2381` は現在認証なし・アクセス制御なしで公開中。
   etcd が `hostNetwork: true` のため標準 NetworkPolicy は適用不可。

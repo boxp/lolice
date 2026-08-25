@@ -87,24 +87,35 @@ INC-5 後に「再発防止策 A・B が本当に機能しているか」を全 
 
 ### RuntimeWatchdog の実効性確認
 
-**結論: RuntimeWatchdog は全 3 ノードで設定未適用（未動作と推定）。**
+**結論: RuntimeWatchdog の実効状態は未確認（直接確認未実施）。**
 
 | 確認項目 | shanghai-1 | shanghai-2 | shanghai-3 |
 |---|---|---|---|
 | `/etc/systemd/system.conf` RuntimeWatchdogSec | `#RuntimeWatchdogSec=off`（コメントアウト） | 同左 | 同左 |
-| kubelet WatchdogUSec | `0`（無効） | `0` | `0` |
-| `/dev/watchdog` デバイス | 確認不可 | 確認不可 | 確認不可 |
+| `/etc/systemd/system.conf.d/*.conf` drop-in | 未確認 | 未確認 | 未確認 |
+| `systemctl show --property=RuntimeWatchdogUSec` | 未実施 | 未実施 | 未実施 |
+| `/dev/watchdog` デバイス | 未確認 | 未確認 | 未確認 |
 
-`/etc/systemd/system.conf` の `RuntimeWatchdogSec` がコメントアウト状態であるため、
-systemd は watchdog タイムアウトをデフォルト（off）で動作する。
-kubelet の `WatchdogUSec=0` もハードウェア watchdog を使用しないことを示す。
-なお `systemctl show --property=RuntimeWatchdogUSec` による直接確認および
-`/dev/watchdog` デバイスの存在確認は実施できなかったため、
-「設定未適用に起因する未動作」と推定するにとどめ断定は避ける。
+`/etc/systemd/system.conf` 本体の `RuntimeWatchdogSec` はコメントアウト状態だが、
+**これだけでは「未動作」と断定できない**。systemd は drop-in ディレクトリ
+(`/etc/systemd/system.conf.d/*.conf`) の設定を本体より優先して読み込むため、
+drop-in ファイルで `RuntimeWatchdogSec=15` が設定されている場合は watchdog が有効になる。
+また、**実際の systemd の watchdog 状態を確認するには `systemctl show --property=RuntimeWatchdogUSec`
+を実行する必要がある**（このコマンドは未実施）。
+なお kubelet の `WatchdogUSec` は kubelet 自身のウォッチドッグ設定であり、
+systemd PID 1 が管理するハードウェア watchdog デバイスの状態とは無関係である。
 
-**影響**: RuntimeWatchdog が設定未適用の場合、カーネルハング発生時の自動再起動機能が期待できず、
-物理介入なしの復旧が困難となる可能性がある。ただし INC-5 での 9 時間無応答の主因が
-watchdog の設定未適用によるものかは、直接検証なしに断定できない。
+以上より RuntimeWatchdog の実効状態は**未確認**とする。
+次回メンテナンス時に SSH 接続が可能な状態で以下を確認すること:
+```
+systemctl show --property=RuntimeWatchdogUSec
+ls /etc/systemd/system.conf.d/
+ls /dev/watchdog*
+```
+
+**影響**: RuntimeWatchdog が実際に無効であれば、カーネルハング発生時の自動再起動機能が期待できず、
+物理介入なしの復旧が困難となる可能性がある。ただし INC-5 での 9 時間無応答との因果関係は
+直接検証なしに断定できない。
 
 ### etcd WAL fsync 遅延・ディスク I/O の実測値（2026-08-25 時点）
 
@@ -150,7 +161,7 @@ boxp/arch PR #11944 (2026-08-05) および 2026-08-17 CI apply は完了して�
 
 | 施策 | Ansible/PR | ノード適用 | 実効性確認 | 備考 |
 |---|---|---|---|---|
-| A (watchdog) | boxp/arch PR #11944 | 2026-08-17 CI ✓ | ❌ 設定未適用と推定（system.conf コメントアウト、直接確認未実施） | 要修正 |
+| A (watchdog) | boxp/arch PR #11944 | 2026-08-17 CI ✓ | ❓ 未確認（system.conf 本体はコメントアウト、drop-in や systemctl show 未確認） | 要確認 |
 | B (journal永続化) | boxp/arch PR #11944 | 2026-08-17 CI ✓ | ❌ 未動作（Storage=volatile のまま） | 要修正 |
 | D1 (etcd defrag) | lolice #761 | ArgoCD 同期済み | ✅ 実装済み | 完了 |
 | D2 (descheduler 間隔) | lolice #761 | ArgoCD 同期済み | ✅ 実装済み | 完了 |
@@ -169,7 +180,7 @@ Ansible での設定変更が実際のノード設定に反映されていない
 
 - **[A] systemd hardware watchdog** (`RuntimeWatchdogSec=15`)
   意図: カーネルハング検知後 ~15 秒以内にハードウェアリセットをかける。
-  現状: `system.conf` のコメントアウトより設定未適用と推定。`systemctl show --property=RuntimeWatchdogUSec` および `/dev/watchdog` デバイスの直接確認は未実施のため断定を避けるが、設定が正しく機能していない可能性が高い。要修正。
+  現状: `/etc/systemd/system.conf` 本体の `RuntimeWatchdogSec` はコメントアウト状態。ただし drop-in (`/etc/systemd/system.conf.d/*.conf`) が存在する場合は上書きされる。`systemctl show --property=RuntimeWatchdogUSec` による実際の有効値確認および `/dev/watchdog` デバイスの確認は未実施のため、実効状態は**未確認**。
 
 - **[B] journal 永続化** (`Storage=persistent`)
   意図: クラッシュ直前のログを次回起動後に参照できるようにする（SD I/O 完全破綻時は失敗する場合あり）。
