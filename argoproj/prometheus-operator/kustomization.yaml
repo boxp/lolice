@@ -8,7 +8,6 @@ resources:
 - external-secret-alertmanager.yaml
 - cloudflared-deployment.yaml
 - grafana-pvc.yaml
-- scrape-config.yaml
 - control-plane-node-rules.yaml
 - local-llm-gpu-observability-rules.yaml
 - cloudflared-pod-monitor.yaml
