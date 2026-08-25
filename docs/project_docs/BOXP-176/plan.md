@@ -8,7 +8,7 @@
 本ドキュメントは BOXP-176 の調査結果と再発防止策のまとめ。
 インシデントチケットは Obsidian vault の `Incidents/Tickets/INC-5.md` を参照。
 
-## 調査結果
+## 調査結果（初期調査: 2026-08-19）
 
 ### 観測地点・時刻
 
@@ -25,12 +25,12 @@
 | 11:31 | Node Ready 条件が True に遷移 | Kubernetes API |
 | 16:03 | 全 3 control-plane Ready, etcd 3/3 healthy 確認 | codex-workspace Pod |
 
-### 現地調査結果 (再起動後)
+### 初期現地調査結果 (再起動後)
 
 - SD カード: SanDisk SA32G 29.1 GiB (manfid 0x000002)。現 boot で I/O エラーなし。
 - `dmesg` および `journalctl -k` での I/O エラー確認: 現 boot では `mmcblk0` 関連の I/O エラーなし。
 - `life_time` sysfs: SDHC カードは非対応のため取得不可。
-- 前回 boot の journal: **消失**。`armbian-ramlog` は boxp/arch PR #11944 (2026-08-05) で無効化済みのはずだが、再起動後の実測で `/etc/default/armbian-ramlog` の `ENABLED=false` と `/var/log/journal` の存在を確認できておらず、SDカードI/Oエラーによりjournaldバッファがdisk flushされる前にクラッシュした可能性が高い。
+- 前回 boot の journal: **消失**（後日の実効性確認で原因判明 → 後述）。
 - Armbian には RTC バッテリーがないため起動時のクロックが不正確。journal の "first entry 02:00:04" は NTP 同期前の誤ったタイムスタンプ。実際の起動は `uptime` と dmesg から 11:30 UTC と推定。
 
 ### 根本原因
@@ -56,63 +56,190 @@
 - 障害中: `.102` `.103` の 2/3 member healthy。quorum 維持。
 - 復旧後: 3/3 member healthy 確認済み。
 
-## 再発防止策
+---
 
-`docs/project_docs/shanghai-node-resilience/plan.md` に定義済みの施策の適用状況。
-**A / B / D1 / D2 は実装済み。D3 はメトリクス URL 設定のみ実装済みで、アクセス制御は未実施（BOXP-177 で追跡中）。**
+## フォローアップ調査（2026-08-25 実施）
 
-| 施策 | 実装場所 | 実装日 | ノード適用日 | 備考 |
+INC-5 後に「再発防止策 A・B が本当に機能しているか」を全 3 control-plane で実測確認した。
+**以下の重大な事実が判明し、施策の実効性評価を修正する。**
+
+### journal 永続化の実効性確認
+
+**結論: journal 永続化は機能していない（全 3 ノード）。**
+
+| ノード | journald.conf Storage | /var/log/journal/ | 表示 boot 数 | 前回 boot ログ |
 |---|---|---|---|---|
-| A (watchdog) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ | 完了 |
-| B (armbian-ramlog無効化 + journal永続化) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ | 次回クラッシュまで実効性未確認 |
-| D1 (etcd defrag CronJob) | boxp/lolice #761 (commit #115db69) | 2026-08-05以前 | ArgoCD 同期済み | 完了 |
-| D2 (descheduler 間隔削減) | boxp/lolice #761 (commit #115db69) | 2026-08-05以前 | ArgoCD 同期済み | 完了 |
-| D3 (etcd metrics URL) | boxp/arch PR #11944 | 2026-08-05 | 2026-08-17 CI apply ✓ | ⚠️ アクセス制御未実施 (BOXP-177) |
+| shanghai-1 | `volatile` | 存在（ディレクトリのみ） | 1 boot（現 boot: 2026-08-24 02:42 UTC） | **なし** |
+| shanghai-2 | `volatile` | 存在（ディレクトリのみ） | 2 boot（前回: 8/15-8/23, 現在: 8/25） | **あり**（正常シャットダウンだったため） |
+| shanghai-3 | `volatile` | 存在（ディレクトリのみ） | 1 boot（現 boot: 2026-08-19 16:03 UTC） | **なし** |
 
-**にもかかわらず 9 時間の無応答が発生した**ことは、watchdog が機能しなかった可能性を示す。
-考えられる原因:
-1. **電源断またはハードウェア障害** — 電源が物理的に切れると watchdog ハードウェアリセットは発生しない。
-2. **I/O障害でjournalバッファ書き込み失敗** — SD カードの I/O が破綻するとjournaldもバッファをdisk flushできず、persistent設定でもクラッシュログが失われる。
+**原因**: `/etc/systemd/journald.conf` の `Storage=volatile` が適用されたまま。
+`Storage=volatile` のとき journald は tmpfs (`/run/log/journal/`) にログを書く。
+`/var/log/journal/` ディレクトリが存在しても `Storage=volatile` 優先で RAM ストレージが使われ、
+ハードリブート（電源断・ハングからの強制再起動）時には RAM 上の未フラッシュログが全消失する。
 
-### 参考: 適用済み施策の内容 (arch リポジトリ側)
+`armbian-ramlog` の `ENABLED=false` は確認済み（正常）。しかし journald の `Storage` 設定が
+`volatile` のまま残っているため、ramlog 無効化の効果が活きていない。
 
-- **[A] systemd hardware watchdog** (実装済み)  
-  `RuntimeWatchdogSec=15` + `kernel.hung_task_panic=1` (`hung_task_timeout_secs=300`)  
-  効果: フリーズを数分以内に自動再起動に変える。ただし電源断では効かない。
+**影響**: 次回ハング発生時も前回 boot のログが失われ、根本原因調査が不可能なままとなる。
 
-- **[B] armbian-ramlog の無効化 + journal 永続化** (実装済み)  
-  `Storage=persistent` + armbian-ramlog ENABLED=false。  
-  効果: クラッシュ直前のログが次回起動後に参照可能になる（SDカードI/O完全破綻時を除く）。
+### RuntimeWatchdog の実効性確認
 
-- **[D3] etcd `--listen-metrics-urls` 追加** (メトリクスURL設定: 実装済み / アクセス制御: **未実施**)  
-  `--listen-metrics-urls=http://0.0.0.0:2381` は boxp/arch PR #11944 で追加済み。  
-  **⚠️ セキュリティギャップ**: 現在 2381/TCP は認証なしで全インターフェースに公開されており、
-  ホスト側のアクセス制御が未実施。etcd は `hostNetwork: true` のため標準 NetworkPolicy は適用不可。
-  アクセス制御の実装（ホスト側 iptables/nftables またはCalico GlobalNetworkPolicy）は BOXP-177 で追跡中。
-  実装前に `tcpdump -i any -n port 2381` で実際の Prometheus Pod からの送信元 IP を実測してからルールを設定すること。  
-  効果: Prometheus が etcd の WAL fsync latency・backend commit latency を収集し、etcd 書き込み性能の悪化を早期検知できる。
+**結論: RuntimeWatchdog は全 3 ノードで未動作。**
 
-### 高 (本リポジトリ = lolice)
+| 確認項目 | shanghai-1 | shanghai-2 | shanghai-3 |
+|---|---|---|---|
+| `/proc/sys/kernel/watchdog` | 存在しない | 存在しない | 存在しない |
+| `/etc/systemd/system.conf` RuntimeWatchdogSec | `#RuntimeWatchdogSec=off`（コメントアウト） | 同左 | 同左 |
+| kubelet WatchdogUSec | `0`（無効） | `0` | `0` |
+| `/dev/watchdog` デバイス | 確認不可 | 確認不可 | 確認不可 |
 
-- **[D1] etcd defrag CronJob** — `argoproj/etcd-defrag/`  
-  毎週日曜 04:00 JST に `etcdctl defrag --cluster` を実行。  
-  etcd DB の肥大化（94% が未使用）を解消し、書き込み増幅を削減。
+`RuntimeWatchdogSec=15` は `/etc/systemd/system.conf` にコメントアウト状態で存在するだけで
+**実際には適用されていない**。カーネルウォッチドッグモジュールも未ロード。
 
-- **[D2] descheduler 実行間隔削減** — `argoproj/descheduler/helm/values.yaml`  
-  `*/2 * * * *` → `*/30 * * * *`。etcd への不要書き込みを 1/15 に削減。
+**影響**: カーネルハング発生時の自動再起動機能が存在せず、9 時間以上の無応答は watchdog が
+動作していれば数分で復帰できたはずだが、現状では物理介入なしの復旧は不可能。
 
-### 長期
+### etcd WAL fsync 遅延・ディスク I/O の実測値（2026-08-25 時点）
 
-- **[C] etcd データディレクトリを USB SSD へ移行**  
-  `/var/lib/etcd` を microSD から外す。本命の恒久対策（別途チケット化）。
+etcd メトリクスポート（2381）および node_exporter（9101）から採取。
+以下の値は各ノードの現 boot 開始からの**累積ヒストグラム**で、過去スパイクを含む。
+
+#### etcd WAL fsync latency (p99)
+
+| ノード | p50 | p90 | p99 | 評価 |
+|---|---|---|---|---|
+| shanghai-1 | 3.6 ms | 11.3 ms | **84.5 ms** | ⚠️ 要注意（etcd 推奨 < 10 ms） |
+| shanghai-2 | 1.8 ms | 5.1 ms | 10.8 ms | 正常範囲 |
+| shanghai-3 | 1.8 ms | 5.6 ms | 13.0 ms | 正常範囲 |
+
+#### etcd backend commit latency (p99)
+
+| ノード | p50 | p90 | p99 | 評価 |
+|---|---|---|---|---|
+| shanghai-1 | 12.0 ms | 20.4 ms | **165.5 ms** | ⚠️ 高値（過去スパイクを累積） |
+| shanghai-2 | 5.8 ms | 7.8 ms | 16.0 ms | 正常範囲 |
+| shanghai-3 | 5.8 ms | 7.9 ms | 21.4 ms | 正常範囲 |
+
+#### mmcblk0 write latency（node_exporter, 現 boot 累積）
+
+| ノード | 平均書き込みレイテンシ | I/O weighted latency | ディスク利用率 |
+|---|---|---|---|
+| shanghai-1 | 8.42 ms | 9.32 ms（稼働 32.8h） | 13.4% |
+| shanghai-2 | 2.61 ms | 2.66 ms（稼働 22.1h） | 5.4% |
+| shanghai-3 | 2.74 ms | 3.30 ms（稼働 5.6d） | 5.6% |
+
+**考察**: shanghai-1 の書き込みレイテンシが他の 2 ノードの約 3 倍。
+INC-2（2026-08-01 shanghai-1 ハング）直前にも write await 劣化が記録されており、
+shanghai-1 の eMMC が継続的に I/O 性能低下状態にある可能性がある。
+shanghai-3 は 5.6 日間で書き込み回数が非常に多く（27M writes）、累積 write amplification が大きい。
+
+---
+
+## 再発防止策の状況（2026-08-25 時点の実効性評価）
+
+**⚠️ 注意: 以下は 2026-08-25 の実測調査を反映した修正済み評価。**
+boxp/arch PR #11944 (2026-08-05) および 2026-08-17 CI apply は完了しているが、
+実ノードで設定が意図通りに効いているかは別途確認が必要。
+
+| 施策 | Ansible/PR | ノード適用 | 実効性確認 | 備考 |
+|---|---|---|---|---|
+| A (watchdog) | boxp/arch PR #11944 | 2026-08-17 CI ✓ | ❌ 未動作（system.conf コメントアウト） | 要修正 |
+| B (journal永続化) | boxp/arch PR #11944 | 2026-08-17 CI ✓ | ❌ 未動作（Storage=volatile のまま） | 要修正 |
+| D1 (etcd defrag) | lolice #761 | ArgoCD 同期済み | ✅ 実装済み | 完了 |
+| D2 (descheduler 間隔) | lolice #761 | ArgoCD 同期済み | ✅ 実装済み | 完了 |
+| D3 (etcd metrics URL) | boxp/arch PR #11944 | 2026-08-17 CI ✓ | ✅ ポート 2381 応答確認 | ⚠️ アクセス制御未実施 (BOXP-177) |
+
+### A・B が未動作であることの影響
+
+Ansible での設定変更が実際のノード設定に反映されていない原因として、以下が考えられる（要調査）:
+- Ansible task が idempotent に動作せず特定の条件分岐で skip された
+- 設定ファイルのパスまたはセクションが想定と異なる（例: `/etc/systemd/system.conf` vs `/etc/systemd/system.conf.d/`）
+- CI apply のログが「changed」でなく「ok」だったため問題が見過ごされた
+
+**現在の状態**: 全 3 control-plane は watchdog なし・journal 非永続でハング耐性が実質的に未改善のまま稼働中。
+
+### 参考: 施策の意図した動作
+
+- **[A] systemd hardware watchdog** (`RuntimeWatchdogSec=15`)
+  意図: カーネルハング検知後 ~15 秒以内にハードウェアリセットをかける。
+  現状: 未動作。ハング時は物理介入なしの自動復旧が不可能。
+
+- **[B] journal 永続化** (`Storage=persistent`)
+  意図: クラッシュ直前のログを次回起動後に参照できるようにする（SD I/O 完全破綻時は失敗する場合あり）。
+  現状: `Storage=volatile` のため RAM にのみ保存。ハード再起動で全消失。
+
+- **[D3] etcd metrics** (`--listen-metrics-urls=http://0.0.0.0:2381`)
+  意図: Prometheus が etcd の WAL fsync latency・backend commit latency を収集し I/O 劣化を早期検知。
+  現状: メトリクス URL は動作中。ただし認証なし全インターフェース公開状態（BOXP-177 で追跡）。
+  `mmcblk0` write await は node_exporter (9101) の別指標が担当。
+
+### 長期恒久案
+
+- **[C] etcd データディレクトリを USB SSD / eMMC 以外の耐久媒体へ移行**
+  `/var/lib/etcd` を microSD から外す。本命の恒久対策。
+  必要な手順: etcd snapshot → member remove → 新ストレージで rejoin（master 承認必須）。
+  rollback: 変更前 snapshot と旧 member 設定で元に戻す。
+
+- **[E] control-plane 障害ドメイン分離の改善**
+  現状の 3 node はすべて同一 eMMC 系統に依存。etcd quorum が 2/3 で維持される間は可用性あるが、
+  2 ノード同時障害時に quorum を失う。外部 etcd クラスター化や専用ストレージ基盤の検討。
+
+---
+
+## 監視・アラート・Runbook の設計
+
+### 現在の監視状況
+
+- `node_disk_write_time_seconds_total / node_disk_writes_completed_total` (mmcblk0) を Prometheus で収集済み。
+- etcd メトリクス (`etcd_disk_wal_fsync_duration_seconds` 等) は D3 で収集可能（アラート未定義）。
+- Kubernetes Node Ready/NotReady は kube-state-metrics 経由で収集済み。
+- Alertmanager でメール通知設定済み（PR #763 で実装）。
+
+### 推奨アラート設計（未実装・後続チケット化予定）
+
+| アラート名 | 条件 | 重要度 | 推奨 RTO |
+|---|---|---|---|
+| MMCWriteLatencyHigh | mmcblk0 write await p99 > 10ms (5分継続) | warning | 監視・調査 |
+| MMCWriteLatencyCritical | mmcblk0 write await p99 > 50ms (2分継続) | critical | 即時対応 |
+| EtcdWALFsyncSlow | etcd WAL fsync p99 > 10ms (5分継続) | warning | 30分以内調査 |
+| EtcdWALFsyncCritical | etcd WAL fsync p99 > 50ms (1分継続) | critical | 即時対応 |
+| ControlPlaneNodeNotReady | Node.Ready == False or Unknown (2分以上) | critical | 即時確認・30分以内復旧 |
+
+### 検知から復旧までの時間目標
+
+| フェーズ | 手段 | 目標時間 |
+|---|---|---|
+| 検知 | アラートメール受信 | < 5 分 |
+| 一次確認 | kubectl get nodes / etcd endpoint health | < 10 分 |
+| 自動復旧（watchdog 動作時） | RuntimeWatchdog によるハードリセット | < 1 分（ハング後） |
+| 手動確認・物理介入 | 電源/LAN/console 確認 | < 60 分（現地担当者） |
+| etcd snapshot 退避 | 生存 node から退避・別媒体に保存 | < 30 分 |
+| etcd quorum 維持確認 | 2/3 以上が healthy であること | 継続監視 |
+
+### 物理対応 Runbook
+
+現在の runbook: `Incidents/Runbooks/shanghai-control-plane-sdcard-failure.md`
+
+物理確認チェックリスト（ご主人さまの現地対応用）:
+1. 電源 LED・給電状態・電源ケーブルの目視確認
+2. Ethernet link LED・LAN ケーブル・スイッチポートの確認
+3. シリアル console (利用可能な場合) で boot/rootfs mount/mmc I/O エラーを採取
+4. SDカードの物理破損・接触不良の目視確認（抜き差し・交換は承認後のみ）
+5. 物理 reboot の前に生存 node から etcd snapshot を別媒体に退避
+
+---
 
 ## 現在のアクション状況
 
 - [x] INC-5 インシデントチケット作成 (`Incidents/Tickets/INC-5.md`)
 - [x] Incident Board 更新 (Monitoring レーンに INC-5 追加)
-- [x] Runbook 更新 (`Incidents/Runbooks/shanghai-control-plane-sdcard-failure.md`): transient hang vs SD 完全損傷の判定フロー、インシデント履歴表、prevention tasks を追記
+- [x] Runbook 更新 (`Incidents/Runbooks/shanghai-control-plane-sdcard-failure.md`)
 - [x] `docs/project_docs/shanghai-node-resilience/plan.md` に INC-5 の再発を記録
-- [x] arch リポジトリ: A / B / D3メトリクスURL — boxp/arch PR #11944 (2026-08-05 マージ) で実装済み、2026-08-17 の CI apply で全ノード (shanghai-1/2/3) に適用確認済み
-- [x] lolice リポジトリ: D1 / D2 の実装 — commit #115db69 (#761) で実装済み
+- [x] D1 (etcd defrag CronJob) — lolice #761 実装済み
+- [x] D2 (descheduler 間隔削減) — lolice #761 実装済み
+- [x] D3 メトリクス URL — boxp/arch PR #11944 で設定済み、2381 ポート応答確認済み
+- [ ] **A・B の実効性修正** — boxp/arch 側で `RuntimeWatchdogSec=15` と `Storage=persistent` が実際に適用されるよう修正（後続チケット必須）
 - [ ] D3 アクセス制御 — 2381/TCP のホスト側フィルタリング未実施 (BOXP-177 で追跡)
-- [ ] B 実効性確認 — journal persistent 設定が次回クラッシュ時に実際にログを保持するかの実測未完了
+- [ ] etcd/mmcblk0 アラートルール追加 — 上記「推奨アラート設計」を PrometheusRule に実装
+- [ ] C (etcd を USB SSD 等へ移行) — 長期対策、ご主人さまの承認と停止計画が必要

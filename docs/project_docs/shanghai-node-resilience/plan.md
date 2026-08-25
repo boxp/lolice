@@ -27,7 +27,18 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 (journald の書き込みが2分遅延 → `systemd-journald.service: Watchdog timeout (limit 3min)!`
 → CRI-O `DeadlineExceeded` → ログが途切れて凍結)。
 
-**2026-08-19 追記 (INC-5)**: `shanghai-3` (192.168.10.104) が約 9 時間ハングし、物理再起動で復旧（SD カード交換不要）。根本原因は確定不能。施策 A・B・D3（メトリクスURL設定部分）は boxp/arch PR #11944 (2026-08-05 マージ) で設定済みで、2026-08-17 CI apply でノードにも適用済みだった。ただし watchdog 設定にもかかわらず 9 時間の無応答が続いた点は未解明。推測: ①電源断（watchdogが効かない）。前回 boot の journal 消失については、journal persistent 設定が有効でも SD I/O 破綻でjournalバッファが flush できなかった可能性が高い。なお D3 のアクセス制御（2381/TCP の制限）は未実施のまま（BOXP-177 で追跡中）。
+**2026-08-19 追記 (INC-5)**: `shanghai-3` (192.168.10.104) が約 9 時間ハングし、物理再起動で復旧（SD カード交換不要）。根本原因は確定不能。施策 A・B・D3（メトリクスURL設定部分）は boxp/arch PR #11944 (2026-08-05 マージ) で設定済みで、2026-08-17 CI apply でノードにも適用済みとされていた。ただし watchdog 設定にもかかわらず 9 時間の無応答が続いた点は未解明だった。
+
+**2026-08-25 追記 (実効性確認)**:
+全 3 control-plane で設定を実測確認した結果、**A・B は実際には未動作であることが判明**した。
+
+- **A (watchdog)**: `/etc/systemd/system.conf` の `RuntimeWatchdogSec` はコメントアウト状態（`#RuntimeWatchdogSec=off`）。カーネルウォッチドッグモジュール未ロード。全 3 ノードで watchdog は動作していない。これが INC-5 で 9 時間の無応答が続いた主因と考えられる。
+- **B (journal 永続化)**: `journald.conf` の `Storage=volatile` が全ノードで有効なまま。`/var/log/journal/` ディレクトリは存在するが、`Storage=volatile` 優先で RAM にしか書かれない。ハードリブート時のログ全消失は防げていない。
+- **D3 (etcd metrics)**: ポート 2381 は実際に応答確認済み。アクセス制御は BOXP-177 で追跡中。
+
+2026-08-25 時点の etcd WAL fsync p99: shanghai-1 **84.5 ms**（⚠️）、shanghai-2 10.8 ms、shanghai-3 13.0 ms。
+mmcblk0 平均書き込みレイテンシ: shanghai-1 **8.42 ms**（他の約 3 倍）、shanghai-2/3 は ~2.7 ms。
+shanghai-1 の I/O 劣化が継続しており、INC-2 (2026-08-01) 時と同様のパターン。
 
 ## 本リポジトリでの対応 (D1 / D2)
 
@@ -75,10 +86,10 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 ## 対で入る変更 (boxp/arch 側)
 
 - **A.** systemd hardware watchdog (`RuntimeWatchdogSec=15`) + `kernel.hung_task_panic=1`
-  (`hung_task_timeout_secs=300`)。3日間の無応答を数分に縮める
-- **B.** `armbian-ramlog` の無効化。`/var/log` が zram (RAM) 上にあったため、
-  導入済みの `journald_persistent_storage` が実際には永続化されておらず、
-  ハング時のログが毎回全消失していた
+  (`hung_task_timeout_secs=300`)。3日間の無応答を数分に縮める。
+  **⚠️ 2026-08-25 実測確認: 全ノードで未動作。`system.conf` がコメントアウト状態のまま。要修正。**
+- **B.** `armbian-ramlog` の無効化 + `Storage=persistent` 設定でジャーナル永続化。
+  **⚠️ 2026-08-25 実測確認: 全ノードで `Storage=volatile` のまま未修正。ハングログが消失し続けている。要修正。**
 - **D3.** etcd `--listen-metrics-urls=http://0.0.0.0:2381` 追加 (メトリクスURL: 実装済み / **アクセス制御: 未実施**)  
   boxp/arch PR #11944 でメトリクス URL を追加し、2026-08-17 全ノードに適用済み。  
   **⚠️ 残作業 (BOXP-177)**: 現在 2381/TCP は認証なしで全クライアントからアクセス可能。
@@ -99,13 +110,10 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 
 ## 残課題
 
-- **C. etcd を microSD から外す (USB SSD)** — 本命の恒久対策。別途
-- 2026-07-25 19:00 UTC に書き込みが 27 → 64 GiB/日 へ倍増した原因。
-  3ノード同時・同幅だったため etcd 起因なのは確実だが、
-  etcd メトリクスが未収集で犯人を特定できていない。D3 適用後に etcd WAL fsync /
-  backend commit latency を確認して再調査する。
-  なお `mmcblk0` の write await (block device 指標) は既存の `node_exporter` が収集済みで
-  あり、D3 は etcd アプリケーション層の指標を追加するものである。
+- **⚠️ A・B の実効性修正（最優先）**: boxp/arch 側の Ansible playbook で `RuntimeWatchdogSec=15` と `Storage=persistent` が実際のノード設定に反映されるよう調査・修正が必要。CI apply は成功しているが実ノードに設定が適用されていない。
+- **C. etcd を microSD から外す (USB SSD)** — 本命の恒久対策。別途チケット化。
 - **D3 アクセス制御 (BOXP-177)**: `--listen-metrics-urls=http://0.0.0.0:2381` は現在認証なし・アクセス制御なしで公開中。
   etcd が `hostNetwork: true` のため標準 NetworkPolicy は適用不可。
   ホスト側iptables/nftablesまたはCalico GlobalNetworkPolicyで制御する必要がある（BOXP-177で追跡中）。
+- **etcd/mmcblk0 アラートルール**: 2026-08-25 に WAL fsync p99 や mmcblk0 write latency の実測値を取得。これらを閾値とした PrometheusRule の実装が必要（未実装）。
+- **2026-07-25 書き込み倍増の原因**: 27 → 64 GiB/日 へ倍増した原因。D3 で etcd WAL fsync latency が収集できるようになったため、再調査可能。
