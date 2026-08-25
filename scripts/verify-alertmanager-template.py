@@ -1,7 +1,7 @@
 """ESO の target.template を Go template として妥当か検証する。
 YAML として parse するだけでは、コメント中の {{ }} のような
 「意図しないテンプレートアクション」を見逃す (実際に踏んだ)。"""
-import sys, re, yaml, pathlib
+import os, sys, re, yaml, pathlib
 
 path = sys.argv[1]
 expected = set(sys.argv[2:])
@@ -38,6 +38,8 @@ try:
 except Exception as e:
     print("展開後 YAML が不正:", e); ok = False
 
-pathlib.Path("/tmp/claude-1000/-home-boxp/4861e90a-59a1-45dd-a94f-8c83bc789901/scratchpad/am-rendered2.yaml").write_text(rendered)
+output = pathlib.Path(os.environ.get("ALERTMANAGER_RENDERED_OUTPUT", "/tmp/alertmanager-rendered.yaml"))
+output.write_text(rendered)
+print("展開後設定:", output)
 print("\n結果:", "PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
