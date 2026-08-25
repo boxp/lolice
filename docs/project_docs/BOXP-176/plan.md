@@ -71,7 +71,7 @@ INC-5 後に「再発防止策 A・B が本当に機能しているか」を全 
 |---|---|---|---|---|
 | shanghai-1 | `volatile` | 存在（ディレクトリのみ） | 1 boot（現 boot: 2026-08-24 02:42 UTC） | **なし** |
 | shanghai-2 | `volatile` | 存在（ディレクトリのみ） | 2 boot（前回: 8/15-8/23, 現在: 8/25） | **あり**（理由不明 ※1） |
-| shanghai-3 | `volatile` | 存在（ディレクトリのみ） | 1 boot（現 boot: 2026-08-19 16:03 UTC） | **なし** |
+| shanghai-3 | `volatile` | 存在（ディレクトリのみ） | 1 boot（boot 開始: ~11:30 UTC 推定、SSH 観測: 16:03 UTC） | **なし** |
 
 ※1: `Storage=volatile` ではジャーナルは tmpfs (`/run/log/journal/`) にのみ書かれ、正常シャットダウンでも `/var/log/journal/` には永続化されない。shanghai-2 に前回 boot ログが存在する理由は現状不明（過去に `Storage=persistent` が設定されていた際のジャーナルバイナリが `/var/log/journal/` に残留している可能性、または測定時点の特殊な状態）。本番への影響を評価するため、実際に `reboot` 後も前回 boot ログが読めるかを確認する必要がある（可逆操作として次回メンテナンス時に検証を推奨）。
 
