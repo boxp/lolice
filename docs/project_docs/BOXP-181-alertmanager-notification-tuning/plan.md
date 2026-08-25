@@ -13,7 +13,7 @@
 
 ## 通知設計
 
-- ServiceMonitor は `release=prometheus` を明示したものだけを収集する。local-llm、Longhorn、Intel GPU exporter、Grafana Alloy、Loki の GitOps managed Monitor に label を付与する。
+- ServiceMonitor は `release=prometheus` を明示した GitOps managed Monitor と、`app.kubernetes.io/part-of=kube-prometheus` を持つ kube-prometheus v0.18.0 同梱の基盤 Monitor を収集する。前者は local-llm、Longhorn、Intel GPU exporter、Grafana Alloy、Loki に label を付与する。これ以外の未所有 Monitor は収集しない。
 - warning は `alertname, namespace` 単位で集約し、初回 15 分待機、group interval 6 時間、repeat 7 日にする。親 route は `Default` のままとし、`severity=warning` のみを Warning receiver に送るため、info を設定反映直後に一斉送信しない。
 - critical は 30 秒待機・5 分 group interval・6 時間 repeat を維持する。ControlPlaneNodeNotReady、etcd quorum/healthy endpoint と snapshot 系の critical を warning の抑制対象にしない。
 
