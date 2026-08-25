@@ -87,20 +87,24 @@ INC-5 後に「再発防止策 A・B が本当に機能しているか」を全 
 
 ### RuntimeWatchdog の実効性確認
 
-**結論: RuntimeWatchdog は全 3 ノードで未動作。**
+**結論: RuntimeWatchdog は全 3 ノードで設定未適用（未動作と推定）。**
 
 | 確認項目 | shanghai-1 | shanghai-2 | shanghai-3 |
 |---|---|---|---|
-| `/proc/sys/kernel/watchdog` | 存在しない | 存在しない | 存在しない |
 | `/etc/systemd/system.conf` RuntimeWatchdogSec | `#RuntimeWatchdogSec=off`（コメントアウト） | 同左 | 同左 |
 | kubelet WatchdogUSec | `0`（無効） | `0` | `0` |
 | `/dev/watchdog` デバイス | 確認不可 | 確認不可 | 確認不可 |
 
-`RuntimeWatchdogSec=15` は `/etc/systemd/system.conf` にコメントアウト状態で存在するだけで
-**実際には適用されていない**。カーネルウォッチドッグモジュールも未ロード。
+`/etc/systemd/system.conf` の `RuntimeWatchdogSec` がコメントアウト状態であるため、
+systemd は watchdog タイムアウトをデフォルト（off）で動作する。
+kubelet の `WatchdogUSec=0` もハードウェア watchdog を使用しないことを示す。
+なお `systemctl show --property=RuntimeWatchdogUSec` による直接確認および
+`/dev/watchdog` デバイスの存在確認は実施できなかったため、
+「設定未適用に起因する未動作」と推定するにとどめ断定は避ける。
 
-**影響**: カーネルハング発生時の自動再起動機能が存在せず、9 時間以上の無応答は watchdog が
-動作していれば数分で復帰できたはずだが、現状では物理介入なしの復旧は不可能。
+**影響**: RuntimeWatchdog が設定未適用の場合、カーネルハング発生時の自動再起動機能が期待できず、
+物理介入なしの復旧が困難となる可能性がある。ただし INC-5 での 9 時間無応答の主因が
+watchdog の設定未適用によるものかは、直接検証なしに断定できない。
 
 ### etcd WAL fsync 遅延・ディスク I/O の実測値（2026-08-25 時点）
 
@@ -146,7 +150,7 @@ boxp/arch PR #11944 (2026-08-05) および 2026-08-17 CI apply は完了して�
 
 | 施策 | Ansible/PR | ノード適用 | 実効性確認 | 備考 |
 |---|---|---|---|---|
-| A (watchdog) | boxp/arch PR #11944 | 2026-08-17 CI ✓ | ❌ 未動作（system.conf コメントアウト） | 要修正 |
+| A (watchdog) | boxp/arch PR #11944 | 2026-08-17 CI ✓ | ❌ 設定未適用と推定（system.conf コメントアウト、直接確認未実施） | 要修正 |
 | B (journal永続化) | boxp/arch PR #11944 | 2026-08-17 CI ✓ | ❌ 未動作（Storage=volatile のまま） | 要修正 |
 | D1 (etcd defrag) | lolice #761 | ArgoCD 同期済み | ✅ 実装済み | 完了 |
 | D2 (descheduler 間隔) | lolice #761 | ArgoCD 同期済み | ✅ 実装済み | 完了 |
@@ -159,13 +163,13 @@ Ansible での設定変更が実際のノード設定に反映されていない
 - 設定ファイルのパスまたはセクションが想定と異なる（例: `/etc/systemd/system.conf` vs `/etc/systemd/system.conf.d/`）
 - CI apply のログが「changed」でなく「ok」だったため問題が見過ごされた
 
-**現在の状態**: 全 3 control-plane は watchdog なし・journal 非永続でハング耐性が実質的に未改善のまま稼働中。
+**現在の状態**: 全 3 control-plane は watchdog 設定未適用（推定）・journal 非永続でハング耐性が実質的に未改善のまま稼働中。
 
 ### 参考: 施策の意図した動作
 
 - **[A] systemd hardware watchdog** (`RuntimeWatchdogSec=15`)
   意図: カーネルハング検知後 ~15 秒以内にハードウェアリセットをかける。
-  現状: 未動作。ハング時は物理介入なしの自動復旧が不可能。
+  現状: `system.conf` のコメントアウトより設定未適用と推定。`systemctl show --property=RuntimeWatchdogUSec` および `/dev/watchdog` デバイスの直接確認は未実施のため断定を避けるが、設定が正しく機能していない可能性が高い。要修正。
 
 - **[B] journal 永続化** (`Storage=persistent`)
   意図: クラッシュ直前のログを次回起動後に参照できるようにする（SD I/O 完全破綻時は失敗する場合あり）。
