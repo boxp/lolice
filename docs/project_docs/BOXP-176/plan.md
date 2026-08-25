@@ -193,7 +193,7 @@ Ansible での設定変更が実際のノード設定に反映されていない
 
 ### 長期恒久案
 
-- **[C] etcd データディレクトリを USB SSD / eMMC 以外の耐久媒体へ移行**
+- **[C] etcd データディレクトリを USB SSD や eMMC 等の耐久媒体へ移行**
   `/var/lib/etcd` を microSD から外す。本命の恒久対策。
   必要な手順: etcd snapshot → member remove → 新ストレージで rejoin（master 承認必須）。
   rollback: 変更前 snapshot と旧 member 設定で元に戻す。
@@ -228,7 +228,7 @@ Ansible での設定変更が実際のノード設定に反映されていない
 | アラート名 | 現状の問題 | 推奨改善内容 |
 |---|---|---|
 | EtcdHighFsyncDuration の閾値 | 現行 p99 > 500ms は重篤な状態のみ検知。INC-5 時点の shanghai-1 p99=84ms は通知されない | 早期検知のため p99 > 50ms (warning) / > 200ms (critical) への引き下げを検討 |
-| mmcblk0 書き込みレイテンシ | 現行は I/O busy 率 (> 90%) のみ。平均書き込みレイテンシ高値の検知がない | 平均書き込みレイテンシ (`node_disk_write_time_seconds_total / node_disk_writes_completed_total`) の閾値アラート追加を検討（p99 はヒストグラム非収集のため算出不可） |
+| mmcblk0 書き込みレイテンシ | 現行は I/O busy 率 (> 90%) のみ。直近の書き込みレイテンシ高値の検知がない | `rate(node_disk_write_time_seconds_total[5m]) / rate(node_disk_writes_completed_total[5m])` の閾値アラート追加を検討（累積カウンタの単純除算は起動以降の平均になり新たな劣化が希釈されるため、同一時間窓の rate 比を使用する） |
 
 ### 検知から復旧までの時間目標
 
