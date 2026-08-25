@@ -14,7 +14,7 @@ controller:
 serviceMonitor:
   enabled: true
   labels:
-    release: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
 resources:
   requests:
     cpu: 100m

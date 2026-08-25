@@ -40,7 +40,7 @@ spec:
               enabled: true
               additionalLabels:
                 # prometheus-k8s の ServiceMonitor opt-in ラベル。
-                release: prometheus
+                app.kubernetes.io/part-of: kube-prometheus
     - path: argoproj/longhorn
       repoURL: https://github.com/boxp/lolice
       targetRevision: main

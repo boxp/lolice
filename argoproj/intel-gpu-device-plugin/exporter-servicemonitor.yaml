@@ -4,7 +4,7 @@ metadata:
   name: intel-gpu-exporter
   labels:
     app: intel-gpu-exporter
-    release: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
 spec:
   selector:
     matchLabels:

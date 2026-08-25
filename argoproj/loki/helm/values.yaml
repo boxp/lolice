@@ -56,7 +56,7 @@ monitoring:
   serviceMonitor:
     enabled: true
     labels:
-      release: prometheus
+      app.kubernetes.io/part-of: kube-prometheus
   selfMonitoring:
     enabled: false
     grafanaAgent:
