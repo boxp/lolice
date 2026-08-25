@@ -199,7 +199,7 @@ Ansible での設定変更が実際のノード設定に反映されていない
   rollback: 変更前 snapshot と旧 member 設定で元に戻す。
 
 - **[E] control-plane 障害ドメイン分離の改善**
-  現状の 3 node はすべて同一 eMMC 系統に依存。etcd quorum が 2/3 で維持される間は可用性あるが、
+  現状の 3 node はすべて microSD に依存（Orange Pi Zero 3 の rootfs/etcd データは mmcblk0 上）。etcd quorum が 2/3 で維持される間は可用性あるが、
   2 ノード同時障害時に quorum を失う。外部 etcd クラスター化や専用ストレージ基盤の検討。
 
 ---
