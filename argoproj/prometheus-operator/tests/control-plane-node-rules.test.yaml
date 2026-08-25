@@ -36,6 +36,16 @@ tests:
               description: Only 1 of 3 etcd endpoints are reachable. Quorum requires at least 2 members; restore an endpoint immediately.
               runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-179/runbook.md#etcd-healthy-endpoints
 
+  - name: etcd redundancy warning is suppressed once quorum is at risk
+    interval: 1m
+    input_series:
+      - series: 'up{job="etcd",instance="etcd-1"}'
+        values: '1+0x5'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: EtcdHealthyEndpointsDegraded
+        exp_alerts: []
+
   - name: stale control plane NodeLease is critical
     interval: 1m
     input_series:

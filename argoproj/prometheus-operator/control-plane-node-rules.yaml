@@ -46,7 +46,7 @@ spec:
       rules:
         - alert: EtcdHealthyEndpointsDegraded
           expr: |
-            count(up{job="etcd"} == 1) < 3
+            count(up{job="etcd"} == 1) == 2
           for: 2m
           labels:
             severity: warning
