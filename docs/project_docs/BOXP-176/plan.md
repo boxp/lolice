@@ -174,7 +174,7 @@ Ansible での設定変更が実際のノード設定に反映されていない
 - 設定ファイルのパスまたはセクションが想定と異なる（例: `/etc/systemd/system.conf` vs `/etc/systemd/system.conf.d/`）
 - CI apply のログが「changed」でなく「ok」だったため問題が見過ごされた
 
-**現在の状態**: 全 3 control-plane は watchdog 設定未適用（推定）・journal 非永続でハング耐性が実質的に未改善のまま稼働中。
+**現在の状態**: 全 3 control-plane は watchdog 実効状態未確認・journal 非永続でハング耐性が実質的に未改善の疑い（要確認）。
 
 ### 参考: 施策の意図した動作
 
