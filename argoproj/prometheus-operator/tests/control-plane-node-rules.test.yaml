@@ -1,0 +1,79 @@
+rule_files:
+  - __RULE_FILE__
+evaluation_interval: 1m
+tests:
+  - name: etcd redundancy warning fires before quorum is at risk
+    interval: 1m
+    input_series:
+      - series: 'up{job="etcd",instance="etcd-1"}'
+        values: '1+0x5'
+      - series: 'up{job="etcd",instance="etcd-2"}'
+        values: '1+0x5'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: EtcdHealthyEndpointsDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: etcd healthy endpoint redundancy is degraded
+              description: Only 2 of 3 etcd endpoints are reachable. Restore the failed member before another failure risks quorum.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-179/runbook.md#etcd-healthy-endpoints
+
+  - name: etcd quorum risk is critical with fewer than two healthy endpoints
+    interval: 1m
+    input_series:
+      - series: 'up{job="etcd",instance="etcd-1"}'
+        values: '1+0x5'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: EtcdQuorumAtRisk
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: etcd quorum is at risk
+              description: Only 1 of 3 etcd endpoints are reachable. Quorum requires at least 2 members; restore an endpoint immediately.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-179/runbook.md#etcd-healthy-endpoints
+
+  - name: stale control plane NodeLease is critical
+    interval: 1m
+    input_series:
+      - series: 'kube_node_role{node="shanghai-3",role="control-plane"}'
+        values: '1+0x5'
+      - series: 'kube_lease_renew_time{namespace="kube-node-lease",lease="shanghai-3"}'
+        values: '0+0x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ControlPlaneNodeLeaseStale
+        exp_alerts:
+          - exp_labels:
+              lease: shanghai-3
+              namespace: kube-node-lease
+              severity: critical
+            exp_annotations:
+              summary: Control-plane node lease is stale
+              description: Control-plane node shanghai-3 has not renewed its NodeLease for more than 2 minutes. Check kubelet and node connectivity before the node becomes NotReady.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-179/runbook.md#control-plane-nodeready-or-nodelease
+
+  - name: sustained slow control plane disk reads are warned
+    interval: 1m
+    input_series:
+      - series: 'kube_node_role{node="shanghai-3",role="control-plane"}'
+        values: '1+0x20'
+      - series: 'node_disk_read_time_seconds_total{instance="shanghai-3",device="mmcblk0"}'
+        values: '0+12x20'
+      - series: 'node_disk_reads_completed_total{instance="shanghai-3",device="mmcblk0"}'
+        values: '0+60x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ControlPlaneDiskIOLatencyHigh
+        exp_alerts:
+          - exp_labels:
+              device: mmcblk0
+              instance: shanghai-3
+              severity: warning
+            exp_annotations:
+              summary: Control-plane disk read latency is high
+              description: SD card device mmcblk0 on shanghai-3 has averaged more than 100ms per read for 10 minutes. Investigate storage pressure and replace failing media.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-179/runbook.md#control-plane-disk-io-latency
