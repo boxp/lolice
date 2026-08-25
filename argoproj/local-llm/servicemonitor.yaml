@@ -4,6 +4,8 @@ metadata:
   name: llama-server-envoy
   labels:
     app: llama-server
+    # prometheus-k8s は opt-in された ServiceMonitor だけを収集する。
+    release: prometheus
 spec:
   selector:
     matchLabels:

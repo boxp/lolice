@@ -37,3 +37,8 @@ spec:
   podMonitorSelector:
     matchLabels:
       release: prometheus
+  # ServiceMonitor も明示的に opt-in したものだけを収集する。namespace に残った
+  # Helm 管理外の Monitor が、所有者不明の TargetDown を発火させないためである。
+  serviceMonitorSelector:
+    matchLabels:
+      release: prometheus
