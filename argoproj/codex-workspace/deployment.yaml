@@ -22,7 +22,7 @@ spec:
       terminationGracePeriodSeconds: 60
       initContainers:
         - name: fetch-ssh-keys
-          image: docker.io/curlimages/curl:8.21.0
+          image: docker.io/curlimages/curl:8.22.0
           command:
             - /bin/sh
             - -ec
