@@ -31,6 +31,10 @@ spec:
           - 192.178.151.187/32
           - 192.178.123.0/32
           - 192.178.46.166/32
+          # shanghai-2's Calico tunnel address.  kube-proxy uses this as
+          # the SNAT source when kube-vip elects shanghai-2 as the Service
+          # VIP owner.
+          - 192.178.48.192/32
           - 192.178.48.194/32
           - 192.178.80.45/32
       destination:
@@ -49,6 +53,8 @@ spec:
           - 192.178.151.187/32
           - 192.178.123.0/32
           - 192.178.46.166/32
+          # Keep the UDP mosh path consistent with the SSH/TCP path above.
+          - 192.178.48.192/32
           - 192.178.48.194/32
           - 192.178.80.45/32
       destination:
