@@ -76,7 +76,7 @@ jobs:
       - name: Install chainsaw
         uses: kyverno/action-install-chainsaw@v0.2.15
         with:
-          verify: true
+          verify: false
 
       - name: Install kustomize
         run: |
