@@ -101,29 +101,43 @@ jobs:
         env:
           COMPONENTS: ${{ needs.detect.outputs.components }}
         run: |
-          echo "=== ArgoCD CRD インストール（全コンポーネント共通）==="
+          set -e
+
+          # 1. ESO を先に Helm でインストール（ArgoCD より前に実施することでCRD衝突を回避）
+          if echo "$COMPONENTS" | python3 -c "import sys,json; sys.exit(0 if 'external-secrets-operator' in json.load(sys.stdin) else 1)" 2>/dev/null || \
+             echo "$COMPONENTS" | python3 -c "import sys,json; sys.exit(0 if 'argocd' in json.load(sys.stdin) else 1)" 2>/dev/null; then
+            echo "=== ESO を Helm でインストール（CRD を Helm labels 付きでインストール） ==="
+            helm repo add external-secrets https://charts.external-secrets.io --force-update
+            kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
+            helm install external-secrets external-secrets/external-secrets \
+              --version 0.18.2 --namespace external-secrets --wait --timeout 180s
+            echo "ESO インストール完了"
+          fi
+
+          # 2. ArgoCD CRD インストール（Application CR に必要）
+          echo "=== ArgoCD CRD インストール ==="
           curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
             | yq 'select(.kind == "CustomResourceDefinition")' \
             | kubectl apply --server-side --force-conflicts -f -
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
           kubectl wait --for=condition=established --timeout=120s crd --all
+          echo "CRD インストール完了"
 
           for COMPONENT in $(echo "$COMPONENTS" | python3 -c "import sys,json; print('\\n'.join(json.load(sys.stdin)))"); do
             echo "=== コンポーネント $COMPONENT のマニフェストをクラスターに適用 ==="
             case "$COMPONENT" in
               argocd)
+                # yq フィルタリングなしで全リソースを適用（ESO CRD 導入済みなので ExternalSecret も適用可能）
+                # ExternalSecret は ESO が動作していないため sync されないが、リソース自体は作成可能
                 kustomize build argoproj/argocd/ \
-                  | yq 'select(.kind != "ExternalSecret" and .metadata.name != "cloudflared")' \
                   | kubectl apply --server-side --force-conflicts -f -
+                echo "=== ArgoCD マニフェスト適用後の状態確認 ==="
+                kubectl get deployments -n argocd
+                kubectl get statefulsets -n argocd
                 ;;
               external-secrets-operator)
-                echo "ESO を Helm でインストール..."
-                helm repo add external-secrets https://charts.external-secrets.io --force-update
-                kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
-                helm install external-secrets external-secrets/external-secrets \
-                  --version 0.18.2 --namespace external-secrets --wait --timeout 180s
-
-                echo "ESO ClusterSecretStore overlay を適用..."
+                echo "ESO は上記で既にインストール済み"
+                echo "=== ESO ClusterSecretStore overlay を適用 ==="
                 kustomize build argoproj/external-secrets-operator/manifests/ \
                   | kubectl apply --server-side --force-conflicts -f -
                 ;;
@@ -136,6 +150,10 @@ jobs:
                 ;;
             esac
           done
+
+          echo "=== 全コンポーネント適用完了。クラスター状態サマリー ==="
+          kubectl get deployments --all-namespaces
+          kubectl get daemonsets --all-namespaces
 
       - name: Run chainsaw tests
         id: chainsaw-run
