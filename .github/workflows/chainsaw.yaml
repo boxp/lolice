@@ -6,6 +6,7 @@ on:
     paths:
       - 'argoproj/**'
       - 'tests/chainsaw/**'
+      - '.github/workflows/chainsaw.yaml'
 
 jobs:
   detect:

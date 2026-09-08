@@ -21,7 +21,11 @@ spec:
           echo "=== DaemonSet の desired/scheduled 確認 ==="
           DESIRED=$(kubectl get daemonset kube-vip-ds -n kube-system -o jsonpath='{.status.desiredNumberScheduled}')
           echo "Desired: $DESIRED"
-          echo "kube-vip DaemonSet が正常に作成されました"
+          if [ -z "$DESIRED" ] || [ "$DESIRED" -le 0 ]; then
+            echo "ERROR: desiredNumberScheduled が 0 または未設定です。DaemonSet がスケジュール可能ではありません。"
+            exit 1
+          fi
+          echo "kube-vip DaemonSet が正常に作成されました（desiredNumberScheduled=$DESIRED）"
 
   - name: apply-application-yaml
     try:
