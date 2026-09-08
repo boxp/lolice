@@ -17,17 +17,17 @@ spec:
         content: |
           set -e
           echo "=== ArgoCD CRD インストール（v3.5.2）==="
-          # ArgoCD install.yaml から CRD のみ抽出して適用
+          # ArgoCD の CRD はアノテーションが256KBを超えるため --server-side が必須
           curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
             | yq 'select(.kind == "CustomResourceDefinition")' \
-            | kubectl apply -f -
+            | kubectl apply --server-side --force-conflicts -f -
 
           echo "=== External Secrets Operator CRD インストール（v0.18.2）==="
           helm repo add external-secrets https://charts.external-secrets.io --force-update
           # helm show crds は templates/crds/ を対象外のため helm template で抽出
           helm template external-secrets external-secrets/external-secrets --version 0.18.2 \
             | yq 'select(.kind == "CustomResourceDefinition")' \
-            | kubectl apply -f -
+            | kubectl apply --server-side --force-conflicts -f -
 
           echo "=== CRD 登録待機 ==="
           kubectl wait --for=condition=established --timeout=60s crd --all

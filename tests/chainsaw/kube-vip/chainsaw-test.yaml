@@ -15,9 +15,10 @@ spec:
         content: |
           set -e
           echo "=== ArgoCD CRD インストール（application.yaml 検証用）==="
+          # ArgoCD の CRD はアノテーションが256KBを超えるため --server-side が必須
           curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
             | yq 'select(.kind == "CustomResourceDefinition")' \
-            | kubectl apply -f -
+            | kubectl apply --server-side --force-conflicts -f -
 
           echo "=== argocd Namespace 作成（Application リソース用）==="
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
