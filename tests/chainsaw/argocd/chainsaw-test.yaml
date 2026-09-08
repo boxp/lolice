@@ -1,0 +1,47 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: argocd-schema-validation
+spec:
+  description: |
+    ArgoCD マニフェストの kustomize build 出力をサーバーサイド dry-run で検証する。
+    手順:
+      1. kustomize build 実行（リモート GitHub URL 参照を含む）
+      2. CRD（ArgoCD + ESO）をクラスターに実際に適用して登録
+      3. 全マニフェストをサーバーサイド dry-run で検証
+  steps:
+  - name: install-crds
+    try:
+    - script:
+        timeout: 180s
+        content: |
+          set -e
+          echo "=== ArgoCD CRD インストール（v3.5.2）==="
+          # ArgoCD install.yaml から CRD のみ抽出して適用
+          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
+            | yq 'select(.kind == "CustomResourceDefinition")' \
+            | kubectl apply -f -
+
+          echo "=== External Secrets Operator CRD インストール（v0.18.2）==="
+          helm repo add external-secrets https://charts.external-secrets.io --force-update
+          helm show crds external-secrets/external-secrets --version 0.18.2 \
+            | kubectl apply -f -
+
+          echo "=== CRD 登録待機 ==="
+          kubectl wait --for=condition=established --timeout=60s crd --all
+          echo "CRD インストール完了"
+
+  - name: validate-kustomize-build
+    try:
+    - script:
+        timeout: 300s
+        content: |
+          set -e
+          echo "=== kustomize build (argocd) ==="
+          # リモート GitHub URL 参照のため時間がかかる場合あり
+          kustomize build "${REPO_ROOT}/argoproj/argocd/" > /tmp/argocd-manifest.yaml
+          echo "Build completed. Resource count: $(grep -c '^kind:' /tmp/argocd-manifest.yaml || true)"
+
+          echo "=== kubectl apply --server-side --dry-run=server ==="
+          kubectl apply --server-side --dry-run=server -f /tmp/argocd-manifest.yaml
+          echo "Validation passed."

@@ -1,0 +1,23 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: kube-vip-schema-validation
+spec:
+  description: |
+    kube-vip マニフェストの kustomize build 出力をサーバーサイド dry-run で検証する。
+    標準 k8s リソース（DaemonSet, ClusterRole, ClusterRoleBinding）のみのため CRD 事前インストールは不要。
+  steps:
+  - name: validate-kustomize-build
+    try:
+    - script:
+        timeout: 120s
+        content: |
+          set -e
+          echo "=== kustomize build (kube-vip) ==="
+          kustomize build "${REPO_ROOT}/argoproj/kube-vip/" > /tmp/kube-vip-manifest.yaml
+          echo "Built manifest:"
+          cat /tmp/kube-vip-manifest.yaml
+
+          echo "=== kubectl apply --server-side --dry-run=server ==="
+          kubectl apply --server-side --dry-run=server -f /tmp/kube-vip-manifest.yaml
+          echo "Validation passed."

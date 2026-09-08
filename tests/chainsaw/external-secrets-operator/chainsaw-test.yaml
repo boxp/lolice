@@ -1,0 +1,40 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: external-secrets-operator-schema-validation
+spec:
+  description: |
+    External Secrets Operator の kustomize overlay（manifests/）を
+    サーバーサイド dry-run で検証する。
+    ClusterSecretStore CRD を事前インストールしてから dry-run を実行。
+  steps:
+  - name: install-eso-crds
+    try:
+    - script:
+        timeout: 120s
+        content: |
+          set -e
+          echo "=== External Secrets Operator CRD インストール（v0.18.2）==="
+          helm repo add external-secrets https://charts.external-secrets.io --force-update
+          helm show crds external-secrets/external-secrets --version 0.18.2 \
+            | kubectl apply -f -
+
+          echo "=== CRD 登録待機 ==="
+          kubectl wait --for=condition=established --timeout=60s crd --all
+          echo "CRD インストール完了"
+
+  - name: validate-kustomize-build
+    try:
+    - script:
+        timeout: 120s
+        content: |
+          set -e
+          echo "=== kustomize build (external-secrets-operator/manifests) ==="
+          kustomize build "${REPO_ROOT}/argoproj/external-secrets-operator/manifests/" \
+            > /tmp/eso-manifest.yaml
+          echo "Built manifest:"
+          cat /tmp/eso-manifest.yaml
+
+          echo "=== kubectl apply --server-side --dry-run=server ==="
+          kubectl apply --server-side --dry-run=server -f /tmp/eso-manifest.yaml
+          echo "Validation passed."

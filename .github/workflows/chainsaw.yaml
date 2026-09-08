@@ -1,0 +1,184 @@
+name: Chainsaw Manifest Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'argoproj/**'
+      - 'tests/chainsaw/**'
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      components: ${{ steps.detect.outputs.components }}
+      has_tests: ${{ steps.detect.outputs.has_tests }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed components with chainsaw tests
+        id: detect
+        run: |
+          git fetch origin main
+          git diff --name-only origin/main..HEAD > /tmp/changed_files.txt
+          echo "Changed files:"
+          cat /tmp/changed_files.txt
+
+          COMPONENTS=$(python3 << 'PYEOF'
+          import json, os
+
+          with open('/tmp/changed_files.txt') as f:
+              changed = [l.strip() for l in f if l.strip()]
+
+          components = set()
+          for filepath in changed:
+              parts = filepath.split('/')
+              if len(parts) >= 2:
+                  if parts[0] == 'argoproj' and os.path.isdir(f'tests/chainsaw/{parts[1]}'):
+                      components.add(parts[1])
+                  elif len(parts) >= 3 and parts[0] == 'tests' and parts[1] == 'chainsaw':
+                      components.add(parts[2])
+          print(json.dumps(sorted(components)))
+          PYEOF
+          )
+
+          echo "Detected components: $COMPONENTS"
+          echo "components=$COMPONENTS" >> $GITHUB_OUTPUT
+
+          if [ "$COMPONENTS" = "[]" ]; then
+            echo "has_tests=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_tests=true" >> $GITHUB_OUTPUT
+          fi
+
+  chainsaw:
+    needs: detect
+    if: needs.detect.outputs.has_tests == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      REPO_ROOT: ${{ github.workspace }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          node_image: kindest/node:v1.32.0
+          cluster_name: chainsaw-test
+
+      - name: Install chainsaw
+        uses: kyverno/action-install-chainsaw@v0.2
+        with:
+          verify: true
+
+      - name: Install kustomize
+        run: |
+          KUSTOMIZE_VERSION=v5.7.1
+          curl -sSL -o kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf kustomize.tar.gz kustomize
+          sudo install -m 555 kustomize /usr/local/bin/kustomize
+          rm kustomize kustomize.tar.gz
+          kustomize version
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install Helm (for CRD extraction)
+        uses: azure/setup-helm@v4
+        with:
+          version: latest
+
+      - name: Run chainsaw tests
+        id: chainsaw-run
+        env:
+          COMPONENTS: ${{ needs.detect.outputs.components }}
+        run: |
+          RESULT_FILE="${RUNNER_TEMP}/chainsaw-results.md"
+          OVERALL_STATUS=0
+
+          for COMPONENT in $(echo "$COMPONENTS" | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin)))"); do
+            echo "::group::Running chainsaw tests for $COMPONENT"
+            echo "### 📦 $COMPONENT" >> "$RESULT_FILE"
+            echo "" >> "$RESULT_FILE"
+
+            set +e
+            chainsaw test \
+              --test-dir "./tests/chainsaw/$COMPONENT" \
+              2>&1 | tee /tmp/chainsaw-output.txt
+            COMPONENT_STATUS=$?
+            set -e
+
+            if [ $COMPONENT_STATUS -eq 0 ]; then
+              echo "✅ **PASSED**" >> "$RESULT_FILE"
+            else
+              echo "❌ **FAILED**" >> "$RESULT_FILE"
+              OVERALL_STATUS=1
+            fi
+
+            echo "" >> "$RESULT_FILE"
+            echo "<details>" >> "$RESULT_FILE"
+            echo "<summary>テスト出力を展開</summary>" >> "$RESULT_FILE"
+            echo "" >> "$RESULT_FILE"
+            echo '```' >> "$RESULT_FILE"
+            # 長い出力を制限
+            head -200 /tmp/chainsaw-output.txt >> "$RESULT_FILE"
+            if [ $(wc -l < /tmp/chainsaw-output.txt) -gt 200 ]; then
+              echo "... (出力省略。完全なログはGitHub Actionsで確認してください)" >> "$RESULT_FILE"
+            fi
+            echo '```' >> "$RESULT_FILE"
+            echo "</details>" >> "$RESULT_FILE"
+            echo "" >> "$RESULT_FILE"
+            echo "::endgroup::"
+          done
+
+          echo "result_file=$RESULT_FILE" >> $GITHUB_OUTPUT
+          exit $OVERALL_STATUS
+
+      - name: Post PR comment
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const resultFile = process.env.RESULT_FILE || '';
+            const details = resultFile && fs.existsSync(resultFile)
+              ? fs.readFileSync(resultFile, 'utf8')
+              : '(結果ファイルが見つかりません)';
+
+            const jobStatus = '${{ steps.chainsaw-run.outcome }}';
+            const status = jobStatus === 'success' ? '✅ 全テスト通過' : '❌ テスト失敗あり';
+            const components = '${{ needs.detect.outputs.components }}';
+
+            const header = [
+              '## Chainsaw Manifest Validation',
+              '',
+              `${status}`,
+              '',
+              `**テスト対象コンポーネント**: \`${components}\``,
+              '',
+            ].join('\n');
+
+            const maxLength = 65000;
+            let body = header + details;
+            if (body.length > maxLength) {
+              body = body.substring(0, maxLength - 300)
+                + '\n\n...(出力省略)\n\n💡 完全な結果はGitHub Actionsのログを確認してください。';
+            }
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body,
+            });
+        env:
+          RESULT_FILE: ${{ steps.chainsaw-run.outputs.result_file }}
