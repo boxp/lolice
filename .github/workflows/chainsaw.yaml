@@ -97,6 +97,46 @@ jobs:
         with:
           version: latest
 
+      - name: Apply component manifests to kind cluster
+        env:
+          COMPONENTS: ${{ needs.detect.outputs.components }}
+        run: |
+          echo "=== ArgoCD CRD インストール（全コンポーネント共通）==="
+          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
+            | yq 'select(.kind == "CustomResourceDefinition")' \
+            | kubectl apply --server-side --force-conflicts -f -
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          kubectl wait --for=condition=established --timeout=120s crd --all
+
+          for COMPONENT in $(echo "$COMPONENTS" | python3 -c "import sys,json; print('\\n'.join(json.load(sys.stdin)))"); do
+            echo "=== コンポーネント $COMPONENT のマニフェストをクラスターに適用 ==="
+            case "$COMPONENT" in
+              argocd)
+                kustomize build argoproj/argocd/ \
+                  | yq 'select(.kind != "ExternalSecret" and .metadata.name != "cloudflared")' \
+                  | kubectl apply --server-side --force-conflicts -f -
+                ;;
+              external-secrets-operator)
+                echo "ESO を Helm でインストール..."
+                helm repo add external-secrets https://charts.external-secrets.io --force-update
+                kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
+                helm install external-secrets external-secrets/external-secrets \
+                  --version 0.18.2 --namespace external-secrets --wait --timeout 180s
+
+                echo "ESO ClusterSecretStore overlay を適用..."
+                kustomize build argoproj/external-secrets-operator/manifests/ \
+                  | kubectl apply --server-side --force-conflicts -f -
+                ;;
+              kube-vip)
+                kustomize build argoproj/kube-vip/ \
+                  | kubectl apply --server-side --force-conflicts -f -
+                ;;
+              *)
+                echo "コンポーネント $COMPONENT の事前適用処理なし（スキップ）"
+                ;;
+            esac
+          done
+
       - name: Run chainsaw tests
         id: chainsaw-run
         env:

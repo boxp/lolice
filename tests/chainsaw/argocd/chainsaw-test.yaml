@@ -4,53 +4,11 @@ metadata:
   name: argocd-dynamic-validation
 spec:
   description: |
-    ArgoCD マニフェストを kind クラスターに実際に適用し、
-    コア Deployment が Available になることを動的に検証する。
-    ExternalSecret リソースおよびcloudflared（外部シークレット依存）は
-    kind 環境では接続不可のためスキップ。
+    ArgoCD コア Deployment が Available になることを動的に検証する。
+    マニフェストの適用は GHA ワークフロー側で実施済み。
+    ExternalSecret・cloudflared は外部シークレット依存のため適用対象外。
   steps:
-  - name: install-crds
-    try:
-    - script:
-        timeout: 300s
-        content: |
-          set -e
-          echo "=== ArgoCD CRD インストール（v3.5.2）==="
-          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
-            | yq 'select(.kind == "CustomResourceDefinition")' \
-            | kubectl apply --server-side --force-conflicts -f -
-
-          echo "=== External Secrets Operator CRD インストール（v0.18.2）==="
-          helm repo add external-secrets https://charts.external-secrets.io --force-update
-          helm template external-secrets external-secrets/external-secrets --version 0.18.2 \
-            | yq 'select(.kind == "CustomResourceDefinition")' \
-            | kubectl apply --server-side --force-conflicts -f -
-
-          echo "=== CRD 登録待機 ==="
-          kubectl wait --for=condition=established --timeout=120s crd --all
-
-          echo "=== argocd Namespace 作成 ==="
-          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-          echo "準備完了"
-
-  - name: apply-manifests
-    try:
-    - script:
-        timeout: 300s
-        content: |
-          set -e
-          echo "=== kustomize build (argocd) ==="
-          kustomize build "${REPO_ROOT}/argoproj/argocd/" > /tmp/argocd-manifest.yaml
-          echo "リソース数: $(grep -c '^kind:' /tmp/argocd-manifest.yaml || true)"
-
-          echo "=== ExternalSecret および cloudflared を除いてクラスターへ実際に適用 ==="
-          # ExternalSecret: kind 環境ではシークレットストア未接続のためスキップ
-          # cloudflared: tunnel-credentials secret が ExternalSecret 依存のためスキップ
-          yq 'select(.kind != "ExternalSecret" and .metadata.name != "cloudflared")' /tmp/argocd-manifest.yaml \
-            | kubectl apply --server-side --force-conflicts -f -
-          echo "適用完了"
-
-  - name: wait-for-ready
+  - name: wait-for-argocd-ready
     try:
     - script:
         timeout: 360s
@@ -71,3 +29,14 @@ spec:
           echo "=== 実行中の Pod 確認 ==="
           kubectl get pods -n argocd
           echo "ArgoCD 動的検証: 全コアコンポーネント Available"
+
+  - name: apply-argocd-application-cr
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== ArgoCD Application CR (application.yaml) の実適用 ==="
+          kubectl apply --server-side --force-conflicts \
+            -f "${REPO_ROOT}/argoproj/argocd/application.yaml"
+          echo "ArgoCD Application CR 作成完了"

@@ -4,27 +4,9 @@ metadata:
   name: external-secrets-operator-dynamic-validation
 spec:
   description: |
-    External Secrets Operator を kind クラスターに Helm でインストールし、
-    オペレーターが正常に起動することを動的に検証する。
-    また ClusterSecretStore overlay を実際に適用してリソース作成を確認する。
+    External Secrets Operator の起動と ClusterSecretStore 作成を動的に検証する。
+    ESO Helm インストールと ClusterSecretStore overlay の適用は GHA ワークフロー側で実施済み。
   steps:
-  - name: install-eso-operator
-    try:
-    - script:
-        timeout: 300s
-        content: |
-          set -e
-          echo "=== External Secrets Operator を Helm でインストール ==="
-          helm repo add external-secrets https://charts.external-secrets.io --force-update
-          kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
-
-          helm install external-secrets external-secrets/external-secrets \
-            --version 0.18.2 \
-            --namespace external-secrets \
-            --wait \
-            --timeout 180s
-          echo "ESO Helm インストール完了"
-
   - name: wait-for-eso-ready
     try:
     - script:
@@ -41,31 +23,6 @@ spec:
           echo "=== 実行中の Pod 確認 ==="
           kubectl get pods -n external-secrets
           echo "ESO 動的検証: オペレーター Available"
-
-  - name: apply-cluster-secret-store
-    try:
-    - script:
-        timeout: 180s
-        content: |
-          set -e
-          echo "=== ArgoCD CRD インストール（application.yaml 用）==="
-          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
-            | yq 'select(.kind == "CustomResourceDefinition")' \
-            | kubectl apply --server-side --force-conflicts -f -
-
-          echo "=== argocd Namespace 作成 ==="
-          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-
-          echo "=== CRD 登録待機 ==="
-          kubectl wait --for=condition=established --timeout=60s crd --all
-
-          echo "=== ClusterSecretStore overlay を実際に適用 ==="
-          kustomize build "${REPO_ROOT}/argoproj/external-secrets-operator/manifests/" \
-            > /tmp/eso-overlay-manifest.yaml
-          cat /tmp/eso-overlay-manifest.yaml
-
-          kubectl apply --server-side --force-conflicts -f /tmp/eso-overlay-manifest.yaml
-          echo "ClusterSecretStore 適用完了"
 
   - name: verify-cluster-secret-store
     try:
