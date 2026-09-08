@@ -109,11 +109,11 @@ jobs:
             echo "### 📦 $COMPONENT" >> "$RESULT_FILE"
             echo "" >> "$RESULT_FILE"
 
-            set +e
+            set +e +o pipefail
             chainsaw test \
               --test-dir "./tests/chainsaw/$COMPONENT" \
               2>&1 | tee /tmp/chainsaw-output.txt
-            COMPONENT_STATUS=$?
+            COMPONENT_STATUS=${PIPESTATUS[0]}
             set -e
 
             if [ $COMPONENT_STATUS -eq 0 ]; then
