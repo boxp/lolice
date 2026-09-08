@@ -144,6 +144,7 @@ jobs:
 
       - name: Post PR comment
         if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -174,11 +175,15 @@ jobs:
                 + '\n\n...(出力省略)\n\n💡 完全な結果はGitHub Actionsのログを確認してください。';
             }
 
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body,
-            });
+            try {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body,
+              });
+            } catch (err) {
+              core.warning(`PRコメント投稿をスキップしました: ${err.message}`);
+            }
         env:
           RESULT_FILE: ${{ steps.chainsaw-run.outputs.result_file }}
