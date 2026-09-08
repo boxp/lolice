@@ -1,63 +1,73 @@
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
-  name: argocd-schema-validation
+  name: argocd-dynamic-validation
 spec:
   description: |
-    ArgoCD マニフェストの kustomize build 出力をサーバーサイド dry-run で検証する。
-    手順:
-      1. kustomize build 実行（リモート GitHub URL 参照を含む）
-      2. CRD（ArgoCD + ESO）をクラスターに実際に適用して登録
-      3. 全マニフェストをサーバーサイド dry-run で検証
+    ArgoCD マニフェストを kind クラスターに実際に適用し、
+    コア Deployment が Available になることを動的に検証する。
+    ExternalSecret リソースおよびcloudflared（外部シークレット依存）は
+    kind 環境では接続不可のためスキップ。
   steps:
   - name: install-crds
     try:
     - script:
-        timeout: 180s
+        timeout: 300s
         content: |
           set -e
           echo "=== ArgoCD CRD インストール（v3.5.2）==="
-          # ArgoCD の CRD はアノテーションが256KBを超えるため --server-side が必須
           curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
             | yq 'select(.kind == "CustomResourceDefinition")' \
             | kubectl apply --server-side --force-conflicts -f -
 
           echo "=== External Secrets Operator CRD インストール（v0.18.2）==="
           helm repo add external-secrets https://charts.external-secrets.io --force-update
-          # helm show crds は templates/crds/ を対象外のため helm template で抽出
           helm template external-secrets external-secrets/external-secrets --version 0.18.2 \
             | yq 'select(.kind == "CustomResourceDefinition")' \
             | kubectl apply --server-side --force-conflicts -f -
 
           echo "=== CRD 登録待機 ==="
-          kubectl wait --for=condition=established --timeout=60s crd --all
+          kubectl wait --for=condition=established --timeout=120s crd --all
 
           echo "=== argocd Namespace 作成 ==="
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-          echo "CRD インストール完了"
+          echo "準備完了"
 
-  - name: validate-kustomize-build
+  - name: apply-manifests
     try:
     - script:
         timeout: 300s
         content: |
           set -e
           echo "=== kustomize build (argocd) ==="
-          # リモート GitHub URL 参照のため時間がかかる場合あり
           kustomize build "${REPO_ROOT}/argoproj/argocd/" > /tmp/argocd-manifest.yaml
-          echo "Build completed. Resource count: $(grep -c '^kind:' /tmp/argocd-manifest.yaml || true)"
+          echo "リソース数: $(grep -c '^kind:' /tmp/argocd-manifest.yaml || true)"
 
-          echo "=== kubectl apply --server-side --dry-run=server ==="
-          kubectl apply --server-side --dry-run=server -f /tmp/argocd-manifest.yaml
-          echo "Validation passed."
+          echo "=== ExternalSecret および cloudflared を除いてクラスターへ実際に適用 ==="
+          # ExternalSecret: kind 環境ではシークレットストア未接続のためスキップ
+          # cloudflared: tunnel-credentials secret が ExternalSecret 依存のためスキップ
+          yq 'select(.kind != "ExternalSecret" and .metadata.name != "cloudflared")' /tmp/argocd-manifest.yaml \
+            | kubectl apply --server-side --force-conflicts -f -
+          echo "適用完了"
 
-  - name: validate-application-yaml
+  - name: wait-for-ready
     try:
     - script:
-        timeout: 60s
+        timeout: 360s
         content: |
           set -e
-          echo "=== ArgoCDApplication (application.yaml) の server-side dry-run ==="
-          kubectl apply --server-side --dry-run=server \
-            -f "${REPO_ROOT}/argoproj/argocd/application.yaml"
-          echo "Validation passed."
+          echo "=== ArgoCD コア Deployment の起動待機 ==="
+          for DEPLOY in argocd-server argocd-repo-server argocd-dex-server argocd-notifications-controller argocd-applicationset-controller argocd-redis; do
+            echo "Waiting for deployment/$DEPLOY ..."
+            kubectl wait deployment/$DEPLOY \
+              -n argocd \
+              --for=condition=Available \
+              --timeout=300s
+          done
+
+          echo "=== ArgoCD ApplicationController (StatefulSet) の起動待機 ==="
+          kubectl rollout status statefulset/argocd-application-controller -n argocd --timeout=300s
+
+          echo "=== 実行中の Pod 確認 ==="
+          kubectl get pods -n argocd
+          echo "ArgoCD 動的検証: 全コアコンポーネント Available"

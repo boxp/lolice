@@ -1,62 +1,83 @@
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
-  name: external-secrets-operator-schema-validation
+  name: external-secrets-operator-dynamic-validation
 spec:
   description: |
-    External Secrets Operator の kustomize overlay（manifests/）を
-    サーバーサイド dry-run で検証する。
-    ClusterSecretStore CRD を事前インストールしてから dry-run を実行。
+    External Secrets Operator を kind クラスターに Helm でインストールし、
+    オペレーターが正常に起動することを動的に検証する。
+    また ClusterSecretStore overlay を実際に適用してリソース作成を確認する。
   steps:
-  - name: install-eso-crds
+  - name: install-eso-operator
+    try:
+    - script:
+        timeout: 300s
+        content: |
+          set -e
+          echo "=== External Secrets Operator を Helm でインストール ==="
+          helm repo add external-secrets https://charts.external-secrets.io --force-update
+          kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
+
+          helm install external-secrets external-secrets/external-secrets \
+            --version 0.18.2 \
+            --namespace external-secrets \
+            --wait \
+            --timeout 180s
+          echo "ESO Helm インストール完了"
+
+  - name: wait-for-eso-ready
     try:
     - script:
         timeout: 180s
         content: |
           set -e
-          echo "=== External Secrets Operator CRD インストール（v0.18.2）==="
-          helm repo add external-secrets https://charts.external-secrets.io --force-update
-          # helm show crds は templates/crds/ を対象外のため helm template で抽出
-          helm template external-secrets external-secrets/external-secrets --version 0.18.2 \
-            | yq 'select(.kind == "CustomResourceDefinition")' \
-            | kubectl apply --server-side --force-conflicts -f -
+          echo "=== ESO Deployment の起動待機 ==="
+          kubectl wait deployment \
+            -n external-secrets \
+            --all \
+            --for=condition=Available \
+            --timeout=120s
 
-          echo "=== ArgoCD CRD インストール（application.yaml 検証用）==="
-          # ArgoCD の CRD はアノテーションが256KBを超えるため --server-side が必須
+          echo "=== 実行中の Pod 確認 ==="
+          kubectl get pods -n external-secrets
+          echo "ESO 動的検証: オペレーター Available"
+
+  - name: apply-cluster-secret-store
+    try:
+    - script:
+        timeout: 180s
+        content: |
+          set -e
+          echo "=== ArgoCD CRD インストール（application.yaml 用）==="
           curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
             | yq 'select(.kind == "CustomResourceDefinition")' \
             | kubectl apply --server-side --force-conflicts -f -
 
-          echo "=== argocd Namespace 作成（Application リソース用）==="
+          echo "=== argocd Namespace 作成 ==="
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 
           echo "=== CRD 登録待機 ==="
           kubectl wait --for=condition=established --timeout=60s crd --all
-          echo "CRD インストール完了"
 
-  - name: validate-kustomize-build
-    try:
-    - script:
-        timeout: 120s
-        content: |
-          set -e
-          echo "=== kustomize build (external-secrets-operator/manifests) ==="
+          echo "=== ClusterSecretStore overlay を実際に適用 ==="
           kustomize build "${REPO_ROOT}/argoproj/external-secrets-operator/manifests/" \
-            > /tmp/eso-manifest.yaml
-          echo "Built manifest:"
-          cat /tmp/eso-manifest.yaml
+            > /tmp/eso-overlay-manifest.yaml
+          cat /tmp/eso-overlay-manifest.yaml
 
-          echo "=== kubectl apply --server-side --dry-run=server ==="
-          kubectl apply --server-side --dry-run=server -f /tmp/eso-manifest.yaml
-          echo "Validation passed."
+          kubectl apply --server-side --force-conflicts -f /tmp/eso-overlay-manifest.yaml
+          echo "ClusterSecretStore 適用完了"
 
-  - name: validate-application-yaml
+  - name: verify-cluster-secret-store
     try:
     - script:
         timeout: 60s
         content: |
           set -e
-          echo "=== ArgoCDApplication (application.yaml) の server-side dry-run ==="
-          kubectl apply --server-side --dry-run=server \
+          echo "=== ClusterSecretStore の存在確認 ==="
+          kubectl get clustersecretstore parameterstore -o yaml
+          echo "ClusterSecretStore 動的検証: リソース作成確認"
+
+          echo "=== ESO Application yaml の実適用 ==="
+          kubectl apply --server-side --force-conflicts \
             -f "${REPO_ROOT}/argoproj/external-secrets-operator/application.yaml"
-          echo "Validation passed."
+          echo "ArgoCD Application リソース作成完了"

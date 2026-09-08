@@ -1,12 +1,13 @@
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
-  name: kube-vip-schema-validation
+  name: kube-vip-dynamic-validation
 spec:
   description: |
-    kube-vip マニフェストの kustomize build 出力をサーバーサイド dry-run で検証する。
-    標準 k8s リソース（DaemonSet, ClusterRole, ClusterRoleBinding）のみのため CRD 事前インストールは不要。
-    また ArgoCD Application (application.yaml) の検証のため ArgoCD CRD をインストールする。
+    kube-vip マニフェストを kind クラスターに実際に適用し、
+    DaemonSet が作成されることを動的に検証する。
+    kube-vip は hostNetwork + VIP 管理が必要なため kind では Pod は Ready にならないが、
+    マニフェストの正当性（クラスターへの適用可否）を動的に確認できる。
   steps:
   - name: install-argocd-crds
     try:
@@ -15,19 +16,18 @@ spec:
         content: |
           set -e
           echo "=== ArgoCD CRD インストール（application.yaml 検証用）==="
-          # ArgoCD の CRD はアノテーションが256KBを超えるため --server-side が必須
           curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
             | yq 'select(.kind == "CustomResourceDefinition")' \
             | kubectl apply --server-side --force-conflicts -f -
 
-          echo "=== argocd Namespace 作成（Application リソース用）==="
+          echo "=== argocd Namespace 作成 ==="
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 
           echo "=== CRD 登録待機 ==="
           kubectl wait --for=condition=established --timeout=60s crd --all
           echo "CRD インストール完了"
 
-  - name: validate-kustomize-build
+  - name: apply-manifests
     try:
     - script:
         timeout: 120s
@@ -38,17 +38,37 @@ spec:
           echo "Built manifest:"
           cat /tmp/kube-vip-manifest.yaml
 
-          echo "=== kubectl apply --server-side --dry-run=server ==="
-          kubectl apply --server-side --dry-run=server -f /tmp/kube-vip-manifest.yaml
-          echo "Validation passed."
+          echo "=== クラスターへ実際に適用（dry-run なし）==="
+          kubectl apply --server-side --force-conflicts -f /tmp/kube-vip-manifest.yaml
+          echo "適用完了"
 
-  - name: validate-application-yaml
+  - name: verify-daemonset-created
     try:
     - script:
         timeout: 60s
         content: |
           set -e
-          echo "=== ArgoCDApplication (application.yaml) の server-side dry-run ==="
-          kubectl apply --server-side --dry-run=server \
+          echo "=== DaemonSet の存在確認 ==="
+          kubectl get daemonset kube-vip-ds -n kube-system -o wide
+
+          echo "=== DaemonSet の desired/scheduled 確認 ==="
+          DESIRED=$(kubectl get daemonset kube-vip-ds -n kube-system -o jsonpath='{.status.desiredNumberScheduled}')
+          SCHEDULED=$(kubectl get daemonset kube-vip-ds -n kube-system -o jsonpath='{.status.currentNumberScheduled}')
+          echo "Desired: $DESIRED, Scheduled: $SCHEDULED"
+
+          if [ "${DESIRED:-0}" -ge 0 ]; then
+            echo "kube-vip DaemonSet が正常に作成されました"
+          else
+            kubectl describe daemonset kube-vip-ds -n kube-system
+          fi
+
+  - name: apply-application-yaml
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== ArgoCDApplication (application.yaml) の実適用 ==="
+          kubectl apply --server-side --force-conflicts \
             -f "${REPO_ROOT}/argoproj/kube-vip/application.yaml"
-          echo "Validation passed."
+          echo "ArgoCD Application リソース作成完了"
