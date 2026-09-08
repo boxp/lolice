@@ -24,7 +24,9 @@ spec:
 
           echo "=== External Secrets Operator CRD インストール（v0.18.2）==="
           helm repo add external-secrets https://charts.external-secrets.io --force-update
-          helm show crds external-secrets/external-secrets --version 0.18.2 \
+          # helm show crds は templates/crds/ を対象外のため helm template で抽出
+          helm template external-secrets external-secrets/external-secrets --version 0.18.2 \
+            | yq 'select(.kind == "CustomResourceDefinition")' \
             | kubectl apply -f -
 
           echo "=== CRD 登録待機 ==="
@@ -47,4 +49,15 @@ spec:
 
           echo "=== kubectl apply --server-side --dry-run=server ==="
           kubectl apply --server-side --dry-run=server -f /tmp/argocd-manifest.yaml
+          echo "Validation passed."
+
+  - name: validate-application-yaml
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== ArgoCDApplication (application.yaml) の server-side dry-run ==="
+          kubectl apply --server-side --dry-run=server \
+            -f "${REPO_ROOT}/argoproj/argocd/application.yaml"
           echo "Validation passed."

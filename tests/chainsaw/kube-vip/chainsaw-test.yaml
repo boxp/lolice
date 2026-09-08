@@ -6,7 +6,26 @@ spec:
   description: |
     kube-vip マニフェストの kustomize build 出力をサーバーサイド dry-run で検証する。
     標準 k8s リソース（DaemonSet, ClusterRole, ClusterRoleBinding）のみのため CRD 事前インストールは不要。
+    また ArgoCD Application (application.yaml) の検証のため ArgoCD CRD をインストールする。
   steps:
+  - name: install-argocd-crds
+    try:
+    - script:
+        timeout: 120s
+        content: |
+          set -e
+          echo "=== ArgoCD CRD インストール（application.yaml 検証用）==="
+          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
+            | yq 'select(.kind == "CustomResourceDefinition")' \
+            | kubectl apply -f -
+
+          echo "=== argocd Namespace 作成（Application リソース用）==="
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "=== CRD 登録待機 ==="
+          kubectl wait --for=condition=established --timeout=60s crd --all
+          echo "CRD インストール完了"
+
   - name: validate-kustomize-build
     try:
     - script:
@@ -20,4 +39,15 @@ spec:
 
           echo "=== kubectl apply --server-side --dry-run=server ==="
           kubectl apply --server-side --dry-run=server -f /tmp/kube-vip-manifest.yaml
+          echo "Validation passed."
+
+  - name: validate-application-yaml
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== ArgoCDApplication (application.yaml) の server-side dry-run ==="
+          kubectl apply --server-side --dry-run=server \
+            -f "${REPO_ROOT}/argoproj/kube-vip/application.yaml"
           echo "Validation passed."

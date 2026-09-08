@@ -11,13 +11,23 @@ spec:
   - name: install-eso-crds
     try:
     - script:
-        timeout: 120s
+        timeout: 180s
         content: |
           set -e
           echo "=== External Secrets Operator CRD インストール（v0.18.2）==="
           helm repo add external-secrets https://charts.external-secrets.io --force-update
-          helm show crds external-secrets/external-secrets --version 0.18.2 \
+          # helm show crds は templates/crds/ を対象外のため helm template で抽出
+          helm template external-secrets external-secrets/external-secrets --version 0.18.2 \
+            | yq 'select(.kind == "CustomResourceDefinition")' \
             | kubectl apply -f -
+
+          echo "=== ArgoCD CRD インストール（application.yaml 検証用）==="
+          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
+            | yq 'select(.kind == "CustomResourceDefinition")' \
+            | kubectl apply -f -
+
+          echo "=== argocd Namespace 作成（Application リソース用）==="
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
 
           echo "=== CRD 登録待機 ==="
           kubectl wait --for=condition=established --timeout=60s crd --all
@@ -37,4 +47,15 @@ spec:
 
           echo "=== kubectl apply --server-side --dry-run=server ==="
           kubectl apply --server-side --dry-run=server -f /tmp/eso-manifest.yaml
+          echo "Validation passed."
+
+  - name: validate-application-yaml
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== ArgoCDApplication (application.yaml) の server-side dry-run ==="
+          kubectl apply --server-side --dry-run=server \
+            -f "${REPO_ROOT}/argoproj/external-secrets-operator/application.yaml"
           echo "Validation passed."
