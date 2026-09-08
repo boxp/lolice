@@ -29,6 +29,9 @@ spec:
 
           echo "=== CRD 登録待機 ==="
           kubectl wait --for=condition=established --timeout=60s crd --all
+
+          echo "=== argocd Namespace 作成 ==="
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
           echo "CRD インストール完了"
 
   - name: validate-kustomize-build
