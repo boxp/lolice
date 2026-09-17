@@ -1,0 +1,40 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: external-secrets-operator-dynamic-validation
+spec:
+  description: |
+    External Secrets Operator の起動と ClusterSecretStore 作成を動的に検証する。
+    ESO Helm インストールと ClusterSecretStore overlay の適用は GHA ワークフロー側で実施済み。
+  steps:
+  - name: wait-for-eso-ready
+    try:
+    - script:
+        timeout: 180s
+        content: |
+          set -e
+          echo "=== ESO Deployment の起動待機 ==="
+          kubectl wait deployment \
+            -n external-secrets \
+            --all \
+            --for=condition=Available \
+            --timeout=120s
+
+          echo "=== 実行中の Pod 確認 ==="
+          kubectl get pods -n external-secrets
+          echo "ESO 動的検証: オペレーター Available"
+
+  - name: verify-cluster-secret-store
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== ClusterSecretStore の存在確認 ==="
+          kubectl get clustersecretstore parameterstore -o yaml
+          echo "ClusterSecretStore 動的検証: リソース作成確認"
+
+          echo "=== ESO Application yaml の実適用 ==="
+          kubectl apply --server-side --force-conflicts \
+            -f "${REPO_ROOT}/argoproj/external-secrets-operator/application.yaml"
+          echo "ArgoCD Application リソース作成完了"

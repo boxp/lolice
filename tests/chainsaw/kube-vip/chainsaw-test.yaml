@@ -1,0 +1,39 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: kube-vip-dynamic-validation
+spec:
+  description: |
+    kube-vip DaemonSet が kind クラスターに作成されることを動的に検証する。
+    マニフェストの適用は GHA ワークフロー側で実施済み。
+    kube-vip は hostNetwork + VIP 管理が必要なため kind では Pod は Ready にならないが、
+    DaemonSet が作成されることでマニフェストの正当性を動的に確認できる。
+  steps:
+  - name: verify-daemonset-created
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== DaemonSet の存在確認 ==="
+          kubectl get daemonset kube-vip-ds -n kube-system -o wide
+
+          echo "=== DaemonSet の desired/scheduled 確認 ==="
+          DESIRED=$(kubectl get daemonset kube-vip-ds -n kube-system -o jsonpath='{.status.desiredNumberScheduled}')
+          echo "Desired: $DESIRED"
+          if [ -z "$DESIRED" ] || [ "$DESIRED" -le 0 ]; then
+            echo "ERROR: desiredNumberScheduled が 0 または未設定です。DaemonSet がスケジュール可能ではありません。"
+            exit 1
+          fi
+          echo "kube-vip DaemonSet が正常に作成されました（desiredNumberScheduled=$DESIRED）"
+
+  - name: apply-application-yaml
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== ArgoCDApplication (application.yaml) の実適用 ==="
+          kubectl apply --server-side --force-conflicts \
+            -f "${REPO_ROOT}/argoproj/kube-vip/application.yaml"
+          echo "ArgoCD Application リソース作成完了"

@@ -1,0 +1,42 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: argocd-dynamic-validation
+spec:
+  description: |
+    ArgoCD コア Deployment が Available になることを動的に検証する。
+    マニフェストの適用は GHA ワークフロー側で実施済み。
+    ExternalSecret・cloudflared は外部シークレット依存のため適用対象外。
+  steps:
+  - name: wait-for-argocd-ready
+    try:
+    - script:
+        timeout: 360s
+        content: |
+          set -e
+          echo "=== ArgoCD コア Deployment の起動待機 ==="
+          for DEPLOY in argocd-server argocd-repo-server argocd-dex-server argocd-notifications-controller argocd-applicationset-controller argocd-redis; do
+            echo "Waiting for deployment/$DEPLOY ..."
+            kubectl wait deployment/$DEPLOY \
+              -n argocd \
+              --for=condition=Available \
+              --timeout=300s
+          done
+
+          echo "=== ArgoCD ApplicationController (StatefulSet) の起動待機 ==="
+          kubectl rollout status statefulset/argocd-application-controller -n argocd --timeout=300s
+
+          echo "=== 実行中の Pod 確認 ==="
+          kubectl get pods -n argocd
+          echo "ArgoCD 動的検証: 全コアコンポーネント Available"
+
+  - name: apply-argocd-application-cr
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== ArgoCD Application CR (application.yaml) の実適用 ==="
+          kubectl apply --server-side --force-conflicts \
+            -f "${REPO_ROOT}/argoproj/argocd/application.yaml"
+          echo "ArgoCD Application CR 作成完了"
