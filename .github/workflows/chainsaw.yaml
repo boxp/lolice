@@ -91,7 +91,7 @@ jobs:
           kustomize version
 
       - name: Install kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@v5
 
       - name: Install Helm (for CRD extraction)
         uses: azure/setup-helm@v4
