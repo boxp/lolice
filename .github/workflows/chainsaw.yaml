@@ -72,7 +72,7 @@ jobs:
       - name: Create kind cluster
         uses: helm/kind-action@v1
         with:
-          node_image: kindest/node:v1.32.0
+          node_image: kindest/node:v1.37.0
           cluster_name: chainsaw-test
 
       - name: Install chainsaw
