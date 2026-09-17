@@ -94,7 +94,7 @@ jobs:
         uses: azure/setup-kubectl@v4
 
       - name: Install Helm (for CRD extraction)
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: latest
 
