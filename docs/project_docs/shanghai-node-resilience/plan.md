@@ -27,6 +27,19 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 (journald の書き込みが2分遅延 → `systemd-journald.service: Watchdog timeout (limit 3min)!`
 → CRI-O `DeadlineExceeded` → ログが途切れて凍結)。
 
+**2026-08-19 追記 (INC-5)**: `shanghai-3` (192.168.10.104) が約 9 時間ハングし、物理再起動で復旧（SD カード交換不要）。根本原因は確定不能。施策 A・B・D3（メトリクスURL設定部分）は boxp/arch PR #11944 (2026-08-05 マージ) で設定済みで、2026-08-17 CI apply でノードにも適用済みとされていた。ただし watchdog 設定にもかかわらず 9 時間の無応答が続いた点は未解明だった。
+
+**2026-08-25 追記 (実効性確認)**:
+全 3 control-plane で設定を確認した結果、**B は未動作と判明**した。**A の実効状態は未確認**。
+
+- **A (watchdog)**: `/etc/systemd/system.conf` 本体の `RuntimeWatchdogSec` はコメントアウト状態（`#RuntimeWatchdogSec=off`）だが、systemd は drop-in ディレクトリ (`/etc/systemd/system.conf.d/*.conf`) の設定を優先するため、これだけでは未動作と断定できない。`systemctl show --property=RuntimeWatchdogUSec` および drop-in ファイルの確認が未実施のため、実効状態は**未確認**とする。なお kubelet の `WatchdogUSec` は kubelet 自身の設定であり systemd PID 1 の hardware watchdog 状態とは無関係。INC-5 での 9 時間無応答への寄与は断定できない。
+- **B (journal 永続化)**: `journald.conf` の `Storage=volatile` が全ノードで有効なまま。`/var/log/journal/` ディレクトリは存在するが、`Storage=volatile` 優先で RAM にしか書かれない。ハードリブート時のログ全消失は防げていない。
+- **D3 (etcd metrics)**: ポート 2381 は実際に応答確認済み。アクセス制御は BOXP-177 で追跡中。
+
+2026-08-25 時点の etcd WAL fsync p99: shanghai-1 **84.5 ms**（⚠️）、shanghai-2 10.8 ms、shanghai-3 13.0 ms。
+mmcblk0 平均書き込みレイテンシ: shanghai-1 **8.42 ms**（他の約 3 倍）、shanghai-2/3 は ~2.7 ms。
+shanghai-1 の I/O 劣化が継続しており、INC-2 (2026-08-01) 時と同様のパターン。
+
 ## 本リポジトリでの対応 (D1 / D2)
 
 ### D1. etcd defrag の定期自動化 — `argoproj/etcd-defrag/`
@@ -72,14 +85,20 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 
 ## 対で入る変更 (boxp/arch 側)
 
-- **A.** systemd hardware watchdog (`RuntimeWatchdogSec=30`) + `kernel.hung_task_panic=1`
-  (`hung_task_timeout_secs=300`)。3日間の無応答を数分に縮める
-- **B.** `armbian-ramlog` の無効化。`/var/log` が zram (RAM) 上にあったため、
-  導入済みの `journald_persistent_storage` が実際には永続化されておらず、
-  ハング時のログが毎回全消失していた
-- **D3.** 稼働中の `/etc/kubernetes/manifests/etcd.yaml` へ `--listen-metrics-urls` を追加。
-  PR #319 の `monitoring/etcd` ServiceMonitor は 3 ノードとも
-  `2381: connection refused` で **scrape に失敗し続けていた**
+- **A.** systemd hardware watchdog (`RuntimeWatchdogSec=15`) + `kernel.hung_task_panic=1`
+  (`hung_task_timeout_secs=300`)。3日間の無応答を数分に縮める。
+  **⚠️ 2026-08-25 確認: `system.conf` 本体はコメントアウト状態。drop-in (`system.conf.d/*.conf`) および `systemctl show --property=RuntimeWatchdogUSec` は未確認のため、実効状態は不明。要確認。**
+- **B.** `armbian-ramlog` の無効化 + `Storage=persistent` 設定でジャーナル永続化。
+  **⚠️ 2026-08-25 実測確認: 全ノードで `Storage=volatile` のまま未修正。ハングログが消失し続けている。要修正。**
+- **D3.** etcd `--listen-metrics-urls=http://0.0.0.0:2381` 追加 (メトリクスURL: 実装済み / **アクセス制御: 未実施**)  
+  boxp/arch PR #11944 でメトリクス URL を追加し、2026-08-17 全ノードに適用済み。  
+  **⚠️ 残作業 (BOXP-177)**: 現在 2381/TCP は認証なしで全クライアントからアクセス可能。
+  etcd が `hostNetwork: true` のため標準 NetworkPolicy 非適用。
+  Prometheus からの scrape を実測確認後、ホスト側 iptables/nftables または Calico GlobalNetworkPolicy で
+  Prometheus のみに制限する必要がある。
+  実測手順: etcd ノード上で `tcpdump -i any -n port 2381` を実行して Prometheus の実際の送信元 IP を確認してからルールを設定すること。
+  なお etcd metrics は WAL fsync latency・backend commit latency を公開し、
+  `mmcblk0` の write await は `node_exporter` が担当する別レイヤーの指標である。
 
 ## 検証項目
 
@@ -91,7 +110,11 @@ fsync と SD の消去ブロック粒度でブロック層 64 GiB/日 に増幅�
 
 ## 残課題
 
-- **C. etcd を microSD から外す (USB SSD)** — 本命の恒久対策。別途
-- 2026-07-25 19:00 UTC に書き込みが 27 → 64 GiB/日 へ倍増した原因。
-  3ノード同時・同幅だったため etcd 起因なのは確実だが、
-  etcd メトリクスが未収集で犯人を特定できていない。D3 適用後に再調査する
+- **⚠️ A の実効性確認（要対応）**: `systemctl show --property=RuntimeWatchdogUSec` および `/etc/systemd/system.conf.d/` drop-in の確認が未実施。CI apply は成功しているが実際の有効値を直接確認する必要がある。
+- **⚠️ B の実効性修正（最優先）**: 全ノードで `Storage=volatile` のまま。boxp/arch 側の Ansible playbook で `Storage=persistent` が正しく適用されるよう修正が必要。
+- **C. etcd を microSD から外す (USB SSD)** — 本命の恒久対策。別途チケット化。
+- **D3 アクセス制御 (BOXP-177)**: `--listen-metrics-urls=http://0.0.0.0:2381` は現在認証なし・アクセス制御なしで公開中。
+  etcd が `hostNetwork: true` のため標準 NetworkPolicy は適用不可。
+  ホスト側iptables/nftablesまたはCalico GlobalNetworkPolicyで制御する必要がある（BOXP-177で追跡中）。
+- **etcd/mmcblk0 アラートルール**: 2026-08-25 に WAL fsync p99 や mmcblk0 write latency の実測値を取得。これらを閾値とした PrometheusRule の実装が必要（未実装）。
+- **2026-07-25 書き込み倍増の原因**: 27 → 64 GiB/日 へ倍増した原因。D3 で etcd WAL fsync latency が収集できるようになったため、再調査可能。
