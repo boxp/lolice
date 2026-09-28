@@ -61,3 +61,12 @@ pass/failure/error/skipを計算し、missing/malformed/zero、CLIまたはロ�
 最終workflow検証: Preflightはactionlint 1.7.7（ShellCheck込み）成功。
 通常workflowは既存のShellCheck警告が残り、ShellCheckを除く構文検証は成功。
 報告gateの単体テストを通常CIにも追加した。既存警告を候補試験の合格に読み替えない。
+
+## 初回CIと診断追補
+
+[初回通常CI](https://github.com/boxp/lolice/actions/runs/36394439909)は全3件実行し、
+ESO/kube-vip成功、Argo CD RedisのAvailable timeoutで1件失敗、skip0だった。
+原因を断定するPod/event/logがなかったため、両workflowにkind専用kubeconfig/contextを
+照合してRedis診断を保存するalways stepを追加した。Secret本体は取得せず、
+各kubectl request15秒・step2分に制限する。診断失敗で本番contextへフォールバックしない。
+テストのskip化やtimeout緩和は行わない。

@@ -224,6 +224,42 @@ jobs:
           echo "result_file=$RESULT_FILE" >> $GITHUB_OUTPUT
           exit $OVERALL_STATUS
 
+      - name: Capture isolated Redis diagnostics
+        if: always()
+        timeout-minutes: 2
+        env:
+          KIND_CLUSTER_NAME: chainsaw-test
+          DIAGNOSTICS_DIR: ${{ runner.temp }}/chainsaw-redis-diagnostics
+        run: |
+          set -uo pipefail
+          mkdir -p "$DIAGNOSTICS_DIR"
+          kind_kubeconfig="$(mktemp)"
+          trap 'rm -f "$kind_kubeconfig"' EXIT
+          if ! kind export kubeconfig --name "$KIND_CLUSTER_NAME" --kubeconfig "$kind_kubeconfig"; then
+            echo "kind kubeconfig export failed; no fallback context is permitted" > "$DIAGNOSTICS_DIR/context-error.txt"
+            exit 0
+          fi
+          context="$(kubectl --kubeconfig "$kind_kubeconfig" config current-context 2>/dev/null || true)"
+          if [ "$context" != "kind-$KIND_CLUSTER_NAME" ]; then
+            printf 'unexpected context: %s\n' "$context" > "$DIAGNOSTICS_DIR/context-error.txt"
+            exit 0
+          fi
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s cluster-info > "$DIAGNOSTICS_DIR/cluster-info.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s get deployment argocd-redis -n argocd -o yaml > "$DIAGNOSTICS_DIR/redis-deployment.yaml" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s get pods -n argocd -l app.kubernetes.io/name=argocd-redis -o wide > "$DIAGNOSTICS_DIR/redis-pods.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s describe deployment argocd-redis -n argocd > "$DIAGNOSTICS_DIR/redis-deployment.describe.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s describe pods -n argocd -l app.kubernetes.io/name=argocd-redis > "$DIAGNOSTICS_DIR/redis-pods.describe.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s get events -n argocd --sort-by=.lastTimestamp > "$DIAGNOSTICS_DIR/argocd-events.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s logs -n argocd -l app.kubernetes.io/name=argocd-redis --all-containers --prefix --tail=200 > "$DIAGNOSTICS_DIR/redis-containers.log" 2>&1 || true
+
+      - name: Upload isolated Redis diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chainsaw-redis-diagnostics
+          path: ${{ runner.temp }}/chainsaw-redis-diagnostics
+          if-no-files-found: error
+
       - name: Post PR comment
         if: always() && github.event_name == 'pull_request'
         continue-on-error: true
