@@ -49,7 +49,7 @@ jobs:
           set -euo pipefail
           sha_pattern='^[0-9a-f]{40}$'
           image_pattern='^kindest/node@sha256:[0-9a-f]{64}$'
-          version_pattern='^v1\.[0-9]+\.[0-9]+$'
+          version_pattern='^v1\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 
           [[ "$MANIFEST_SHA" =~ $sha_pattern ]] || {
             echo 'manifest_sha must be a full 40-character lowercase commit SHA.' >&2
@@ -67,8 +67,19 @@ jobs:
             echo 'current_kind_image and candidate_kind_image must differ.' >&2
             exit 1
           }
-          [[ "$CURRENT_KUBERNETES_VERSION" =~ $version_pattern && "$CANDIDATE_KUBERNETES_VERSION" =~ $version_pattern && "$CURRENT_KUBERNETES_VERSION" != "$CANDIDATE_KUBERNETES_VERSION" ]] || {
-            echo 'Expected current/candidate Kubernetes versions must be distinct v1.<minor>.<patch> values.' >&2
+          [[ "$CURRENT_KUBERNETES_VERSION" =~ $version_pattern && "$CANDIDATE_KUBERNETES_VERSION" =~ $version_pattern ]] || {
+            echo 'Expected current/candidate Kubernetes versions must be v1.<minor>.<patch> values.' >&2
+            exit 1
+          }
+          current_minor="${CURRENT_KUBERNETES_VERSION#v1.}"
+          current_minor="${current_minor%%.*}"
+          current_patch="${CURRENT_KUBERNETES_VERSION##*.}"
+          candidate_minor="${CANDIDATE_KUBERNETES_VERSION#v1.}"
+          candidate_minor="${candidate_minor%%.*}"
+          candidate_patch="${CANDIDATE_KUBERNETES_VERSION##*.}"
+          (( 10#$candidate_minor > 10#$current_minor || \
+             (10#$candidate_minor == 10#$current_minor && 10#$candidate_patch > 10#$current_patch) )) || {
+            echo 'candidate_kubernetes_version must be a later v1 minor or patch version than current_kubernetes_version.' >&2
             exit 1
           }
           echo "manifest_sha=$MANIFEST_SHA" >> "$GITHUB_OUTPUT"
@@ -174,6 +185,7 @@ jobs:
       - name: Verify Kubernetes version and record tools
         run: |
           set -euo pipefail
+          export KUBECONFIG="${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
           evidence_dir="$RUNNER_TEMP/evidence"
           chainsaw version | tee "$evidence_dir/chainsaw-version.txt"
           kind version | tee "$evidence_dir/kind-version.txt"
@@ -187,6 +199,7 @@ jobs:
         id: prepare
         run: |
           set -euo pipefail
+          export KUBECONFIG="${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
           evidence_dir="$RUNNER_TEMP/evidence"
           case "$COMPONENT" in
             argocd|external-secrets-operator)

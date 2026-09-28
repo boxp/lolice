@@ -17,10 +17,10 @@ node image に対して明示的に実行・比較する。これはマニフェ
 |`manifest_sha`|検証対象 lolice commit の 40 桁 SHA|
 |`current_kind_image`|`kindest/node@sha256:<digest>` 形式の現行 image|
 |`candidate_kind_image`|同形式の候補 image。現行 image と異なる digest|
-|`current_kubernetes_version` / `candidate_kubernetes_version`|各 image の期待 server `v1.<minor>.<patch>`。異なる値|
+|`current_kubernetes_version` / `candidate_kubernetes_version`|各 image の期待 server `v1.<minor>.<patch>`。候補は現行より新しい値|
 
 image digest は実在と platform を別途確認してから入力する。workflow は tag、短縮
-SHA、未入力、同一 image または同一の期待版を受け付けない。架空の digest をリポジトリに保存しない。
+SHA、未入力、同一 image、同一の期待版または候補へのdowngradeを受け付けない。架空の digest をリポジトリに保存しない。
 対象 SHA は checkout 後に再照合するため、branch の移動で検証対象が変わらない。
 
 workflow は 2 image × 3 component の 6 job を必ず生成する。変更ファイルから対象を
@@ -93,3 +93,13 @@ script用context名を`chainsaw`へ変更するため、専用kubeconfigをkind�
 検証したうえで、script内はそのAPI接続先と一致するか判定する。Chainsaw本体にもこの専用
 kubeconfigを環境変数で渡し、namespace作成を含めて同じ隔離clusterへ接続する。
 専用kubeconfigはartifactへ含めない。接続先不一致・空・未指定を拒否するstubテストを追加した。
+
+## 2026-09-28 再試行時の隔離・入力検証
+
+専用kubeconfigをexport/照合した後は、版確認・準備manifestのapply・Chainsaw実行の
+全段階でそのkubeconfigを明示する。runnerの既定contextには依存しない。
+現行/候補の期待版は数値で比較し、候補が現行より新しいことを要求する。
+準備コマンドの接続先と不正入力はローカルstub/入力gate試験で検証し、本番へ接続しない。
+
+再試行ローカル検証: 入力・集計・suite guard・workflow kubeconfig固定の単体10件成功。
+両workflowのactionlint構文検証成功。修正差分と計画の独立静的レビューはclean。
