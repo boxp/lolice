@@ -104,6 +104,7 @@ jobs:
             kind_image: ${{ inputs.candidate_kind_image }}
     env:
       REPO_ROOT: ${{ github.workspace }}
+      CHAINSAW_KIND_CONTEXT: kind-chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
       COMPONENT: ${{ matrix.component }}
       KIND_IMAGE: ${{ matrix.kind_image }}
       EXPECTED_KUBERNETES_VERSION: ${{ matrix.version == 'current' && inputs.current_kubernetes_version || inputs.candidate_kubernetes_version }}

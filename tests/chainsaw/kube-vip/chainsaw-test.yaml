@@ -9,6 +9,17 @@ spec:
     kube-vip は hostNetwork + VIP 管理が必要なため kind では Pod は Ready にならないが、
     DaemonSet が作成されることでマニフェストの正当性を動的に確認できる。
   steps:
+  - name: require-isolated-kind
+    try:
+    - script:
+        timeout: 15s
+        content: |
+          set -eu
+          case "${CHAINSAW_KIND_CONTEXT:-}" in
+            kind-*) ;;
+            *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
+          esac
+          test "$(kubectl config current-context)" = "$CHAINSAW_KIND_CONTEXT"
   - name: verify-daemonset-created
     try:
     - script:

@@ -80,6 +80,7 @@ jobs:
       pull-requests: write
     env:
       REPO_ROOT: ${{ github.workspace }}
+      CHAINSAW_KIND_CONTEXT: kind-chainsaw-test
     steps:
       - name: Checkout code
         uses: actions/checkout@v7

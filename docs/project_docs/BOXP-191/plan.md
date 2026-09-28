@@ -70,3 +70,19 @@ ESO/kube-vip成功、Argo CD RedisのAvailable timeoutで1件失敗、skip0だ�
 照合してRedis診断を保存するalways stepを追加した。Secret本体は取得せず、
 各kubectl request15秒・step2分に制限する。診断失敗で本番contextへフォールバックしない。
 テストのskip化やtimeout緩和は行わない。
+
+## suiteの誤用防止
+
+`--no-cluster`はscript内のkubectlを隔離しない。レビュー補助CLIがこのflagで既存kube-vip
+suiteを実行し、本番Application patchを試みた事象は既存SAのRBACでForbiddenとなり、
+書込みは成立しなかった。未実施試験や成功に読み替えず、BOXP-191台帳へ記録した。
+
+全3suiteの最初のstepで、明示された`CHAINSAW_KIND_CONTEXT`が`kind-*`であることと
+kubectl current-contextとの一致を要求する。CI以外で環境変数がない場合、内包kubectlを
+呼ぶ前に停止する。これはChainsaw自身のnamespace作成等を隔離するsandboxではないため、
+実行には常に本番資格情報を含まないkind専用kubeconfigが必要。レビュー補助CLIには
+本番kubeconfigを継承させず、suiteの実行を許可しない。
+
+`test_chainsaw_isolation.py`はkubectlをローカルstubに置き換え、全3suiteについて
+未指定/本番context指定/不一致を拒否し、一致時だけ通すことを確認する。
+全5単体テスト成功。実機への試験コマンドは実行していない。
