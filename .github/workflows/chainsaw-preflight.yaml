@@ -77,6 +77,11 @@ jobs:
           candidate_minor="${CANDIDATE_KUBERNETES_VERSION#v1.}"
           candidate_minor="${candidate_minor%%.*}"
           candidate_patch="${CANDIDATE_KUBERNETES_VERSION##*.}"
+          (( 10#$current_minor >= 36 && 10#$current_minor <= 37 && \
+             10#$candidate_minor >= 36 && 10#$candidate_minor <= 37 )) || {
+            echo 'current_kubernetes_version and candidate_kubernetes_version must be within v1.36.x through v1.37.x, supported by the fixed kubectl v1.37 client.' >&2
+            exit 1
+          }
           (( 10#$candidate_minor > 10#$current_minor || \
              (10#$candidate_minor == 10#$current_minor && 10#$candidate_patch > 10#$current_patch) )) || {
             echo 'candidate_kubernetes_version must be a later v1 minor or patch version than current_kubernetes_version.' >&2
@@ -172,13 +177,21 @@ jobs:
         run: |
           set -euo pipefail
           KUSTOMIZE_VERSION=v5.7.1
+          KUSTOMIZE_SHA256=ea375e7372f9aa029129d4b2d16c66b7750b7f1213c4f66f910d981c895818d8
+          KUSTOMIZE_TARBALL="kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
           curl --fail-with-body --location --silent --show-error -o kustomize.tar.gz \
-            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/${KUSTOMIZE_TARBALL}"
+          printf '%s  %s\n' "$KUSTOMIZE_SHA256" kustomize.tar.gz | tee "$RUNNER_TEMP/evidence/kustomize-expected.sha256" | sha256sum --check --status
+          sha256sum kustomize.tar.gz > "$RUNNER_TEMP/evidence/kustomize-actual.sha256"
           tar -xzf kustomize.tar.gz kustomize
           sudo install -m 555 kustomize /usr/local/bin/kustomize
           rm kustomize kustomize.tar.gz
+          KUBECTL_VERSION=v1.37.1
+          KUBECTL_SHA256=65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
           curl --fail-with-body --location --silent --show-error -o kubectl \
-            'https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl'
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          printf '%s  %s\n' "$KUBECTL_SHA256" kubectl | tee "$RUNNER_TEMP/evidence/kubectl-expected.sha256" | sha256sum --check --status
+          sha256sum kubectl > "$RUNNER_TEMP/evidence/kubectl-actual.sha256"
           sudo install -m 555 kubectl /usr/local/bin/kubectl
           rm kubectl
 
@@ -191,6 +204,8 @@ jobs:
           kind version | tee "$evidence_dir/kind-version.txt"
           helm version > "$evidence_dir/helm-version.txt"
           kustomize version > "$evidence_dir/kustomize-version.txt"
+          sha256sum "$(command -v chainsaw)" "$(command -v kind)" "$(command -v helm)" \
+            "$(command -v kustomize)" "$(command -v kubectl)" > "$evidence_dir/tool-sha256sums.txt"
           kubectl version -o json > "$evidence_dir/kubectl-version.json"
           actual_version="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["serverVersion"]["gitVersion"])' < "$evidence_dir/kubectl-version.json")"
           test "$actual_version" = "$EXPECTED_KUBERNETES_VERSION"
@@ -203,16 +218,30 @@ jobs:
           evidence_dir="$RUNNER_TEMP/evidence"
           case "$COMPONENT" in
             argocd|external-secrets-operator)
+              ESO_CHART_VERSION=0.18.2
+              ESO_CHART_SHA256=5d0645b815837af4ce1fd0436879e4adfe8230072103c65429c4a41d9e00f43d
+              eso_chart="$RUNNER_TEMP/external-secrets-${ESO_CHART_VERSION}.tgz"
               helm repo add external-secrets https://charts.external-secrets.io --force-update
+              helm pull external-secrets/external-secrets --version "$ESO_CHART_VERSION" --destination "$RUNNER_TEMP"
+              printf '%s  %s\n' "$ESO_CHART_SHA256" "$eso_chart" | tee "$evidence_dir/eso-chart-expected.sha256" | sha256sum --check --status
+              sha256sum "$eso_chart" > "$evidence_dir/eso-chart-actual.sha256"
               kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
-              helm install external-secrets external-secrets/external-secrets \
-                --version 0.18.2 --namespace external-secrets --wait --timeout 180s
+              helm install external-secrets "$eso_chart" --namespace external-secrets --wait --timeout 180s
               helm get manifest external-secrets -n external-secrets > "$evidence_dir/prepared-eso-helm.yaml"
               ;;
           esac
+          ARGOCD_TAG=v3.5.2
+          ARGOCD_COMMIT_SHA=e258ee23c3e52266d407572f4bcdfe7d9ed36cb5
           curl --fail-with-body --location --silent --show-error \
-            'https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml' \
-            | yq 'select(.kind == "CustomResourceDefinition")' \
+            "https://api.github.com/repos/argoproj/argo-cd/git/ref/tags/${ARGOCD_TAG}" \
+            -o "$evidence_dir/argocd-tag-ref.json"
+          actual_argocd_commit="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' < "$evidence_dir/argocd-tag-ref.json")"
+          test "$actual_argocd_commit" = "$ARGOCD_COMMIT_SHA"
+          curl --fail-with-body --location --silent --show-error \
+            "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_COMMIT_SHA}/manifests/install.yaml" \
+            -o "$evidence_dir/argocd-install.yaml"
+          sha256sum "$evidence_dir/argocd-install.yaml" > "$evidence_dir/argocd-install.sha256"
+          yq 'select(.kind == "CustomResourceDefinition")' "$evidence_dir/argocd-install.yaml" \
             | tee "$evidence_dir/prepared-argocd-crds.yaml" \
             | kubectl apply --server-side --force-conflicts -f -
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -

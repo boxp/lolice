@@ -17,7 +17,7 @@ node image に対して明示的に実行・比較する。これはマニフェ
 |`manifest_sha`|検証対象 lolice commit の 40 桁 SHA|
 |`current_kind_image`|`kindest/node@sha256:<digest>` 形式の現行 image|
 |`candidate_kind_image`|同形式の候補 image。現行 image と異なる digest|
-|`current_kubernetes_version` / `candidate_kubernetes_version`|各 image の期待 server `v1.<minor>.<patch>`。候補は現行より新しい値|
+|`current_kubernetes_version` / `candidate_kubernetes_version`|各 image の期待 server `v1.36.<patch>` または `v1.37.<patch>`。候補は現行より新しい値|
 
 image digest は実在と platform を別途確認してから入力する。workflow は tag、短縮
 SHA、未入力、同一 image、同一の期待版または候補へのdowngradeを受け付けない。架空の digest をリポジトリに保存しない。
@@ -103,3 +103,15 @@ kubeconfigを環境変数で渡し、namespace作成を含めて同じ隔離clus
 
 再試行ローカル検証: 入力・集計・suite guard・workflow kubeconfig固定の単体10件成功。
 両workflowのactionlint構文検証成功。修正差分と計画の独立静的レビューはclean。
+
+固定kubectl v1.37に合わせ、入力の現行/候補はv1.36.x〜v1.37.xに限定する。
+SHA/digest形式、同digest拒否、版上下限・昇順の実入力gateを含め、単体15件成功。
+外部準備資材はArgoCDのcommit SHA、ESO chart 0.18.2のSHA256を固定し、
+kustomize/kubectlは公式checksumと実ファイルhashの一致を確認して固定した。
+取得時もchecksum不一致で停止し、CLI binary hashと準備manifestを証跡へ保存する。
+この記録は実行資材を追跡するもので、外部registryを含む環境全体の完全再現を保証しない。
+
+pinの照合元: [Kustomize checksums](https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.7.1/checksums.txt)、
+[kubectl checksum](https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl.sha256)、
+[ESO chart index](https://charts.external-secrets.io/index.yaml)、
+[ArgoCD tag ref](https://api.github.com/repos/argoproj/argo-cd/git/ref/tags/v3.5.2)。
