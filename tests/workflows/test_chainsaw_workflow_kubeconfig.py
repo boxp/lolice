@@ -1,5 +1,9 @@
 """Keep workflow preparation pinned to the exported isolated kind kubeconfig."""
 from pathlib import Path
+import os
+import subprocess
+import tempfile
+import textwrap
 import unittest
 
 
@@ -26,6 +30,24 @@ class WorkflowKubeconfigTest(unittest.TestCase):
         self.assertIn(KUBECONFIG_EXPORT, script)
         self.assertLess(script.index(KUBECONFIG_EXPORT), script.index('helm repo add'))
         self.assertLess(script.index(KUBECONFIG_EXPORT), script.index('kubectl create namespace'))
+
+    def test_preflight_rejects_wrong_download_before_install(self):
+        step = step_script('chainsaw-preflight.yaml', 'Install kustomize and kubectl')
+        script = textwrap.dedent(step.split('        run: |\n', 1)[1])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'evidence').mkdir()
+            curl = root / 'curl'
+            curl.write_text('#!/bin/sh\nprintf invalid-download > kustomize.tar.gz\n')
+            curl.chmod(0o755)
+            sudo = root / 'sudo'
+            sudo.write_text('#!/bin/sh\ntouch "$RUNNER_TEMP/install-attempted"\n')
+            sudo.chmod(0o755)
+            env = dict(os.environ, PATH=str(root) + ':' + os.environ['PATH'], RUNNER_TEMP=directory)
+            result = subprocess.run(['bash', '-c', script], cwd=root, env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse((root / 'install-attempted').exists())
+            self.assertTrue((root / 'evidence/kustomize-expected.sha256').exists())
 
 
 if __name__ == '__main__':
