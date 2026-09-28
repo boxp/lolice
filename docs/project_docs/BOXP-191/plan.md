@@ -78,7 +78,7 @@ suiteを実行し、本番Application patchを試みた事象は既存SAのRBAC�
 書込みは成立しなかった。未実施試験や成功に読み替えず、BOXP-191台帳へ記録した。
 
 全3suiteの最初のstepで、明示された`CHAINSAW_KIND_CONTEXT`が`kind-*`であることと
-kubectl current-contextとの一致を要求する。CI以外で環境変数がない場合、内包kubectlを
+kindからexportした専用kubeconfigのcontextとの一致、およびscript実効kubeconfigのAPI接続先との一致を要求する。CI以外で環境変数がない場合、内包kubectlを
 呼ぶ前に停止する。これはChainsaw自身のnamespace作成等を隔離するsandboxではないため、
 実行には常に本番資格情報を含まないkind専用kubeconfigが必要。レビュー補助CLIには
 本番kubeconfigを継承させず、suiteの実行を許可しない。
@@ -86,3 +86,10 @@ kubectl current-contextとの一致を要求する。CI以外で環境変数が�
 `test_chainsaw_isolation.py`はkubectlをローカルstubに置き換え、全3suiteについて
 未指定/本番context指定/不一致を拒否し、一致時だけ通すことを確認する。
 全5単体テスト成功。実機への試験コマンドは実行していない。
+
+context名だけを比較した9b2a8bfのCIは全3件をguardで拒否した。
+Chainsaw0.2.15の[rest.Config保存実装](https://github.com/kyverno/chainsaw/blob/v0.2.15/pkg/utils/rest/config.go)は
+script用context名を`chainsaw`へ変更するため、専用kubeconfigをkindからexportしてcontextを
+検証したうえで、script内はそのAPI接続先と一致するか判定する。Chainsaw本体にもこの専用
+kubeconfigを環境変数で渡し、namespace作成を含めて同じ隔離clusterへ接続する。
+専用kubeconfigはartifactへ含めない。接続先不一致・空・未指定を拒否するstubテストを追加した。

@@ -18,7 +18,13 @@ spec:
             kind-*) ;;
             *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
           esac
-          test "$(kubectl config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
+          test -r "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          actual_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          test -n "$expected_server"
+          test "$actual_server" = "$expected_server"
   - name: wait-for-argocd-ready
     try:
     - script:

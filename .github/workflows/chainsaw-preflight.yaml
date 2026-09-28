@@ -139,6 +139,14 @@ jobs:
           node_image: ${{ matrix.kind_image }}
           cluster_name: chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
 
+      - name: Export and verify isolated kubeconfig
+        run: |
+          set -euo pipefail
+          CHAINSAW_KIND_KUBECONFIG="$RUNNER_TEMP/chainsaw-kind-kubeconfig"
+          kind export kubeconfig --name "${CHAINSAW_KIND_CONTEXT#kind-}" --kubeconfig "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          echo "CHAINSAW_KIND_KUBECONFIG=$CHAINSAW_KIND_KUBECONFIG" >> "$GITHUB_ENV"
+
       - name: Install Chainsaw
         uses: kyverno/action-install-chainsaw@v0.2.15
         with:
@@ -213,7 +221,7 @@ jobs:
           # or report must not be reinterpreted as a passing empty selection.
           test -f "tests/chainsaw/$COMPONENT/chainsaw-test.yaml"
           set +e
-          chainsaw test --test-dir "./tests/chainsaw/$COMPONENT" \
+          KUBECONFIG="$CHAINSAW_KIND_KUBECONFIG" chainsaw test --test-dir "./tests/chainsaw/$COMPONENT" \
             --report-format JUNIT-TEST --report-path "$evidence_dir" --report-name chainsaw-report.xml \
             2>&1 | tee "$evidence_dir/chainsaw-output.txt"
           pipeline_status=("${PIPESTATUS[@]}")

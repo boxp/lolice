@@ -98,6 +98,14 @@ jobs:
           node_image: kindest/node:v1.37.0
           cluster_name: chainsaw-test
 
+      - name: Export and verify isolated kubeconfig
+        run: |
+          set -euo pipefail
+          CHAINSAW_KIND_KUBECONFIG="$RUNNER_TEMP/chainsaw-kind-kubeconfig"
+          kind export kubeconfig --name "${CHAINSAW_KIND_CONTEXT#kind-}" --kubeconfig "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          echo "CHAINSAW_KIND_KUBECONFIG=$CHAINSAW_KIND_KUBECONFIG" >> "$GITHUB_ENV"
+
       - name: Install chainsaw
         uses: kyverno/action-install-chainsaw@v0.2.15
         with:
@@ -193,7 +201,7 @@ jobs:
             echo "" >> "$RESULT_FILE"
 
             set +e +o pipefail
-            chainsaw test \
+            KUBECONFIG="$CHAINSAW_KIND_KUBECONFIG" chainsaw test \
               --test-dir "./tests/chainsaw/$COMPONENT" \
               2>&1 | tee /tmp/chainsaw-output.txt
             COMPONENT_STATUS=${PIPESTATUS[0]}
