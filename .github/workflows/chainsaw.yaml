@@ -6,7 +6,9 @@ on:
     paths:
       - 'argoproj/**'
       - 'tests/chainsaw/**'
+      - 'tests/workflows/**'
       - '.github/workflows/chainsaw.yaml'
+      - '.github/workflows/chainsaw-preflight.yaml'
 
 jobs:
   detect:
@@ -34,14 +36,27 @@ jobs:
           with open('/tmp/changed_files.txt') as f:
               changed = [l.strip() for l in f if l.strip()]
 
+          required_components = {
+              'argocd',
+              'external-secrets-operator',
+              'kube-vip',
+          }
           components = set()
           for filepath in changed:
-              parts = filepath.split('/')
-              if len(parts) >= 2:
-                  if parts[0] == 'argoproj' and os.path.isdir(f'tests/chainsaw/{parts[1]}'):
-                      components.add(parts[1])
-                  elif len(parts) >= 3 and parts[0] == 'tests' and parts[1] == 'chainsaw':
-                      components.add(parts[2])
+            parts = filepath.split('/')
+            if len(parts) >= 2:
+              if parts[0] == 'argoproj' and os.path.isdir(f'tests/chainsaw/{parts[1]}'):
+                  components.add(parts[1])
+              elif len(parts) >= 3 and parts[0] == 'tests' and parts[1] == 'chainsaw':
+                  components.add(parts[2])
+              elif filepath.startswith('tests/workflows/') or filepath in {
+                  '.github/workflows/chainsaw.yaml',
+                  '.github/workflows/chainsaw-preflight.yaml',
+              }:
+                  # A workflow edit can change every component's execution
+                  # semantics.  It therefore runs the full normal-CI set;
+                  # this is separate from the immutable-image preflight.
+                  components.update(required_components)
           print(json.dumps(sorted(components)))
           PYEOF
           )
@@ -69,9 +84,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      - name: Test preflight report gate
+        run: python3 -B -m unittest discover -s tests/workflows -v
+
       - name: Create kind cluster
         uses: helm/kind-action@v1
         with:
+          # v0.33.0 writes kubeadm v1beta4 for Kubernetes >= 1.36.
+          # v0.31.0 used v1beta3, removed by Kubernetes 1.37.
+          version: v0.33.0
+          kubectl_version: v1.37.0
           node_image: kindest/node:v1.37.0
           cluster_name: chainsaw-test
 
