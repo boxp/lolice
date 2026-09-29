@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: cloudflared
-          image: docker.io/cloudflare/cloudflared:2026.9.1
+          image: docker.io/cloudflare/cloudflared:2026.9.3
           imagePullPolicy: IfNotPresent
           args:
             - tunnel
