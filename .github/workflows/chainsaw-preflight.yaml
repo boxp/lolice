@@ -1,0 +1,345 @@
+name: Chainsaw Kubernetes Upgrade Preflight
+
+# This workflow is deliberately manual.  It is an isolated kind validation for
+# the Kubernetes upgrade gate and must never be used as evidence of a
+# production-cluster upgrade.
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_sha:
+        description: '40-character immutable lolice commit SHA to test'
+        required: true
+        type: string
+      current_kind_image:
+        description: 'Current kindest/node image pinned as kindest/node@sha256:<digest>'
+        required: true
+        type: string
+      candidate_kind_image:
+        description: 'Candidate kindest/node image pinned as kindest/node@sha256:<digest>'
+        required: true
+        type: string
+      current_kubernetes_version:
+        description: 'Expected Kubernetes server version for current image, e.g. v1.36.1'
+        required: true
+        type: string
+      candidate_kubernetes_version:
+        description: 'Expected Kubernetes server version for candidate image, e.g. v1.37.1'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    name: Validate immutable inputs
+    runs-on: ubuntu-latest
+    outputs:
+      manifest_sha: ${{ steps.validate.outputs.manifest_sha }}
+    steps:
+      - name: Validate SHA and image digests
+        id: validate
+        env:
+          MANIFEST_SHA: ${{ inputs.manifest_sha }}
+          CURRENT_KIND_IMAGE: ${{ inputs.current_kind_image }}
+          CANDIDATE_KIND_IMAGE: ${{ inputs.candidate_kind_image }}
+          CURRENT_KUBERNETES_VERSION: ${{ inputs.current_kubernetes_version }}
+          CANDIDATE_KUBERNETES_VERSION: ${{ inputs.candidate_kubernetes_version }}
+        run: |
+          set -euo pipefail
+          sha_pattern='^[0-9a-f]{40}$'
+          image_pattern='^kindest/node@sha256:[0-9a-f]{64}$'
+          version_pattern='^v1\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+
+          [[ "$MANIFEST_SHA" =~ $sha_pattern ]] || {
+            echo 'manifest_sha must be a full 40-character lowercase commit SHA.' >&2
+            exit 1
+          }
+          [[ "$CURRENT_KIND_IMAGE" =~ $image_pattern ]] || {
+            echo 'current_kind_image must be a digest-pinned kindest/node image.' >&2
+            exit 1
+          }
+          [[ "$CANDIDATE_KIND_IMAGE" =~ $image_pattern ]] || {
+            echo 'candidate_kind_image must be a digest-pinned kindest/node image.' >&2
+            exit 1
+          }
+          [[ "$CURRENT_KIND_IMAGE" != "$CANDIDATE_KIND_IMAGE" ]] || {
+            echo 'current_kind_image and candidate_kind_image must differ.' >&2
+            exit 1
+          }
+          [[ "$CURRENT_KUBERNETES_VERSION" =~ $version_pattern && "$CANDIDATE_KUBERNETES_VERSION" =~ $version_pattern ]] || {
+            echo 'Expected current/candidate Kubernetes versions must be v1.<minor>.<patch> values.' >&2
+            exit 1
+          }
+          current_minor="${CURRENT_KUBERNETES_VERSION#v1.}"
+          current_minor="${current_minor%%.*}"
+          current_patch="${CURRENT_KUBERNETES_VERSION##*.}"
+          candidate_minor="${CANDIDATE_KUBERNETES_VERSION#v1.}"
+          candidate_minor="${candidate_minor%%.*}"
+          candidate_patch="${CANDIDATE_KUBERNETES_VERSION##*.}"
+          (( 10#$current_minor >= 36 && 10#$current_minor <= 37 && \
+             10#$candidate_minor >= 36 && 10#$candidate_minor <= 37 )) || {
+            echo 'current_kubernetes_version and candidate_kubernetes_version must be within v1.36.x through v1.37.x, supported by the fixed kubectl v1.37 client.' >&2
+            exit 1
+          }
+          (( 10#$candidate_minor > 10#$current_minor || \
+             (10#$candidate_minor == 10#$current_minor && 10#$candidate_patch > 10#$current_patch) )) || {
+            echo 'candidate_kubernetes_version must be a later v1 minor or patch version than current_kubernetes_version.' >&2
+            exit 1
+          }
+          echo "manifest_sha=$MANIFEST_SHA" >> "$GITHUB_OUTPUT"
+
+  preflight:
+    name: ${{ matrix.version }} / ${{ matrix.component }}
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        version: [current, candidate]
+        component: [argocd, external-secrets-operator, kube-vip]
+        include:
+          - version: current
+            component: argocd
+            kind_image: ${{ inputs.current_kind_image }}
+          - version: current
+            component: external-secrets-operator
+            kind_image: ${{ inputs.current_kind_image }}
+          - version: current
+            component: kube-vip
+            kind_image: ${{ inputs.current_kind_image }}
+          - version: candidate
+            component: argocd
+            kind_image: ${{ inputs.candidate_kind_image }}
+          - version: candidate
+            component: external-secrets-operator
+            kind_image: ${{ inputs.candidate_kind_image }}
+          - version: candidate
+            component: kube-vip
+            kind_image: ${{ inputs.candidate_kind_image }}
+    env:
+      REPO_ROOT: ${{ github.workspace }}
+      CHAINSAW_KIND_CONTEXT: kind-chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
+      COMPONENT: ${{ matrix.component }}
+      KIND_IMAGE: ${{ matrix.kind_image }}
+      EXPECTED_KUBERNETES_VERSION: ${{ matrix.version == 'current' && inputs.current_kubernetes_version || inputs.candidate_kubernetes_version }}
+      MANIFEST_SHA: ${{ needs.validate-inputs.outputs.manifest_sha }}
+      RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Checkout requested manifest SHA
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate-inputs.outputs.manifest_sha }}
+          fetch-depth: 1
+
+      - name: Verify checked out SHA
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$MANIFEST_SHA"
+
+      - name: Initialize evidence
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/evidence"
+          printf '%s\n' "manifest_sha=$MANIFEST_SHA" "kind_image=$KIND_IMAGE" "expected_kubernetes_version=$EXPECTED_KUBERNETES_VERSION" "run_url=$RUN_URL" > "$RUNNER_TEMP/evidence/inputs.env"
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          # v0.33.0 writes kubeadm v1beta4 for Kubernetes >= 1.36.
+          # v0.31.0 used v1beta3, removed by Kubernetes 1.37.
+          version: v0.33.0
+          kubectl_version: v1.37.0
+          node_image: ${{ matrix.kind_image }}
+          cluster_name: chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
+
+      - name: Export and verify isolated kubeconfig
+        run: |
+          set -euo pipefail
+          CHAINSAW_KIND_KUBECONFIG="$RUNNER_TEMP/chainsaw-kind-kubeconfig"
+          kind export kubeconfig --name "${CHAINSAW_KIND_CONTEXT#kind-}" --kubeconfig "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          echo "CHAINSAW_KIND_KUBECONFIG=$CHAINSAW_KIND_KUBECONFIG" >> "$GITHUB_ENV"
+
+      - name: Install Chainsaw
+        uses: kyverno/action-install-chainsaw@v0.2.15
+        with:
+          verify: false
+
+      - name: Install fixed Helm version
+        uses: azure/setup-helm@v5
+        with:
+          version: v3.18.6
+
+      - name: Install kustomize and kubectl
+        run: |
+          set -euo pipefail
+          KUSTOMIZE_VERSION=v5.7.1
+          KUSTOMIZE_SHA256=ea375e7372f9aa029129d4b2d16c66b7750b7f1213c4f66f910d981c895818d8
+          KUSTOMIZE_TARBALL="kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          curl --fail-with-body --location --silent --show-error -o kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/${KUSTOMIZE_TARBALL}"
+          printf '%s  %s\n' "$KUSTOMIZE_SHA256" kustomize.tar.gz | tee "$RUNNER_TEMP/evidence/kustomize-expected.sha256" | sha256sum --check --status
+          sha256sum kustomize.tar.gz > "$RUNNER_TEMP/evidence/kustomize-actual.sha256"
+          tar -xzf kustomize.tar.gz kustomize
+          sudo install -m 555 kustomize /usr/local/bin/kustomize
+          rm kustomize kustomize.tar.gz
+          KUBECTL_VERSION=v1.37.1
+          KUBECTL_SHA256=65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
+          curl --fail-with-body --location --silent --show-error -o kubectl \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          printf '%s  %s\n' "$KUBECTL_SHA256" kubectl | tee "$RUNNER_TEMP/evidence/kubectl-expected.sha256" | sha256sum --check --status
+          sha256sum kubectl > "$RUNNER_TEMP/evidence/kubectl-actual.sha256"
+          sudo install -m 555 kubectl /usr/local/bin/kubectl
+          rm kubectl
+
+      - name: Verify Kubernetes version and record tools
+        run: |
+          set -euo pipefail
+          export KUBECONFIG="${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
+          evidence_dir="$RUNNER_TEMP/evidence"
+          chainsaw version | tee "$evidence_dir/chainsaw-version.txt"
+          kind version | tee "$evidence_dir/kind-version.txt"
+          helm version > "$evidence_dir/helm-version.txt"
+          kustomize version > "$evidence_dir/kustomize-version.txt"
+          sha256sum "$(command -v chainsaw)" "$(command -v kind)" "$(command -v helm)" \
+            "$(command -v kustomize)" "$(command -v kubectl)" > "$evidence_dir/tool-sha256sums.txt"
+          kubectl version -o json > "$evidence_dir/kubectl-version.json"
+          actual_version="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["serverVersion"]["gitVersion"])' < "$evidence_dir/kubectl-version.json")"
+          test "$actual_version" = "$EXPECTED_KUBERNETES_VERSION"
+
+      - name: Prepare selected component in isolated kind
+        id: prepare
+        run: |
+          set -euo pipefail
+          export KUBECONFIG="${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
+          evidence_dir="$RUNNER_TEMP/evidence"
+          case "$COMPONENT" in
+            argocd|external-secrets-operator)
+              ESO_CHART_VERSION=0.18.2
+              ESO_CHART_SHA256=5d0645b815837af4ce1fd0436879e4adfe8230072103c65429c4a41d9e00f43d
+              eso_chart="$RUNNER_TEMP/external-secrets-${ESO_CHART_VERSION}.tgz"
+              helm repo add external-secrets https://charts.external-secrets.io --force-update
+              helm pull external-secrets/external-secrets --version "$ESO_CHART_VERSION" --destination "$RUNNER_TEMP"
+              printf '%s  %s\n' "$ESO_CHART_SHA256" "$eso_chart" | tee "$evidence_dir/eso-chart-expected.sha256" | sha256sum --check --status
+              sha256sum "$eso_chart" > "$evidence_dir/eso-chart-actual.sha256"
+              kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
+              helm install external-secrets "$eso_chart" --namespace external-secrets --wait --timeout 180s
+              helm get manifest external-secrets -n external-secrets > "$evidence_dir/prepared-eso-helm.yaml"
+              ;;
+          esac
+          ARGOCD_TAG=v3.5.2
+          ARGOCD_COMMIT_SHA=e258ee23c3e52266d407572f4bcdfe7d9ed36cb5
+          curl --fail-with-body --location --silent --show-error \
+            "https://api.github.com/repos/argoproj/argo-cd/git/ref/tags/${ARGOCD_TAG}" \
+            -o "$evidence_dir/argocd-tag-ref.json"
+          actual_argocd_commit="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' < "$evidence_dir/argocd-tag-ref.json")"
+          test "$actual_argocd_commit" = "$ARGOCD_COMMIT_SHA"
+          curl --fail-with-body --location --silent --show-error \
+            "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_COMMIT_SHA}/manifests/install.yaml" \
+            -o "$evidence_dir/argocd-install.yaml"
+          sha256sum "$evidence_dir/argocd-install.yaml" > "$evidence_dir/argocd-install.sha256"
+          yq 'select(.kind == "CustomResourceDefinition")' "$evidence_dir/argocd-install.yaml" \
+            | tee "$evidence_dir/prepared-argocd-crds.yaml" \
+            | kubectl apply --server-side --force-conflicts -f -
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          kubectl wait --for=condition=established --timeout=120s crd --all
+          case "$COMPONENT" in
+            argocd|kube-vip) manifest_dir="argoproj/$COMPONENT/" ;;
+            external-secrets-operator) manifest_dir="argoproj/$COMPONENT/manifests/" ;;
+            *) echo "Unexpected component: $COMPONENT" >&2; exit 1 ;;
+          esac
+          kustomize build "$manifest_dir" | tee "$evidence_dir/prepared-$COMPONENT.yaml" \
+            | kubectl apply --server-side --force-conflicts -f -
+
+      - name: Run tests and require a nonempty complete JUnit report
+        id: test
+        run: |
+          set -euo pipefail
+          evidence_dir="$RUNNER_TEMP/evidence"
+          # The three required suites each contain one Test. A missing directory
+          # or report must not be reinterpreted as a passing empty selection.
+          test -f "tests/chainsaw/$COMPONENT/chainsaw-test.yaml"
+          set +e
+          KUBECONFIG="$CHAINSAW_KIND_KUBECONFIG" chainsaw test --test-dir "./tests/chainsaw/$COMPONENT" \
+            --report-format JUNIT-TEST --report-path "$evidence_dir" --report-name chainsaw-report.xml \
+            2>&1 | tee "$evidence_dir/chainsaw-output.txt"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          export CHAINSAW_STATUS="${pipeline_status[0]}"
+          export LOG_STATUS="${pipeline_status[1]}"
+          python3 - "$evidence_dir" <<'PYREPORT'
+          import json, os, pathlib, sys, xml.etree.ElementTree as ET
+          evidence = pathlib.Path(sys.argv[1])
+          result = dict(tests=0, passed=0, failures=0, errors=0, skipped=0,
+                        report_status="missing", chainsaw_exit=int(os.environ["CHAINSAW_STATUS"]),
+                        log_exit=int(os.environ["LOG_STATUS"]))
+          try:
+              root = ET.parse(evidence / "chainsaw-report.xml").getroot()
+              cases = root.findall(".//testcase")
+              result.update(tests=len(cases),
+                            failures=sum(c.find("failure") is not None for c in cases),
+                            errors=sum(c.find("error") is not None for c in cases),
+                            skipped=sum(c.find("skipped") is not None for c in cases),
+                            passed=sum(all(c.find(tag) is None for tag in ("failure", "error", "skipped")) for c in cases),
+                            report_status="parsed")
+          except (OSError, ET.ParseError) as error:
+              result["report_error"] = str(error)
+          (evidence / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write("```json\n" + json.dumps(result, indent=2) + "\n```\n")
+          ok = (result["report_status"] == "parsed" and result["tests"] > 0
+                and result["passed"] == result["tests"] and result["chainsaw_exit"] == 0
+                and result["log_exit"] == 0)
+          sys.exit(0 if ok else 1)
+          PYREPORT
+
+      - name: Record execution outcomes
+        if: always()
+        env:
+          PREPARATION_OUTCOME: ${{ steps.prepare.outcome }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/evidence"
+          printf '%s\n' "preparation=$PREPARATION_OUTCOME" "tests=$TEST_OUTCOME" \
+            "workflow_sha=$GITHUB_SHA" "run_attempt=$GITHUB_RUN_ATTEMPT" \
+            > "$RUNNER_TEMP/evidence/outcomes.env"
+
+      - name: Capture isolated Redis diagnostics
+        if: always()
+        timeout-minutes: 2
+        env:
+          KIND_CLUSTER_NAME: chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
+        run: |
+          set -uo pipefail
+          evidence_dir="$RUNNER_TEMP/evidence"
+          diagnostics_dir="$evidence_dir/redis-diagnostics"
+          mkdir -p "$diagnostics_dir"
+          kind_kubeconfig="$(mktemp)"
+          trap 'rm -f "$kind_kubeconfig"' EXIT
+          if ! kind export kubeconfig --name "$KIND_CLUSTER_NAME" --kubeconfig "$kind_kubeconfig"; then
+            echo "kind kubeconfig export failed; no fallback context is permitted" > "$diagnostics_dir/context-error.txt"
+            exit 0
+          fi
+          context="$(kubectl --kubeconfig "$kind_kubeconfig" config current-context 2>/dev/null || true)"
+          if [ "$context" != "kind-$KIND_CLUSTER_NAME" ]; then
+            printf 'unexpected context: %s\n' "$context" > "$diagnostics_dir/context-error.txt"
+            exit 0
+          fi
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s cluster-info > "$diagnostics_dir/cluster-info.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s get deployment argocd-redis -n argocd -o yaml > "$diagnostics_dir/redis-deployment.yaml" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s get pods -n argocd -l app.kubernetes.io/name=argocd-redis -o wide > "$diagnostics_dir/redis-pods.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s describe deployment argocd-redis -n argocd > "$diagnostics_dir/redis-deployment.describe.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s describe pods -n argocd -l app.kubernetes.io/name=argocd-redis > "$diagnostics_dir/redis-pods.describe.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s get events -n argocd --sort-by=.lastTimestamp > "$diagnostics_dir/argocd-events.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s logs -n argocd -l app.kubernetes.io/name=argocd-redis --all-containers --prefix --tail=200 > "$diagnostics_dir/redis-containers.log" 2>&1 || true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: error
