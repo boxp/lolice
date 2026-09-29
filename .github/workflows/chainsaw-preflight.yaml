@@ -151,7 +151,7 @@ jobs:
           # v0.33.0 writes kubeadm v1beta4 for Kubernetes >= 1.36.
           # v0.31.0 used v1beta3, removed by Kubernetes 1.37.
           version: v0.33.0
-          kubectl_version: v1.37.0
+          kubectl_version: v1.37.1
           node_image: ${{ matrix.kind_image }}
           cluster_name: chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
 
