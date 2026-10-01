@@ -338,7 +338,7 @@ jobs:
 
       - name: Upload evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
           path: ${{ runner.temp }}/evidence
