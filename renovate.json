@@ -8,6 +8,11 @@
       "/\\.yaml$/"
     ]
   },
+  "argocd": {
+    "managerFilePatterns": [
+      "/^argoproj/tailscale-operator/application\\.yaml$/"
+    ]
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -21,6 +26,17 @@
       "depNameTemplate": "docker.io/cloudflare/cloudflared",
       "versioningTemplate": "docker",
       "currentValueTemplate": "{{currentValue}}"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "argocd"
+      ],
+      "matchPackageNames": [
+        "tailscale-operator"
+      ],
+      "automerge": false
     }
   ],
   "major": {

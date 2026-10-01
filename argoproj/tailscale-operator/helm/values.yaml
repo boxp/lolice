@@ -12,9 +12,8 @@ oauthSecretVolume:
   secret:
     secretName: tailscale-operator-oauth
 
-# Operator image tag (pinned for reproducibility)
-image:
-  tag: v1.80.3
+# Operator and proxy image tags are left unset so they follow the chart's
+# appVersion (targetRevision in ../application.yaml).
 
 # Operator runs in userspace mode (no NET_ADMIN required)
 proxyConfig:
