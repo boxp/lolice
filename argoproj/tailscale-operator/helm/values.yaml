@@ -15,24 +15,19 @@ oauthSecretVolume:
 # Operator and proxy image tags are left unset so they follow the chart's
 # appVersion (targetRevision in ../application.yaml).
 
+# Resource limits for the operator itself
+operatorConfig:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
 # Operator runs in userspace mode (no NET_ADMIN required)
 proxyConfig:
   defaultTags: "tag:k8s-operator"
-
-# Resource limits for the operator itself
-resources:
-  requests:
-    cpu: 50m
-    memory: 64Mi
-  limits:
-    cpu: 200m
-    memory: 256Mi
-
-# Proxy resource limits (for sidecar/standalone proxy pods)
-proxyResources:
-  requests:
-    cpu: 50m
-    memory: 64Mi
-  limits:
-    cpu: 100m
-    memory: 128Mi
+  # Proxy resource limits are set by this ProxyClass (../proxyclass.yaml);
+  # the chart has no values key for them.
+  defaultProxyClass: default-proxy
