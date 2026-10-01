@@ -30,4 +30,6 @@ proxyConfig:
   defaultTags: "tag:k8s-operator"
   # Proxy resource limits are set by this ProxyClass (../proxyclass.yaml);
   # the chart has no values key for them.
+  # The default does not apply to Connector resources (none exist today);
+  # a Connector must set spec.proxyClass: default-proxy itself.
   defaultProxyClass: default-proxy

@@ -26,6 +26,18 @@ BOXP-206全体の目的は、OperatorをOAuth client secretからWorkload Identi
 - resource制限は実際には適用されておらず、稼働中のDeployment / StatefulSetの `resources` は空だった。chartが読む形式へ移すため、このPRのmerge後に初めて適用される。値は従来の記載と同じにする（operator: 50m/64Mi〜200m/256Mi、proxy: 50m/64Mi〜100m/128Mi）。
 - proxy Podのresourceを指定するvaluesキーはchartに無い。`ProxyClass` を作り、既定のProxyClassとして指定する。
 
+### 既定ProxyClassの適用範囲
+
+`proxyConfig.defaultProxyClass` が適用されるのは、ProxyClassを個別に指定していないService・Ingress・ProxyGroupのproxyである。Connectorには適用されない（chart 1.102.4の `values.yaml` のコメントと、Operator v1.102.4のソースで確認）。RecorderはProxyClassを使わず、自身のCRでresourceを指定する。
+
+現時点でConnector・ProxyGroup・Recorderは使っていないため、このPRでのresource制限の対象は `argocd-server` Serviceのproxy 1件で足りる。確認した内容は次の通り（2026-10-01）。
+
+- boxp/loliceとboxp/archのどちらにも、Connector・ProxyGroup・Recorderのマニフェストは無い。
+- クラスタ全体で、Operatorが管理するworkload（`tailscale.com/parent-resource-type` ラベル付き）は `ts-argocd-server-*` のStatefulSet 1件だけで、親は `argocd/argocd-server` Service（type `svc`）である。Connector・ProxyGroup・RecorderはOperatorのnamespaceにStatefulSetを作るが、該当するものは無い。
+- CRそのものの一覧は、調査時の権限では取得できなかった。上記はマニフェストと稼働中workloadからの確認である。
+
+今後Connectorを追加する場合は、そのCRに `spec.proxyClass: default-proxy` を指定する。Recorderを追加する場合は `spec.statefulSet.pod.container.resources` で指定する。ProxyGroupは既定のProxyClassが適用されるため追加の指定は要らない。
+
 ### Renovate
 
 argocd managerは既定でファイルパターンを持たないため、chart versionが追跡されていなかった。このApplicationだけを対象に有効化する。Operatorの更新はproxyの再作成を伴うので、automergeは無効にする。他のApplicationは対象に含めない。
@@ -52,6 +64,7 @@ argocd managerは既定でファイルパターンを持たないため、chart 
 - Operator Podのログに認証・reconcileエラーが無い
 - `ts-argocd-server-*` が `tailscale/tailscale:v1.102.4` で再作成されReady
 - `ProxyClass` `default-proxy` がReadyで、operatorとproxyのPodに `resources` が入り、OOMKilled・再起動が無い
+- `kubectl get connectors,proxygroups,recorders -A` が空（Connectorが存在する場合は `spec.proxyClass: default-proxy` を、Recorderが存在する場合はresource指定を追加する）
 - tailnet上の `lolice-argocd` が到達可能で、argocd-diffがTailscale経路で成功
 
 ## rollback
@@ -65,7 +78,7 @@ resource制限が足りずOOMKilledや再起動が起きる場合は、revertせ
 - 22 minorを一度に飛ばす更新の可否。公式に記載がなく、実機では未検証である。
 - `OPERATOR_LOGIN_SERVER` はchart既定で空値のenvとして描画される。ArgoCDで差分が残り続けないかはsync後に確認する。
 - operatorとproxyの実使用量。metricsを読む権限が無く確認できていない。
-- Connector / ProxyGroup等のCRの有無。調査時の権限では一覧できなかった。
+- Connector / ProxyGroup / RecorderのCRの直接の一覧。調査時の権限では取得できなかった。マニフェストと稼働中workloadからは「無い」と確認している（「既定ProxyClassの適用範囲」を参照）。merge後の確認で、権限のある利用者が `kubectl get connectors,proxygroups,recorders -A` を実行して空であることを確かめる。
 
 ## WIFへ進む場合に追加で行う変更（このPRには含めない）
 
