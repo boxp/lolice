@@ -116,7 +116,7 @@ Kubernetes 上では `codex-task-board-dashboard` ClusterIP Service の port 808
 
 - `kubectl kustomize argoproj/codex-workspace` で manifest を生成できること。
 - 空の `runs/` では `/api/runs` が空配列を返すこと。
-- 完了済み run fixture では `summary.edn` から ticket / run id / lane / status を表示できること。
+- 完了済み run fixture では `summary.edn` から ticket / run id / agent / lane / status を表示できること。`agent` がない旧runは `-` と表示すること。
 - 欠損ログでは log API が `missing: true` を返し、UI が missing 表示へフォールバックできること。
 - lock file がある run fixture では status が `running` になり、`events.jsonl` / `stderr.log` / `last-message.md` を offset 付きで読めること。
 

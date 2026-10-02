@@ -10,7 +10,6 @@ resources:
   - hermes-agent.yaml
   - arc-runners-arch.yaml
   - arc-runners-is01-linux.yaml
-  - local-llm.yaml
   - stable-diffusion.yaml
   - palserver.yaml
   - palserver-2.yaml

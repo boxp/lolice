@@ -4,7 +4,7 @@ metadata:
   name: etcd
   namespace: monitoring
   labels:
-    release: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
 spec:
   jobLabel: component
   selector:

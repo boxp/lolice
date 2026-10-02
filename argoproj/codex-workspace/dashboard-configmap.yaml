@@ -50,7 +50,7 @@ data:
 
     def parse_edn_summary(text):
       result = {}
-      for key in ("lane", "status", "result", "action", "ticket", "run-id", "exit-code", "updated-at", "finished-at", "started-at", "heartbeat-at", "host", "pid"):
+      for key in ("agent", "lane", "status", "result", "action", "ticket", "run-id", "exit-code", "updated-at", "finished-at", "started-at", "heartbeat-at", "host", "pid"):
         match = re.search(r":" + re.escape(key) + r'\s+("[^"]*"|:[\w.-]+|-?\d+)', text)
         if not match:
           continue
@@ -170,6 +170,7 @@ data:
       return {
         "ticket": ticket,
         "runId": run_id,
+        "agent": summary.get("agent") or lock_summary.get("agent"),
         "lane": summary.get("lane") or lock_summary.get("lane") or "unknown",
         "action": summary.get("action") or events["action"],
         "status": run_status(summary, has_lock),
@@ -620,6 +621,7 @@ data:
               <h2>${esc(run.ticket)}</h2>
               <dl>
                 <dt>RUN</dt><dd>${esc(run.runId)}</dd>
+                <dt>AGENT</dt><dd>${esc(run.agent || "-")}</dd>
                 <dt>LANE</dt><dd>${esc(run.lane)}</dd>
                 <dt>STAT</dt><dd><span class="badge ${statusClass(run.status)}">${esc(run.status)}</span></dd>
                 <dt>UPD</dt><dd>${fmt(run.updatedAt)}</dd>
@@ -645,6 +647,7 @@ data:
       const fields = [
         ["ticket", run.ticket],
         ["run id", run.runId],
+        ["agent", run.agent || "-"],
         ["lane", run.lane],
         ["status", run.status],
         ["started", fmt(run.startedAt)],
