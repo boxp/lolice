@@ -7,7 +7,9 @@
 #
 # 実行内容（initContainers → containers の順に直列）:
 # 1. delete-jobs:    対象の RecurringJob を削除する（無ければ何もしない）。
-# 2. wait-cronjobs:  Longhorn が RecurringJob ごとに作る同名の CronJob が GC で消えるまで待つ。
+# 2. wait-workloads: Longhorn が RecurringJob ごとに作る CronJob と、その Job / Pod が GC で消えるまで待つ
+#                    （いずれも `recurring-job.longhorn.io=<job 名>` ラベルを持つ）。00:00 UTC の trim が
+#                    実行中に sync した場合も、その Pod が終了してから Setting が適用される。
 # 3. remove-labels:  ボリュームに残る `recurring-job.longhorn.io/<job 名>` ラベルを外す
 #                    （RecurringJob は finalizer を持たず、kubectl で消した場合はラベルが残る）。
 # 4. report:         残っている RecurringJob を出力する。filesystem-trim が `filesystem-trim` の 1 件だけなら移行完了。
@@ -56,7 +58,10 @@ rules:
       - c-jvgcut
       - c-m85v6d
   - apiGroups: ["batch"]
-    resources: ["cronjobs"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["longhorn.io"]
     resources: ["volumes"]
@@ -147,7 +152,7 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-        - name: wait-cronjobs
+        - name: wait-workloads
           image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
           command: ["/bin/kubectl"]
           args:
@@ -155,20 +160,9 @@ spec:
             - --cache-dir=/tmp/kube-cache
             - wait
             - --for=delete
-            - --timeout=120s
-            - cronjob.batch/c-01493g
-            - cronjob.batch/c-1jzdhq
-            - cronjob.batch/c-5cs535
-            - cronjob.batch/c-7842vg
-            - cronjob.batch/c-8e0q21
-            - cronjob.batch/c-demrg0
-            - cronjob.batch/c-etx3ov
-            - cronjob.batch/c-gh80cf
-            - cronjob.batch/c-he0txy
-            - cronjob.batch/c-ik7ysu
-            - cronjob.batch/c-iozibl
-            - cronjob.batch/c-jvgcut
-            - cronjob.batch/c-m85v6d
+            - --timeout=300s
+            - cronjobs.batch,jobs.batch,pods
+            - --selector=recurring-job.longhorn.io in (c-01493g,c-1jzdhq,c-5cs535,c-7842vg,c-8e0q21,c-demrg0,c-etx3ov,c-gh80cf,c-he0txy,c-ik7ysu,c-iozibl,c-jvgcut,c-m85v6d)
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
