@@ -13,3 +13,19 @@ spec:
   concurrency: 1
   labels: {}
   parameters: {}
+---
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: filesystem-trim
+  namespace: longhorn-system
+spec:
+  name: filesystem-trim
+  task: filesystem-trim
+  cron: "0 2 * * *"
+  groups:
+    - default
+  retain: 0
+  concurrency: 1
+  labels: {}
+  parameters: {}
