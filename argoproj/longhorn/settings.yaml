@@ -53,9 +53,12 @@ value: "86400"  # 24時間（秒単位）
 ---
 # filesystem trim の回収対象拡大
 # trim 時に volume-head 直前の snapshot チェーン（backup 用 snapshot を含む）を removed 扱いにして領域を回収する
+# sync wave 2 にして、filesystem-trim-migration.yaml の Job（wave 1）が成功した後にだけ適用する
 apiVersion: longhorn.io/v1beta2
 kind: Setting
 metadata:
   name: remove-snapshots-during-filesystem-trim
   namespace: longhorn-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
 value: "true"
