@@ -7,8 +7,10 @@
 # default ラベルを外したボリュームは trim の対象から漏れる。
 # そのため trim（02:00 UTC）の直前に、job 単位のラベルを全ボリュームへ付け直す。
 #
-# 対象外: PVC に `recurring-job.longhorn.io/source: enabled` を付けたボリュームは PVC 側の
-# ラベルで上書きされるため、PVC 側にも `recurring-job.longhorn.io/filesystem-trim: enabled` が必要。
+# 対象外:
+# - 02:00 UTC に detached のボリューム。ラベルは付くが trim は走らない（理由は recurring-jobs.yaml）。
+# - PVC に `recurring-job.longhorn.io/source: enabled` を付けたボリュームは PVC 側の
+#   ラベルで上書きされるため、PVC 側にも `recurring-job.longhorn.io/filesystem-trim: enabled` が必要。
 apiVersion: v1
 kind: ServiceAccount
 metadata:

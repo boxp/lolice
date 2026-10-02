@@ -14,6 +14,11 @@ spec:
   labels: {}
   parameters: {}
 ---
+# 対象は実行時刻（02:00 UTC）に attached のボリュームだけ。
+# allow-recurring-job-while-volume-detached は既定の false のままにしている（true にすると backup を含む
+# 全 recurring job が detached ボリュームを自動 attach するようになる）。trim はマウント済みの
+# filesystem が前提で、detached の間は書き込みが無く実サイズも増えないため、再 attach 後の回で回収される。
+# ボリュームへの紐付けは default グループに加え、filesystem-trim-label-sync.yaml が job 単位のラベルを付ける。
 apiVersion: longhorn.io/v1beta2
 kind: RecurringJob
 metadata:
