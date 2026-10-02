@@ -1,0 +1,248 @@
+# UI で作成された filesystem-trim の RecurringJob（13 個、すべて 00:00 UTC）を、sync の前に削除する。
+#
+# これらは backup job（00:00 UTC）と同時刻に走る。settings.yaml の
+# remove-snapshots-during-filesystem-trim=true が効いた状態で同時に走ると、trim が backup 実行中の
+# snapshot を removed 扱いにし得る。PreSync hook にしているのは、削除に失敗した場合に sync を止めて
+# Setting が適用されないようにするため。trim は recurring-jobs.yaml の `filesystem-trim`（02:00 UTC）に一本化する。
+#
+# 実行内容（initContainers → containers の順に直列）:
+# 1. delete-jobs:    対象の RecurringJob を削除する（無ければ何もしない）。
+# 2. wait-cronjobs:  Longhorn が RecurringJob ごとに作る同名の CronJob が GC で消えるまで待つ。
+# 3. remove-labels:  ボリュームに残る `recurring-job.longhorn.io/<job 名>` ラベルを外す
+#                    （RecurringJob は finalizer を持たず、kubectl で消した場合はラベルが残る）。
+# 4. report:         残っている RecurringJob を出力する。filesystem-trim が `filesystem-trim` の 1 件だけなら移行完了。
+#
+# 削除対象は名前で固定し、Role の resourceNames でもこの 13 個に限定している（backup job は消せない）。
+# 今後 UI で trim job を追加した場合はここでは消えないので、trim は recurring-jobs.yaml でだけ管理する。
+# 2 回目以降の sync では対象が既に無く、何も変更しない。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filesystem-trim-migration
+  namespace: longhorn-system
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: filesystem-trim-migration
+  namespace: longhorn-system
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+rules:
+  - apiGroups: ["longhorn.io"]
+    resources: ["recurringjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["longhorn.io"]
+    resources: ["recurringjobs"]
+    verbs: ["delete"]
+    resourceNames:
+      - c-01493g
+      - c-1jzdhq
+      - c-5cs535
+      - c-7842vg
+      - c-8e0q21
+      - c-demrg0
+      - c-etx3ov
+      - c-gh80cf
+      - c-he0txy
+      - c-ik7ysu
+      - c-iozibl
+      - c-jvgcut
+      - c-m85v6d
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["longhorn.io"]
+    resources: ["volumes"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: filesystem-trim-migration
+  namespace: longhorn-system
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
+subjects:
+  - kind: ServiceAccount
+    name: filesystem-trim-migration
+    namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: filesystem-trim-migration
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: filesystem-trim-migration
+  namespace: longhorn-system
+  labels:
+    app.kubernetes.io/name: filesystem-trim-migration
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    # 次の sync まで Job を残し、ログで結果を確認できるようにする。
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: filesystem-trim-migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: filesystem-trim-migration
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: delete-jobs
+          # 第三者イメージは digest 固定 (argoproj/argocd-image-updater/imageupdaters/README.md)。
+          # このイメージはシェルを持たないため、kubectl を直接実行する。
+          image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
+          command: ["/bin/kubectl"]
+          args:
+            - --namespace=longhorn-system
+            - --cache-dir=/tmp/kube-cache
+            - delete
+            - recurringjobs.longhorn.io
+            - --ignore-not-found
+            - --timeout=120s
+            - c-01493g
+            - c-1jzdhq
+            - c-5cs535
+            - c-7842vg
+            - c-8e0q21
+            - c-demrg0
+            - c-etx3ov
+            - c-gh80cf
+            - c-he0txy
+            - c-ik7ysu
+            - c-iozibl
+            - c-jvgcut
+            - c-m85v6d
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        - name: wait-cronjobs
+          image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
+          command: ["/bin/kubectl"]
+          args:
+            - --namespace=longhorn-system
+            - --cache-dir=/tmp/kube-cache
+            - wait
+            - --for=delete
+            - --timeout=120s
+            - cronjob.batch/c-01493g
+            - cronjob.batch/c-1jzdhq
+            - cronjob.batch/c-5cs535
+            - cronjob.batch/c-7842vg
+            - cronjob.batch/c-8e0q21
+            - cronjob.batch/c-demrg0
+            - cronjob.batch/c-etx3ov
+            - cronjob.batch/c-gh80cf
+            - cronjob.batch/c-he0txy
+            - cronjob.batch/c-ik7ysu
+            - cronjob.batch/c-iozibl
+            - cronjob.batch/c-jvgcut
+            - cronjob.batch/c-m85v6d
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        - name: remove-labels
+          image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
+          command: ["/bin/kubectl"]
+          args:
+            - --namespace=longhorn-system
+            - --cache-dir=/tmp/kube-cache
+            - label
+            - volumes.longhorn.io
+            - --all
+            - recurring-job.longhorn.io/c-01493g-
+            - recurring-job.longhorn.io/c-1jzdhq-
+            - recurring-job.longhorn.io/c-5cs535-
+            - recurring-job.longhorn.io/c-7842vg-
+            - recurring-job.longhorn.io/c-8e0q21-
+            - recurring-job.longhorn.io/c-demrg0-
+            - recurring-job.longhorn.io/c-etx3ov-
+            - recurring-job.longhorn.io/c-gh80cf-
+            - recurring-job.longhorn.io/c-he0txy-
+            - recurring-job.longhorn.io/c-ik7ysu-
+            - recurring-job.longhorn.io/c-iozibl-
+            - recurring-job.longhorn.io/c-jvgcut-
+            - recurring-job.longhorn.io/c-m85v6d-
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: report
+          image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
+          command: ["/bin/kubectl"]
+          args:
+            - --namespace=longhorn-system
+            - --cache-dir=/tmp/kube-cache
+            - get
+            - recurringjobs.longhorn.io
+            - --output=custom-columns=NAME:.metadata.name,TASK:.spec.task,CRON:.spec.cron,GROUPS:.spec.groups
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

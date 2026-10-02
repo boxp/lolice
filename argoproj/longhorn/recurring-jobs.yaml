@@ -19,6 +19,8 @@ spec:
 # 全 recurring job が detached ボリュームを自動 attach するようになる）。trim はマウント済みの
 # filesystem が前提で、detached の間は書き込みが無く実サイズも増えないため、再 attach 後の回で回収される。
 # ボリュームへの紐付けは default グループに加え、filesystem-trim-label-sync.yaml が job 単位のラベルを付ける。
+# trim の RecurringJob はこの 1 件だけにする。UI 作成の trim job（00:00 UTC、backup と同時刻）は
+# filesystem-trim-migration.yaml が sync 前に削除する。
 apiVersion: longhorn.io/v1beta2
 kind: RecurringJob
 metadata:
