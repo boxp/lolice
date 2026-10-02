@@ -168,8 +168,8 @@ spec:
         - name: wait-workloads
           # `kubectl wait --for=delete` は selector に一致するリソースが 0 件でも exit 0 で終わる
           # （`no matching resources found` で失敗するのは delete 以外の条件だけ。kubectl v1.36.5 の
-          # pkg/cmd/wait/wait.go RunWait: `if visitCount == 0 && !isForDelete`）。このイメージで実クラスタに
-          # 対して確認済み: 0 件は exit 0、残っている場合は timeout で exit 1。
+          # pkg/cmd/wait/wait.go RunWait: `if visitCount == 0 && !isForDelete`）。v1.36.5 と v1.37.1 の
+          # イメージで実クラスタに対して確認済み: 0 件は exit 0、残っている場合は timeout で exit 1。
           # kubectl のイメージを更新するときは、0 件で成功することを確認し直すこと。
           image: registry.k8s.io/kubectl:v1.37.1@sha256:b7cab618e281b1ee7484e7b706a96e2135fbb6e072c2a573a7dab4e87d7f2385
           command: ["/bin/kubectl"]
