@@ -7,10 +7,19 @@
 # default ラベルを外したボリュームは trim の対象から漏れる。
 # そのため trim（02:00 UTC）の直前に、job 単位のラベルを全ボリュームへ付け直す。
 #
+#
+# ラベルは PVC → Volume の順に付ける（initContainers → containers の順に直列）:
+# 1. label-pvcs:    `recurring-job.longhorn.io/source: enabled` を持つ PVC（全 namespace）へ付ける。
+#                   このラベルを持つ PVC のボリュームは、Longhorn が Volume の recurring job ラベルを PVC 側の
+#                   内容に合わせて作り直す（v1.9.1 volume_controller の syncPVCRecurringJobLabels。PVC に無い
+#                   ラベルは Volume から外される）。Volume にだけ付けても次の reconcile で消えるため、PVC に付ける。
+#                   Longhorn 以外の PVC がこのラベルを持っていても、付くのは Longhorn しか読まないラベルだけ。
+# 2. label-volumes: 全 Volume へ付ける。source ラベルの無い PVC のボリュームと、PVC を持たないボリュームはこれで
+#                   対象になる（この場合 Longhorn は PVC 側のラベルを見ない）。
+# PVC は全 namespace にあるため、PVC の権限だけ ClusterRole にしている（get / list / patch）。
+#
 # 対象外:
 # - 02:00 UTC に detached のボリューム。ラベルは付くが trim は走らない（理由は recurring-jobs.yaml）。
-# - PVC に `recurring-job.longhorn.io/source: enabled` を付けたボリュームは PVC 側の
-#   ラベルで上書きされるため、PVC 側にも `recurring-job.longhorn.io/filesystem-trim: enabled` が必要。
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -40,6 +49,28 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: filesystem-trim-label-sync
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: longhorn-filesystem-trim-label-sync
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: longhorn-filesystem-trim-label-sync
+subjects:
+  - kind: ServiceAccount
+    name: filesystem-trim-label-sync
+    namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: longhorn-filesystem-trim-label-sync
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -74,10 +105,37 @@ spec:
             runAsGroup: 65534
             seccompProfile:
               type: RuntimeDefault
-          containers:
-            - name: label
+          initContainers:
+            - name: label-pvcs
               # 第三者イメージは digest 固定 (argoproj/argocd-image-updater/imageupdaters/README.md)。
               # このイメージはシェルを持たないため、kubectl を直接実行する。
+              image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
+              command: ["/bin/kubectl"]
+              # 該当する PVC が無ければ何も変更せず成功する。
+              args:
+                - --cache-dir=/tmp/kube-cache
+                - label
+                - persistentvolumeclaims
+                - --all-namespaces
+                - --selector=recurring-job.longhorn.io/source=enabled
+                - --overwrite
+                - recurring-job.longhorn.io/filesystem-trim=enabled
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          containers:
+            - name: label-volumes
               image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
               command: ["/bin/kubectl"]
               args:

@@ -21,6 +21,9 @@
 #                    実行中に sync した場合も、その Pod が終了してから Setting が適用される。
 # 3. remove-labels:  ボリュームに残る `recurring-job.longhorn.io/<job 名>` ラベルを外す
 #                    （RecurringJob は finalizer を持たず、kubectl で消した場合はラベルが残る）。
+#                    PVC に `recurring-job.longhorn.io/source: enabled` がある場合、PVC 側の同名ラベルは
+#                    ここでは外さない（Longhorn が Volume へ戻す）。参照先の RecurringJob は 1 で削除済みなので
+#                    残ったラベルは何も実行しない。現在このラベルを持つ PVC は無い。
 # 4. report:         残っている RecurringJob を出力する。filesystem-trim が `filesystem-trim` の 1 件だけなら移行完了。
 #
 # 削除対象は名前で固定し、Role の resourceNames でもこの 13 個に限定している（backup job は消せない）。
