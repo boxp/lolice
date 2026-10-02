@@ -7,6 +7,11 @@ spec:
   strategy:
     type: Recreate
   template:
+    metadata:
+      annotations:
+        # upstream の checksum/grafana-config は overlay の変更を反映しないため、
+        # grafana-config.yaml を変更したらこの値を更新して Pod を再作成する
+        lolice.io/grafana-config-rev: "BOXP-210"
     spec:
       containers:
         - name: grafana

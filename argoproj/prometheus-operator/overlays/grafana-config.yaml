@@ -14,3 +14,7 @@ stringData:
     [server]
     domain = grafana.b0xp.io
     root_url = https://grafana.b0xp.io/
+
+    [plugins]
+    # readOnlyRootFilesystem 下では同梱プラグイン(prometheus等)の起動時自動更新が失敗し、登録解除されたままになる
+    preinstall_auto_update = false
