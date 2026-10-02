@@ -48,6 +48,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: longhorn-system
   syncPolicy:
+    # Git の変更は自動で sync する。Git から消したリソースの削除 (prune) と、
+    # クラスタ側で直接変えた内容の巻き戻し (selfHeal) は自動では行わない。
+    automated:
+      prune: false
+      selfHeal: false
     syncOptions:
       - CreateNamespace=true
       - Replace=true
