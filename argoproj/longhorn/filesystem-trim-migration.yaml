@@ -1,0 +1,260 @@
+# UI で作成された filesystem-trim の RecurringJob（13 個、すべて 00:00 UTC）を、Setting の適用前に削除する。
+#
+# これらは backup job（00:00 UTC）と同時刻に走る。settings.yaml の
+# remove-snapshots-during-filesystem-trim=true が効いた状態で同時に走ると、trim が backup 実行中の
+# snapshot を removed 扱いにし得る。trim は recurring-jobs.yaml の `filesystem-trim`（02:00 UTC）に一本化する。
+#
+# 実行順は sync wave で決めている:
+# - wave 0: Longhorn chart（CRD を含む）と、この hook 用の ServiceAccount / Role / RoleBinding
+# - wave 1: この Job（Sync hook）
+# - wave 2: Setting `remove-snapshots-during-filesystem-trim`（settings.yaml）
+# Argo CD は wave 0 のリソースが Healthy になってから wave 1 に進むため、初回導入でも Job の実行時には
+# Longhorn の CRD が登録済みになる（PreSync hook だと CRD 作成前に走って失敗し、chart の sync 自体が止まる）。
+# Job が失敗すると sync はそこで失敗し、wave 2 の Setting は適用されない。
+# hook は selective sync（リソースを選んだ sync）では実行されない。この Setting を反映するときは
+# Application 全体を sync すること。
+#
+# 実行内容（initContainers → containers の順に直列）:
+# 1. delete-jobs:    対象の RecurringJob を削除する（無ければ何もしない）。
+# 2. wait-workloads: Longhorn が RecurringJob ごとに作る CronJob と、その Job / Pod が GC で消えるまで待つ
+#                    （いずれも `recurring-job.longhorn.io=<job 名>` ラベルを持つ）。00:00 UTC の trim が
+#                    実行中に sync した場合も、その Pod が終了してから Setting が適用される。
+# 3. remove-labels:  ボリュームに残る `recurring-job.longhorn.io/<job 名>` ラベルを外す
+#                    （RecurringJob は finalizer を持たず、kubectl で消した場合はラベルが残る）。
+#                    PVC に `recurring-job.longhorn.io/source: enabled` がある場合、PVC 側の同名ラベルは
+#                    ここでは外さない（Longhorn が Volume へ戻す）。参照先の RecurringJob は 1 で削除済みなので
+#                    残ったラベルは何も実行しない。現在このラベルを持つ PVC は無い。
+# 4. report:         残っている RecurringJob を出力する。filesystem-trim が `filesystem-trim` の 1 件だけなら移行完了。
+#
+# 削除対象は名前で固定し、Role の resourceNames でもこの 13 個に限定している（backup job は消せない）。
+# 今後 UI で trim job を追加した場合はここでは消えないので、trim は recurring-jobs.yaml でだけ管理する。
+# 2 回目以降の sync や、対象が 1 つも無いクラスタ（初回導入）では何も変更せず成功する。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filesystem-trim-migration
+  namespace: longhorn-system
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: filesystem-trim-migration
+  namespace: longhorn-system
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups: ["longhorn.io"]
+    resources: ["recurringjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["longhorn.io"]
+    resources: ["recurringjobs"]
+    verbs: ["delete"]
+    resourceNames:
+      - c-01493g
+      - c-1jzdhq
+      - c-5cs535
+      - c-7842vg
+      - c-8e0q21
+      - c-demrg0
+      - c-etx3ov
+      - c-gh80cf
+      - c-he0txy
+      - c-ik7ysu
+      - c-iozibl
+      - c-jvgcut
+      - c-m85v6d
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["longhorn.io"]
+    resources: ["volumes"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: filesystem-trim-migration
+  namespace: longhorn-system
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+subjects:
+  - kind: ServiceAccount
+    name: filesystem-trim-migration
+    namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: filesystem-trim-migration
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: filesystem-trim-migration
+  namespace: longhorn-system
+  labels:
+    app.kubernetes.io/name: filesystem-trim-migration
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "1"
+    # 次の sync まで Job を残し、ログで結果を確認できるようにする。
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: filesystem-trim-migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: filesystem-trim-migration
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: delete-jobs
+          # 第三者イメージは digest 固定 (argoproj/argocd-image-updater/imageupdaters/README.md)。
+          # このイメージはシェルを持たないため、kubectl を直接実行する。
+          image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
+          command: ["/bin/kubectl"]
+          args:
+            - --namespace=longhorn-system
+            - --cache-dir=/tmp/kube-cache
+            - delete
+            - recurringjobs.longhorn.io
+            - --ignore-not-found
+            - --timeout=120s
+            - c-01493g
+            - c-1jzdhq
+            - c-5cs535
+            - c-7842vg
+            - c-8e0q21
+            - c-demrg0
+            - c-etx3ov
+            - c-gh80cf
+            - c-he0txy
+            - c-ik7ysu
+            - c-iozibl
+            - c-jvgcut
+            - c-m85v6d
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        - name: wait-workloads
+          # `kubectl wait --for=delete` は selector に一致するリソースが 0 件でも exit 0 で終わる
+          # （`no matching resources found` で失敗するのは delete 以外の条件だけ。kubectl v1.36.5 の
+          # pkg/cmd/wait/wait.go RunWait: `if visitCount == 0 && !isForDelete`）。このイメージで実クラスタに
+          # 対して確認済み: 0 件は exit 0、残っている場合は timeout で exit 1。
+          # kubectl のイメージを更新するときは、0 件で成功することを確認し直すこと。
+          image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
+          command: ["/bin/kubectl"]
+          args:
+            - --namespace=longhorn-system
+            - --cache-dir=/tmp/kube-cache
+            - wait
+            - --for=delete
+            - --timeout=300s
+            - cronjobs.batch,jobs.batch,pods
+            - --selector=recurring-job.longhorn.io in (c-01493g,c-1jzdhq,c-5cs535,c-7842vg,c-8e0q21,c-demrg0,c-etx3ov,c-gh80cf,c-he0txy,c-ik7ysu,c-iozibl,c-jvgcut,c-m85v6d)
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        - name: remove-labels
+          image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
+          command: ["/bin/kubectl"]
+          args:
+            - --namespace=longhorn-system
+            - --cache-dir=/tmp/kube-cache
+            - label
+            - volumes.longhorn.io
+            - --all
+            - recurring-job.longhorn.io/c-01493g-
+            - recurring-job.longhorn.io/c-1jzdhq-
+            - recurring-job.longhorn.io/c-5cs535-
+            - recurring-job.longhorn.io/c-7842vg-
+            - recurring-job.longhorn.io/c-8e0q21-
+            - recurring-job.longhorn.io/c-demrg0-
+            - recurring-job.longhorn.io/c-etx3ov-
+            - recurring-job.longhorn.io/c-gh80cf-
+            - recurring-job.longhorn.io/c-he0txy-
+            - recurring-job.longhorn.io/c-ik7ysu-
+            - recurring-job.longhorn.io/c-iozibl-
+            - recurring-job.longhorn.io/c-jvgcut-
+            - recurring-job.longhorn.io/c-m85v6d-
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: report
+          image: registry.k8s.io/kubectl:v1.36.5@sha256:0667e3f3e6ef435d7cd4c16684244703ebd67314c17511c2a9f87ea44f6cdf6b
+          command: ["/bin/kubectl"]
+          args:
+            - --namespace=longhorn-system
+            - --cache-dir=/tmp/kube-cache
+            - get
+            - recurringjobs.longhorn.io
+            - --output=custom-columns=NAME:.metadata.name,TASK:.spec.task,CRON:.spec.cron,GROUPS:.spec.groups
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

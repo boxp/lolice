@@ -7,3 +7,5 @@ resources:
   - cloudflare-deployment.yaml
   - settings.yaml
   - recurring-jobs.yaml
+  - filesystem-trim-migration.yaml
+  - filesystem-trim-label-sync.yaml
