@@ -37,7 +37,7 @@ spec:
   source:
     repoURL: https://github.com/argoproj/argocd-example-apps.git
     targetRevision: 8088f4c0d970abb09e250248cc97e35623447cb5
-    path: guestbook
+    path: lightweight/app-a
   destination:
     server: https://kubernetes.default.svc
     namespace: netpol-impact
@@ -52,5 +52,5 @@ YAML
 echo "隔離kind内のfixture Applicationでmanifest生成と通常syncを確認"
 kubectl wait -n argocd --for=jsonpath='{.status.sync.status}'=Synced application/netpol-impact-fixture --timeout=180s
 kubectl wait -n argocd --for=jsonpath='{.status.health.status}'=Healthy application/netpol-impact-fixture --timeout=180s
-kubectl rollout status deployment/guestbook-ui -n netpol-impact --timeout=300s
+test "$(kubectl get configmap appset-demo -n netpol-impact -o jsonpath='{.data.source}')" = app-a
 test -n "$(kubectl get application netpol-impact-fixture -n argocd -o jsonpath='{.status.reconciledAt}')"

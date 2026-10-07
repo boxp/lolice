@@ -178,7 +178,7 @@ test -z "$refresh"
 test "$current_reconcile" != "$initial_reconcile"
 kubectl wait -n argocd --for=jsonpath='{.status.sync.status}'=Synced application/netpol-impact-fixture --timeout=300s
 kubectl wait -n argocd --for=jsonpath='{.status.health.status}'=Healthy application/netpol-impact-fixture --timeout=300s
-kubectl rollout status deployment/guestbook-ui -n netpol-impact --timeout=180s
+test "$(kubectl get configmap appset-demo -n netpol-impact -o jsonpath='{.data.source}')" = app-a
 kubectl delete application netpol-impact-fixture -n argocd --wait=true --timeout=180s
 kubectl delete namespace netpol-impact netpol-spoof --wait=true --timeout=180s
 echo "Argo CD NetworkPolicy impact matrix passed"

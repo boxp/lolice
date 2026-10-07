@@ -61,3 +61,5 @@ fixture失敗時は隔離Applicationのstatus、controller/repo-serverログを�
 
 
 ローカル再現を進めるとCalico以外のPVC一覧取得も拒否された。repoのbaseには名前空間Roleのみが含まれ、通常のupstream installにあるcluster RBACは含まれないため、初期CIにはfixtureをreconcileする権限が不足していた。使い捨てkindだけに、baseと同じrefから公式`manifests/cluster-rbac`を適用して標準installの検証前提を補う。本番RBAC、SA、Secret/tokenは追加・コピーしない。CIで補うRBACとCalico API除外を含む環境差を、本番反映後検証の省略根拠にしない。
+
+fixtureは固定revisionの`lightweight/app-a`（ConfigMap 1件）とし、`data.source=app-a`を確認する。guestbook imageの外部pull失敗を通信policyの障害と混同しないため、追加workload imageに依存しない例へ変更した。通常PR CIとupgrade preflightのargocd準備に同版cluster-rbacを補完する。preflightはCalico未導入なので通信matrix未実施の扱いを維持する。
