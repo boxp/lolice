@@ -63,7 +63,7 @@ CVE/Helm版数の評価はBOXP-218 Contextと現行月次reportを引き継ぐ�
 ownerから「policy復元前にChainsawで影響を検証できないか」と指摘を受け、隔離環境での事前検証を追加する。
 
 - [x] 既存PR #817・CIログ・テストを確認する。従来の成功はコアPod AvailableとApplication CR作成のみで、通常のmanifest生成やTCP通信は未検証。標準kindnetではNetworkPolicy enforcementを検証できない。
-- [ ] policyを実施するCNI付きの専用kind環境を用意し、本PRのKustomize生成物を適用する。
+- [x] policyを実施するCNI付きの専用kind環境を用意し、本PRのKustomize生成物を適用する。
 - [ ] 正当な同namespace peerラベルからrepo-server:8081 / Redis:6379への接続成功と、同namespace非許可ラベル・別namespace（許可ラベルを付けても）の拒否を対照試験する。DNS・policyなしでの到達成功により単なるDNS/egress障害を除外する。
 - [ ] controllerによる実際のmanifest生成・reconcileをfixture Applicationで確認する。本番を参照する自己管理Applicationの自動syncでPRのpolicyが上書きされない構成にする。
 - [ ] ローカル可能な検証・独立レビューとGitHub Actionsで実行し、PR・validation・現行月次report・Notesへ結果と限界を追記する。
@@ -71,3 +71,5 @@ ownerから「policy復元前にChainsawで影響を検証できないか」と�
 隔離kindの通信試験は本番への能動試験と分けて扱う。本番CNIの加算的policy、Cloudflare/Tailscaleの認証経路、image-updater通常周期は引き続きownerによる反映後検証が必要。fixture peerによるTCP成功は実コンポーネントの全操作成功を保証しないため、manifest生成の機能検証も併用する。
 
 [Calico公式kind導入手順](https://docs.tigera.io/calico/latest/getting-started/kubernetes/kind) と [kind公式CNI設定](https://kind.sigs.k8s.io/docs/user/configuration/) を参照。CNI/クラスタはCI用だけに追加し、本番マニフェストの許可peerは変更しない。
+
+CI初回のfixture失敗はCalico3.33管理APIのtiered RBAC/list拒否によるcache初期化エラーとしてローカルで再現した。CI専用のresource.exclusionsを追加し、本番設定/RBACを変えずに再検証する。最終CI結果はPR本文・Notes・現行月次reportを正本として参照する。

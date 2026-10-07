@@ -49,4 +49,12 @@ owner（boxp）または指定担当が既存承認済み経路でplan.mdの手�
 
 テスト用PodはhostNetwork=falseで、常時NotReadyにして実サービスのReady endpointへの混入を防ぐ。DNS/exec/ツール失敗をTCP拒否と判定しない。試験でpolicyを一時除去する操作はkubeconfig/API endpointを照合した使い捨てkindのみで行う。本番から秘密情報をコピーしない。
 
-実行結果は検証完了後、この節とPRへ記録する。本番のCloudflare/Tailscale認証経路、image-updater通常周期、本番Calico GlobalNetworkPolicyとの合成は隔離fixtureでは再現せず、反映後のowner検証を維持する。
+実行結果の正本は[PR #817](https://github.com/boxp/lolice/pull/817)本文のCIリンクと完了ログ、ticket Notes、現行月次reportとする。本番のCloudflare/Tailscale認証経路、image-updater通常周期、本番Calico GlobalNetworkPolicyとの合成は隔離fixtureでは再現せず、反映後のowner検証を維持する。
+
+### CI環境の差異と初回失敗
+
+commit `566456d` の[追加CI](https://github.com/boxp/lolice/actions/runs/37601614219)はCalico導入・全コアPod起動に成功したが、fixture Synced待機600sで失敗し、通信matrixは未実施だった。ローカル再現ではCalico 3.33のtiered RBAC API `projectcalico.org` の一覧取得がArgo CD標準SAへ拒否され、cluster cache初期化がComparisonErrorとなることを確認した。
+
+通常PR CIだけ、既存`argocd-cm`の`resource.exclusions`へCalico管理API群（projectcalico.org / crd.projectcalico.org / operator.tigera.io）を追記しcontrollerを再起動する。fixtureはCalico資源を同期しないため、CNI側の管理APIをcache対象から外してArgo CD本体の機能検証を行う。本番Kustomize生成物やRBACには追加しない。この設定差があるので、成功しても本番環境全体の同等性を主張しない。
+
+fixture失敗時は隔離Applicationのstatus、controller/repo-serverログを出力する。Secretは取得しない。再検証CIと独立レビューの最終結果はPRを参照する。
