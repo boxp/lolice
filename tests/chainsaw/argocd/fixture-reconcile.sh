@@ -14,6 +14,18 @@ test -n "$expected_server" && test "$actual_server" = "$expected_server"
 case "$expected_server" in https://127.0.0.1:*|https://localhost:*) ;; *) echo "kind API server must be local" >&2; exit 1 ;; esac
 export KUBECONFIG="$kubeconfig"
 
+# 失敗時の診断は隔離fixtureとコアコンポーネントのログだけ。
+# Secretや本番の認証情報は取得しない。
+diagnose_failure() {
+  test "$?" -eq 0 && return
+  kubectl get application netpol-impact-fixture -n argocd -o yaml || true
+  kubectl get appproject default -n argocd -o yaml || true
+  kubectl logs -n argocd statefulset/argocd-application-controller --tail=100 || true
+  kubectl logs -n argocd deployment/argocd-repo-server --tail=60 || true
+  kubectl get pods -n netpol-impact || true
+}
+trap diagnose_failure EXIT
+
 cat <<'YAML' | kubectl apply -f -
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -38,7 +50,7 @@ spec:
 YAML
 
 echo "隔離kind内のfixture Applicationでmanifest生成と通常syncを確認"
-kubectl wait -n argocd --for=jsonpath='{.status.sync.status}'=Synced application/netpol-impact-fixture --timeout=600s
-kubectl wait -n argocd --for=jsonpath='{.status.health.status}'=Healthy application/netpol-impact-fixture --timeout=600s
+kubectl wait -n argocd --for=jsonpath='{.status.sync.status}'=Synced application/netpol-impact-fixture --timeout=180s
+kubectl wait -n argocd --for=jsonpath='{.status.health.status}'=Healthy application/netpol-impact-fixture --timeout=180s
 kubectl rollout status deployment/guestbook-ui -n netpol-impact --timeout=300s
 test -n "$(kubectl get application netpol-impact-fixture -n argocd -o jsonpath='{.status.reconciledAt}')"
