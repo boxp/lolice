@@ -33,3 +33,20 @@ Kustomize v5.8.2、変更前後それぞれ`kustomize build argoproj/argocd`成�
 本番merge/syncは未実施。反映後3policy、通常manifest生成reconcile、許可peer TCP成功、無許可PodのTCP拒否、CNI enforcementと加算的GlobalNetworkPolicy、Cloudflare/Tailscale個別認証アクセス、反映後image-updater継続は未確認。
 
 owner（boxp）または指定担当が既存承認済み経路でplan.mdの手順を実施する。現SA権限を拡張せず、証拠取得まで該当ACを未チェックで残す。現行月次正本にも実装前/未反映を追記する。
+
+## Chainsawによる事前影響検証（レビュー対応）
+
+既存のCI成功はコアコンポーネントAvailableとApplication CR作成の確認だった。今回、kindの標準CNIを無効化してCalicoを導入し、本PRのpolicyが実際に通信を許可/拒否する環境でテストを追加する。
+
+| 試験 | 期待結果 |
+| --- | --- |
+| policyなしのbaseline、同ns通常Pod/他ns許可ラベルPod→8081/6379 | DNS解決・TCP接続成功 |
+| 復元後、同ns server/controller/notifications/applicationset→8081 | TCP成功 |
+| 復元後、同ns server/repo-server/controller→6379 | TCP成功 |
+| 復元後、同ns非許可ラベル/他ns許可ラベル→8081/6379 | DNS成功、TCP timeout |
+| serverへproxy相当PodからServiceアクセス | TCP成功（upstream全許可） |
+| fixture Applicationのmanifest生成・sync、復元後hard refresh | 新しいreconcileでSynced/Healthy |
+
+テスト用PodはhostNetwork=falseで、常時NotReadyにして実サービスのReady endpointへの混入を防ぐ。DNS/exec/ツール失敗をTCP拒否と判定しない。試験でpolicyを一時除去する操作はkubeconfig/API endpointを照合した使い捨てkindのみで行う。本番から秘密情報をコピーしない。
+
+実行結果は検証完了後、この節とPRへ記録する。本番のCloudflare/Tailscale認証経路、image-updater通常周期、本番Calico GlobalNetworkPolicyとの合成は隔離fixtureでは再現せず、反映後のowner検証を維持する。

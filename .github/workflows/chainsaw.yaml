@@ -81,6 +81,7 @@ jobs:
     env:
       REPO_ROOT: ${{ github.workspace }}
       CHAINSAW_KIND_CONTEXT: kind-chainsaw-test
+      CHAINSAW_NETWORK_POLICY_TEST: "true"
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -97,6 +98,7 @@ jobs:
           kubectl_version: v1.37.1
           node_image: kindest/node:v1.37.0
           cluster_name: chainsaw-test
+          config: tests/chainsaw/argocd/kind-config.yaml
 
       - name: Export and verify isolated kubeconfig
         run: |
@@ -105,6 +107,26 @@ jobs:
           kind export kubeconfig --name "${CHAINSAW_KIND_CONTEXT#kind-}" --kubeconfig "$CHAINSAW_KIND_KUBECONFIG"
           test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
           echo "CHAINSAW_KIND_KUBECONFIG=$CHAINSAW_KIND_KUBECONFIG" >> "$GITHUB_ENV"
+
+      - name: Install Calico NetworkPolicy enforcing CNI
+        run: |
+          set -euo pipefail
+          export KUBECONFIG="${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
+          CALICO_VERSION=v3.33.0
+          curl -fsSLo /tmp/calico-crds.yaml "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/v3_projectcalico_org.yaml"
+          curl -fsSLo /tmp/tigera-operator.yaml "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+          curl -fsSLo /tmp/calico-custom-resources.yaml "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml"
+          kubectl create -f /tmp/calico-crds.yaml
+          kubectl create -f /tmp/tigera-operator.yaml
+          kubectl wait --for=condition=Available deployment/tigera-operator -n tigera-operator --timeout=180s
+          kubectl create -f /tmp/calico-custom-resources.yaml
+          for attempt in $(seq 1 30); do
+            if kubectl get deployment/calico-kube-controllers -n calico-system >/dev/null 2>&1; then break; fi
+            sleep 5
+          done
+          kubectl wait --for=condition=Available deployment/calico-kube-controllers -n calico-system --timeout=300s
+          kubectl wait --for=condition=Ready pod -l k8s-app=calico-node -n calico-system --timeout=300s
+          kubectl get pods -n calico-system
 
       - name: Install chainsaw
         uses: kyverno/action-install-chainsaw@v0.2.15
