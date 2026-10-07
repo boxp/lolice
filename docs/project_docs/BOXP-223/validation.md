@@ -62,17 +62,3 @@ chart/Applicationと稼働manifestは変更していないため、Helm render�
 storage migration・refreshInterval 1周期の確認は未実施。
 read-onlyの状態/権限確認結果と再開条件はplan.mdに記録した。
 High advisoryの解消や受入条件全体の達成とは判定しない。
-
-## レビュー指摘への対応とCI
-
-低コストモデルgpt-5.6-terraへのCodex CLIレビュー委譲で、Renovate更新PRでもChainsawが
-旧chart 0.18.2を検証するP2指摘を受けた。通常CIはApplicationからtargetRevisionを取得し、
-固定semverを要求してその版をインストールする。証跡用preflightは既存の固定版/digestを保持し、
-Applicationの版が異なる場合はインストール前に停止する。新chart更新時はpreflightの版・検証済みdigestを同時更新する。
-
-- 既存workflow unittest 15件成功。
-- actionlintで変更した2 workflowの検証成功。
-- yq v4.48.1を用いてworkflowの実shell部分を一時Applicationに対して実行。
-  通常CIは0.18.2/2.12.0を選択し、main/2.*を拒否。
-  preflightは0.18.2だけ許可し、2.12.0/main/2.*を拒否。
-- GitHub上のkind CI結果はPR checksで確認する。本番のESO更新試験を代替するものではない。

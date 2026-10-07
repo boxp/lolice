@@ -4,7 +4,6 @@
 
 本runは実装要求。前回groomの「コード変更なし」は前回runの範囲と解釈する。
 このPRではRenovateによるmulti-source Applicationのchart検出と、ESO専用の手動merge設定を追加する。
-通常Chainsaw CIはApplicationの固定targetRevisionを検証し、immutable preflightは固定版・digestとの不一致時に停止する。
 chart更新・admission・NetworkPolicyは下記の前提が未完了のため追加しない。
 現行のHigh advisoryは未解消であり、チケット全体の完了を意味しない。
 
@@ -63,8 +62,7 @@ Helm renderした3 deploymentの実imageとappVersionを証跡に残す。
    に従い、移行対象の全CRを現storage versionで再保存し、件数・成功・並行更新を確認する。
    その証跡を確認してからstoredVersionsを更新し、旧versionを除くCRDを適用する。
    statusだけの書換え、CRDや生成Secretの削除・再作成を移行方法にしない。
-3. 選定版を非本番でrender/schema検証する。
-   `.github/workflows/chainsaw-preflight.yaml` の固定ESO版と検証済みdigestを同時更新し、証跡用CIを実行する。AWS template engine v2等の既存manifestを検証する。
+3. 選定版を非本番でrender/schema検証する。AWS template engine v2等の既存manifestを検証する。
    ownerの運用経路でGitOpsの自動同期を制御し、移行→必要な中間版→最終chart更新を段階適用する。
    Application自身を管理する親Applicationの再同期も考慮し、selfHealの先行適用を防ぐ。
 4. 未使用確認後、Webhook CREATE/UPDATEとClusterGeneratorのWebhook埋め込みを
