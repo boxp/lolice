@@ -26,6 +26,7 @@ Application全文に対して実行し、`spec.sources` から次のchartを抽�
 ```
 
 追加patternがESOのApplicationに一致し、tailscaleのApplicationに一致しないことをassertした。
+最新mainの既存tailscale pattern/packageRuleを保持して追加し、両Applicationの検出を確認した。
 `major.enabled` とESO packageRuleの `enabled` が未設定であること、
 既存 `major.automerge=false` とESOの `automerge=false` をassertした。
 全updateTypeを対象とするESOルールなので、既存の全体automerge=trueからESO更新を除外する。
@@ -36,6 +37,7 @@ Git URLに新しい更新ルールは追加していない。
 GitHub上のRenovate bot全体の実行やDependency Dashboardへの反映は未確認。
 merge後にDashboard #2のchart掲載と更新PR生成を確認する必要がある。
 既存open PRは#817（BOXP-218）のみでESO更新との重複はなかった。
+指定worktreeの起点に別タスクの未mergeコミットがあったため、本runの変更のみ最新mainへ載せ直した。
 
 再現例（実packageのextractorを使用。作業ディレクトリはrepo root）：
 
