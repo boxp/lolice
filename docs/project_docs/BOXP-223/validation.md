@@ -62,3 +62,21 @@ chart/Applicationと稼働manifestは変更していないため、Helm render�
 storage migration・refreshInterval 1周期の確認は未実施。
 read-onlyの状態/権限確認結果と再開条件はplan.mdに記録した。
 High advisoryの解消や受入条件全体の達成とは判定しない。
+
+## CI修正patchと追加ブロッカー
+
+terraレビューで、ESO更新PRのCIが旧版0.18.2を固定検証するP2指摘を受けた。
+通常CIはApplicationのtargetRevisionを検証し、immutable preflightは既存固定版/digestとの
+不一致時に停止する修正を作成したが、GitHub OAuth Appにworkflow scopeがなくpushが拒否された。
+workflow変更をrevertし、未適用の修正を `ci-followup.patch` として保存した。
+このPRは稼働workflowを変更しない。scopeのある承認済み経路でpatchを適用し、
+CI結果を確認するまで、このP2指摘は未解消として扱う。
+
+patchのローカル検証結果：workflow unittest 15件成功、2 workflowのactionlint成功。
+yq v4.48.1で実shell部分を一時Applicationに対して実行し、通常CIは0.18.2/2.12.0を選択、
+main/2.*を拒否。preflightは0.18.2だけ許可し、2.12.0/main/2.*を拒否。
+これは本番のESO更新検証やGitHub上のkind CI実行を代替しない。
+
+repo rootで `git apply --check docs/project_docs/BOXP-223/ci-followup.patch`、
+`git apply docs/project_docs/BOXP-223/ci-followup.patch` で適用できる。
+更新版の実装時はpreflightのESO固定版・検証済みdigestを同時更新すること。

@@ -20,6 +20,9 @@ Argo ApplicationはselfHeal有効なので、移行前のchart変更をmainへme
 Renovate検出を有効にしても、ESOのminor/patchを含む全更新のautomergeを無効にし、移行レビュー後にmergeする。
 major更新の検出やPR生成は無効化しない。
 
+Renovate更新PRのChainsawが旧ESO版を固定検証する問題の修正は `ci-followup.patch` に保存した。
+workflow scope不足により稼働workflowへの反映は未実施。承認済みpush経路でpatch適用後にCIを確認する。
+
 ## 現状の再確認
 
 本runのread-only確認：ExternalSecret 29件、非Readyは既存の
