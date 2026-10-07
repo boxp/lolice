@@ -58,3 +58,6 @@ commit `566456d` の[追加CI](https://github.com/boxp/lolice/actions/runs/37601
 通常PR CIだけ、既存`argocd-cm`の`resource.exclusions`へCalico管理API群（projectcalico.org / crd.projectcalico.org / operator.tigera.io）を追記しcontrollerを再起動する。fixtureはCalico資源を同期しないため、CNI側の管理APIをcache対象から外してArgo CD本体の機能検証を行う。本番Kustomize生成物やRBACには追加しない。この設定差があるので、成功しても本番環境全体の同等性を主張しない。
 
 fixture失敗時は隔離Applicationのstatus、controller/repo-serverログを出力する。Secretは取得しない。再検証CIと独立レビューの最終結果はPRを参照する。
+
+
+ローカル再現を進めるとCalico以外のPVC一覧取得も拒否された。repoのbaseには名前空間Roleのみが含まれ、通常のupstream installにあるcluster RBACは含まれないため、初期CIにはfixtureをreconcileする権限が不足していた。使い捨てkindだけに、baseと同じrefから公式`manifests/cluster-rbac`を適用して標準installの検証前提を補う。本番RBAC、SA、Secret/tokenは追加・コピーしない。CIで補うRBACとCalico API除外を含む環境差を、本番反映後検証の省略根拠にしない。

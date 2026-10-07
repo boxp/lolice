@@ -186,6 +186,12 @@ jobs:
                 # ExternalSecret は ESO が動作していないため sync されないが、リソース自体は作成可能
                 kustomize build argoproj/argocd/ \
                   | kubectl apply --server-side --force-conflicts -f -
+                # repoのbase単体にはcluster RBACが含まれない。
+                # 隔離kindのみ同版upstream標準install相当のRBACを補完する。
+                ARGOCD_BASE_REF=$(yq '.resources[] | select(contains("argo-cd/manifests/base?ref=")) | split("?ref=")[1]' argoproj/argocd/kustomization.yaml)
+                test -n "$ARGOCD_BASE_REF"
+                kustomize build "github.com/argoproj/argo-cd/manifests/cluster-rbac?ref=$ARGOCD_BASE_REF" \
+                  | kubectl apply --server-side --force-conflicts -f -
                 # Calico 3.33 の tiered RBAC API は標準Argo CD SAに
                 # discovery/listを許可しない。CI専用CNI管理資源は同期対象外にする。
                 # 本番manifest/RBACは変更せず、既存exclusionsも保持する。
