@@ -126,7 +126,7 @@ else:
 echo "baselineの前提: DNS解決とService endpointを確認"
 for endpoint in "$repo_service 8081" "$redis_service 6379"; do
   read -r service port <<< "$endpoint"
-  kubectl exec -n argocd allowed-server -- nslookup "$service" >/dev/null
+  kubectl exec -n argocd allowed-server -- python -c 'import socket, sys; socket.getaddrinfo(sys.argv[1], None, type=socket.SOCK_STREAM)' "$service" >/dev/null
   test -n "$(kubectl get endpointslice -n argocd -l kubernetes.io/service-name="${service%%.*}" -o jsonpath='{.items[*].endpoints[?(@.conditions.ready==true)].addresses[*]}')"
 done
 
