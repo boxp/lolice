@@ -64,8 +64,8 @@ ownerから「policy復元前にChainsawで影響を検証できないか」と�
 
 - [x] 既存PR #817・CIログ・テストを確認する。従来の成功はコアPod AvailableとApplication CR作成のみで、通常のmanifest生成やTCP通信は未検証。標準kindnetではNetworkPolicy enforcementを検証できない。
 - [x] policyを実施するCNI付きの専用kind環境を用意し、本PRのKustomize生成物を適用する。
-- [ ] 正当な同namespace peerラベルからrepo-server:8081 / Redis:6379への接続成功と、同namespace非許可ラベル・別namespace（許可ラベルを付けても）の拒否を対照試験する。DNS・policyなしでの到達成功により単なるDNS/egress障害を除外する。
-- [ ] controllerによる実際のmanifest生成・reconcileをfixture Applicationで確認する。本番を参照する自己管理Applicationの自動syncでPRのpolicyが上書きされない構成にする。
+- [x] 正当な同namespace peerラベルからrepo-server:8081 / Redis:6379への接続成功と、同namespace非許可ラベル・別namespace（許可ラベルを付けても）の拒否を対照試験する。DNS・policyなしでの到達成功により単なるDNS/egress障害を除外する。
+- [x] controllerによる実際のmanifest生成・reconcileをfixture Applicationで確認する。本番を参照する自己管理Applicationの自動syncでPRのpolicyが上書きされない構成にする。
 - [ ] ローカル可能な検証・独立レビューとGitHub Actionsで実行し、PR・validation・現行月次report・Notesへ結果と限界を追記する。
 
 隔離kindの通信試験は本番への能動試験と分けて扱う。本番CNIの加算的policy、Cloudflare/Tailscaleの認証経路、image-updater通常周期は引き続きownerによる反映後検証が必要。fixture peerによるTCP成功は実コンポーネントの全操作成功を保証しないため、manifest生成の機能検証も併用する。
