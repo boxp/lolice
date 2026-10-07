@@ -2,9 +2,7 @@ diff --git a/.github/workflows/chainsaw-preflight.yaml b/.github/workflows/chain
 index c1848cb..d8d1899 100644
 --- a/.github/workflows/chainsaw-preflight.yaml
 +++ b/.github/workflows/chainsaw-preflight.yaml
-@@ -219,6 +219,11 @@ jobs:
-           case "$COMPONENT" in
-             argocd|external-secrets-operator)
+@@ -221,2 +221,7 @@ jobs:
                ESO_CHART_VERSION=0.18.2
 +              ESO_APPLICATION_CHART_VERSION="$(yq -r '.spec.sources[] | select(.chart == "external-secrets") | .targetRevision' "${REPO_ROOT}/argoproj/external-secrets-operator/application.yaml")"
 +              if [ "$ESO_APPLICATION_CHART_VERSION" != "$ESO_CHART_VERSION" ]; then
@@ -12,15 +10,11 @@ index c1848cb..d8d1899 100644
 +                exit 1
 +              fi
                ESO_CHART_SHA256=5d0645b815837af4ce1fd0436879e4adfe8230072103c65429c4a41d9e00f43d
-               eso_chart="$RUNNER_TEMP/external-secrets-${ESO_CHART_VERSION}.tgz"
-               helm repo add external-secrets https://charts.external-secrets.io --force-update
 diff --git a/.github/workflows/chainsaw.yaml b/.github/workflows/chainsaw.yaml
 index 5ba53e8..4e6f845 100644
 --- a/.github/workflows/chainsaw.yaml
 +++ b/.github/workflows/chainsaw.yaml
-@@ -140,10 +140,15 @@ jobs:
-           if echo "$COMPONENTS" | python3 -c "import sys,json; sys.exit(0 if 'external-secrets-operator' in json.load(sys.stdin) else 1)" 2>/dev/null || \
-              echo "$COMPONENTS" | python3 -c "import sys,json; sys.exit(0 if 'argocd' in json.load(sys.stdin) else 1)" 2>/dev/null; then
+@@ -142,2 +142,7 @@ jobs:
              echo "=== ESO を Helm でインストール（CRD を Helm labels 付きでインストール） ==="
 +            ESO_CHART_VERSION="$(yq -r '.spec.sources[] | select(.chart == "external-secrets") | .targetRevision' "${REPO_ROOT}/argoproj/external-secrets-operator/application.yaml")"
 +            [[ "$ESO_CHART_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -28,10 +22,8 @@ index 5ba53e8..4e6f845 100644
 +              exit 1
 +            }
              helm repo add external-secrets https://charts.external-secrets.io --force-update
-             kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
+@@ -145,3 +150,3 @@ jobs:
              helm install external-secrets external-secrets/external-secrets \
 -              --version 0.18.2 --namespace external-secrets --wait --timeout 180s
 +              --version "$ESO_CHART_VERSION" --namespace external-secrets --wait --timeout 180s
              echo "ESO インストール完了"
-           fi
- 
