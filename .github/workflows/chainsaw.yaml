@@ -192,20 +192,6 @@ jobs:
                 test -n "$ARGOCD_BASE_REF"
                 kustomize build "github.com/argoproj/argo-cd/manifests/cluster-rbac?ref=$ARGOCD_BASE_REF" \
                   | kubectl apply --server-side --force-conflicts -f -
-                # Calico 3.33 の tiered RBAC API は標準Argo CD SAに
-                # discovery/listを許可しない。CI専用CNI管理資源は同期対象外にする。
-                # 本番manifest/RBACは変更せず、既存exclusionsも保持する。
-                kubectl get configmap argocd-cm -n argocd -o json > "$RUNNER_TEMP/ci-argocd-cm.json"
-                python3 - "$RUNNER_TEMP/ci-argocd-cm.json" "$RUNNER_TEMP/ci-calico-exclusions.json" <<'PY'
-          import json, sys
-          with open(sys.argv[1]) as stream:
-              current = json.load(stream).get('data', {}).get('resource.exclusions', '')
-          extra = "\n- apiGroups:\n  - projectcalico.org\n  - crd.projectcalico.org\n  - operator.tigera.io\n  kinds:\n  - '*'\n  clusters:\n  - '*'\n"
-          with open(sys.argv[2], 'w') as stream:
-              json.dump({'data': {'resource.exclusions': current + extra}}, stream)
-          PY
-                kubectl patch configmap argocd-cm -n argocd --type merge --patch-file "$RUNNER_TEMP/ci-calico-exclusions.json"
-                kubectl rollout restart statefulset/argocd-application-controller -n argocd
                 echo "=== ArgoCD マニフェスト適用後の状態確認 ==="
                 kubectl get deployments -n argocd
                 kubectl get statefulsets -n argocd

@@ -51,15 +51,24 @@ owner（boxp）または指定担当が既存承認済み経路でplan.mdの手�
 
 実行結果の正本は[PR #817](https://github.com/boxp/lolice/pull/817)本文のCIリンクと完了ログ、ticket Notes、現行月次reportとする。本番のCloudflare/Tailscale認証経路、image-updater通常周期、本番Calico GlobalNetworkPolicyとの合成は隔離fixtureでは再現せず、反映後のowner検証を維持する。
 
-### CI環境の差異と初回失敗
+### CI環境の前提と最終ローカル検証
 
-commit `566456d` の[追加CI](https://github.com/boxp/lolice/actions/runs/37601614219)はCalico導入・全コアPod起動に成功したが、fixture Synced待機600sで失敗し、通信matrixは未実施だった。ローカル再現ではCalico 3.33のtiered RBAC API `projectcalico.org` の一覧取得がArgo CD標準SAへ拒否され、cluster cache初期化がComparisonErrorとなることを確認した。
+初回の[追加CI](https://github.com/boxp/lolice/actions/runs/37601614219)はCalico導入・全コアPod起動成功、fixture Synced待機timeoutで失敗し、matrix未実行。診断を追加した[再実行](https://github.com/boxp/lolice/actions/runs/37603474997)ではcluster resourcequotas list Forbidden/ComparisonErrorを確認した。
 
-通常PR CIだけ、既存`argocd-cm`の`resource.exclusions`へCalico管理API群（projectcalico.org / crd.projectcalico.org / operator.tigera.io）を追記しcontrollerを再起動する。fixtureはCalico資源を同期しないため、CNI側の管理APIをcache対象から外してArgo CD本体の機能検証を行う。本番Kustomize生成物やRBACには追加しない。この設定差があるので、成功しても本番環境全体の同等性を主張しない。
+原因はrepoの`manifests/base`単体にcluster RBACが含まれないこと。使い捨てkindだけ、baseと同じrefの公式`manifests/cluster-rbac`を補完して通常upstream install相当の準備をする。最初にCalico API一覧取得の拒否が見えたが、Calico API除外を外しても標準cluster RBACだけでfixture Synced/Healthyになり、根本原因がCI準備の権限不足と分かった。最終実装ではCalicoのresource.exclusions追加を行わない。本番manifest/RBAC/SA/認証情報は追加・コピーしない。
 
-fixture失敗時は隔離Applicationのstatus、controller/repo-serverログを出力する。Secretは取得しない。再検証CIと独立レビューの最終結果はPRを参照する。
+fixtureは固定revisionの`lightweight/app-a`（ConfigMap 1件）。`data.source=app-a`を確認する。guestbook imageの外部pull失敗を通信障害と混同しないため、追加workload imageに依存しない例を用いる。通常PR CIとupgrade preflightのargocd準備に同版cluster-rbacを補完する。preflightはkindnetでmatrix未実施と明示し、fixture生成/syncを確認する。
 
+2026-10-07、専用ローカルkind Kubernetes1.37 / Calico3.33.0で以下が成功した（本番とは別環境）。
 
-ローカル再現を進めるとCalico以外のPVC一覧取得も拒否された。repoのbaseには名前空間Roleのみが含まれ、通常のupstream installにあるcluster RBACは含まれないため、初期CIにはfixtureをreconcileする権限が不足していた。使い捨てkindだけに、baseと同じrefから公式`manifests/cluster-rbac`を適用して標準installの検証前提を補う。本番RBAC、SA、Secret/tokenは追加・コピーしない。CIで補うRBACとCalico API除外を含む環境差を、本番反映後検証の省略根拠にしない。
+- 全コアPod起動、固定revisionからConfigMap生成、fixture Synced/Healthy。
+- policy除去後、同nsの試験Pod6種と他ns spoof Podから8081/6379のDNS/TCP成功。
+- 復元後、8081のserver/controller/notifications/applicationset、6379のserver/repo-server/controllerがTCP成功。
+- 同ns非許可/他ns spoofの両portがDNS成功後2秒TCP timeoutを2回連続。全probeはhostNetwork=false/NotReady。
+- 他nsから8084成功、proxy相当ラベルPodからserver 80/443のTCP成功。
+- 復元後hard refresh処理完了・reconciledAt更新・Synced/Healthy・ConfigMap内容を確認。
+- Calico API除外を除去し、標準cluster RBACのみでfixture生成/sync/Healthyを再確認。
 
-fixtureは固定revisionの`lightweight/app-a`（ConfigMap 1件）とし、`data.source=app-a`を確認する。guestbook imageの外部pull失敗を通信policyの障害と混同しないため、追加workload imageに依存しない例へ変更した。通常PR CIとupgrade preflightのargocd準備に同版cluster-rbacを補完する。preflightはCalico未導入なので通信matrix未実施の扱いを維持する。
+workflow/guardテスト16件、両bash script構文、YAML parse、diff check成功。独立read-only reviewを実施した。最終CIとreview結果はPR本文を参照する。失敗時診断は隔離Application/statusとcontroller/repo-serverログのみでSecretは取得しない。
+
+本番GlobalNetworkPolicyとの合成、Cloudflare/Tailscale認証、image-updater周期は再現していない。隔離環境の成功でも本番反映後ACを完了扱いにしない。

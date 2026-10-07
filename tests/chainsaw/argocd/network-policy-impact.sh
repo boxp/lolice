@@ -34,7 +34,7 @@ metadata:
   name: ${name}
   namespace: ${namespace}
   labels:
-    ${labels/=/: }
+    ${labels%%=*}: "${labels#*=}"
 spec:
   hostNetwork: false
   containers:

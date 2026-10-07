@@ -72,6 +72,4 @@ ownerから「policy復元前にChainsawで影響を検証できないか」と�
 
 [Calico公式kind導入手順](https://docs.tigera.io/calico/latest/getting-started/kubernetes/kind) と [kind公式CNI設定](https://kind.sigs.k8s.io/docs/user/configuration/) を参照。CNI/クラスタはCI用だけに追加し、本番マニフェストの許可peerは変更しない。
 
-CI初回のfixture失敗はCalico3.33管理APIのtiered RBAC/list拒否によるcache初期化エラーとしてローカルで再現した。CI専用のresource.exclusionsを追加し、本番設定/RBACを変えずに再検証する。最終CI結果はPR本文・Notes・現行月次reportを正本として参照する。
-
-base単体にcluster RBACが含まれないため、使い捨てkindへbaseと同版のupstream cluster-rbacを補完してfixture同期を試す。本番の権限拡張はしない。詳細はvalidation.mdのCI環境差を参照。
+CI初回のfixture失敗はbase単体にcluster RBACが含まれないことによる一覧取得拒否/ComparisonError。使い捨てkindへbaseと同版upstream cluster-rbacを補完するとfixture Synced/Healthyになった。Calico API除外は不要と確認し最終実装には含めない。本番の権限拡張はしない。専用ローカルmatrixの許可/拒否・metrics/server・manifest再生成は成功。詳細はvalidation.md、最終CI結果はPR本文・Notes・現行月次reportを参照する。
