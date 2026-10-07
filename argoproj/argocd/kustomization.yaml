@@ -10,9 +10,6 @@ resources:
 - base/cloudflared-api.yaml
 - base/helm-repo-arc.yaml
 patchesStrategicMerge:
-- overlays/argocd-redis-network-policy.yaml
-- overlays/argocd-repo-server-network-policy.yaml
-- overlays/argocd-server-network-policy.yaml
 - overlays/argocd-cmd-params-cm.yaml
 - overlays/argocd-cm.yaml
 - overlays/argocd-rbac-cm.yaml
