@@ -12,28 +12,24 @@ oauthSecretVolume:
   secret:
     secretName: tailscale-operator-oauth
 
-# Operator image tag (pinned for reproducibility)
-image:
-  tag: v1.80.3
+# Operator and proxy image tags are left unset so they follow the chart's
+# appVersion (targetRevision in ../application.yaml).
+
+# Resource limits for the operator itself
+operatorConfig:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
 
 # Operator runs in userspace mode (no NET_ADMIN required)
 proxyConfig:
   defaultTags: "tag:k8s-operator"
-
-# Resource limits for the operator itself
-resources:
-  requests:
-    cpu: 50m
-    memory: 64Mi
-  limits:
-    cpu: 200m
-    memory: 256Mi
-
-# Proxy resource limits (for sidecar/standalone proxy pods)
-proxyResources:
-  requests:
-    cpu: 50m
-    memory: 64Mi
-  limits:
-    cpu: 100m
-    memory: 128Mi
+  # Proxy resource limits are set by this ProxyClass (../proxyclass.yaml);
+  # the chart has no values key for them.
+  # The default does not apply to Connector resources (none exist today);
+  # a Connector must set spec.proxyClass: default-proxy itself.
+  defaultProxyClass: default-proxy
