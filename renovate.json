@@ -30,6 +30,20 @@
   ],
   "packageRules": [
     {
+      "description": "Group cloudflared digest pinning and image updates",
+      "matchManagers": [
+        "kubernetes"
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "docker.io/cloudflare/cloudflared"
+      ],
+      "pinDigests": true,
+      "groupName": "cloudflared image updates"
+    },
+    {
       "matchManagers": [
         "argocd"
       ],
