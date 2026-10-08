@@ -253,6 +253,14 @@ jobs:
           esac
           kustomize build "$manifest_dir" | tee "$evidence_dir/prepared-$COMPONENT.yaml" \
             | kubectl apply --server-side --force-conflicts -f -
+          if [ "$COMPONENT" = argocd ]; then
+            # base単体にない標準cluster RBACを隔離kindへ補完する。
+            ARGOCD_BASE_REF=$(yq '.resources[] | select(contains("argo-cd/manifests/base?ref=")) | split("?ref=")[1]' argoproj/argocd/kustomization.yaml)
+            test -n "$ARGOCD_BASE_REF"
+            kustomize build "github.com/argoproj/argo-cd/manifests/cluster-rbac?ref=$ARGOCD_BASE_REF" \
+              | tee "$evidence_dir/prepared-argocd-cluster-rbac.yaml" \
+              | kubectl apply --server-side --force-conflicts -f -
+          fi
 
       - name: Run tests and require a nonempty complete JUnit report
         id: test
