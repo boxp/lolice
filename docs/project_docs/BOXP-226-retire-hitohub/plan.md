@@ -75,3 +75,19 @@
   (BOXP-184 で追加した hitohub 専用の通知抑止。namespace 削除後は不要)。
 - `CLAUDE.md` / `docs/project-structure.md` の hitohub 記述。
 - `argoproj/prometheus-operator/scrape-config.yaml` は既に BOXP-181 (PR #776) で削除済み。
+
+## Phase 3 / 4 の結果 (2026-10-10 17:08〜17:15 UTC、CP1 admin kubeconfig 経由)
+
+- PR #823 (78c2654) merge 後、根 app `argocd-apps` は prune=false のため Application `prod-hitohub` / `stage-hitohub` が
+  孤児化 (ComparisonError: app path does not exist)。finalizer が無いため `--cascade=orphan` で Application を削除し、
+  TidbCluster → namespace の順で手動削除した (cascade 削除の代替)。
+- 削除直前に S3 の保全オブジェクトを再取得して `sha256sum -c` OK を再確認 (保全ゲート再成立)。
+- namespace 削除で PVC 8 / PV 8 / Longhorn volume 8 本が消滅 (Longhorn 18 → 10 volume、すべて healthy、replica 残存 0)。
+- alertmanager の null route 削除は 16:52 の自動 sync で反映済み (live 設定内の hitohub 参照 0)。
+  live の ScrapeConfig `monitoring/static-config` は hitohub cloudflared 2 target のみを含む git 未定義の孤児だったため削除。
+  `stable-diffusion-observability-rules` (別 producer の孤児) は触らない。
+- 一時 namespace `hitohub-decommission` を削除。
+- 健全性: 7 Node Ready、API readyz OK、etcd 3 Running、Longhorn 10 / 10 healthy、tidb-operator Pod Running、非 Running Pod 無し。
+  Application `tidb-operator` の `Unknown` は cluster DNS で `charts.pingcap.org` が引けない一過性の chart fetch 失敗 (live 変更無し)。
+- 単一 replica volume は 0 件となり、BOXP-194 の golyat-4 drain 阻害 (prod tikv-0) は解消。
+- 台帳: Obsidian `Projects/hitohub/decommission/README.md`。
