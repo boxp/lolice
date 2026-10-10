@@ -55,3 +55,23 @@
 - GitHub リポジトリ、`tidb-operator`/ESO/Longhorn などの共有 operator、共有 bucket とその既存データ、
   Cloudflare zone/account、SSM の hitohub-* パラメータのうち IaC 管理外のもの (報告のみ)、
   GCS `vr-match-prod` / `vr-match-staging` (IaC 管理外、所有境界未確認のため報告のみ)。
+
+## Phase 2 の結果 (2026-10-10、保全ゲート成立)
+
+- 保存先: `s3://boxp-longhorn-backup/hitohub-decommission/20261010T163719Z/` (SSE AES256、Block Public Access、versioning、lifecycle なし)。
+- stage: `hitohub-stage-tidb-sqldump-20261010T163719Z.tar.gz` 1,528,693 bytes、sha256 `a622dbba8eebcaefa0442329d0d2adc05e560152d8e0c342388c173f380a5626`。
+  snapshot TSO 469670361563136002、`vr_match` 9 テーブル 169,611 行。
+- prod: `hitohub-prod-tidb-sqldump-20261010T163719Z.tar.gz` 3,164 bytes、sha256 `46100497398f1b67750b095fc1606359a9ba9522113770d0cea58d10b1b5b8ba`。
+  `vr_match` は存在せず (2025-07-18 再 bootstrap 済みの空クラスタ)、system 証跡のみ。
+- 検証: S3 から再取得して sha256/サイズ一致、隔離 TiDB v7.5.1 (unistore) へ restore し table 集合 9/9・全行数が
+  source snapshot inventory と一致 (sha256 同一)。
+- 台帳: Obsidian `Projects/hitohub/decommission`。
+
+## Phase 3 (この PR で削除するもの)
+
+- `argoproj/hitohub/` 全体、`argoproj/kustomization.yaml` の prod/stage hitohub Application エントリ。
+- `argoproj/argocd-image-updater/imageupdaters/{stage,prod}-hitohub.yaml` と kustomization エントリ。
+- `argoproj/prometheus-operator/external-secret-alertmanager.yaml` の `namespace =~ "stage-hitohub|prod-hitohub"` null route
+  (BOXP-184 で追加した hitohub 専用の通知抑止。namespace 削除後は不要)。
+- `CLAUDE.md` / `docs/project-structure.md` の hitohub 記述。
+- `argoproj/prometheus-operator/scrape-config.yaml` は既に BOXP-181 (PR #776) で削除済み。

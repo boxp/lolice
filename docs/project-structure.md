@@ -23,7 +23,6 @@ loliceプロジェクトは、オンプレミスのKubernetesクラスタを管�
 │   ├── calico/              # Calicoネットワークプラグインのマニフェスト
 │   ├── descheduler/         # Kubernetesのdeschedulerマニフェスト
 │   ├── external-secrets-operator/ # External Secrets Operatorのマニフェスト
-│   ├── hitohub/             # Hitohubアプリケーションのマニフェスト
 │   ├── k8s/                 # Kubernetes関連のマニフェスト
 │   ├── k8s-ecr-token-updater/ # AWS ECRトークン更新用のマニフェスト
 │   ├── kubernetes-dashboard/ # Kubernetes Dashboardのマニフェスト
