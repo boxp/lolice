@@ -10,4 +10,6 @@
 6. 承認済みworkflow書込経路がある場合だけ、PR headを再確認して限定commitを通常pushする。認証再発行・scope追加・SSH登録が必要ならpushせずBlockedとする。
 7. 結果をObsidian ProjectsへMarkdownで保存し、227と223 Notesへリンクする。PRをmerge/ready化せず、本番設定・runner全体設定・認証課金方式を変更しない。
 
-2026-10-13の判断: 現在のHTTPS pushはgh helperを使用し、ghのscopeは `gist/read:org/repo` で `workflow` がない。承認済み別書込経路は確認できず、ローカル成果の検証まで実施し、remote反映は人の公式認証手続き待ちとする。詳細は [investigation.md](investigation.md)。
+2026-10-13 前runの判断: HTTPS OAuthにworkflow scopeがなく、ローカル検証までで停止した。
+
+2026-10-13 再開runの判断: ownerによる既存SSH経路の利用承認を確認した。標準の既存鍵とknown_hostsを用いてBatchMode/StrictHostKeyChecking=yesでGitHubのboxp認証に成功した。PR headは不変。前run commitを本run専用branchへ再利用し、再検証後に明示SSH宛の通常pushで既存PRを修復する。HTTPS origin・gh API認証・runner設定を変更しない。push前後にremote head/workflow blobと223 worktree/claimを再確認し、対応CI結果を記録する。詳細は [investigation.md](investigation.md)。
