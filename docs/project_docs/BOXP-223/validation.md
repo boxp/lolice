@@ -63,20 +63,26 @@ storage migration・refreshInterval 1周期の確認は未実施。
 read-onlyの状態/権限確認結果と再開条件はplan.mdに記録した。
 High advisoryの解消や受入条件全体の達成とは判定しない。
 
-## CI修正patchと追加ブロッカー
+## CI修正の反映と検証（2026-10-13更新）
 
-terraレビューで、ESO更新PRのCIが旧版0.18.2を固定検証するP2指摘を受けた。
+2026-10-07のterraレビューで、ESO更新PRのCIが旧版0.18.2を固定検証するP2指摘を受けた。
+修正commitは作成できたが、GitHub OAuth Appにworkflow scopeがなくpushが拒否されたため、
+当時はworkflow変更をrevertし、未適用patchを保存した。
+
+BOXP-227でowner承認済みの既存SSH経路を使い、commit
+`16322263e3b09aa1c327f2823417b528802d9340` の実workflow修正を同じPR #818へ通常pushした。
 通常CIはApplicationのtargetRevisionを検証し、immutable preflightは既存固定版/digestとの
-不一致時に停止する修正を作成したが、GitHub OAuth Appにworkflow scopeがなくpushが拒否された。
-workflow変更をrevertし、未適用の修正を `ci-followup.patch` として保存した。
-このPRは稼働workflowを変更しない。scopeのある承認済み経路でpatchを適用し、
-CI結果を確認するまで、このP2指摘は未解消として扱う。
+不一致時に停止する。修正はPRに反映済みで、再適用用の `ci-followup.patch` は削除した。
+過去のpatchは修復前commit `04a9b3954537c4e82e61a8a10f02b1f473b73bad` の履歴で確認できる。
 
-patchのローカル検証結果：workflow unittest 15件成功、2 workflowのactionlint成功。
-yq v4.48.1で実shell部分を一時Applicationに対して実行し、通常CIは0.18.2/2.12.0を選択、
-main/2.*を拒否。preflightは0.18.2だけ許可し、2.12.0/main/2.*を拒否。
-これは本番のESO更新検証やGitHub上のkind CI実行を代替しない。
+ローカル検証はworkflow unittest 15件、2 workflowのactionlint、実shellの版選択・
+immutable不一致/改ざんarchive拒否9ケースが成功した。
+head `104bedfee2200cbf674eb19bf4978627e65944d4` のGitHub Actionsでは
+[Chainsaw run 38346757016](https://github.com/boxp/lolice/actions/runs/38346757016) のdetect/chainsawと
+[gitleaks run 38346757018](https://github.com/boxp/lolice/actions/runs/38346757018) がSUCCESS。
+manual preflightは未実行。後続の文書訂正headのCIは別途確認する。
 
-repo rootで `git apply --check docs/project_docs/BOXP-223/ci-followup.patch`、
-`git apply docs/project_docs/BOXP-223/ci-followup.patch` で適用できる。
+CIの固定版問題はPR上で修復済みだが、未mergeでありmainへの反映・本番適用は未実施。
+ESO更新・High advisory解消・本番試験の完了とは区別する。
 更新版の実装時はpreflightのESO固定版・検証済みdigestを同時更新すること。
+認証経路と検証の詳細は [BOXP-227調査記録](../BOXP-227/investigation.md) を参照。

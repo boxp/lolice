@@ -20,8 +20,11 @@ Argo ApplicationはselfHeal有効なので、移行前のchart変更をmainへme
 Renovate検出を有効にしても、ESOのminor/patchを含む全更新のautomergeを無効にし、移行レビュー後にmergeする。
 major更新の検出やPR生成は無効化しない。
 
-Renovate更新PRのChainsawが旧ESO版を固定検証する問題の修正は `ci-followup.patch` に保存した。
-workflow scope不足により稼働workflowへの反映は未実施。承認済みpush経路でpatch適用後にCIを確認する。
+2026-10-07はworkflow scope不足によるpush拒否のためCI修正をpatchとして保存した。
+2026-10-13のBOXP-227で承認済みSSH経路を用い、実workflow修正を本PRへ反映した。
+通常ChainsawのApplication版選択とimmutable preflightの不一致拒否を実装済み。
+適用済みpatchは削除し、再適用は不要。PR head104bedfのChainsaw/gitleaksは成功した。
+未merge・本番未適用であり、親223の残ブロッカーは維持する。詳細は [validation.md](validation.md)。
 
 ## 現状の再確認
 

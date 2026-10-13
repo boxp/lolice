@@ -35,7 +35,7 @@ HTTPS Gitのgh credential helperが使うscopeはgist/read:org/repoでworkflow�
 | 保存patch | b1d9fde / context調整04a9b395、remoteあり | docsのみ |
 | 再適用 | 前run16322263、本runが再利用 | 修復対象の2 workflow本体と227 docs |
 
-patch SHA-256は `f5a7a24cafb03421e2ed70a41abe49e752bf016b544862394a46e4226f345c6f`。PR head/最新mainへの適用確認と適用後reverse check成功。最新mainでもApplication版は0.18.2、P2修正は未反映。mainの無関係commitを本PRへ混ぜない。
+patch SHA-256は `f5a7a24cafb03421e2ed70a41abe49e752bf016b544862394a46e4226f345c6f`。修復前PR head04a9b395/当時の最新mainへの適用確認と適用後reverse check成功。確認時の最新mainでもApplication版は0.18.2、P2修正は未反映。mainの無関係commitを本PRへ混ぜない。
 
 ## 非秘密の認証診断と保存先
 
@@ -70,7 +70,7 @@ argocd-diffはargoproj path限定の読取diff、llm-sd-deployは別pathのmain 
 | 実shell+yq 4.54.1 | 9ケース成功 |
 | 通常CI | 0.18.2/2.12.0選択、main/2.*拒否 |
 | immutable | 0.18.2許可、2.12.0/main/2.*不一致拒否、改ざんarchive拒否 |
-| patch / diff | 最新main/PR整合性、reverse check、diff --check |
+| patch / diff（修復前の検証） | 当時の最新main/修復前PR整合性、適用後reverse check、diff --check |
 | 機密scan | 対象2 workflowと227 docsのみ、gitleaks redaction付きで実施 |
 
 前run実shell scriptはworkspace validation/eso-version-selection.pyに保存、current repoを引数に再実行した。fixtureを使い本番clusterには接続しない。新digestのarchive検証ではない。remote CIの結果はObsidianに保存する。manual preflightは実施しない。
@@ -80,3 +80,17 @@ codex-reviewとcodex-review-fileは今回/home/boxp/.claude/skillsの既存skill
 ## 親223の残ブロッカー
 
 ESO High advisoryは未解消。承認済み管理経路とAWS SSM/STS限定egress方式・担当のowner判断は別途必要。CI修正/commit/push成功はmerge/本番適用やESO chart/RBAC/network/CRD/live Secret変更、storage移行、admission/egress/live試験の完了を意味しない。本runではそれらを再開しない。
+
+## 反映済み状態とレビュー指摘対応
+
+承認済みSSHで通常pushが成功し、PR headは04a9b395から
+`104bedfee2200cbf674eb19bf4978627e65944d4` に更新された。
+追加commitは実workflow修正16322263と認証診断文書104bedf。
+remoteの2 workflow blobがローカルと一致し、PR差分に実workflow変更が存在する。
+このheadのChainsaw run38346757016（detect/chainsaw）とgitleaks run38346757018はSUCCESS。
+manual preflightは未実行。OPEN/未merge、autoMergeなし、MERGEABLEを確認した。
+
+runnerレビューは適用済みpatchと再適用手順の陳腐化を指摘した。
+今回の文書訂正で `docs/project_docs/BOXP-223/ci-followup.patch` を削除し、223のplan/validationを更新する。
+上記のpatch hash/適用検証は修復前の歴史記録であり、現在のPR headへの再適用手順ではない。
+履歴の04a9b395から当時のpatchを確認できる。後続headのCIとレビュー結果はObsidian最終報告へ追記する。

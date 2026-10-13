@@ -13,3 +13,9 @@
 2026-10-13 前runの判断: HTTPS OAuthにworkflow scopeがなく、ローカル検証までで停止した。
 
 2026-10-13 再開runの判断: ownerによる既存SSH経路の利用承認を確認した。標準の既存鍵とknown_hostsを用いてBatchMode/StrictHostKeyChecking=yesでGitHubのboxp認証に成功した。PR headは不変。前run commitを本run専用branchへ再利用し、再検証後に明示SSH宛の通常pushで既存PRを修復する。HTTPS origin・gh API認証・runner設定を変更しない。push前後にremote head/workflow blobと223 worktree/claimを再確認し、対応CI結果を記録する。詳細は [investigation.md](investigation.md)。
+
+
+2026-10-13 レビュー再試行計画: PR head104bedfへの実workflow反映とCI成功を確認済み。
+適用済みpatchを削除し、223のplan/validationと227の調査記録を現在状態に訂正する。
+指定run worktreeだけを編集し、diff/機密scan/独立レビュー後に同じPRへ限定文書commitを通常pushする。
+workflow本体は変更せず、新headのCI・mergeabilityを確認する。
