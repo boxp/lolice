@@ -86,6 +86,13 @@ class EsoVersionTest(unittest.TestCase):
             if chart_first:
                 sources = [sources[1], sources[0], sources[2]]
             application.write_text(json.dumps({'spec': {'sources': sources}}))
+            # The current base also derives isolated ArgoCD RBAC from this ref.
+            # Keep that unrelated preparation input inside the test fixture.
+            argocd = root / 'argoproj/argocd/kustomization.yaml'
+            argocd.parent.mkdir(parents=True)
+            argocd.write_text(json.dumps({
+                'resources': ['github.com/argoproj/argo-cd/manifests/base?ref=v3.5.4'],
+            }))
             binary_dir = root / 'bin'
             binary_dir.mkdir()
             for command in ['helm', 'kubectl', 'curl', 'kustomize']:
