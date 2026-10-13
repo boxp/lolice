@@ -219,6 +219,11 @@ jobs:
           case "$COMPONENT" in
             argocd|external-secrets-operator)
               ESO_CHART_VERSION=0.18.2
+              ESO_APPLICATION_CHART_VERSION="$(yq -r '.spec.sources[] | select(.chart == "external-secrets") | .targetRevision' "${REPO_ROOT}/argoproj/external-secrets-operator/application.yaml")"
+              if [ "$ESO_APPLICATION_CHART_VERSION" != "$ESO_CHART_VERSION" ]; then
+                echo 'ESO Application version differs from the immutable preflight pin; update the preflight version and verified digest together.' >&2
+                exit 1
+              fi
               ESO_CHART_SHA256=5d0645b815837af4ce1fd0436879e4adfe8230072103c65429c4a41d9e00f43d
               eso_chart="$RUNNER_TEMP/external-secrets-${ESO_CHART_VERSION}.tgz"
               helm repo add external-secrets https://charts.external-secrets.io --force-update

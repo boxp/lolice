@@ -10,7 +10,8 @@
   },
   "argocd": {
     "managerFilePatterns": [
-      "/^argoproj/tailscale-operator/application\\.yaml$/"
+      "/^argoproj/tailscale-operator/application\\.yaml$/",
+      "/^argoproj/external-secrets-operator/application\\.yaml$/"
     ]
   },
   "customManagers": [
@@ -49,6 +50,16 @@
       ],
       "matchPackageNames": [
         "tailscale-operator"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "ESO chart updates require CRD migration and security boundary review (BOXP-223).",
+      "matchManagers": [
+        "argocd"
+      ],
+      "matchPackageNames": [
+        "external-secrets"
       ],
       "automerge": false
     }
