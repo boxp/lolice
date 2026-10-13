@@ -94,3 +94,17 @@ runnerレビューは適用済みpatchと再適用手順の陳腐化を指摘し
 今回の文書訂正で `docs/project_docs/BOXP-223/ci-followup.patch` を削除し、223のplan/validationを更新する。
 上記のpatch hash/適用検証は修復前の歴史記録であり、現在のPR headへの再適用手順ではない。
 履歴の04a9b395から当時のpatchを確認できる。後続headのCIとレビュー結果はObsidian最終報告へ追記する。
+
+
+## 回帰テストのレビュー指摘（2026-10-13）
+
+head3ce49a7のrunner gateは、既存15テストが新ESO分岐を実行しないP2を報告した。
+前runの一時workspace上の実shell9ケースは手動検証の証拠であり、repositoryの継続的回帰テストではなかった。
+複数sourceのApplication fixtureを使う実shellテストをtests/workflowsへ追加する。
+通常Chainsawの既存unittest discoveryから実行し、chart source版選択、semver拒否、immutable不一致の取得前停止とdigest改ざん拒否を検証する。
+workflow本体、既存版/digest、権限、認証設定は変更しない。新headとCI結果はObsidian最終報告へ記録する。
+
+ローカル検証は実yq v4.44.3で全20件成功（既存15＋追加5）。テスト内のkubectl/helm/curl/kustomizeは記録用stubで、cluster/networkへ接続しない。
+一致時の成功経路は期待digestを検査するsha256sum stub、改ざん拒否経路は実sha256sumを使用する。
+workerはメモリ内でsource先頭誤選択/immutable guard削除へ退行させるとテストが失敗することも確認した。
+対象3ファイルのgitleaks scanはfindings0、diff --check成功。yq v4はworkflow既存の依存であり、不足時はskipせずテストを失敗させる。

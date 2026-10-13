@@ -19,3 +19,10 @@
 適用済みpatchを削除し、223のplan/validationと227の調査記録を現在状態に訂正する。
 指定run worktreeだけを編集し、diff/機密scan/独立レビュー後に同じPRへ限定文書commitを通常pushする。
 workflow本体は変更せず、新headのCI・mergeabilityを確認する。
+
+
+2026-10-13 自動回帰テスト追加計画（head3ce49a7から）:
+runner gateのP2は、新しいESO分岐が既存15件の自動テストで実行されない点。
+複数source Application fixtureとworkflow実shellを使い、chart sourceの版選択、固定semver以外の拒否、immutable版不一致の取得前停止、digest改ざん拒否を継続的に検証する。
+テストを既存tests/workflowsへ追加し、通常Chainsawのunittest discoveryで実行する。
+workflow動作・権限・認証設定は変更せず、diff/機密scan/独立レビューを経て同じPRに通常pushし新head CIを確認する。
