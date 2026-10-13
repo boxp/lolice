@@ -140,10 +140,15 @@ jobs:
           if echo "$COMPONENTS" | python3 -c "import sys,json; sys.exit(0 if 'external-secrets-operator' in json.load(sys.stdin) else 1)" 2>/dev/null || \
              echo "$COMPONENTS" | python3 -c "import sys,json; sys.exit(0 if 'argocd' in json.load(sys.stdin) else 1)" 2>/dev/null; then
             echo "=== ESO を Helm でインストール（CRD を Helm labels 付きでインストール） ==="
+            ESO_CHART_VERSION="$(yq -r '.spec.sources[] | select(.chart == "external-secrets") | .targetRevision' "${REPO_ROOT}/argoproj/external-secrets-operator/application.yaml")"
+            [[ "$ESO_CHART_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo 'ESO targetRevision must be a fixed chart version.' >&2
+              exit 1
+            }
             helm repo add external-secrets https://charts.external-secrets.io --force-update
             kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
             helm install external-secrets external-secrets/external-secrets \
-              --version 0.18.2 --namespace external-secrets --wait --timeout 180s
+              --version "$ESO_CHART_VERSION" --namespace external-secrets --wait --timeout 180s
             echo "ESO インストール完了"
           fi
 
