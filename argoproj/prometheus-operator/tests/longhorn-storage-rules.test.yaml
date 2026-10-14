@@ -1,0 +1,179 @@
+rule_files:
+  - __RULE_FILE__
+evaluation_interval: 1m
+tests:
+  # BOXP-211 相当: golyat-1 の disk が予約超過で Schedulable=False（ready は True のまま）。
+  - name: disk with Schedulable=False is warned after 15m
+    interval: 1m
+    input_series:
+      - series: 'longhorn_disk_status{condition="schedulable",condition_reason="DiskPressure",node="golyat-1",disk="default-disk-fd72f6c3766cb77f",instance="192.178.60.167:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '0+0x20'
+      - series: 'longhorn_disk_status{condition="ready",node="golyat-1",disk="default-disk-fd72f6c3766cb77f",instance="192.178.60.167:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '1+0x20'
+      - series: 'longhorn_disk_status{condition="schedulable",node="golyat-4",disk="default-disk-228a0a653393f00a",instance="192.178.123.62:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '1+0x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LonghornDiskNotSchedulable
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: LonghornDiskNotSchedulable
+        exp_alerts:
+          - exp_labels:
+              node: golyat-1
+              disk: default-disk-fd72f6c3766cb77f
+              severity: warning
+            exp_annotations:
+              summary: Longhorn disk is not schedulable
+              description: Longhorn disk default-disk-fd72f6c3766cb77f on node golyat-1 has been Schedulable=False for more than 15 minutes. New replicas cannot be placed on this node. Check Longhorn UI > Node > golyat-1 (Allocated vs Max, Conditions) and reclaim or relocate replicas as in BOXP-211.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-212/runbook.md#longhorn-disk-not-schedulable
+
+  # 85% 使用: warning だけ鳴り critical は鳴らない。
+  - name: disk usage above 80% is warned after 30m without critical
+    interval: 1m
+    input_series:
+      - series: 'longhorn_disk_usage_bytes{node="golyat-3",disk="default-disk-a3398d1eaba7a55e",instance="192.178.151.186:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '210525691699+0x400'
+      - series: 'longhorn_disk_capacity_bytes{node="golyat-3",disk="default-disk-a3398d1eaba7a55e",instance="192.178.151.186:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '247677284352+0x400'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: LonghornDiskUsageHigh
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: LonghornDiskUsageHigh
+        exp_alerts:
+          - exp_labels:
+              node: golyat-3
+              disk: default-disk-a3398d1eaba7a55e
+              severity: warning
+            exp_annotations:
+              summary: Longhorn disk usage is above 80%
+              description: Longhorn disk default-disk-a3398d1eaba7a55e on node golyat-3 is 85% used for more than 30 minutes. Check Longhorn UI > Node > golyat-3 and Volume actual sizes; run filesystem trim or relocate replicas as in BOXP-211 before the node filesystem fills up.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-212/runbook.md#longhorn-disk-usage
+      - eval_time: 40m
+        alertname: LonghornDiskUsageCritical
+        exp_alerts: []
+
+  # 95% 使用: critical が 10m で鳴る。
+  - name: disk usage above 90% is critical after 10m
+    interval: 1m
+    input_series:
+      - series: 'longhorn_disk_usage_bytes{node="golyat-1",disk="default-disk-fd72f6c3766cb77f",instance="192.178.60.167:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '235804439757+0x20'
+      - series: 'longhorn_disk_capacity_bytes{node="golyat-1",disk="default-disk-fd72f6c3766cb77f",instance="192.178.60.167:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '248215199744+0x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: LonghornDiskUsageCritical
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: LonghornDiskUsageCritical
+        exp_alerts:
+          - exp_labels:
+              node: golyat-1
+              disk: default-disk-fd72f6c3766cb77f
+              severity: critical
+            exp_annotations:
+              summary: Longhorn disk usage is above 90%
+              description: Longhorn disk default-disk-fd72f6c3766cb77f on node golyat-1 is 95% used for more than 10 minutes. The node root filesystem is shared with this disk; kubelet eviction and Longhorn replica failures are imminent. Free space now (trim, delete snapshots, relocate replicas) as in BOXP-211.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-212/runbook.md#longhorn-disk-usage
+
+  # BOXP-211 相当: Loki の actualSize 51.4GB に対し FS 使用量 2.3GB。
+  # volume 系はレプリカを持つ 2 ノードの manager が同じ値を出すので両方入れる。
+  # 小さいボリューム（alertmanager: 52MB vs 33KB、比率は大きいが差分 20GB 未満）は鳴らない。
+  - name: volume actual size diverged from filesystem usage is warned after 6h
+    interval: 1m
+    input_series:
+      - series: 'longhorn_volume_actual_size_bytes{volume="pvc-200a85ff-bb15-4a0d-8fd1-867fefbfe47c",pvc="storage-loki-0",pvc_namespace="monitoring",node="golyat-1",instance="192.178.60.167:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '51400000000+0x400'
+      - series: 'longhorn_volume_actual_size_bytes{volume="pvc-200a85ff-bb15-4a0d-8fd1-867fefbfe47c",pvc="storage-loki-0",pvc_namespace="monitoring",node="golyat-3",instance="192.178.151.186:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '51400000000+0x400'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="monitoring",persistentvolumeclaim="storage-loki-0",node="golyat-2",instance="192.168.10.105:10250",job="kubelet"}'
+        values: '2300000000+0x400'
+      - series: 'longhorn_volume_actual_size_bytes{volume="pvc-287649f1-0bea-4cbd-beee-5a4b5c03a403",pvc="alertmanager-main-db-alertmanager-main-0",pvc_namespace="monitoring",node="golyat-2",instance="192.178.252.125:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '52056064+0x400'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="monitoring",persistentvolumeclaim="alertmanager-main-db-alertmanager-main-0",node="golyat-2",instance="192.168.10.105:10250",job="kubelet"}'
+        values: '32768+0x400'
+    alert_rule_test:
+      - eval_time: 5h
+        alertname: LonghornVolumeActualSizeDiverged
+        exp_alerts: []
+      - eval_time: 6h10m
+        alertname: LonghornVolumeActualSizeDiverged
+        exp_alerts:
+          - exp_labels:
+              pvc: storage-loki-0
+              pvc_namespace: monitoring
+              severity: warning
+            exp_annotations:
+              summary: Longhorn volume actual size diverged from filesystem usage
+              description: PVC monitoring/storage-loki-0 occupies 45.73GiB more on Longhorn than its filesystem reports used, for more than 6 hours (actual size > 3x used and > 20GB). Filesystem trim is not reclaiming space. Check Longhorn UI > Volume > Snapshots and run Trim Filesystem (fallocate first if ext4 skips trimmed blocks) as in BOXP-211.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-212/runbook.md#longhorn-volume-actual-size-diverged
+
+  # backup snapshot 直後のように差分は 20GB 超でも 3 倍未満なら鳴らない。
+  - name: volume with large but proportional actual size is not warned
+    interval: 1m
+    input_series:
+      - series: 'longhorn_volume_actual_size_bytes{volume="pvc-385be0a8",pvc="prometheus-k8s-db-prometheus-k8s-0",pvc_namespace="monitoring",node="golyat-2",instance="192.178.252.125:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '62000000000+0x400'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="monitoring",persistentvolumeclaim="prometheus-k8s-db-prometheus-k8s-0",node="golyat-2",instance="192.168.10.105:10250",job="kubelet"}'
+        values: '38000000000+0x400'
+    alert_rule_test:
+      - eval_time: 6h10m
+        alertname: LonghornVolumeActualSizeDiverged
+        exp_alerts: []
+
+  - name: missing longhorn scrape target is warned after 30m
+    interval: 1m
+    input_series:
+      - series: 'up{job="longhorn-backend",namespace="longhorn-system",instance="192.178.60.167:9500"}'
+        values: '0+0x400'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: LonghornMetricsAbsent
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: LonghornMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Longhorn metrics are not being scraped
+              description: No healthy longhorn-manager scrape target (job longhorn-backend in longhorn-system) for more than 30 minutes. Disk and volume alerts are blind. Check Prometheus > Status > Targets, the ServiceMonitor opt-in label app.kubernetes.io/part-of=kube-prometheus, and the longhorn-manager pods.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-212/runbook.md#longhorn-metrics-absent
+
+  # 2026-10-14 の実測値（回復後）: どのアラートも鳴らない。
+  - name: healthy cluster does not fire any longhorn alert
+    interval: 1m
+    input_series:
+      - series: 'up{job="longhorn-backend",namespace="longhorn-system",instance="192.178.60.167:9500"}'
+        values: '1+0x400'
+      - series: 'longhorn_disk_status{condition="schedulable",node="golyat-1",disk="default-disk-fd72f6c3766cb77f",instance="192.178.60.167:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '1+0x400'
+      - series: 'longhorn_disk_status{condition="ready",node="golyat-1",disk="default-disk-fd72f6c3766cb77f",instance="192.178.60.167:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '1+0x400'
+      - series: 'longhorn_disk_usage_bytes{node="golyat-1",disk="default-disk-fd72f6c3766cb77f",instance="192.178.60.167:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '59052089344+0x400'
+      - series: 'longhorn_disk_capacity_bytes{node="golyat-1",disk="default-disk-fd72f6c3766cb77f",instance="192.178.60.167:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '248215199744+0x400'
+      - series: 'longhorn_volume_actual_size_bytes{volume="pvc-200a85ff-bb15-4a0d-8fd1-867fefbfe47c",pvc="storage-loki-0",pvc_namespace="monitoring",node="golyat-1",instance="192.178.60.167:9500",job="longhorn-backend",namespace="longhorn-system"}'
+        values: '4294991872+0x400'
+      - series: 'kubelet_volume_stats_used_bytes{namespace="monitoring",persistentvolumeclaim="storage-loki-0",node="golyat-2",instance="192.168.10.105:10250",job="kubelet"}'
+        values: '2329493504+0x400'
+    alert_rule_test:
+      - eval_time: 6h30m
+        alertname: LonghornDiskNotSchedulable
+        exp_alerts: []
+      - eval_time: 6h30m
+        alertname: LonghornDiskUsageHigh
+        exp_alerts: []
+      - eval_time: 6h30m
+        alertname: LonghornDiskUsageCritical
+        exp_alerts: []
+      - eval_time: 6h30m
+        alertname: LonghornVolumeActualSizeDiverged
+        exp_alerts: []
+      - eval_time: 6h30m
+        alertname: LonghornMetricsAbsent
+        exp_alerts: []
