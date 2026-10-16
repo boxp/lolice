@@ -10,6 +10,8 @@ spec:
         - alias: "sdnext-ipex"
           imageName: "ghcr.io/boxp/arch/sdnext-ipex:latest"
           commonUpdateSettings:
+            # replicas=0 keeps the image out of Application.status.summary.images.
+            forceUpdate: true
             updateStrategy: "digest"
             platforms:
               - "linux/amd64"
