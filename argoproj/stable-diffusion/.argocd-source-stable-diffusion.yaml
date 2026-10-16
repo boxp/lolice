@@ -1,3 +1,3 @@
 kustomize:
   images:
-  - ghcr.io/boxp/arch/sdnext-ipex=ghcr.io/boxp/arch/sdnext-ipex:latest@sha256:c310d789a913ef1729768c8c8ce4cba5bcc5d04c8f7401c9f2861a4e5f54fe94
+  - ghcr.io/boxp/arch/sdnext-ipex=ghcr.io/boxp/arch/sdnext-ipex:latest@sha256:e4d3ff1aeed35778efcd859348fc1257699f73ea60400521a6a518f38695b333
