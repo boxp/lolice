@@ -88,6 +88,17 @@ lock の手動削除は、Deployment が 1 replica、旧 owner UID の Pod が�
 - Pod 再作成中の SSH / Even Terminal 切断と、agent session の非 live-migration
 - SIGKILL / node 障害など shutdown hook と preStop の両方が実行されない場合の 180 秒 heartbeat fallback
 
+## Novel Board runner
+
+`novel-board-runner` sidecar（BOXP-246）は `Boards/Novel Board.md` を読み、`assignee::localllm`（lolice の `local-llm` / llama-server `gemma4-26b`）や `claude-*` / `codex*` が割り当てられたカードだけを起動します。image の entrypoint が `CODEX_WORKSPACE_ROLE=novel-board-runner` で `/opt/codex-workspace/novel-board/novel_board_runner.bb loop` を起動し、runner を含まない image では idle するため、sidecar の追加と image 更新はどちらの順でも安全です。
+
+- state: `/home/boxp/.novel-board/`（0700。`work/NOVEL-N/` の原稿・挿絵、`runs/`、`locks/`、`published/`）。Task Board runner とは別 root で lock を共有しません。
+- lock / heartbeat / planned shutdown は Task Board runner と同じ方式です（`CODEX_NOVEL_BOARD_OWNER_ID` = Pod UID、stale 180 秒、poll 30 秒、`preStop` で `prepare-shutdown`）。
+- local-llm は `--parallel 1` のため runner も localllm カードを同時に1件しか走らせません。llama-server は `codex-workspace` の NetworkPolicy で既に egress 許可済みです（`networkpolicy.yaml`）。
+- 挿絵は `GEMINI_API_KEY` と home PVC 上の `~/.claude/skills/generate-image/generate-image.bb` で runner が生成します。
+- 確認: `kubectl -n codex-workspace logs deploy/codex-workspace -c novel-board-runner --tail=50`。起動時に `novel-board runner started, ... localllm=http://llama-server.local-llm.svc.cluster.local:8080/v1 model=gemma4-26b` が出ます。
+- rollback: この sidecar を deployment から削除するだけで停止します（`.novel-board` のデータは残す）。image の巻き戻しは不要です。
+
 ## Task Board Dashboard
 
 codex-workspace Pod に同居する読み取り専用 Dashboard です。Task Board runner が PVC 上へ出力する `/home/boxp/.codex-task-board` を読み、agent run とログを PC-98 風 UI で表示します。
