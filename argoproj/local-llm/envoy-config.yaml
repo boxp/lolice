@@ -17,6 +17,12 @@ data:
                   typed_config:
                     "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
                     stat_prefix: local_llm
+                    # Non-streaming completions send no bytes until the whole
+                    # answer is ready. Envoy's default stream_idle_timeout (5 min)
+                    # cut long prompts with "504 stream timeout" (BOXP-250). Keep
+                    # the limit finite but above the longest single generation the
+                    # clients allow (Novel Board runner: 30 min total per request).
+                    stream_idle_timeout: 1800s
                     access_log:
                       - name: envoy.access_loggers.stdout
                         typed_config:
