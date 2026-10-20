@@ -24,3 +24,11 @@
 2. arch PR #13802 を merge → main ビルドで `latest` 更新 → image-updater が digest を lolice に書き戻し → Pod 再起動。
 3. live の image digest / `/models` の args / health を確認し、Service 経由で同条件（pp512/tg128/pp2048/tg32@2048、8K/16K 長文、品質 probe）の after 計測を行い正本に記録する。
 4. 退行時は arch 側で `LLAMA_REF` を戻す（この PR の環境変数は旧 revision でも有効なので lolice 側の rollback は不要）。
+
+## 追記: image digest pin の更新（本 PR）
+
+- BOXP-183 以降、local-llm の image は argocd-image-updater の対象外で、`argoproj/local-llm/.argocd-source-local-llm.yaml` の digest pin を PR で更新する運用。
+  上記「反映手順 2.」の「image-updater が自動で書き戻す」は誤りで、本 PR がその代わり。
+- pin を `latest@sha256:8f864379…`（llama.cpp `8c146a83`）→ `latest@sha256:f74b5341…`（arch main `5c27f648`、llama.cpp v0.7.0 `757cad02` + oneDNN、Build run 39379190071）に更新する。
+- 前提の環境変数変更（#847、`LLAMA_ARG_MMAP=0` / `LLAMA_ARG_LOAD_MODE=none`）は反映済みで、現 image の Pod `llama-server-79f8895f6b-bh6h2` が正常に起動し、子プロセスで gguf の mmap が無いことを確認した。
+- 反映後の確認: Pod の imageID が新 digest になる、`/models` の gemma4-26b が `--load-mode`/mmap 無しで起動する、Service 経由の after 計測（pp512/tg128/pp2048/tg32@2048、8K/16K、品質 probe）。退行時はこの pin を `8f864379…` に戻す PR で rollback する（環境変数は旧 image でも有効）。
