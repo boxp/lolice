@@ -281,7 +281,7 @@ jobs:
 
           # external-secrets.io 系リソース (ExternalSecret / ClusterSecretStore など) は ESO の
           # validating webhook が応答できるまで apply できないので、フェーズ 2 に回す。
-          IS_ESO_RESOURCE='((.apiVersion // "") | test("external-secrets\.io/"))'
+          IS_ESO_RESOURCE='((.apiVersion // "") | test("external-secrets[.]io/"))'
           for COMPONENT in $(echo "$COMPONENTS" | python3 -c "import sys,json; print('\\n'.join(json.load(sys.stdin)))"); do
             echo "=== コンポーネント $COMPONENT のマニフェストをクラスターに適用 ==="
             case "$COMPONENT" in

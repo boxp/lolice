@@ -361,3 +361,12 @@ preflight では一度も実行されない。
 - 暫定目標「通常の component 変更で 2〜3 分台」は全件実行でも 3.5〜4 分、単体なら 3 分弱の見込みで、
   おおむね到達。これ以上は Calico の起動連鎖（約 1 分）を削る必要があり、NetworkPolicy を使わない suite だけ
   既定 CNI（kindnet、数秒）で走らせる構成変更が候補だが、本番と CNI が変わるため owner 判断とした。
+
+## codex-review 指摘対応（yq 正規表現のエスケープ）
+
+- 指摘: `chainsaw.yaml` の `IS_ESO_RESOURCE` が `test("external-secrets\.io/")` と `\.` を単一エスケープしており、
+  jq 互換の文字列としては無効なエスケープになり得る。
+- 実測: mikefarah yq v4.44.3 では `\.` / `\\.` / `[.]` のいずれも同じ結果（`external-secrets.io/` のみ一致、
+  `external-secretsXio/` は不一致）で、CI 7 run でも `ExternalSecret` x3 / `ClusterSecretStore` がフェーズ 3 で
+  正常に適用されていた。ただし yq のレクサー実装に依存する書き方なので、曖昧さの無い `[.]` に変更した。
+- 検証: `yq "select(${IS_ESO_RESOURCE})"` / `| not` で期待どおりに分離されること、`tests/workflows` の unittest 29 件 OK。
