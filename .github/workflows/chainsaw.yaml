@@ -250,21 +250,41 @@ jobs:
           COMPONENTS: ${{ needs.detect.outputs.components }}
         run: |
           RESULT_FILE="${RUNNER_TEMP}/chainsaw-results.md"
+          OUTPUT_DIR="${RUNNER_TEMP}/chainsaw-output"
+          mkdir -p "$OUTPUT_DIR"
           OVERALL_STATUS=0
 
-          for COMPONENT in $(echo "$COMPONENTS" | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin)))"); do
-            echo "::group::Running chainsaw tests for $COMPONENT"
-            echo "### 📦 $COMPONENT" >> "$RESULT_FILE"
-            echo "" >> "$RESULT_FILE"
+          mapfile -t COMPONENT_LIST < <(echo "$COMPONENTS" | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin)))")
 
-            set +e +o pipefail
+          # 各 suite は namespace が分かれており (argocd / external-secrets / monitoring /
+          # kube-system)、互いの結果に依存しないので同時に走らせる。直列だと argocd
+          # (約 2 分) と grafana-alloy (約 1 分) が足し算になるが、並列なら最長 suite の
+          # 時間で済む。出力は component ごとのファイルに分け、完了順ではなく
+          # COMPONENTS の順で結果を組み立てる。
+          declare -A COMPONENT_PIDS
+          for COMPONENT in "${COMPONENT_LIST[@]}"; do
             KUBECONFIG="$CHAINSAW_KIND_KUBECONFIG" chainsaw test \
               --test-dir "./tests/chainsaw/$COMPONENT" \
-              2>&1 | tee /tmp/chainsaw-output.txt
-            COMPONENT_STATUS=${PIPESTATUS[0]}
-            set -e
+              > "$OUTPUT_DIR/$COMPONENT.txt" 2>&1 &
+            COMPONENT_PIDS[$COMPONENT]=$!
+            echo "Started chainsaw tests for $COMPONENT (pid ${COMPONENT_PIDS[$COMPONENT]})"
+          done
 
-            if [ $COMPONENT_STATUS -eq 0 ]; then
+          for COMPONENT in "${COMPONENT_LIST[@]}"; do
+            if wait "${COMPONENT_PIDS[$COMPONENT]}"; then
+              COMPONENT_STATUS=0
+            else
+              COMPONENT_STATUS=$?
+            fi
+            OUTPUT_FILE="$OUTPUT_DIR/$COMPONENT.txt"
+
+            echo "::group::chainsaw tests for $COMPONENT (exit $COMPONENT_STATUS)"
+            cat "$OUTPUT_FILE"
+            echo "::endgroup::"
+
+            echo "### 📦 $COMPONENT" >> "$RESULT_FILE"
+            echo "" >> "$RESULT_FILE"
+            if [ "$COMPONENT_STATUS" -eq 0 ]; then
               echo "✅ **PASSED**" >> "$RESULT_FILE"
             else
               echo "❌ **FAILED**" >> "$RESULT_FILE"
@@ -277,14 +297,13 @@ jobs:
             echo "" >> "$RESULT_FILE"
             echo '```' >> "$RESULT_FILE"
             # 長い出力を制限
-            head -200 /tmp/chainsaw-output.txt >> "$RESULT_FILE"
-            if [ $(wc -l < /tmp/chainsaw-output.txt) -gt 200 ]; then
+            head -200 "$OUTPUT_FILE" >> "$RESULT_FILE"
+            if [ "$(wc -l < "$OUTPUT_FILE")" -gt 200 ]; then
               echo "... (出力省略。完全なログはGitHub Actionsで確認してください)" >> "$RESULT_FILE"
             fi
             echo '```' >> "$RESULT_FILE"
             echo "</details>" >> "$RESULT_FILE"
             echo "" >> "$RESULT_FILE"
-            echo "::endgroup::"
           done
 
           echo "result_file=$RESULT_FILE" >> $GITHUB_OUTPUT

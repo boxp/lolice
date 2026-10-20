@@ -124,3 +124,46 @@ owner 依頼により、kind 上で Alloy → Loki のログ収集経路を動�
   `grafana-alloy` Application を Argo CD が同期して Alloy を展開し、suite 内の `helm install` が
   `ServiceAccount "grafana-alloy" ... cannot be imported into the current release` で失敗。
   Application の適用を suite 末尾へ移して修正。
+
+## chainsaw 実行時間の短縮（owner レビュー指摘: 「テスト実行時間が長過ぎる、並列実行できないか」）
+
+PR #853 の CI 3 回目（7m25s）の内訳は、kind 作成 97s / Calico 52s / 事前適用 50s / suite 実行 223s で、
+suite 実行は argocd 135s → ESO 7s → grafana-alloy 74s → kube-vip 6s の直列だった。
+
+### 変更
+
+1. `.github/workflows/chainsaw.yaml` の `Run chainsaw tests`
+   - component ごとの `chainsaw test` をバックグラウンドで同時に起動し、`wait` で個別に終了コードを回収する。
+   - 出力は `$RUNNER_TEMP/chainsaw-output/<component>.txt` に分け、PR コメント用の結果は
+     完了順ではなく COMPONENTS の順で組み立てる（コメントの体裁は従来どおり）。
+   - 各 suite は namespace が分かれており（argocd / external-secrets / monitoring / kube-system）、
+     互いの結果に依存しない。Application の適用は従来どおり各 suite の末尾なので、本物の Argo CD との
+     所有権衝突（CI 2 回目の件）も変わらない。
+   - preflight workflow（`chainsaw-preflight.yaml`）は matrix で component ごとに job が分かれており
+     既に並列なので変更なし。
+2. `tests/chainsaw/grafana-alloy/log-pipeline.sh`
+   - Loki fixture / Alloy chart / curl Pod を先に全部作ってから待つ（イメージ pull と起動を重ねる）。
+   - `helm --wait` をやめ `kubectl rollout status daemonset` で待つ。helm の DaemonSet 待ちは
+     `maxUnavailable`（既定 1）を差し引くため 2 ノードで 1 Pod Ready の時点で戻り、
+     直後の `ready == desired` 検査が落ちる flaky 要因だった（ローカル baseline で実際に 1/2 Ready で FAIL）。
+   - ログ到達のポーリング間隔を 10s → 3s。
+3. `tests/chainsaw/argocd/network-policy-impact.sh`
+   - probe Pod 9 個を先に全部作ってから待つ。
+   - `terminationGracePeriodSeconds: 1`。probe の python が PID 1 で SIGTERM を無視し、
+     末尾の namespace 削除が grace period 30s を使い切っていた（ローカル計測で削除に 43s）。
+   - blocked 判定 4 件（1 件 6s 以上）を同時に実行し結果を個別に回収する。reachable 判定は従来どおり直列。
+   - 判定内容（許可 peer / 同 ns 非許可 / 別 ns spoof / Tunnel proxy）は変更していない。
+
+### ローカル計測（kind v0.33.0 + Calico v3.33.0、2 ノード、CI と同じ事前適用）
+
+| | 変更前（直列） | 変更後（並列） |
+| --- | --- | --- |
+| argocd | 142s（NetworkPolicy matrix 93s） | 104s（matrix 55s） |
+| grafana-alloy | 74s（helm --wait が 1/2 Ready で戻り FAIL） | 92s（並列でイメージ pull が競合、PASS） |
+| external-secrets-operator | 6s | 6s |
+| kube-vip | 6s | 6s |
+| suite 実行合計 | 229s | 104s |
+
+CI では suite 実行 223s → 約 105s、ジョブ全体 7m25s → 約 5m30s を見込む。
+残りは kind 作成 + Calico + 事前適用（約 3.3 分）で、hosted runner ではイメージキャッシュが効かないため
+これ以上は構成変更（Calico を不要にする、kind ノード image の事前 pull 等）が必要。

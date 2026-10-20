@@ -63,11 +63,11 @@ fi
 grep -Eq "url\s*=\s*\"${LOKI_URL}/loki/api/v1/push\"" <<<"$config" \
   || { echo "loki.write の URL が ${LOKI_URL}/loki/api/v1/push ではありません。fixture の Service 名と合わせてください" >&2; exit 1; }
 
-echo "=== 2. 使い捨て Loki を loki-gateway Service として起動 ==="
+echo "=== 2. 使い捨て Loki / Alloy chart / クラスター内 curl Pod を同時に起動 ==="
+# 3 つは互いに依存しないので先に全部作り、イメージ pull と起動を重ねる
+# (直列に --wait すると suite 時間の大半が待ちになる)。
 kubectl apply --server-side --force-conflicts -f "${FIXTURE_DIR}/loki-fixture.yaml"
-kubectl rollout status deployment/chainsaw-loki -n "$NS" --timeout=240s
 
-echo "=== 3. Alloy chart を本番 values で install ==="
 chart_repo="$(yq -r '.spec.sources[] | select(.chart == "alloy") | .repoURL' "${COMPONENT_DIR}/application.yaml")"
 chart_version="$(yq -r '.spec.sources[] | select(.chart == "alloy") | .targetRevision' "${COMPONENT_DIR}/application.yaml")"
 [[ "$chart_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
@@ -75,20 +75,14 @@ chart_version="$(yq -r '.spec.sources[] | select(.chart == "alloy") | .targetRev
   exit 1
 }
 test -n "$chart_repo"
+# --wait は付けない。helm の DaemonSet 待ちは maxUnavailable (既定 1) を差し引くため
+# 2 ノードで 1 Pod Ready の時点で戻ってしまう。下の rollout status で全 Pod を待つ。
 helm upgrade --install "$RELEASE" alloy \
   --repo "$chart_repo" --version "$chart_version" \
   --namespace "$NS" \
   --values "${COMPONENT_DIR}/helm/values.yaml" \
-  --wait --timeout 300s
+  --timeout 300s
 
-node_count="$(kubectl get nodes --no-headers | wc -l)"
-desired="$(kubectl get daemonset "$RELEASE" -n "$NS" -o jsonpath='{.status.desiredNumberScheduled}')"
-ready="$(kubectl get daemonset "$RELEASE" -n "$NS" -o jsonpath='{.status.numberReady}')"
-echo "nodes=${node_count} desired=${desired} ready=${ready}"
-test "$desired" -eq "$node_count" || { echo "Alloy DaemonSet が全ノードに配置されていません (tolerations を確認)" >&2; exit 1; }
-test "$ready" -eq "$desired" || { echo "Alloy DaemonSet の Pod が Ready ではありません" >&2; exit 1; }
-
-echo "=== 4. クラスター内 curl Pod を用意 ==="
 cat <<YAML | kubectl apply -f -
 apiVersion: v1
 kind: Pod
@@ -102,7 +96,18 @@ spec:
       image: curlimages/curl:8.14.1
       command: ["sleep", "1800"]
 YAML
+
+echo "=== 3. Loki / Alloy DaemonSet / curl Pod の起動を待つ ==="
+kubectl rollout status deployment/chainsaw-loki -n "$NS" --timeout=240s
+kubectl rollout status "daemonset/$RELEASE" -n "$NS" --timeout=300s
 kubectl wait -n "$NS" --for=condition=Ready "pod/${CURL_POD}" --timeout=180s
+
+node_count="$(kubectl get nodes --no-headers | wc -l)"
+desired="$(kubectl get daemonset "$RELEASE" -n "$NS" -o jsonpath='{.status.desiredNumberScheduled}')"
+ready="$(kubectl get daemonset "$RELEASE" -n "$NS" -o jsonpath='{.status.numberReady}')"
+echo "nodes=${node_count} desired=${desired} ready=${ready}"
+test "$desired" -eq "$node_count" || { echo "Alloy DaemonSet が全ノードに配置されていません (tolerations を確認)" >&2; exit 1; }
+test "$ready" -eq "$desired" || { echo "Alloy DaemonSet の Pod が Ready ではありません" >&2; exit 1; }
 
 incurl() {
   kubectl exec -n "$NS" "$CURL_POD" -- curl -sS --max-time 20 "$@"
@@ -112,7 +117,7 @@ loki_streams() {
   incurl -G "${LOKI_URL}/loki/api/v1/query_range" "$@" | yq -p=json -r '.data.result | length'
 }
 
-echo "=== 5. 全ノードのコンテナログが Loki に届くまで待機 ==="
+echo "=== 4. 全ノードのコンテナログが Loki に届くまで待機 ==="
 mapfile -t nodes < <(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
 deadline=$((SECONDS + 300))
 while :; do
@@ -130,11 +135,11 @@ while :; do
     exit 1
   fi
   echo "waiting... (no logs yet from: ${missing[*]})"
-  sleep 10
+  sleep 3
 done
 echo "全ノード (${nodes[*]}) のログが Loki に到達"
 
-echo "=== 6. ラベルと monitoring namespace のログを確認 ==="
+echo "=== 5. ラベルと monitoring namespace のログを確認 ==="
 labels="$(incurl -G "${LOKI_URL}/loki/api/v1/labels")"
 echo "labels: ${labels}"
 for label in namespace pod container node job; do
@@ -146,7 +151,7 @@ test "$n" -gt 0 || { echo '{namespace="monitoring"} のログが 0 件です' >&
 incurl -G "${LOKI_URL}/loki/api/v1/query_range" --data-urlencode 'query={namespace="monitoring"}' --data-urlencode limit=3 \
   | yq -p=json '.data.result[] | {"stream": .stream, "first_line": .values[0][1]}'
 
-echo "=== 7. Alloy 自身のメトリクスで tail 対象ファイル数と送信エントリ数を確認 ==="
+echo "=== 6. Alloy 自身のメトリクスで tail 対象ファイル数と送信エントリ数を確認 ==="
 # ServiceMonitor (servicemonitor.yaml) が Prometheus に取り込ませる予定のメトリクス。
 # 本番で「ログ 0 件」を検知する指標なので、kind でも 0 より大きいことを確認する。
 mapfile -t alloy_pods < <(kubectl get pods -n "$NS" -l "app.kubernetes.io/name=alloy,app.kubernetes.io/instance=${RELEASE}" \
