@@ -72,8 +72,13 @@ data:
         target_label  = "job"
       }
 
-      // Set the log file path. Use /var/log/containers symlinks because
-      // loki.source.file does not expand globs in parent directories.
+      // Set the log file glob. /var/log/containers holds
+      // <pod>_<namespace>_<container>-<container-id>.log symlinks, so the
+      // container id is matched with a wildcard. The glob is expanded by
+      // local.file_match below; loki.source.file itself only accepts
+      // absolute file paths and silently tails nothing when given a glob
+      // (this was the root cause of BOXP-254: no logs reached Loki since
+      // 2026-07-04).
       rule {
         source_labels = ["__meta_kubernetes_pod_name", "__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name"]
         separator     = "_"
@@ -82,10 +87,17 @@ data:
       }
     }
 
+    // Expand the __path__ globs into the concrete files that currently exist
+    // on this node. Labels from discovery.relabel are carried over to each
+    // matched file.
+    local.file_match "pods" {
+      path_targets = discovery.relabel.pods.output
+    }
+
     // Collect logs from local node log files. Avoid using the Kubernetes
     // pods/log API from every DaemonSet replica.
     loki.source.file "pods" {
-      targets    = discovery.relabel.pods.output
+      targets    = local.file_match.pods.targets
       forward_to = [loki.process.pods.receiver]
     }
 
