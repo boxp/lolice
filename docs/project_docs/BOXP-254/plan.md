@@ -334,3 +334,8 @@ preflight では一度も実行されない。
   cert-controller を待つと詰まる。Secret の `tls.crt` だけを待ってから webhook を戻す順に修正（6 回目）。
 - 同 run で redis の ECR Public 429 が再発し、pre-pull の Docker Hub フォールバック（41s、ECR 名でタグ付け）が
   CI で実際に機能した。
+
+### 6 回目（run 39465230701、870d171）: Calico マニフェスト取得の `curl` が `Recv failure: Connection reset by peer`（外部要因）
+
+- raw.githubusercontent.com への接続リセットで "Install Calico" step が 0s で失敗（旧 workflow と同じ curl）。
+  Calico マニフェストの curl に `--retry 3 --retry-all-errors --retry-delay 5` を付けて再実行（7 回目）。

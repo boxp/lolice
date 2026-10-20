@@ -146,9 +146,9 @@ jobs:
           # operator.tigera.io の CRD は tigera-operator が起動時に作るため、Installation 等の
           # custom-resources.yaml は Apply step の冒頭で CRD を待ってから作る。
           mkdir -p "$RUNNER_TEMP/calico"
-          curl -fsSLo "$RUNNER_TEMP/calico/calico-crds.yaml" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/v3_projectcalico_org.yaml"
-          curl -fsSLo "$RUNNER_TEMP/calico/tigera-operator.yaml" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
-          curl -fsSLo "$RUNNER_TEMP/calico/custom-resources.yaml" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml"
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/calico/calico-crds.yaml" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/v3_projectcalico_org.yaml"
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/calico/tigera-operator.yaml" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/calico/custom-resources.yaml" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml"
           kubectl create -f "$RUNNER_TEMP/calico/calico-crds.yaml"
           kubectl create -f "$RUNNER_TEMP/calico/tigera-operator.yaml"
 
