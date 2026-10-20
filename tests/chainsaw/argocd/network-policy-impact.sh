@@ -25,7 +25,10 @@ test -n "$initial_reconcile"
 
 # same namespaceの許可ラベルを持つPodと通常Pod、別namespaceから同じ許可ラベルを
 # 試すPodを作る。DNSが引ける状態でService portのTCPだけを比較する。
-probe() {
+# 9個を先に全部作ってから待つ (image pull と起動を重ねる)。
+# python が PID 1 だと SIGTERM を無視して terminationGracePeriod (既定 30s) を
+# 使い切るので、末尾の namespace 削除が長引かないよう grace period を短くする。
+probe_create() {
   local name="$1" namespace="$2" labels="$3"
   cat <<YAML | kubectl apply -f -
 apiVersion: v1
@@ -37,6 +40,7 @@ metadata:
     ${labels%%=*}: "${labels#*=}"
 spec:
   hostNetwork: false
+  terminationGracePeriodSeconds: 1
   containers:
     - name: probe
       image: python:3.13-alpine
@@ -46,20 +50,33 @@ spec:
           command: ["false"]
         periodSeconds: 5
 YAML
+}
+probe_wait() {
+  local name="$1" namespace="$2"
   kubectl wait -n "$namespace" --for=jsonpath='{.status.phase}'=Running "pod/$name" --timeout=180s
   test "$(kubectl get pod "$name" -n "$namespace" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')" != "True"
   test "$(kubectl get pod "$name" -n "$namespace" -o jsonpath='{.spec.hostNetwork}')" != "true"
 }
 
-probe allowed-server argocd app.kubernetes.io/name=argocd-server
-probe allowed-repo argocd app.kubernetes.io/name=argocd-repo-server
-probe allowed-controller argocd app.kubernetes.io/name=argocd-application-controller
-probe allowed-notifications argocd app.kubernetes.io/name=argocd-notifications-controller
-probe allowed-applicationset argocd app.kubernetes.io/name=argocd-applicationset-controller
-probe denied-same-ns argocd app.kubernetes.io/name=network-policy-probe
-probe spoof-cross-ns netpol-spoof app.kubernetes.io/name=argocd-server
-probe cloudflare-proxy netpol-spoof app=cloudflared
-probe tailscale-proxy netpol-spoof tailscale.com/managed=true
+probes=(
+  "allowed-server argocd app.kubernetes.io/name=argocd-server"
+  "allowed-repo argocd app.kubernetes.io/name=argocd-repo-server"
+  "allowed-controller argocd app.kubernetes.io/name=argocd-application-controller"
+  "allowed-notifications argocd app.kubernetes.io/name=argocd-notifications-controller"
+  "allowed-applicationset argocd app.kubernetes.io/name=argocd-applicationset-controller"
+  "denied-same-ns argocd app.kubernetes.io/name=network-policy-probe"
+  "spoof-cross-ns netpol-spoof app.kubernetes.io/name=argocd-server"
+  "cloudflare-proxy netpol-spoof app=cloudflared"
+  "tailscale-proxy netpol-spoof tailscale.com/managed=true"
+)
+for probe in "${probes[@]}"; do
+  read -r name namespace labels <<< "$probe"
+  probe_create "$name" "$namespace" "$labels"
+done
+for probe in "${probes[@]}"; do
+  read -r name namespace labels <<< "$probe"
+  probe_wait "$name" "$namespace"
+done
 
 repo_service=argocd-repo-server.argocd.svc.cluster.local
 redis_service=argocd-redis.argocd.svc.cluster.local
@@ -153,10 +170,18 @@ tcp_check allowed-controller argocd "$repo_service" 8081 reachable
 tcp_check allowed-controller argocd "$redis_service" 6379 reachable
 tcp_check allowed-notifications argocd "$repo_service" 8081 reachable
 tcp_check allowed-applicationset argocd "$repo_service" 8081 reachable
-tcp_check denied-same-ns argocd "$repo_service" 8081 blocked
-tcp_check denied-same-ns argocd "$redis_service" 6379 blocked
-tcp_check spoof-cross-ns netpol-spoof "$repo_service" 8081 blocked
-tcp_check spoof-cross-ns netpol-spoof "$redis_service" 6379 blocked
+# blocked 判定は 1 件あたり TCP timeout 2s × 2 回連続 + sleep で 6 秒以上かかるため、
+# 4 件を同時に走らせて結果を個別に回収する (直列だと約 24 秒)。
+blocked_pids=()
+tcp_check denied-same-ns argocd "$repo_service" 8081 blocked & blocked_pids+=($!)
+tcp_check denied-same-ns argocd "$redis_service" 6379 blocked & blocked_pids+=($!)
+tcp_check spoof-cross-ns netpol-spoof "$repo_service" 8081 blocked & blocked_pids+=($!)
+tcp_check spoof-cross-ns netpol-spoof "$redis_service" 6379 blocked & blocked_pids+=($!)
+blocked_failed=0
+for pid in "${blocked_pids[@]}"; do
+  wait "$pid" || blocked_failed=1
+done
+test "$blocked_failed" -eq 0 || { echo "blocked 判定のいずれかが失敗しました" >&2; exit 1; }
 tcp_check spoof-cross-ns netpol-spoof "$repo_service" 8084 reachable
 
 # serverはupstream policyで全ingress許可。Tunnel proxy相当のcross-namespace

@@ -104,10 +104,15 @@ class EsoVersionTest(unittest.TestCase):
                 executable.write_text(VERIFIED_DIGEST_STUB)
                 executable.chmod(0o755)
             (root / 'evidence').mkdir()
+            # 通常 CI の Apply step は前 step が kustomize build したファイルを読む。
+            manifests = root / 'manifests'
+            manifests.mkdir()
+            for name in [component, 'argocd-cluster-rbac']:
+                (manifests / f'{name}.yaml').write_text('kind: ConfigMap\n')
             log = root / 'commands.jsonl'
             env = dict(os.environ, PATH=str(binary_dir) + ':' + os.environ['PATH'],
                        REPO_ROOT=str(root), RUNNER_TEMP=str(root), COMMAND_LOG=str(log),
-                       CHAINSAW_KIND_KUBECONFIG=str(root / 'isolated.kubeconfig'),
+                       CHAINSAW_KIND_KUBECONFIG=str(root / 'isolated.kubeconfig'), MANIFEST_DIR=str(manifests),
                        COMPONENT=component, COMPONENTS=json.dumps([component]), VERIFIED_DIGEST=DIGEST)
             if preflight:
                 script = workflow_script('chainsaw-preflight.yaml', 'Prepare selected component in isolated kind')

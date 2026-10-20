@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class IsolationGuardTest(unittest.TestCase):
     def test_guard_on_every_mutating_suite(self):
-        for component in ['argocd', 'external-secrets-operator', 'kube-vip']:
+        for component in ['argocd', 'external-secrets-operator', 'grafana-alloy', 'kube-vip']:
             source = (ROOT / 'tests/chainsaw' / component / 'chainsaw-test.yaml').read_text()
             guard = textwrap.dedent(source.split('        content: |\n', 1)[1].split('\n  - name:', 1)[0])
             with tempfile.TemporaryDirectory() as directory:

@@ -72,3 +72,301 @@ Grafana の Loki パネル（`ark asa` 2 枚、`lolice` node logs、`minecraft` 
 - `default` namespace に残る INC-1 時の残骸 DaemonSet / Service / ServiceMonitor `grafana-alloy`
   （SA 不在で 0/7、FailedCreate 連発）の削除。Argo CD 管理外のため owner 承認後に手動削除。
 - 「Loki への push が一定時間 0」を検知する PrometheusRule の追加。
+
+## 再発防止テスト（chainsaw、PR #850 マージ後に追加）
+
+owner 依頼により、kind 上で Alloy → Loki のログ収集経路を動的に検証する chainsaw suite を追加した。
+
+- `tests/chainsaw/grafana-alloy/chainsaw-test.yaml`
+  - `require-isolated-kind`: 他 suite と同じ隔離 kind ガード。
+  - `verify-manifests-applied`: kustomize 適用済みの ConfigMap / ServiceMonitor
+    （`app.kubernetes.io/part-of=kube-prometheus`）を確認。
+  - `log-pipeline-end-to-end`: `log-pipeline.sh` を実行。
+  - `apply-application-yaml`: 最後に `application.yaml` を適用（kube-vip / ESO suite と同じ）。
+    先に適用すると、argocd suite が起動した本物の Argo CD が automated sync で Alloy chart を
+    展開してしまい、`helm install` と ServiceAccount 等の所有権が衝突する（PR #853 の CI 2 回目で発生）。
+- `tests/chainsaw/grafana-alloy/log-pipeline.sh`
+  1. 本番 `configmap.yaml` を適用し、`local.file_match "pods"` が `discovery.relabel.pods.output` を受け、
+     `loki.source.file "pods"` の `targets` が `local.file_match.pods.targets` であることを静的に確認
+     （`discovery.relabel.pods.output` を直接渡す旧配線は即 fail）。
+  2. 使い捨て Loki 3.4.2（`loki-fixture.yaml`）を Service `monitoring/loki-gateway` として起動し、
+     ConfigMap の push URL を変更せずに受け口を用意。
+  3. `application.yaml` の chart repo / version（alloy 0.12.0）と本番 `helm/values.yaml` で
+     `helm upgrade --install grafana-alloy` し、DaemonSet が全ノード（control-plane 含む）で Ready になることを確認。
+  4. クラスター内 curl Pod から Loki に問い合わせ、全ノードについて `{node="<node>"}` が 300 秒以内に
+     ストリームを返すこと、label に `namespace` / `pod` / `container` / `node` / `job` があること、
+     `{namespace="monitoring"}` が返ることを確認。
+  5. 各 Alloy Pod の `/metrics` で `loki_source_file_files_active_total > 0` と
+     `loki_write_sent_entries_total > 0` を確認（本番で ServiceMonitor 経由で Prometheus に入る指標）。
+- `.github/workflows/chainsaw.yaml`
+  - `grafana-alloy` case を追加: ServiceMonitor CRD を本番 kube-prometheus
+    （`argoproj/prometheus-operator/kustomization.yaml` の ref → `versions.json` の prometheusOperator）と
+    同じ版から取得し、`kustomize build argoproj/grafana-alloy/` から Application を除いて適用。
+  - ワークフロー自体の変更時に走る `required_components` に `grafana-alloy` を追加。
+- `tests/workflows/test_chainsaw_isolation.py` の対象 suite に `grafana-alloy` を追加。
+
+### ローカル検証（kind v0.33.0 / kindest/node:v1.37.0、2 ノード、chainsaw v0.2.15）
+
+- 本番 ConfigMap: PASS（初回 95 秒、イメージキャッシュ後 47 秒）。
+  control-plane で `files_active=11 / sent=977`、worker で `files_active=5 / sent=401`。
+- negative control（ConfigMap を修正前の配線に戻し、静的チェックを外したスクリプト写しで実行）:
+  Alloy は `failed to tail file, stat failed ... *.log: no such file or directory` を出し続け、
+  Loki の label が空のまま 300 秒で `Loki にログが届いていないノード: ...` として FAIL。
+  静的チェックを含む本来のスクリプトでは `alloy-config に local.file_match "pods" がありません` で即 FAIL。
+- `python3 -B -m unittest discover -s tests/workflows`: 21 tests OK。
+
+### CI（PR #853）
+
+- 1 回目: grafana-alloy suite は Calico 環境でも PASS（67 秒、`files_active` 31 / 18、`sent` 7863 / 4104）。
+  ジョブ全体は、ワークフロー変更時に同時実行される既存 argocd suite が `public.ecr.aws` の
+  `redis:8.2.3-alpine` を pull できず（429 Data limit exceeded）失敗。本変更とは無関係。
+- 2 回目（rerun）: argocd suite が通り本物の Argo CD が動いた結果、事前適用していた
+  `grafana-alloy` Application を Argo CD が同期して Alloy を展開し、suite 内の `helm install` が
+  `ServiceAccount "grafana-alloy" ... cannot be imported into the current release` で失敗。
+  Application の適用を suite 末尾へ移して修正。
+
+## chainsaw 実行時間の短縮（owner レビュー指摘: 「テスト実行時間が長過ぎる、並列実行できないか」）
+
+PR #853 の CI 3 回目（7m25s）の内訳は、kind 作成 97s / Calico 52s / 事前適用 50s / suite 実行 223s で、
+suite 実行は argocd 135s → ESO 7s → grafana-alloy 74s → kube-vip 6s の直列だった。
+
+### 変更
+
+1. `.github/workflows/chainsaw.yaml` の `Run chainsaw tests`
+   - component ごとの `chainsaw test` をバックグラウンドで同時に起動し、`wait` で個別に終了コードを回収する。
+   - 出力は `$RUNNER_TEMP/chainsaw-output/<component>.txt` に分け、PR コメント用の結果は
+     完了順ではなく COMPONENTS の順で組み立てる（コメントの体裁は従来どおり）。
+   - 各 suite は namespace が分かれており（argocd / external-secrets / monitoring / kube-system）、
+     互いの結果に依存しない。Application の適用は従来どおり各 suite の末尾なので、本物の Argo CD との
+     所有権衝突（CI 2 回目の件）も変わらない。
+   - preflight workflow（`chainsaw-preflight.yaml`）は matrix で component ごとに job が分かれており
+     既に並列なので変更なし。
+2. `tests/chainsaw/grafana-alloy/log-pipeline.sh`
+   - Loki fixture / Alloy chart / curl Pod を先に全部作ってから待つ（イメージ pull と起動を重ねる）。
+   - `helm --wait` をやめ `kubectl rollout status daemonset` で待つ。helm の DaemonSet 待ちは
+     `maxUnavailable`（既定 1）を差し引くため 2 ノードで 1 Pod Ready の時点で戻り、
+     直後の `ready == desired` 検査が落ちる flaky 要因だった（ローカル baseline で実際に 1/2 Ready で FAIL）。
+   - ログ到達のポーリング間隔を 10s → 3s。
+3. `tests/chainsaw/argocd/network-policy-impact.sh`
+   - probe Pod 9 個を先に全部作ってから待つ。
+   - `terminationGracePeriodSeconds: 1`。probe の python が PID 1 で SIGTERM を無視し、
+     末尾の namespace 削除が grace period 30s を使い切っていた（ローカル計測で削除に 43s）。
+   - blocked 判定 4 件（1 件 6s 以上）を同時に実行し結果を個別に回収する。reachable 判定は従来どおり直列。
+   - 判定内容（許可 peer / 同 ns 非許可 / 別 ns spoof / Tunnel proxy）は変更していない。
+
+### ローカル計測（kind v0.33.0 + Calico v3.33.0、2 ノード、CI と同じ事前適用）
+
+| | 変更前（直列） | 変更後（並列） |
+| --- | --- | --- |
+| argocd | 142s（NetworkPolicy matrix 93s） | 104s（matrix 55s） |
+| grafana-alloy | 74s（helm --wait が 1/2 Ready で戻り FAIL） | 92s（並列でイメージ pull が競合、PASS） |
+| external-secrets-operator | 6s | 6s |
+| kube-vip | 6s | 6s |
+| suite 実行合計 | 229s | 104s |
+
+CI では suite 実行 223s → 約 105s、ジョブ全体 7m25s → 約 5m30s を見込む。
+残りは kind 作成 + Calico + 事前適用（約 3.3 分）で、hosted runner ではイメージキャッシュが効かないため
+これ以上は構成変更（Calico を不要にする、kind ノード image の事前 pull 等）が必要。
+
+### CI 実測（PR #853、run 39426040453）
+
+- 1 回目は argocd suite が `public.ecr.aws` の `redis:8.2.3-alpine` pull で 429 Too Many Requests
+  （CI 1 回目と同じ外部レート制限）となり失敗。rerun で 4 suite PASS。
+- rerun: ジョブ全体 4m56s（変更前 7m25s）、`Run chainsaw tests` 71s（変更前 223s）。
+  argocd 71s / grafana-alloy 53s / ESO 8s / kube-vip 8s を並列実行。
+
+## preflight workflow への grafana-alloy 追加（codex-review 指摘対応）
+
+codex-review の指摘: `chainsaw-preflight.yaml`（Kubernetes 更新前の隔離 kind 検証）の matrix が
+`argocd / external-secrets-operator / kube-vip` のままで、追加した `grafana-alloy` suite が
+preflight では一度も実行されない。
+
+### 変更（`.github/workflows/chainsaw-preflight.yaml`）
+
+- matrix `component` に `grafana-alloy` を追加（current / candidate × 4 component = 8 job）。
+- `Prepare selected component in isolated kind` に `grafana-alloy` の case を追加:
+  - ServiceMonitor CRD は本番の kube-prometheus（`argoproj/prometheus-operator/kustomization.yaml` の
+    `ref=v0.19.0`）が使う prometheus-operator **0.94.1** に固定し、CRD ファイルの sha256
+    （`31bdff39…9769`）を ESO chart / argocd install.yaml と同じ方式で検証する。
+    kube-prometheus の `versions.json` から取れる `prometheusOperator` が固定版と異なれば失敗させ、
+    版と digest を同時に更新する運用にする（通常 CI の `chainsaw.yaml` は versions.json から動的に取得）。
+  - `monitoring` namespace を作成し、`kustomize build argoproj/grafana-alloy/` から Application を除いて適用。
+    Application は通常 CI と同じく suite 末尾の `apply-application-yaml` で適用する。
+  - Alloy 本体の Helm install と使い捨て Loki は従来どおり `log-pipeline.sh` が行う（preflight job には
+    `azure/setup-helm` v4.3.1 が入っている）。
+- evidence に `kube-prometheus-versions.json` / `prepared-servicemonitor-crd.yaml` /
+  `servicemonitor-crd-{expected,actual}.sha256` / `prepared-grafana-alloy.yaml` を追加。
+
+### ローカル検証（preflight と同構成: kind v0.33.0 / kindest/node:v1.37.0、1 ノード、既定 CNI）
+
+- workflow から抽出した prepare step を `COMPONENT=grafana-alloy` で実行し exit 0（CRD digest 一致、
+  versions.json の prometheusOperator = 0.94.1）。
+- `chainsaw test --report-format JUNIT-TEST` で suite PASS（58s、`loki_source_file_files_active_total` 13、
+  `loki_write_sent_entries_total` 611）、report gate（PYREPORT）も exit 0。
+- `tests/workflows` の unittest 21 件 OK。
+- preflight は `workflow_dispatch` 専用のため、本 PR の CI では `chainsaw.yaml` 側（4 suite）のみ走る。
+
+## chainsaw CI の固定費削減（owner 追加レビュー: 「6m5s はまだ長い」への対応）
+
+### 計測（PR #853 の chainsaw ジョブ 7 run、GitHub hosted runner、step 別）
+
+| run | 内容 | kind 作成 | Calico | 事前適用 | suite 実行 | ジョブ全体 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 39402487022 | ESO のみ（renovate） | 93s | 44s | 42s | 6s | 3m22s |
+| 39409991582 | 4 suite 直列（高速化前） | 97s | 52s | 50s | 223s | 7m25s |
+| 39426040453 #1 | 4 suite 並列 | 95s | 52s | 48s | 347s（redis 429 で FAIL） | 9m24s |
+| 39426040453 #2 | 同 rerun | 99s | 55s | 45s | 71s | 4m56s |
+| 39428255488 | docs のみ変更 | 95s | 53s | 113s | 81s | 6m4s |
+| 39430340382 | preflight 追加 | 116s | 56s | 96s | 72s | 6m5s |
+
+- 4m56s → 6m5s の差は suite ではなく **事前適用（45s → 96〜113s）**。内訳は ESO の `helm install --wait` が
+  28s → 79s（ghcr.io からの image pull 速度）で、本 PR の変更内容とは無関係のばらつき。
+- rerun / 429 の影響は suite 実行（347s）にだけ現れ、環境構築には影響しない。
+- 固定費: kind 作成 93〜116s のうち **60s は kind-action の既定 `wait: 60s`** で、kind-config が
+  `disableDefaultCNI: true` のため Calico 導入まで node が Ready にならず毎回タイムアウト
+  （ログの `✗ Waiting ≤ 1m0s for control-plane = Ready`）していた純粋な無駄。
+- Calico 44〜56s と事前適用 42〜113s は直列で、どちらもコンテナイメージの pull 待ちが大半。
+
+### 変更（`.github/workflows/chainsaw.yaml`、`tests/workflows/kind-ci-images.sh`、`tests/workflows/kind-prefetch-images.sh`）
+
+1. kind-action に `wait: 0s`。node の Ready は Calico 導入後に `kubectl wait node --all` で待つ（検証内容は同じ、無駄な 60s だけ消える）。
+2. "Install Calico" step は CRD と tigera-operator を作るだけにし（1 秒）、`kubectl wait` 群は
+   "Apply component manifests" の後半へ移動して、CRD / Helm release / kustomize の適用を Calico 起動と並行させる。
+   - tigera-operator は起動後に operator.tigera.io の CRD を自分で作るため、`custom-resources.yaml`
+     （Installation 等）は Apply step 冒頭のバックグラウンドで CRD を待ってから作成する。
+3. 新 step "Build manifests and prefetch container images": まず各 component の `kustomize build` を
+   1 回だけ行い `$RUNNER_TEMP/manifests/<component>.yaml` に残す（Apply step はこのファイルを使う）。
+   その後バックグラウンドでイメージを**ノード内 containerd へ先行 pull**（`kind-ci-images.sh` が
+   ビルド済みマニフェスト / helm template / suite の fixture からイメージを列挙し、`kind-prefetch-images.sh` が
+   `docker exec <node> ctr -n k8s.io images pull` を並列実行）。
+   - kustomize build を pull 開始前に済ませるのは、argocd base など remote resource の取得（kustomize 内部の
+     27s タイムアウト）がイメージ pull と帯域を取り合うのを避けるため。ローカル（低帯域）では pull と同時だと
+     argo-cd の shallow fetch が単独 6s → 27s 超で 3 回連続失敗した。remote 取得は 3 回まで再試行する。
+   - DaemonSet / CNI のイメージは全ノード、それ以外は worker だけ（kind は control-plane に NoSchedule taint）。
+   - best effort: 取れなくても exit 0 で、kubelet が通常どおり pull する。429 などは 3 回までリトライ。
+   - cache は使わない（run ごとに空のノードへ pull）。cold / warm の区別がなく、PR 間で共有する状態もないため
+     未信頼 PR による cache 汚染の問題は生じない。
+4. ESO の `helm install --wait` をやめ、`external-secrets.io` 系リソース（argocd の ExternalSecret ×3、
+   ESO overlay の ClusterSecretStore）だけを ESO Deployment Available 後に適用する（validating webhook 依存）。
+   それ以外の argocd マニフェストは Calico を待たずに apply し、Pod 作成とイメージ pull を先に進める。
+5. 変更していないもの: suite の検証内容・timeout・JUnit 集計・failure 伝播、component 選択
+   （workflow / `tests/workflows` 変更時は 4 suite 全件）、Calico（NetworkPolicy 検証のため常に導入）。
+
+### ローカル計測（kind v0.33.0 + Calico v3.33.0、2 ノード、2 vCPU・低帯域のホスト、4 suite、workflow から step を抽出して実行）
+
+| | 変更前 | 変更後 |
+| --- | --- | --- |
+| kind 作成 | 78s（`✗ Waiting ≤ 1m0s` 込み） | 21s |
+| Calico step | 84s | 2s（リソース作成のみ） |
+| マニフェスト build + pre-pull 起動 | – | 17s（argo-cd の remote 取得込み） |
+| 事前適用（Calico / ESO 待ち込み） | 80s | 139s（pre-pull 24 件すべて成功、最長は calico/node 81s） |
+| suite 実行（並列） | 137s（argocd 137s / grafana-alloy 95s） | 69s（argocd 70s / grafana-alloy 32s） |
+| 合計 | 381s | 249s |
+
+- 4 suite とも PASS。suite の内容は変更していないので、旧配線の negative control（PR #853 初回で確認した
+  `loki.source.file` に glob を直接渡す設定が 300s で FAIL する挙動）はそのまま。
+- このホストは帯域が狭く pull 時間が CI より大きいため、絶対値は CI の参考にならない。差分の内訳
+  （kind -57s、suite -68s、Calico+事前適用 -25s）は CI でも同方向に出る見込み。
+
+### CI 実測（PR #853、run 39460101502、commit 9ee88d5、4 suite 全件、1 回目で PASS）
+
+| step | 変更前（run 39430340382） | 変更後 |
+| --- | --- | --- |
+| Create kind cluster | 116s | 34s |
+| Install Calico | 56s | 2s（リソース作成のみ） |
+| Build manifests and prefetch（前景部分） | – | 7s |
+| Apply component manifests | 96s | 87s（内訳: 適用 25s → Calico 待ち 31s → ESO Available 待ち 31s） |
+| Run chainsaw tests | 72s | 62s（argocd 61s / grafana-alloy 44s / ESO 7s / kube-vip 7s） |
+| ジョブ全体 | 6m5s | **3m34s** |
+
+- pre-pull は 24 件すべて成功（43s、最長は alloy 21s / argocd 18s）。redis（public.ecr.aws）も 13s で取得でき
+  429 は出ていない（run ごとの pull 回数は変えていないので、発生確率も変わらない）。
+- 残りの固定費: kind 34s + Calico 起動 31s + ESO 起動 31s（argocd / ESO を含む場合のみ）。
+  component 単体（grafana-alloy / kube-vip）の PR なら ESO 待ちが無く、kind 34s + 環境 40s + suite 45s +
+  overhead 15s ≈ **2 分台前半の見込み**（本 PR は workflow 変更のため全件実行しか走らず、単体は未実測）。
+- 4 suite 全件（workflow / `tests/workflows` 変更時）は 3.5 分前後。これ以上は Calico と ESO の起動
+  （どちらもイメージは取得済みで、プロセス起動と readiness の時間）か、suite 内の待ち
+  （argocd: Deployment 起動 + NetworkPolicy matrix 約 30s、grafana-alloy: Loki への到達待ち）を削る必要がある。
+
+### 2 回目（run 39460810630、281aff9）の失敗と ECR Public 429 のフォールバック
+
+- docs のみの変更だが branch 差分で 4 suite 全件が走り、argocd suite が `argocd-redis` の起動待ち（300s）で FAIL。
+  原因は `public.ecr.aws/docker/library/redis:8.2.3-alpine` の匿名 pull が `toomanyrequests: Data limit exceeded`
+  （runner IP あたりのデータ上限）で、pre-pull 側も 3 回リトライの末に同じエラー。本 PR の CI で 3 回目の同一 flake で、
+  pre-pull は run あたりの pull 回数を増やしていない（24 件 → 以前も同数を kubelet が pull）ので発生確率は変えていない。
+  他 3 suite は PASS、事前適用 89s / kind 37s は 1 回目と同程度で再現性あり。
+- 対策（5b261c4）: `kind-prefetch-images.sh` で `public.ecr.aws/docker/library/<name>` の取得が 3 回失敗したときだけ
+  `docker.io/library/<name>`（ECR Public の docker/library は Docker Hub 公式イメージの同一ミラー）を取り、
+  `ctr images tag` で ECR 名を付けて kubelet が使えるようにする。マニフェストの参照先は変えず、ECR から取れた
+  場合はこの経路を通らない。ログに「ECR が … のため docker.io/library/… から取得して同名でタグ付け」と出る。
+
+### 3 回目（run 39462272073、5b261c4）: 4m29s、4 suite PASS
+
+| step | 1 回目 9ee88d5 | 2 回目 281aff9（argocd FAIL） | 3 回目 5b261c4 |
+| --- | --- | --- | --- |
+| Create kind cluster | 34s | 37s | 32s |
+| Build manifests and prefetch | 7s | 9s | 5s |
+| Apply component manifests | 87s | 89s | 147s（適用 25s / Calico 待ち 41s / **ESO 待ち 80s**） |
+| Run chainsaw tests | 62s | 330s（redis 429） | 62s（argocd 62s / grafana-alloy 36s） |
+| ジョブ全体 | 3m34s | – | 4m29s |
+
+- pre-pull 24 件 41s 全成功（redis も ECR から取得でき、Docker Hub フォールバックは今回通っていない。CI での動作は
+  unittest のみで未確認）。
+- ばらつきの主因は ESO の Available 待ち（31s / 31s / 80s）。旧 `helm install --wait` でも 28〜79s だった同じ現象で、
+  webhook Pod が cert-controller の証明書より先に起動したときに遅くなるとみている。4 回目に向けて、証明書が
+  Secret に揃ってから 30s 経っても Available でなければ状態（Pod 一覧・webhook ログ）を記録して webhook だけ
+  1 回再起動する処理を Apply step に入れた。
+
+### 4 回目（run 39463411978、5e11f5c）: 3m54s、4 suite PASS。ESO webhook の遅延原因が確定
+
+- step: kind 34s / Calico 3s / build+prefetch 7s / Apply 109s / suite 56s（argocd 56s / grafana-alloy 43s）。
+- 記録した webhook ログ: `invalid certs. retrying... stat /tmp/certs/tls.crt: no such file or directory` を 10s ごとに
+  繰り返しており、cert-controller（この時点で 0/1）が Secret を書く前に起動した webhook Pod がマウント済み Secret の
+  反映を待っていた。再起動後 27s で Ready（ESO 待ち 57s）。
+- 5 回目に向けて再起動ではなく、helm install 直後に webhook を `--replicas=0` にし、`secret/external-secrets-webhook` に
+  `tls.crt` が入ったのを `kubectl wait --for=jsonpath` で確認してから元の replica 数に戻す方式に変更（決定的で、
+  再起動の無駄がない）。
+
+### 5 回目（run 39464273677、cacec72）: 事前適用で FAIL（待ち順の誤り）
+
+- `kubectl wait deployment/external-secrets-cert-controller --for=condition=Available` が 180s でタイムアウト。
+  cert-controller の readiness は webhook が Ready になるまで通らないため、webhook を 0 replica にしたまま
+  cert-controller を待つと詰まる。Secret の `tls.crt` だけを待ってから webhook を戻す順に修正（6 回目）。
+- 同 run で redis の ECR Public 429 が再発し、pre-pull の Docker Hub フォールバック（41s、ECR 名でタグ付け）が
+  CI で実際に機能した。
+
+### 6 回目（run 39465230701、870d171）: Calico マニフェスト取得の `curl` が `Recv failure: Connection reset by peer`（外部要因）
+
+- raw.githubusercontent.com への接続リセットで "Install Calico" step が 0s で失敗（旧 workflow と同じ curl）。
+  Calico マニフェストの curl に `--retry 3 --retry-all-errors --retry-delay 5` を付けて再実行（7 回目）。
+
+### 7 回目（run 39465561742、84e274a）: 3m41s、4 suite PASS。ESO 待ちが決定的になった
+
+| step | 1 回目 9ee88d5 | 3 回目 5b261c4 | 4 回目 5e11f5c | 7 回目 84e274a |
+| --- | --- | --- | --- | --- |
+| Create kind cluster | 34s | 32s | 34s | 38s |
+| Build manifests and prefetch | 7s | 5s | 7s | 6s |
+| Apply component manifests | 87s | 147s | 109s | 110s（適用 24s / Calico 待ち 57s / ESO 待ち 26s） |
+| Run chainsaw tests | 62s | 62s | 56s | 43s |
+| ジョブ全体 | 3m34s | 4m29s | 3m54s | 3m41s |
+
+- ESO 待ちは 31s / 80s / 57s（再起動あり）→ **26s**（webhook を証明書が揃ってから起動）。
+- 残るばらつきは Calico の起動待ち（31s / 41s / 57s、イメージは取得済みなので operator → calico-node → typha →
+  kube-controllers の起動連鎖そのもの）と kind 作成（32〜43s）。
+- まとめ（4 suite 全件、hosted runner）: 変更前 6m5s（run 39430340382）→ 変更後 3m34s〜3m54s（成功 run 4 本の範囲）。
+  失敗した 3 本は redis の ECR 429（本 PR の変更前から再発していたもの。Docker Hub フォールバックで 5 回目以降は
+  吸収）、私の待ち順ミス（5 回目、修正済み）、raw.githubusercontent.com の接続リセット（6 回目、curl 再試行を追加）。
+- component 単体（grafana-alloy など ESO を使わない変更）の見込みは kind 38s + Calico 60s + suite 45s + overhead 20s
+  ≈ 2 分台後半。本 PR は workflow を変更しているため全件実行しか走らず、単体は未実測。
+- 暫定目標「通常の component 変更で 2〜3 分台」は全件実行でも 3.5〜4 分、単体なら 3 分弱の見込みで、
+  おおむね到達。これ以上は Calico の起動連鎖（約 1 分）を削る必要があり、NetworkPolicy を使わない suite だけ
+  既定 CNI（kindnet、数秒）で走らせる構成変更が候補だが、本番と CNI が変わるため owner 判断とした。
+
+## codex-review 指摘対応（yq 正規表現のエスケープ）
+
+- 指摘: `chainsaw.yaml` の `IS_ESO_RESOURCE` が `test("external-secrets\.io/")` と `\.` を単一エスケープしており、
+  jq 互換の文字列としては無効なエスケープになり得る。
+- 実測: mikefarah yq v4.44.3 では `\.` / `\\.` / `[.]` のいずれも同じ結果（`external-secrets.io/` のみ一致、
+  `external-secretsXio/` は不一致）で、CI 7 run でも `ExternalSecret` x3 / `ClusterSecretStore` がフェーズ 3 で
+  正常に適用されていた。ただし yq のレクサー実装に依存する書き方なので、曖昧さの無い `[.]` に変更した。
+- 検証: `yq "select(${IS_ESO_RESOURCE})"` / `| not` で期待どおりに分離されること、`tests/workflows` の unittest 29 件 OK。
