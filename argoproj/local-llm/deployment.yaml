@@ -54,7 +54,6 @@ spec:
             - "1"
             - -fa
             - auto
-            - --no-mmap
             - --jinja
             - --reasoning
             - "off"
@@ -71,6 +70,15 @@ spec:
               value: "1"
             - name: HOME
               value: /tmp
+            # mmap を使わず model を RAM に読み込む（従来の --no-mmap 相当）。
+            # llama.cpp v0.7.0 で --no-mmap が --load-mode none に置き換わったため、
+            # 旧 revision が読む LLAMA_ARG_MMAP と新 revision が読む LLAMA_ARG_LOAD_MODE の両方を
+            # 環境変数で与え、image 更新の前後どちらでも同じ挙動で起動できるようにする（BOXP-253）。
+            # 環境変数は router が起動する各 model の子プロセスにも継承される。
+            - name: LLAMA_ARG_MMAP
+              value: "0"
+            - name: LLAMA_ARG_LOAD_MODE
+              value: none
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
