@@ -316,3 +316,13 @@ preflight では一度も実行されない。
   webhook Pod が cert-controller の証明書より先に起動したときに遅くなるとみている。4 回目に向けて、証明書が
   Secret に揃ってから 30s 経っても Available でなければ状態（Pod 一覧・webhook ログ）を記録して webhook だけ
   1 回再起動する処理を Apply step に入れた。
+
+### 4 回目（run 39463411978、5e11f5c）: 3m54s、4 suite PASS。ESO webhook の遅延原因が確定
+
+- step: kind 34s / Calico 3s / build+prefetch 7s / Apply 109s / suite 56s（argocd 56s / grafana-alloy 43s）。
+- 記録した webhook ログ: `invalid certs. retrying... stat /tmp/certs/tls.crt: no such file or directory` を 10s ごとに
+  繰り返しており、cert-controller（この時点で 0/1）が Secret を書く前に起動した webhook Pod がマウント済み Secret の
+  反映を待っていた。再起動後 27s で Ready（ESO 待ち 57s）。
+- 5 回目に向けて再起動ではなく、helm install 直後に webhook を `--replicas=0` にし、`secret/external-secrets-webhook` に
+  `tls.crt` が入ったのを `kubectl wait --for=jsonpath` で確認してから元の replica 数に戻す方式に変更（決定的で、
+  再起動の無駄がない）。
