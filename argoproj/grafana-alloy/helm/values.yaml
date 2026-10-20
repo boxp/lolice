@@ -11,10 +11,13 @@ controller:
     - effect: NoSchedule
       operator: Exists
   nodeSelector: {}
+# The chart's ServiceMonitor is disabled on purpose: it is always labelled
+# app.kubernetes.io/part-of=alloy, which Prometheus (kube-prometheus,
+# serviceMonitorSelector part-of=kube-prometheus) does not select, and
+# serviceMonitor.additionalLabels cannot override that key without producing a
+# duplicate YAML key. See ../servicemonitor.yaml instead.
 serviceMonitor:
-  enabled: true
-  labels:
-    app.kubernetes.io/part-of: kube-prometheus
+  enabled: false
 resources:
   requests:
     cpu: 100m
