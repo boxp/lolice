@@ -7,8 +7,9 @@ spec:
     Grafana Alloy のコンテナログ収集 (loki.source.file + local.file_match) が
     全ノードのログを Loki へ届けることを kind クラスターで動的に検証する。
     BOXP-254 (loki.source.file に glob を直接渡して 3.5 か月ログ収集が止まった) の
-    再発防止テスト。ConfigMap / ServiceMonitor / Application の kustomize 適用は
-    GHA ワークフロー側で実施済み。Loki 本体は使い捨て fixture を使う。
+    再発防止テスト。ConfigMap / ServiceMonitor の kustomize 適用は GHA ワークフロー側で実施済み。
+    Application は本物の Argo CD (argocd suite) に先回りして同期されないよう suite の最後に適用する。
+    Loki 本体は使い捨て fixture を使う。
   steps:
   - name: require-isolated-kind
     try:
@@ -42,7 +43,6 @@ spec:
             echo "ERROR: ServiceMonitor の app.kubernetes.io/part-of が kube-prometheus ではありません ($PART_OF)。Prometheus の serviceMonitorSelector に一致せず Alloy のメトリクスが取り込まれません。"
             exit 1
           fi
-          kubectl get application grafana-alloy -n argocd
   - name: log-pipeline-end-to-end
     try:
     - script:
@@ -50,3 +50,16 @@ spec:
         content: |
           set -eu
           bash "${REPO_ROOT}/tests/chainsaw/grafana-alloy/log-pipeline.sh"
+
+  # Application は最後に適用する。先に適用すると、argocd suite が起動した本物の Argo CD が
+  # automated sync で Alloy chart を展開し、log-pipeline.sh の helm install と衝突する。
+  - name: apply-application-yaml
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== ArgoCDApplication (application.yaml) の実適用 ==="
+          kubectl apply --server-side --force-conflicts \
+            -f "${REPO_ROOT}/argoproj/grafana-alloy/application.yaml"
+          echo "ArgoCD Application リソース作成完了"

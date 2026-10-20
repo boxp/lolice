@@ -227,7 +227,11 @@ jobs:
                   "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v${PROM_OPERATOR_VERSION}/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml"
                 kubectl wait --for=condition=established --timeout=60s crd/servicemonitors.monitoring.coreos.com
                 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+                # Application はここでは適用しない。argocd suite が先に起動する本物の Argo CD が
+                # automated sync で Alloy chart を展開してしまい、suite 内の helm install と
+                # 所有権が衝突する。suite の最後 (apply-application-yaml) で適用する。
                 kustomize build argoproj/grafana-alloy/ \
+                  | yq 'select(.kind != "Application")' \
                   | kubectl apply --server-side --force-conflicts -f -
                 ;;
               *)

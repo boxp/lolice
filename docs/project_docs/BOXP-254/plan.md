@@ -80,8 +80,11 @@ owner 依頼により、kind 上で Alloy → Loki のログ収集経路を動�
 - `tests/chainsaw/grafana-alloy/chainsaw-test.yaml`
   - `require-isolated-kind`: 他 suite と同じ隔離 kind ガード。
   - `verify-manifests-applied`: kustomize 適用済みの ConfigMap / ServiceMonitor
-    （`app.kubernetes.io/part-of=kube-prometheus`）/ Application を確認。
+    （`app.kubernetes.io/part-of=kube-prometheus`）を確認。
   - `log-pipeline-end-to-end`: `log-pipeline.sh` を実行。
+  - `apply-application-yaml`: 最後に `application.yaml` を適用（kube-vip / ESO suite と同じ）。
+    先に適用すると、argocd suite が起動した本物の Argo CD が automated sync で Alloy chart を
+    展開してしまい、`helm install` と ServiceAccount 等の所有権が衝突する（PR #853 の CI 2 回目で発生）。
 - `tests/chainsaw/grafana-alloy/log-pipeline.sh`
   1. 本番 `configmap.yaml` を適用し、`local.file_match "pods"` が `discovery.relabel.pods.output` を受け、
      `loki.source.file "pods"` の `targets` が `local.file_match.pods.targets` であることを静的に確認
@@ -98,7 +101,7 @@ owner 依頼により、kind 上で Alloy → Loki のログ収集経路を動�
 - `.github/workflows/chainsaw.yaml`
   - `grafana-alloy` case を追加: ServiceMonitor CRD を本番 kube-prometheus
     （`argoproj/prometheus-operator/kustomization.yaml` の ref → `versions.json` の prometheusOperator）と
-    同じ版から取得し、`kustomize build argoproj/grafana-alloy/` を適用。
+    同じ版から取得し、`kustomize build argoproj/grafana-alloy/` から Application を除いて適用。
   - ワークフロー自体の変更時に走る `required_components` に `grafana-alloy` を追加。
 - `tests/workflows/test_chainsaw_isolation.py` の対象 suite に `grafana-alloy` を追加。
 
@@ -111,3 +114,13 @@ owner 依頼により、kind 上で Alloy → Loki のログ収集経路を動�
   Loki の label が空のまま 300 秒で `Loki にログが届いていないノード: ...` として FAIL。
   静的チェックを含む本来のスクリプトでは `alloy-config に local.file_match "pods" がありません` で即 FAIL。
 - `python3 -B -m unittest discover -s tests/workflows`: 21 tests OK。
+
+### CI（PR #853）
+
+- 1 回目: grafana-alloy suite は Calico 環境でも PASS（67 秒、`files_active` 31 / 18、`sent` 7863 / 4104）。
+  ジョブ全体は、ワークフロー変更時に同時実行される既存 argocd suite が `public.ecr.aws` の
+  `redis:8.2.3-alpine` を pull できず（429 Data limit exceeded）失敗。本変更とは無関係。
+- 2 回目（rerun）: argocd suite が通り本物の Argo CD が動いた結果、事前適用していた
+  `grafana-alloy` Application を Argo CD が同期して Alloy を展開し、suite 内の `helm install` が
+  `ServiceAccount "grafana-alloy" ... cannot be imported into the current release` で失敗。
+  Application の適用を suite 末尾へ移して修正。
