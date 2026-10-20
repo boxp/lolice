@@ -338,7 +338,28 @@ jobs:
           # ---- フェーズ 3: ESO の webhook 起動後に external-secrets.io 系リソースを適用 ------
           if [ "$ESO_INSTALLED" = true ]; then
             echo "=== ESO Deployment の Available 待ち ==="
-            kubectl wait deployment --all -n external-secrets --for=condition=Available --timeout=180s
+            # webhook の Ready は cert-controller が Secret に証明書を書いた後になる。CI 実測で
+            # 31s のときと 80s のときがあり (旧 helm --wait でも 28〜79s)、遅い側は webhook Pod が
+            # 証明書の無い状態で起動したまま待っている。証明書が揃ってから 30s 経っても
+            # Available にならない場合は状態を記録したうえで webhook だけ 1 回再起動する。
+            eso_started=$SECONDS; webhook_restarted=false
+            until kubectl wait deployment --all -n external-secrets --for=condition=Available --timeout=10s >/dev/null 2>&1; do
+              if [ $((SECONDS - eso_started)) -ge 180 ]; then
+                echo "ESO Deployment が 180s 以内に Available になりませんでした" >&2
+                kubectl get pods -n external-secrets -o wide >&2
+                exit 1
+              fi
+              if [ "$webhook_restarted" = false ] && [ $((SECONDS - eso_started)) -ge 30 ] \
+                && [ -n "$(kubectl get secret external-secrets-webhook -n external-secrets -o jsonpath='{.data.tls\.crt}' 2>/dev/null)" ]; then
+                echo "--- webhook が $((SECONDS - eso_started))s 経っても Ready でないため状態を記録して再起動 ---"
+                kubectl get pods -n external-secrets -o wide || true
+                kubectl logs -n external-secrets deployment/external-secrets-webhook --tail=20 || true
+                kubectl rollout restart deployment/external-secrets-webhook -n external-secrets
+                webhook_restarted=true
+              fi
+            done
+            kubectl wait deployment --all -n external-secrets --for=condition=Available --timeout=10s
+            echo "ESO Available まで $((SECONDS - eso_started))s (webhook 再起動: ${webhook_restarted})"
             for DEFERRED in "$DEFERRED_DIR"/*-eso.yaml; do
               [ -s "$DEFERRED" ] || continue
               echo "=== $(basename "$DEFERRED") を適用 (ESO webhook 経由) ==="

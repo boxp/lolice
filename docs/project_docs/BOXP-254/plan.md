@@ -287,3 +287,32 @@ preflight では一度も実行されない。
 - 4 suite 全件（workflow / `tests/workflows` 変更時）は 3.5 分前後。これ以上は Calico と ESO の起動
   （どちらもイメージは取得済みで、プロセス起動と readiness の時間）か、suite 内の待ち
   （argocd: Deployment 起動 + NetworkPolicy matrix 約 30s、grafana-alloy: Loki への到達待ち）を削る必要がある。
+
+### 2 回目（run 39460810630、281aff9）の失敗と ECR Public 429 のフォールバック
+
+- docs のみの変更だが branch 差分で 4 suite 全件が走り、argocd suite が `argocd-redis` の起動待ち（300s）で FAIL。
+  原因は `public.ecr.aws/docker/library/redis:8.2.3-alpine` の匿名 pull が `toomanyrequests: Data limit exceeded`
+  （runner IP あたりのデータ上限）で、pre-pull 側も 3 回リトライの末に同じエラー。本 PR の CI で 3 回目の同一 flake で、
+  pre-pull は run あたりの pull 回数を増やしていない（24 件 → 以前も同数を kubelet が pull）ので発生確率は変えていない。
+  他 3 suite は PASS、事前適用 89s / kind 37s は 1 回目と同程度で再現性あり。
+- 対策（5b261c4）: `kind-prefetch-images.sh` で `public.ecr.aws/docker/library/<name>` の取得が 3 回失敗したときだけ
+  `docker.io/library/<name>`（ECR Public の docker/library は Docker Hub 公式イメージの同一ミラー）を取り、
+  `ctr images tag` で ECR 名を付けて kubelet が使えるようにする。マニフェストの参照先は変えず、ECR から取れた
+  場合はこの経路を通らない。ログに「ECR が … のため docker.io/library/… から取得して同名でタグ付け」と出る。
+
+### 3 回目（run 39462272073、5b261c4）: 4m29s、4 suite PASS
+
+| step | 1 回目 9ee88d5 | 2 回目 281aff9（argocd FAIL） | 3 回目 5b261c4 |
+| --- | --- | --- | --- |
+| Create kind cluster | 34s | 37s | 32s |
+| Build manifests and prefetch | 7s | 9s | 5s |
+| Apply component manifests | 87s | 89s | 147s（適用 25s / Calico 待ち 41s / **ESO 待ち 80s**） |
+| Run chainsaw tests | 62s | 330s（redis 429） | 62s（argocd 62s / grafana-alloy 36s） |
+| ジョブ全体 | 3m34s | – | 4m29s |
+
+- pre-pull 24 件 41s 全成功（redis も ECR から取得でき、Docker Hub フォールバックは今回通っていない。CI での動作は
+  unittest のみで未確認）。
+- ばらつきの主因は ESO の Available 待ち（31s / 31s / 80s）。旧 `helm install --wait` でも 28〜79s だった同じ現象で、
+  webhook Pod が cert-controller の証明書より先に起動したときに遅くなるとみている。4 回目に向けて、証明書が
+  Secret に揃ってから 30s 経っても Available でなければ状態（Pod 一覧・webhook ログ）を記録して webhook だけ
+  1 回再起動する処理を Apply step に入れた。
