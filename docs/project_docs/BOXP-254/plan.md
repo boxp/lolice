@@ -339,3 +339,25 @@ preflight では一度も実行されない。
 
 - raw.githubusercontent.com への接続リセットで "Install Calico" step が 0s で失敗（旧 workflow と同じ curl）。
   Calico マニフェストの curl に `--retry 3 --retry-all-errors --retry-delay 5` を付けて再実行（7 回目）。
+
+### 7 回目（run 39465561742、84e274a）: 3m41s、4 suite PASS。ESO 待ちが決定的になった
+
+| step | 1 回目 9ee88d5 | 3 回目 5b261c4 | 4 回目 5e11f5c | 7 回目 84e274a |
+| --- | --- | --- | --- | --- |
+| Create kind cluster | 34s | 32s | 34s | 38s |
+| Build manifests and prefetch | 7s | 5s | 7s | 6s |
+| Apply component manifests | 87s | 147s | 109s | 110s（適用 24s / Calico 待ち 57s / ESO 待ち 26s） |
+| Run chainsaw tests | 62s | 62s | 56s | 43s |
+| ジョブ全体 | 3m34s | 4m29s | 3m54s | 3m41s |
+
+- ESO 待ちは 31s / 80s / 57s（再起動あり）→ **26s**（webhook を証明書が揃ってから起動）。
+- 残るばらつきは Calico の起動待ち（31s / 41s / 57s、イメージは取得済みなので operator → calico-node → typha →
+  kube-controllers の起動連鎖そのもの）と kind 作成（32〜43s）。
+- まとめ（4 suite 全件、hosted runner）: 変更前 6m5s（run 39430340382）→ 変更後 3m34s〜3m54s（成功 run 4 本の範囲）。
+  失敗した 3 本は redis の ECR 429（本 PR の変更前から再発していたもの。Docker Hub フォールバックで 5 回目以降は
+  吸収）、私の待ち順ミス（5 回目、修正済み）、raw.githubusercontent.com の接続リセット（6 回目、curl 再試行を追加）。
+- component 単体（grafana-alloy など ESO を使わない変更）の見込みは kind 38s + Calico 60s + suite 45s + overhead 20s
+  ≈ 2 分台後半。本 PR は workflow を変更しているため全件実行しか走らず、単体は未実測。
+- 暫定目標「通常の component 変更で 2〜3 分台」は全件実行でも 3.5〜4 分、単体なら 3 分弱の見込みで、
+  おおむね到達。これ以上は Calico の起動連鎖（約 1 分）を削る必要があり、NetworkPolicy を使わない suite だけ
+  既定 CNI（kindnet、数秒）で走らせる構成変更が候補だが、本番と CNI が変わるため owner 判断とした。
