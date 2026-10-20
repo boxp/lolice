@@ -267,3 +267,23 @@ preflight では一度も実行されない。
   `loki.source.file` に glob を直接渡す設定が 300s で FAIL する挙動）はそのまま。
 - このホストは帯域が狭く pull 時間が CI より大きいため、絶対値は CI の参考にならない。差分の内訳
   （kind -57s、suite -68s、Calico+事前適用 -25s）は CI でも同方向に出る見込み。
+
+### CI 実測（PR #853、run 39460101502、commit 9ee88d5、4 suite 全件、1 回目で PASS）
+
+| step | 変更前（run 39430340382） | 変更後 |
+| --- | --- | --- |
+| Create kind cluster | 116s | 34s |
+| Install Calico | 56s | 2s（リソース作成のみ） |
+| Build manifests and prefetch（前景部分） | – | 7s |
+| Apply component manifests | 96s | 87s（内訳: 適用 25s → Calico 待ち 31s → ESO Available 待ち 31s） |
+| Run chainsaw tests | 72s | 62s（argocd 61s / grafana-alloy 44s / ESO 7s / kube-vip 7s） |
+| ジョブ全体 | 6m5s | **3m34s** |
+
+- pre-pull は 24 件すべて成功（43s、最長は alloy 21s / argocd 18s）。redis（public.ecr.aws）も 13s で取得でき
+  429 は出ていない（run ごとの pull 回数は変えていないので、発生確率も変わらない）。
+- 残りの固定費: kind 34s + Calico 起動 31s + ESO 起動 31s（argocd / ESO を含む場合のみ）。
+  component 単体（grafana-alloy / kube-vip）の PR なら ESO 待ちが無く、kind 34s + 環境 40s + suite 45s +
+  overhead 15s ≈ **2 分台前半の見込み**（本 PR は workflow 変更のため全件実行しか走らず、単体は未実測）。
+- 4 suite 全件（workflow / `tests/workflows` 変更時）は 3.5 分前後。これ以上は Calico と ESO の起動
+  （どちらもイメージは取得済みで、プロセス起動と readiness の時間）か、suite 内の待ち
+  （argocd: Deployment 起動 + NetworkPolicy matrix 約 30s、grafana-alloy: Loki への到達待ち）を削る必要がある。
