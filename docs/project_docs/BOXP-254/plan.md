@@ -205,3 +205,65 @@ preflight では一度も実行されない。
   `loki_write_sent_entries_total` 611）、report gate（PYREPORT）も exit 0。
 - `tests/workflows` の unittest 21 件 OK。
 - preflight は `workflow_dispatch` 専用のため、本 PR の CI では `chainsaw.yaml` 側（4 suite）のみ走る。
+
+## chainsaw CI の固定費削減（owner 追加レビュー: 「6m5s はまだ長い」への対応）
+
+### 計測（PR #853 の chainsaw ジョブ 7 run、GitHub hosted runner、step 別）
+
+| run | 内容 | kind 作成 | Calico | 事前適用 | suite 実行 | ジョブ全体 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 39402487022 | ESO のみ（renovate） | 93s | 44s | 42s | 6s | 3m22s |
+| 39409991582 | 4 suite 直列（高速化前） | 97s | 52s | 50s | 223s | 7m25s |
+| 39426040453 #1 | 4 suite 並列 | 95s | 52s | 48s | 347s（redis 429 で FAIL） | 9m24s |
+| 39426040453 #2 | 同 rerun | 99s | 55s | 45s | 71s | 4m56s |
+| 39428255488 | docs のみ変更 | 95s | 53s | 113s | 81s | 6m4s |
+| 39430340382 | preflight 追加 | 116s | 56s | 96s | 72s | 6m5s |
+
+- 4m56s → 6m5s の差は suite ではなく **事前適用（45s → 96〜113s）**。内訳は ESO の `helm install --wait` が
+  28s → 79s（ghcr.io からの image pull 速度）で、本 PR の変更内容とは無関係のばらつき。
+- rerun / 429 の影響は suite 実行（347s）にだけ現れ、環境構築には影響しない。
+- 固定費: kind 作成 93〜116s のうち **60s は kind-action の既定 `wait: 60s`** で、kind-config が
+  `disableDefaultCNI: true` のため Calico 導入まで node が Ready にならず毎回タイムアウト
+  （ログの `✗ Waiting ≤ 1m0s for control-plane = Ready`）していた純粋な無駄。
+- Calico 44〜56s と事前適用 42〜113s は直列で、どちらもコンテナイメージの pull 待ちが大半。
+
+### 変更（`.github/workflows/chainsaw.yaml`、`tests/workflows/kind-ci-images.sh`、`tests/workflows/kind-prefetch-images.sh`）
+
+1. kind-action に `wait: 0s`。node の Ready は Calico 導入後に `kubectl wait node --all` で待つ（検証内容は同じ、無駄な 60s だけ消える）。
+2. "Install Calico" step は CRD と tigera-operator を作るだけにし（1 秒）、`kubectl wait` 群は
+   "Apply component manifests" の後半へ移動して、CRD / Helm release / kustomize の適用を Calico 起動と並行させる。
+   - tigera-operator は起動後に operator.tigera.io の CRD を自分で作るため、`custom-resources.yaml`
+     （Installation 等）は Apply step 冒頭のバックグラウンドで CRD を待ってから作成する。
+3. 新 step "Build manifests and prefetch container images": まず各 component の `kustomize build` を
+   1 回だけ行い `$RUNNER_TEMP/manifests/<component>.yaml` に残す（Apply step はこのファイルを使う）。
+   その後バックグラウンドでイメージを**ノード内 containerd へ先行 pull**（`kind-ci-images.sh` が
+   ビルド済みマニフェスト / helm template / suite の fixture からイメージを列挙し、`kind-prefetch-images.sh` が
+   `docker exec <node> ctr -n k8s.io images pull` を並列実行）。
+   - kustomize build を pull 開始前に済ませるのは、argocd base など remote resource の取得（kustomize 内部の
+     27s タイムアウト）がイメージ pull と帯域を取り合うのを避けるため。ローカル（低帯域）では pull と同時だと
+     argo-cd の shallow fetch が単独 6s → 27s 超で 3 回連続失敗した。remote 取得は 3 回まで再試行する。
+   - DaemonSet / CNI のイメージは全ノード、それ以外は worker だけ（kind は control-plane に NoSchedule taint）。
+   - best effort: 取れなくても exit 0 で、kubelet が通常どおり pull する。429 などは 3 回までリトライ。
+   - cache は使わない（run ごとに空のノードへ pull）。cold / warm の区別がなく、PR 間で共有する状態もないため
+     未信頼 PR による cache 汚染の問題は生じない。
+4. ESO の `helm install --wait` をやめ、`external-secrets.io` 系リソース（argocd の ExternalSecret ×3、
+   ESO overlay の ClusterSecretStore）だけを ESO Deployment Available 後に適用する（validating webhook 依存）。
+   それ以外の argocd マニフェストは Calico を待たずに apply し、Pod 作成とイメージ pull を先に進める。
+5. 変更していないもの: suite の検証内容・timeout・JUnit 集計・failure 伝播、component 選択
+   （workflow / `tests/workflows` 変更時は 4 suite 全件）、Calico（NetworkPolicy 検証のため常に導入）。
+
+### ローカル計測（kind v0.33.0 + Calico v3.33.0、2 ノード、2 vCPU・低帯域のホスト、4 suite、workflow から step を抽出して実行）
+
+| | 変更前 | 変更後 |
+| --- | --- | --- |
+| kind 作成 | 78s（`✗ Waiting ≤ 1m0s` 込み） | 21s |
+| Calico step | 84s | 2s（リソース作成のみ） |
+| マニフェスト build + pre-pull 起動 | – | 17s（argo-cd の remote 取得込み） |
+| 事前適用（Calico / ESO 待ち込み） | 80s | 139s（pre-pull 24 件すべて成功、最長は calico/node 81s） |
+| suite 実行（並列） | 137s（argocd 137s / grafana-alloy 95s） | 69s（argocd 70s / grafana-alloy 32s） |
+| 合計 | 381s | 249s |
+
+- 4 suite とも PASS。suite の内容は変更していないので、旧配線の negative control（PR #853 初回で確認した
+  `loki.source.file` に glob を直接渡す設定が 300s で FAIL する挙動）はそのまま。
+- このホストは帯域が狭く pull 時間が CI より大きいため、絶対値は CI の参考にならない。差分の内訳
+  （kind -57s、suite -68s、Calico+事前適用 -25s）は CI でも同方向に出る見込み。
