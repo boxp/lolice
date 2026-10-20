@@ -16,7 +16,7 @@ if [ "$1" = ps ]; then
   exit 0
 fi
 printf '%s\\n' "$*" >> "$CALL_LOG"
-case "$*" in *"$FAIL_IMAGE"*) echo "pull failed: 429 Too Many Requests" >&2; exit 1 ;; esac
+case "$*" in *" pull "*"$FAIL_IMAGE"*) echo "pull failed: 429 Too Many Requests" >&2; exit 1 ;; esac
 '''
 
 
@@ -74,6 +74,24 @@ class PrefetchTest(unittest.TestCase):
         self.assertEqual(sum('curlimages/curl' in c for c in calls), 1)
         self.assertIn('ok=1 fail=1', result.stdout)
         self.assertIn('429 Too Many Requests', result.stdout)
+
+    def test_ecr_public_rate_limit_falls_back_to_docker_hub_and_retags(self):
+        result, calls = self.run_prefetch('public.ecr.aws/docker/library/redis:8.2.3-alpine\tworker\n',
+                                          fail_image='public.ecr.aws/docker/library/redis')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        pulls = [c for c in calls if ' pull ' in c]
+        self.assertEqual(sum('public.ecr.aws/docker/library/redis' in c for c in pulls), 3)
+        self.assertEqual(pulls[-1].split()[-1], 'docker.io/library/redis:8.2.3-alpine')
+        self.assertEqual(calls[-1], 'exec chainsaw-test-worker ctr -n k8s.io images tag '
+                         'docker.io/library/redis:8.2.3-alpine public.ecr.aws/docker/library/redis:8.2.3-alpine')
+        self.assertIn('ok=1 fail=0', result.stdout)
+        self.assertIn('同名でタグ付け', result.stdout)
+
+    def test_non_ecr_failures_do_not_fall_back(self):
+        result, calls = self.run_prefetch('ghcr.io/dexidp/dex:v2.45.1\tworker\n', fail_image='dexidp/dex')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 3)
+        self.assertIn('ok=0 fail=1', result.stdout)
 
     def test_empty_input_is_a_noop(self):
         result, calls = self.run_prefetch('')

@@ -26,15 +26,34 @@ normalize_ref() {
   fi
 }
 
+ctr_pull() {
+  docker exec "$1" ctr -n k8s.io images pull --hosts-dir /etc/containerd/certs.d "$2" 2>&1 >/dev/null
+}
+
 pull_one() {
-  local node="$1" image="$2" attempt err started=$SECONDS
+  local node="$1" image="$2" attempt err started=$SECONDS mirror
   for attempt in 1 2 3; do
-    if err="$(docker exec "$node" ctr -n k8s.io images pull --hosts-dir /etc/containerd/certs.d "$image" 2>&1 >/dev/null)"; then
+    if err="$(ctr_pull "$node" "$image")"; then
       printf 'ok   %-28s %3ds  %s\n' "$node" "$((SECONDS - started))" "$image"
       return 0
     fi
     sleep $((attempt * ${PREFETCH_RETRY_SLEEP:-5}))
   done
+  # ECR Public の docker/library/* は Docker Hub 公式イメージの同一ミラーだが、匿名 pull の
+  # データ上限 (429 "Data limit exceeded") に runner の IP が当たることがある。その場合だけ
+  # Docker Hub から同じ名前:タグを取り、ECR 名でタグ付けして kubelet が使えるようにする
+  # (マニフェストの参照先は変えない。ECR から取れたときはこの経路は通らない)。
+  case "$image" in
+    public.ecr.aws/docker/library/*)
+      mirror="docker.io/library/${image#public.ecr.aws/docker/library/}"
+      if ctr_pull "$node" "$mirror" >/dev/null \
+        && docker exec "$node" ctr -n k8s.io images tag "$mirror" "$image" >/dev/null 2>&1; then
+        printf 'ok   %-28s %3ds  %s (ECR が %s のため %s から取得して同名でタグ付け)\n' \
+          "$node" "$((SECONDS - started))" "$image" "$(tail -n 1 <<<"$err")" "$mirror"
+        return 0
+      fi
+      ;;
+  esac
   printf 'fail %-28s %3ds  %s: %s\n' "$node" "$((SECONDS - started))" "$image" "$(tail -n 1 <<<"$err")"
   return 1
 }
@@ -43,7 +62,7 @@ pull_one() {
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   CLUSTER="${1:?kind cluster name is required}"
   PARALLEL="${PREFETCH_PARALLEL:-6}"
-  export -f pull_one
+  export -f pull_one ctr_pull
 
   all_nodes=(); worker_nodes=()
   while IFS=$'\t' read -r name role; do
