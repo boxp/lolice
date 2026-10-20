@@ -345,8 +345,9 @@ jobs:
           if [ "$ESO_INSTALLED" = true ]; then
             echo "=== ESO Deployment の Available 待ち ==="
             eso_started=$SECONDS
-            kubectl wait deployment/external-secrets-cert-controller -n external-secrets --for=condition=Available --timeout=180s
-            kubectl wait secret/external-secrets-webhook -n external-secrets --for=jsonpath='{.data.tls\.crt}' --timeout=120s
+            # cert-controller の readiness は webhook が Ready になるまで通らないので、ここでは
+            # Secret に証明書が書かれたことだけを待つ (cert-controller は起動直後に書く)。
+            kubectl wait secret/external-secrets-webhook -n external-secrets --for=jsonpath='{.data.tls\.crt}' --timeout=150s
             echo "webhook 証明書が揃うまで $((SECONDS - eso_started))s"
             kubectl scale deployment/external-secrets-webhook -n external-secrets --replicas="${ESO_WEBHOOK_REPLICAS:-1}"
             if ! kubectl wait deployment --all -n external-secrets --for=condition=Available --timeout=180s; then

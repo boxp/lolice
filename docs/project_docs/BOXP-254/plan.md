@@ -326,3 +326,11 @@ preflight では一度も実行されない。
 - 5 回目に向けて再起動ではなく、helm install 直後に webhook を `--replicas=0` にし、`secret/external-secrets-webhook` に
   `tls.crt` が入ったのを `kubectl wait --for=jsonpath` で確認してから元の replica 数に戻す方式に変更（決定的で、
   再起動の無駄がない）。
+
+### 5 回目（run 39464273677、cacec72）: 事前適用で FAIL（待ち順の誤り）
+
+- `kubectl wait deployment/external-secrets-cert-controller --for=condition=Available` が 180s でタイムアウト。
+  cert-controller の readiness は webhook が Ready になるまで通らないため、webhook を 0 replica にしたまま
+  cert-controller を待つと詰まる。Secret の `tls.crt` だけを待ってから webhook を戻す順に修正（6 回目）。
+- 同 run で redis の ECR Public 429 が再発し、pre-pull の Docker Hub フォールバック（41s、ECR 名でタグ付け）が
+  CI で実際に機能した。
