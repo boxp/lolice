@@ -72,3 +72,42 @@ Grafana の Loki パネル（`ark asa` 2 枚、`lolice` node logs、`minecraft` 
 - `default` namespace に残る INC-1 時の残骸 DaemonSet / Service / ServiceMonitor `grafana-alloy`
   （SA 不在で 0/7、FailedCreate 連発）の削除。Argo CD 管理外のため owner 承認後に手動削除。
 - 「Loki への push が一定時間 0」を検知する PrometheusRule の追加。
+
+## 再発防止テスト（chainsaw、PR #850 マージ後に追加）
+
+owner 依頼により、kind 上で Alloy → Loki のログ収集経路を動的に検証する chainsaw suite を追加した。
+
+- `tests/chainsaw/grafana-alloy/chainsaw-test.yaml`
+  - `require-isolated-kind`: 他 suite と同じ隔離 kind ガード。
+  - `verify-manifests-applied`: kustomize 適用済みの ConfigMap / ServiceMonitor
+    （`app.kubernetes.io/part-of=kube-prometheus`）/ Application を確認。
+  - `log-pipeline-end-to-end`: `log-pipeline.sh` を実行。
+- `tests/chainsaw/grafana-alloy/log-pipeline.sh`
+  1. 本番 `configmap.yaml` を適用し、`local.file_match "pods"` が `discovery.relabel.pods.output` を受け、
+     `loki.source.file "pods"` の `targets` が `local.file_match.pods.targets` であることを静的に確認
+     （`discovery.relabel.pods.output` を直接渡す旧配線は即 fail）。
+  2. 使い捨て Loki 3.4.2（`loki-fixture.yaml`）を Service `monitoring/loki-gateway` として起動し、
+     ConfigMap の push URL を変更せずに受け口を用意。
+  3. `application.yaml` の chart repo / version（alloy 0.12.0）と本番 `helm/values.yaml` で
+     `helm upgrade --install grafana-alloy` し、DaemonSet が全ノード（control-plane 含む）で Ready になることを確認。
+  4. クラスター内 curl Pod から Loki に問い合わせ、全ノードについて `{node="<node>"}` が 300 秒以内に
+     ストリームを返すこと、label に `namespace` / `pod` / `container` / `node` / `job` があること、
+     `{namespace="monitoring"}` が返ることを確認。
+  5. 各 Alloy Pod の `/metrics` で `loki_source_file_files_active_total > 0` と
+     `loki_write_sent_entries_total > 0` を確認（本番で ServiceMonitor 経由で Prometheus に入る指標）。
+- `.github/workflows/chainsaw.yaml`
+  - `grafana-alloy` case を追加: ServiceMonitor CRD を本番 kube-prometheus
+    （`argoproj/prometheus-operator/kustomization.yaml` の ref → `versions.json` の prometheusOperator）と
+    同じ版から取得し、`kustomize build argoproj/grafana-alloy/` を適用。
+  - ワークフロー自体の変更時に走る `required_components` に `grafana-alloy` を追加。
+- `tests/workflows/test_chainsaw_isolation.py` の対象 suite に `grafana-alloy` を追加。
+
+### ローカル検証（kind v0.33.0 / kindest/node:v1.37.0、2 ノード、chainsaw v0.2.15）
+
+- 本番 ConfigMap: PASS（初回 95 秒、イメージキャッシュ後 47 秒）。
+  control-plane で `files_active=11 / sent=977`、worker で `files_active=5 / sent=401`。
+- negative control（ConfigMap を修正前の配線に戻し、静的チェックを外したスクリプト写しで実行）:
+  Alloy は `failed to tail file, stat failed ... *.log: no such file or directory` を出し続け、
+  Loki の label が空のまま 300 秒で `Loki にログが届いていないノード: ...` として FAIL。
+  静的チェックを含む本来のスクリプトでは `alloy-config に local.file_match "pods" がありません` で即 FAIL。
+- `python3 -B -m unittest discover -s tests/workflows`: 21 tests OK。

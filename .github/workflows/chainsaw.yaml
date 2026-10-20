@@ -39,6 +39,7 @@ jobs:
           required_components = {
               'argocd',
               'external-secrets-operator',
+              'grafana-alloy',
               'kube-vip',
           }
           components = set()
@@ -209,6 +210,24 @@ jobs:
                 ;;
               kube-vip)
                 kustomize build argoproj/kube-vip/ \
+                  | kubectl apply --server-side --force-conflicts -f -
+                ;;
+              grafana-alloy)
+                # ServiceMonitor CRD は本番の kube-prometheus (argoproj/prometheus-operator)
+                # と同じ prometheus-operator 版から取得する。Alloy 本体の Helm install と
+                # Loki fixture は tests/chainsaw/grafana-alloy/log-pipeline.sh が行う。
+                KUBE_PROM_REF="$(yq '.resources[] | select(contains("kube-prometheus?ref=")) | split("?ref=")[1]' argoproj/prometheus-operator/kustomization.yaml)"
+                test -n "$KUBE_PROM_REF"
+                PROM_OPERATOR_VERSION="$(curl -fsSL "https://raw.githubusercontent.com/prometheus-operator/kube-prometheus/${KUBE_PROM_REF}/jsonnet/kube-prometheus/versions.json" | yq -r '.prometheusOperator')"
+                [[ "$PROM_OPERATOR_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+                  echo 'kube-prometheus versions.json から prometheusOperator の版を取得できませんでした' >&2
+                  exit 1
+                }
+                kubectl apply --server-side --force-conflicts -f \
+                  "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v${PROM_OPERATOR_VERSION}/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml"
+                kubectl wait --for=condition=established --timeout=60s crd/servicemonitors.monitoring.coreos.com
+                kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+                kustomize build argoproj/grafana-alloy/ \
                   | kubectl apply --server-side --force-conflicts -f -
                 ;;
               *)
