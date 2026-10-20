@@ -18,3 +18,9 @@ spec:
   syncPolicy:
     automated:
       selfHeal: true
+    syncOptions:
+      # ESO chart 0.20.4 以降、secretstores / clustersecretstores CRD は 256 KiB を超え、
+      # client-side apply が書く kubectl.kubernetes.io/last-applied-configuration annotation の
+      # 上限 (262144 B) に収まらず "metadata.annotations: Too long" で Sync が失敗する。
+      # upstream も SSA 必須と明記しているため Server-Side Apply で適用する (BOXP-256)。
+      - ServerSideApply=true
