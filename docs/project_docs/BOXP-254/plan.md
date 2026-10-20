@@ -174,3 +174,34 @@ CI では suite 実行 223s → 約 105s、ジョブ全体 7m25s → 約 5m30s �
   （CI 1 回目と同じ外部レート制限）となり失敗。rerun で 4 suite PASS。
 - rerun: ジョブ全体 4m56s（変更前 7m25s）、`Run chainsaw tests` 71s（変更前 223s）。
   argocd 71s / grafana-alloy 53s / ESO 8s / kube-vip 8s を並列実行。
+
+## preflight workflow への grafana-alloy 追加（codex-review 指摘対応）
+
+codex-review の指摘: `chainsaw-preflight.yaml`（Kubernetes 更新前の隔離 kind 検証）の matrix が
+`argocd / external-secrets-operator / kube-vip` のままで、追加した `grafana-alloy` suite が
+preflight では一度も実行されない。
+
+### 変更（`.github/workflows/chainsaw-preflight.yaml`）
+
+- matrix `component` に `grafana-alloy` を追加（current / candidate × 4 component = 8 job）。
+- `Prepare selected component in isolated kind` に `grafana-alloy` の case を追加:
+  - ServiceMonitor CRD は本番の kube-prometheus（`argoproj/prometheus-operator/kustomization.yaml` の
+    `ref=v0.19.0`）が使う prometheus-operator **0.94.1** に固定し、CRD ファイルの sha256
+    （`31bdff39…9769`）を ESO chart / argocd install.yaml と同じ方式で検証する。
+    kube-prometheus の `versions.json` から取れる `prometheusOperator` が固定版と異なれば失敗させ、
+    版と digest を同時に更新する運用にする（通常 CI の `chainsaw.yaml` は versions.json から動的に取得）。
+  - `monitoring` namespace を作成し、`kustomize build argoproj/grafana-alloy/` から Application を除いて適用。
+    Application は通常 CI と同じく suite 末尾の `apply-application-yaml` で適用する。
+  - Alloy 本体の Helm install と使い捨て Loki は従来どおり `log-pipeline.sh` が行う（preflight job には
+    `azure/setup-helm` v4.3.1 が入っている）。
+- evidence に `kube-prometheus-versions.json` / `prepared-servicemonitor-crd.yaml` /
+  `servicemonitor-crd-{expected,actual}.sha256` / `prepared-grafana-alloy.yaml` を追加。
+
+### ローカル検証（preflight と同構成: kind v0.33.0 / kindest/node:v1.37.0、1 ノード、既定 CNI）
+
+- workflow から抽出した prepare step を `COMPONENT=grafana-alloy` で実行し exit 0（CRD digest 一致、
+  versions.json の prometheusOperator = 0.94.1）。
+- `chainsaw test --report-format JUNIT-TEST` で suite PASS（58s、`loki_source_file_files_active_total` 13、
+  `loki_write_sent_entries_total` 611）、report gate（PYREPORT）も exit 0。
+- `tests/workflows` の unittest 21 件 OK。
+- preflight は `workflow_dispatch` 専用のため、本 PR の CI では `chainsaw.yaml` 側（4 suite）のみ走る。

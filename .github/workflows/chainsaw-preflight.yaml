@@ -98,13 +98,16 @@ jobs:
       fail-fast: false
       matrix:
         version: [current, candidate]
-        component: [argocd, external-secrets-operator, kube-vip]
+        component: [argocd, external-secrets-operator, grafana-alloy, kube-vip]
         include:
           - version: current
             component: argocd
             kind_image: ${{ inputs.current_kind_image }}
           - version: current
             component: external-secrets-operator
+            kind_image: ${{ inputs.current_kind_image }}
+          - version: current
+            component: grafana-alloy
             kind_image: ${{ inputs.current_kind_image }}
           - version: current
             component: kube-vip
@@ -114,6 +117,9 @@ jobs:
             kind_image: ${{ inputs.candidate_kind_image }}
           - version: candidate
             component: external-secrets-operator
+            kind_image: ${{ inputs.candidate_kind_image }}
+          - version: candidate
+            component: grafana-alloy
             kind_image: ${{ inputs.candidate_kind_image }}
           - version: candidate
             component: kube-vip
@@ -234,6 +240,32 @@ jobs:
               helm install external-secrets "$eso_chart" --namespace external-secrets --wait --timeout 180s
               helm get manifest external-secrets -n external-secrets > "$evidence_dir/prepared-eso-helm.yaml"
               ;;
+            grafana-alloy)
+              # ServiceMonitor CRD は本番の kube-prometheus (argoproj/prometheus-operator) が
+              # 使う prometheus-operator 版に固定し、CRD ファイルの digest も検証する。
+              # kube-prometheus 側の pin が進んだら、版と digest を同時に更新する。
+              PROM_OPERATOR_VERSION=0.94.1
+              PROM_OPERATOR_CRD_SHA256=31bdff398b54ac2bc993a33f5dcb0472792a77104a6a609d264c8f1f17829769
+              KUBE_PROM_REF="$(yq '.resources[] | select(contains("kube-prometheus?ref=")) | split("?ref=")[1]' "${REPO_ROOT}/argoproj/prometheus-operator/kustomization.yaml")"
+              test -n "$KUBE_PROM_REF"
+              curl --fail-with-body --location --silent --show-error \
+                "https://raw.githubusercontent.com/prometheus-operator/kube-prometheus/${KUBE_PROM_REF}/jsonnet/kube-prometheus/versions.json" \
+                -o "$evidence_dir/kube-prometheus-versions.json"
+              actual_prom_operator="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["prometheusOperator"])' < "$evidence_dir/kube-prometheus-versions.json")"
+              if [ "$actual_prom_operator" != "$PROM_OPERATOR_VERSION" ]; then
+                echo "kube-prometheus ${KUBE_PROM_REF} の prometheusOperator (${actual_prom_operator}) が preflight の固定版 (${PROM_OPERATOR_VERSION}) と異なります。版と digest を同時に更新してください。" >&2
+                exit 1
+              fi
+              sm_crd="$evidence_dir/prepared-servicemonitor-crd.yaml"
+              curl --fail-with-body --location --silent --show-error \
+                "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v${PROM_OPERATOR_VERSION}/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml" \
+                -o "$sm_crd"
+              printf '%s  %s\n' "$PROM_OPERATOR_CRD_SHA256" "$sm_crd" | tee "$evidence_dir/servicemonitor-crd-expected.sha256" | sha256sum --check --status
+              sha256sum "$sm_crd" > "$evidence_dir/servicemonitor-crd-actual.sha256"
+              kubectl apply --server-side --force-conflicts -f "$sm_crd"
+              kubectl wait --for=condition=established --timeout=60s crd/servicemonitors.monitoring.coreos.com
+              kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+              ;;
           esac
           ARGOCD_TAG=v3.5.2
           ARGOCD_COMMIT_SHA=e258ee23c3e52266d407572f4bcdfe7d9ed36cb5
@@ -254,9 +286,17 @@ jobs:
           case "$COMPONENT" in
             argocd|kube-vip) manifest_dir="argoproj/$COMPONENT/" ;;
             external-secrets-operator) manifest_dir="argoproj/$COMPONENT/manifests/" ;;
+            grafana-alloy) manifest_dir="argoproj/$COMPONENT/" ;;
             *) echo "Unexpected component: $COMPONENT" >&2; exit 1 ;;
           esac
-          kustomize build "$manifest_dir" | tee "$evidence_dir/prepared-$COMPONENT.yaml" \
+          # grafana-alloy の Application は通常 CI (chainsaw.yaml) と同じく suite の末尾
+          # (apply-application-yaml) で適用する。Alloy 本体の Helm install と使い捨て Loki は
+          # tests/chainsaw/grafana-alloy/log-pipeline.sh が行う。
+          if [ "$COMPONENT" = grafana-alloy ]; then
+            kustomize build "$manifest_dir" | yq 'select(.kind != "Application")'
+          else
+            kustomize build "$manifest_dir"
+          fi | tee "$evidence_dir/prepared-$COMPONENT.yaml" \
             | kubectl apply --server-side --force-conflicts -f -
           if [ "$COMPONENT" = argocd ]; then
             # base単体にない標準cluster RBACを隔離kindへ補完する。
@@ -272,7 +312,7 @@ jobs:
         run: |
           set -euo pipefail
           evidence_dir="$RUNNER_TEMP/evidence"
-          # The three required suites each contain one Test. A missing directory
+          # The four required suites each contain one Test. A missing directory
           # or report must not be reinterpreted as a passing empty selection.
           test -f "tests/chainsaw/$COMPONENT/chainsaw-test.yaml"
           set +e
