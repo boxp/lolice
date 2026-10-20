@@ -167,3 +167,10 @@ suite 実行は argocd 135s → ESO 7s → grafana-alloy 74s → kube-vip 6s の
 CI では suite 実行 223s → 約 105s、ジョブ全体 7m25s → 約 5m30s を見込む。
 残りは kind 作成 + Calico + 事前適用（約 3.3 分）で、hosted runner ではイメージキャッシュが効かないため
 これ以上は構成変更（Calico を不要にする、kind ノード image の事前 pull 等）が必要。
+
+### CI 実測（PR #853、run 39426040453）
+
+- 1 回目は argocd suite が `public.ecr.aws` の `redis:8.2.3-alpine` pull で 429 Too Many Requests
+  （CI 1 回目と同じ外部レート制限）となり失敗。rerun で 4 suite PASS。
+- rerun: ジョブ全体 4m56s（変更前 7m25s）、`Run chainsaw tests` 71s（変更前 223s）。
+  argocd 71s / grafana-alloy 53s / ESO 8s / kube-vip 8s を並列実行。
