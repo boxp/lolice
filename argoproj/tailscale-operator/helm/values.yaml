@@ -12,8 +12,13 @@ oauthSecretVolume:
   secret:
     secretName: tailscale-operator-oauth
 
-# Operator and proxy image tags are left unset so they follow the chart's
-# appVersion (targetRevision in ../application.yaml).
+# Operator image tag is left unset so it follows the chart's appVersion
+# (targetRevision in ../application.yaml).
+# BOXP-259 (eMudhra 中間CA侵害対応): proxy image のみ v1.104.2 へ固定する。
+# v1.104.2 は go1.27.3 ビルド + Alpine ca-certificates 20261020-r0 で
+# emSign ECC Root CA - G3 / Comodo AAA Services root を含まない(指紋走査で確認)。
+# tailscale/k8s-operator:v1.104.2 と chart 1.104.2 は 2026-10-21 時点で未公開のため、
+# 公開後に Renovate の chart 更新に追従してこの固定は外す。
 
 # Resource limits for the operator itself
 operatorConfig:
@@ -33,3 +38,5 @@ proxyConfig:
   # The default does not apply to Connector resources (none exist today);
   # a Connector must set spec.proxyClass: default-proxy itself.
   defaultProxyClass: default-proxy
+  image:
+    tag: v1.104.2
