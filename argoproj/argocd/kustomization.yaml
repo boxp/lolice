@@ -7,6 +7,7 @@ resources:
 - external-secret.yaml
 - base/external-secrets.yaml
 - base/external-secret-repo.yaml
+- base/external-secret-repo-github-app.yaml
 - base/cloudflared-api.yaml
 - base/helm-repo-arc.yaml
 patchesStrategicMerge:
