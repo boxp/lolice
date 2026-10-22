@@ -31,12 +31,17 @@
 - ImageUpdater 11 件: `method: git:secret:argocd/repo-lolice-github-app`、`gitConfig.repository: https://github.com/boxp/lolice.git` を明示。
 - Application 4 件（ark-discord-bot / ark-survival-ascended / palserver / palserver-2）: `repoURL` を `https://github.com/boxp/lolice` に変更し、Argo CD fetch の deploy key 依存をなくす。
 - `.claude/skills/lolice-image-updater/SKILL.md` の手順を更新。
-- 確認: 正当な image 更新による main への push が PushEvent actor `<app-slug>[bot]` で記録され、deploy key `last_used` が進まないこと。無関係な image 更新は作らない。
+- 確認: 正当な image 更新による main への push が PushEvent actor `<app-slug>[bot]` で記録され、deploy key `last_used` が進まないこと。無関係な image 更新は作らない。**この確認は Phase 3a（Integration bypass の先行追加）の後でないと成立しない**（下記訂正）。
 
-### Phase 3: ruleset の bypass 置換（GitHub 設定、コード外）
+### Phase 3（順序訂正 2026-10-22 09:30 UTC）: ruleset の bypass を App の Integration へ移行（GitHub 設定、コード外）
 
-- `GET /apps/<slug>` で App ID を確認し、`bypass_actors` を `{actor_id: <App ID>, actor_type: Integration, bypass_mode: always}` に置換、`DeployKey` を削除。rules / conditions / enforcement は直前の GET 結果をそのまま使い、BOXP-266 の required_status_checks を含む他の保護を変えない。
-- 確認: 置換後に App 認証の write-back が再度成功する（App-only bypass の実効）。
+**訂正理由**: main の effective rules は `pull_request` + `required_status_checks(gitleaks, status-check)` で、bypass は `DeployKey / always` のみ（2026-10-22 09:25 UTC に `GET /repos/boxp/lolice/rules/branches/main` と ruleset 509073 で再確認、classic branch protection は無し）。Integration は DeployKey bypass を継承しないため、Phase 2 以降の App 認証 push は bypass 無しで `pull_request` ルールに掛かり拒否される。「App push を待ってから Integration bypass を設定する」は循環するので、**旧 DeployKey bypass を保持したまま App の Integration bypass を先に追加する**（可逆な中間段階）。拒否を実測したわけではない（Phase 2 反映後に正当な image 更新がまだ発生していない）。
+
+- 3a. `scripts/ruleset-integration-bypass.sh add <app-slug>`（dry-run）→ `--apply`: `GET /apps/<slug>` の `id`（Integration actor_id、Installation ID ではない）を `bypass_actors` に **追加**。DeployKey は残す。rules / conditions / enforcement は直前 GET をそのまま使う。
+- 3b. 正当な image 更新で main への push が PushEvent actor `<app-slug>[bot]` で記録され、deploy key `last_used` が進まないことを確認（Phase 2 の確認項目）。
+- 3c. `scripts/ruleset-integration-bypass.sh app-only <app-slug> --apply`: DeployKey bypass を除去し Integration のみにする。再度 App 主体の push 成功を確認してから Phase 4 へ。
+- 前提: 対象 App の slug（または App ID）。実行環境は Secret `argocd/repo-lolice-github-app` を読めず、`GET /user/installations` も gh の OAuth token では 403 のため、**owner から App の slug（`https://github.com/settings/apps/<slug>` の末尾、非秘密）の提示が必要**。スクリプトは `GET /apps/<slug>` で owner が `boxp` であることを検証してから使う。
+- スクリプトは毎回 `/tmp/ruleset-509073-<timestamp>.json` に直前 GET を保存し、`restore <file> --apply` で戻せる。
 
 ### Phase 4: 旧認証の撤去
 
@@ -48,7 +53,7 @@
 
 - Phase 1: PR を revert（旧認証は無変更）。
 - Phase 2: PR を revert すると `repo-lolice`（SSH）に戻る。Phase 4 前なら旧 deploy key は生きている。
-- Phase 3: 直前の GET 結果（`bypass_actors` に DeployKey）で PUT し直す。
+- Phase 3: `scripts/ruleset-integration-bypass.sh restore <直前GETのjson> --apply`（`bypass_actors` に DeployKey を戻す）。3a の段階では DeployKey bypass が残っているため、App 側で問題があっても PR #872 の revert で SSH 経路に戻れる。
 - Phase 4 以降は旧鍵を復活できないため、Phase 2〜3 の確認を終えてから実施する。
 
 ## 安全境界
