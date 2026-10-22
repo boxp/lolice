@@ -13,7 +13,9 @@ loliceプロジェクトは、オンプレミスのKubernetesクラスタを管�
 ├── .github/                 # GitHub関連の設定ファイル
 │   ├── dependabot.yml       # Dependabotの設定ファイル
 │   └── workflows/           # GitHub Actions ワークフロー
-│       └── argocd-diff.yaml
+│       ├── argocd-diff.yaml # ArgoCD diff（情報用）
+│       ├── chainsaw.yaml    # Manifest Validation（static-policy / chainsaw / status-check）
+│       └── gitleaks.yaml
 ├── .gitignore               # Gitの除外ファイル設定
 ├── LICENSE                  # ライセンスファイル
 ├── README.md                # プロジェクトの概要説明
@@ -42,6 +44,14 @@ loliceプロジェクトは、オンプレミスのKubernetesクラスタを管�
 ├── k8s/                     # Kubernetesマニフェストディレクトリ
 │   └── calico/              # Calicoネットワークプラグインの設定
 │       └── README.md
+├── policy/                  # conftest (Rego) policy。PRの静的ゲートで使う
+│   ├── kubernetes/          # render済みマニフェスト・Application向け（image固定、chart固定版）
+│   └── kustomize/           # kustomization.yaml向け（remote resourceの?ref固定）
+├── scripts/
+│   └── static-manifest-check.sh # kustomize render + conftest を手元/CIで実行
+├── tests/
+│   ├── chainsaw/            # kind統合テスト（component別）
+│   └── workflows/           # workflowのunit test（python unittest）
 └── renovate.json            # Renovateボットの設定ファイル
 ```
 
@@ -58,6 +68,9 @@ ArgoCDを使用したGitOpsのためのマニフェストファイルが格納�
 
 ### k8s/
 Kubernetesクラスタの基本設定に関するマニフェストファイルが格納されています。現在はCalicoネットワークプラグインの設定が含まれています。
+
+### policy/
+conftest で評価する Rego policy です。`scripts/static-manifest-check.sh` が app-of-apps から Application の source path を列挙し、kustomize で render した結果と `kustomization.yaml` に対して適用します。各 policy には `*_test.rego`（`conftest verify`）を置きます。Renovate の自動 merge（minor/patch）はこの静的ゲートと `status-check` の通過が前提です（BOXP-266）。
 
 ## 主要ファイル
 
