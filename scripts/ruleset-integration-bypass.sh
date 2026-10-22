@@ -71,7 +71,7 @@ graphql_app_slug() {
 app_rule_suites() {
   local slug="$1"
   # --paginate で全ページを辿る (1 ページ 100 件では古い証拠を見失う)。
-  gh api --paginate "repos/$REPO/rulesets/rule-suites?ref=refs/heads/main&per_page=100" \
+  gh api --paginate "repos/$REPO/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100" \
     --jq ".[] | select(.actor_name == \"${slug}[bot]\") | \"\(.pushed_at) actor=\(.actor_name) \(.before_sha[0:7])->\(.after_sha[0:7]) result=\(.result)\""
 }
 
@@ -81,7 +81,7 @@ suites_bypass_evidence() {
   jq -e --argjson id "$id" '.bypass_actors[]? | select(.actor_type=="Integration" and .actor_id==$id)' "$current" >/dev/null || return 1
   since="$(jq -r '.updated_at // "1970-01-01T00:00:00Z"' "$current")"
   # 全ページを辿り、該当行数を数える (ページ毎に jq が走るため length ではなく行数で集計)。
-  n="$(gh api --paginate "repos/$REPO/rulesets/rule-suites?ref=refs/heads/main&per_page=100" \
+  n="$(gh api --paginate "repos/$REPO/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100" \
     --jq ".[] | select(.actor_name == \"${slug}[bot]\" and .result == \"bypass\" and .pushed_at >= \"$since\") | .id" | wc -l | tr -d ' ')"
   [ "${n:-0}" -gt 0 ] || return 1
   echo "app (rule-suites): ${slug}[bot] の main push が Integration actor_id=$id の下で result=bypass ($n 件, since $since)" >&2
