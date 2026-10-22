@@ -19,8 +19,8 @@ spec:
             helm:
               spec: "template.spec.containers[0].image"
   writeBackConfig:
-    method: "git:secret:argocd/repo-lolice"
+    method: "git:secret:argocd/repo-lolice-github-app"
     gitConfig:
-      repository: "git@github.com:boxp/lolice.git"
+      repository: "https://github.com/boxp/lolice.git"
       branch: "main"
       writeBackTarget: "helmvalues:./argoproj/actions-runner-controller/runner-scale-set-arch/helm/values.yaml"
