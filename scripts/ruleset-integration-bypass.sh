@@ -6,6 +6,7 @@
 #   scripts/ruleset-integration-bypass.sh add      <app-slug> [--app-id <id>] [--apply]   # DeployKey bypass を残したまま App の Integration bypass を追加
 #   scripts/ruleset-integration-bypass.sh app-only <app-slug> [--app-id <id>] [--apply]   # DeployKey bypass を除去し App の Integration bypass のみにする
 #   scripts/ruleset-integration-bypass.sh restore  <backup.json> [--apply] # 直前 GET の JSON で bypass_actors を戻す
+#   scripts/ruleset-integration-bypass.sh suites   <app-slug>              # main への push 評価 (rule-suites) のうち App 主体のものを表示
 #
 # - --apply を付けない限り PUT しない (dry-run で payload と diff を表示する)。
 # - rules / conditions / enforcement / name / target は直前 GET の値をそのまま使い、bypass_actors 以外を変更しない。
@@ -15,6 +16,12 @@
 #   private App は API で owner を確認できないため、fallback は HTTP 404 のときだけ、かつ slug が
 #   PRIVATE_APP_SLUGS (既定: argocd-image-updater-for-lolice、owner 提示) に含まれる場合に限る。
 # - --apply 後は GraphQL の rulesets.bypassActors で Integration actor の slug を再確認する。
+#   ただし private App は GraphQL node(id) も bypassActors.actor も NOT_FOUND / null になる (owner の OAuth token でも解決不可、2026-10-22 実測)。
+#   その場合は rule-suites API (GET /repos/<repo>/rulesets/rule-suites?ref=refs/heads/main) で
+#   actor_name=<slug>[bot] の push が result=bypass になっていること (= 現在の Integration actor_id がその App のもの) を照合に使う。
+#   - add (3a): GraphQL でも rule-suites でも照合できない初回は ALLOW_UNVERIFIED_APP_ID=1 を付けた場合のみ進める
+#     (DeployKey bypass は保持されるので可逆。誤 ID なら App push は fail のまま残り、suites で判別できる)。
+#   - app-only (3c): rule-suites の bypass 証拠が無ければ中断する (DeployKey bypass を外す前に必ず App 主体の bypass push を要求)。
 # - 秘密値 (private key など) は一切扱わない。
 set -euo pipefail
 
@@ -22,7 +29,7 @@ REPO="${REPO:-boxp/lolice}"
 RULESET_ID="${RULESET_ID:-509073}"
 BACKUP_DIR="${BACKUP_DIR:-/tmp}"
 
-usage() { sed -n '2,16p' "$0"; exit 1; }
+usage() { sed -n '2,24p' "$0"; exit 1; }
 
 cmd="${1:-}"; shift || true
 [ -n "$cmd" ] || usage
@@ -50,10 +57,34 @@ fetch_current() {
 # GraphQL で App ID → slug を照合する (private App でも owner の token なら解決できる)。
 # App の legacy global node ID は base64("03:App<id>")。
 graphql_app_slug() {
-  local id="$1" node
+  local id="$1" node out
   node="$(printf '03:App%s' "$id" | base64 | tr -d '\n')"
-  gh api graphql -f query="{ node(id: \"$node\") { __typename ... on App { databaseId slug name } } }" \
-    --jq 'if .data.node.__typename == "App" then "\(.data.node.databaseId) \(.data.node.slug) \(.data.node.name)" else empty end' 2>/dev/null
+  # gh は GraphQL errors があると応答本文を stdout に出して非 0 で終わるため、exit code と形式 ("<数値> <slug> ...") を両方確認する。
+  out="$(gh api graphql -f query="{ node(id: \"$node\") { __typename ... on App { databaseId slug name } } }" \
+    --jq 'if .data.node.__typename == "App" then "\(.data.node.databaseId) \(.data.node.slug) \(.data.node.name)" else empty end' 2>/dev/null)" || return 0
+  [[ "$out" =~ ^[0-9]+\ [A-Za-z0-9._-]+ ]] && printf '%s\n' "$out"
+  return 0
+}
+
+# rule-suites: main への push 評価のうち App 主体 (actor_name=<slug>[bot]) のものを表示する。
+# result=fail は bypass 無しで pull_request / required_status_checks に掛かった push、result=bypass は Integration bypass で通った push。
+app_rule_suites() {
+  local slug="$1"
+  # --paginate で全ページを辿る (1 ページ 100 件では古い証拠を見失う)。
+  gh api --paginate "repos/$REPO/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100" \
+    --jq ".[] | select(.actor_name == \"${slug}[bot]\") | \"\(.pushed_at) actor=\(.actor_name) \(.before_sha[0:7])->\(.after_sha[0:7]) result=\(.result)\""
+}
+
+# 現在の ruleset が Integration actor_id=$2 を含み、かつその更新時刻以降に <slug>[bot] の push が result=bypass で記録されていれば 0。
+suites_bypass_evidence() {
+  local slug="$1" id="$2" since n
+  jq -e --argjson id "$id" '.bypass_actors[]? | select(.actor_type=="Integration" and .actor_id==$id)' "$current" >/dev/null || return 1
+  since="$(jq -r '.updated_at // "1970-01-01T00:00:00Z"' "$current")"
+  # 全ページを辿り、該当行数を数える (ページ毎に jq が走るため length ではなく行数で集計)。
+  n="$(gh api --paginate "repos/$REPO/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100" \
+    --jq ".[] | select(.actor_name == \"${slug}[bot]\" and .result == \"bypass\" and .pushed_at >= \"$since\") | .id" | wc -l | tr -d ' ')"
+  [ "${n:-0}" -gt 0 ] || return 1
+  echo "app (rule-suites): ${slug}[bot] の main push が Integration actor_id=$id の下で result=bypass ($n 件, since $since)" >&2
 }
 
 resolve_app_id() {
@@ -86,10 +117,23 @@ resolve_app_id() {
   [[ "$app_id_opt" =~ ^[0-9]+$ ]] || { echo "--app-id は数値 (App ID)。Installation ID と混同しない。" >&2; exit 2; }
   local resolved
   resolved="$(graphql_app_slug "$app_id_opt")"
-  [ -n "$resolved" ] || { echo "GraphQL で App id=$app_id_opt を解決できない (id 誤り、または owner 以外の token)。中断。" >&2; exit 2; }
-  echo "app (graphql): id=${resolved%% *} slug=$(echo "$resolved" | awk '{print $2}') name=$(echo "$resolved" | cut -d' ' -f3-)" >&2
-  [ "$(echo "$resolved" | awk '{print $2}')" = "$slug" ] || { echo "App id=$app_id_opt の slug が $slug ではない。中断。" >&2; exit 2; }
-  echo "$app_id_opt"
+  if [ -n "$resolved" ]; then
+    echo "app (graphql): id=${resolved%% *} slug=$(echo "$resolved" | awk '{print $2}') name=$(echo "$resolved" | cut -d' ' -f3-)" >&2
+    [ "$(echo "$resolved" | awk '{print $2}')" = "$slug" ] || { echo "App id=$app_id_opt の slug が $slug ではない。中断。" >&2; exit 2; }
+    echo "$app_id_opt"; return
+  fi
+  # private App は GraphQL でも解決できない。rule-suites の bypass 証拠 (現在の Integration actor_id の下で <slug>[bot] の push が bypass) で照合する。
+  if suites_bypass_evidence "$slug" "$app_id_opt"; then
+    echo "$app_id_opt"; return
+  fi
+  if [ "$cmd" = "add" ] && [ "${ALLOW_UNVERIFIED_APP_ID:-0}" = 1 ]; then
+    echo "warn: App id=$app_id_opt は GraphQL / rule-suites のどちらでも slug=$slug と照合できていない (owner 提示値をそのまま使う)。DeployKey bypass は保持されるため可逆。適用後は 'suites $slug' で <slug>[bot] の push が result=bypass になることを確認すること。" >&2
+    echo "$app_id_opt"; return
+  fi
+  echo "App id=$app_id_opt を slug=$slug と照合できない (private App は GraphQL node(id) で NOT_FOUND になる)。" >&2
+  echo "  - add (3a) の初回は ALLOW_UNVERIFIED_APP_ID=1 を付けて owner 提示の App ID を使う (DeployKey bypass 保持のため可逆)。" >&2
+  echo "  - app-only (3c) は 'suites $slug' で result=bypass の push が記録されてから実行する。" >&2
+  exit 2
 }
 
 # GraphQL で ruleset の bypass actors を slug 付きで表示する (REST は actor_id しか返さない)。
@@ -140,6 +184,10 @@ case "$cmd" in
     app_id="$(resolve_app_id "$slug")"
     payload="$(build_payload '[{actor_id:$app_id, actor_type:"Integration", bypass_mode:"always"}]')"
     put_or_show "$payload"
+    ;;
+  suites)
+    slug="${args[0]:-}"; [ -n "$slug" ] || usage
+    app_rule_suites "$slug"
     ;;
   restore)
     backup="${args[0]:-}"; [ -f "$backup" ] || usage
