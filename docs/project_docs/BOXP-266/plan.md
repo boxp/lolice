@@ -55,6 +55,13 @@ main の保護（BOXP-263 の ruleset 509073）は解除・迂回せず、requir
 
 適用順: 本 PR の CI で `status-check` が報告されるのを確認 → ruleset 更新 → allow_auto_merge → 本 PR の mergeable 状態と `viewerCanEnableAutoMerge` を確認。
 
+適用結果（2026-10-22 06:10 UTC、`ruleset-509073-after.json` / `repo-settings-after.json`）:
+
+- `GET /repos/boxp/lolice/rules/branches/main`: deletion / non_fast_forward / pull_request / **required_status_checks（gitleaks, status-check）**。
+- PR #869（本 PR、両 check 通過済み）: `mergeStateStatus: CLEAN`、`mergeable: MERGEABLE`。`viewerCanEnableAutoMerge: false` は「既に merge 可能な PR には auto-merge を有効化できない」という GitHub の仕様どおり。
+- PR #860（Renovate、適用前の head）: `mergeStateStatus: BLOCKED`（status-check 未報告）、`viewerCanEnableAutoMerge: true` = allow_auto_merge が実効。merge には「Update branch」が要る（tailscale-operator なので元々手動 merge 対象）。
+- Renovate 側の実効（PR 作成時に auto-merge が有効化され、checks 通過直後に merge される）は次の minor/patch PR で観測する（`autoMergeRequest` が非 null になること）。
+
 ## 自動化の範囲と例外
 
 | 対象 | 自動 merge | 根拠 |
@@ -81,7 +88,18 @@ main の保護（BOXP-263 の ruleset 509073）は解除・迂回せず、requir
 - 手元（kustomize 5.7.1、conftest 0.71.1、remote resource 3 件のネットワーク取得込み）: `scripts/static-manifest-check.sh` 12〜13s。内訳は render 12s（argocd base 6.8s、kube-prometheus 1.9s、image-updater 1.0s、それ以外は合計 1s 未満）、policy 0〜1s。
 - `conftest verify`: 23 tests pass。`conftest test`: 1284 + 34 documents pass（現行 main で deny 0）。
 - 否定テスト: cloudflared の digest を落とした render / chart `targetRevision: 1.x` の Application はそれぞれ deny される。
-- CI（cold / rerun）の実測は PR 作成後に本ファイルと Obsidian に追記する。
+- CI（PR #869、GitHub hosted runner、2 run）:
+
+| job | run 1（05:58） | run 2（06:04） | 備考 |
+| --- | --- | --- | --- |
+| detect | 3s | 4s | |
+| static-policy | 15s（job 19s） | 16s | checkout 2s、kustomize+conftest 取得 1s、unittest 5s、conftest verify 1s、render+conftest test 6s。手元より速い（runner の帯域） |
+| chainsaw | 3m23s | 3m27s | 本 PR は workflow 変更なので 4 suite すべて実行。過去実績 3m0s〜5m45s と同じ帯 |
+| status-check | 2s | 2s | |
+| gitleaks | 9s | 7s | |
+
+  静的ゲートは kind の 1/10 以下で、chainsaw が走らない PR（Renovate PR の大半: cloudflared 以外の docker tag、image-updater ref など）は
+  約 20 秒で required checks が揃う。chainsaw が走る PR は従来どおり 3〜6 分で、本 PR で延びてはいない。
 
 ## rollback
 
