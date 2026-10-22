@@ -37,10 +37,11 @@
 
 **訂正理由**: main の effective rules は `pull_request` + `required_status_checks(gitleaks, status-check)` で、bypass は `DeployKey / always` のみ（2026-10-22 09:25 UTC に `GET /repos/boxp/lolice/rules/branches/main` と ruleset 509073 で再確認、classic branch protection は無し）。Integration は DeployKey bypass を継承しないため、Phase 2 以降の App 認証 push は bypass 無しで `pull_request` ルールに掛かり拒否される。「App push を待ってから Integration bypass を設定する」は循環するので、**旧 DeployKey bypass を保持したまま App の Integration bypass を先に追加する**（可逆な中間段階）。拒否を実測したわけではない（Phase 2 反映後に正当な image 更新がまだ発生していない）。
 
-- 3a. `scripts/ruleset-integration-bypass.sh add <app-slug>`（dry-run）→ `--apply`: `GET /apps/<slug>` の `id`（Integration actor_id、Installation ID ではない）を `bypass_actors` に **追加**。DeployKey は残す。rules / conditions / enforcement は直前 GET をそのまま使う。
+- 3a. `scripts/ruleset-integration-bypass.sh add <app-slug> --app-id <App ID>`（dry-run）→ `--apply`: App ID（Integration actor_id、Installation ID ではない）を `bypass_actors` に **追加**。DeployKey は残す。rules / conditions / enforcement は直前 GET をそのまま使う。
 - 3b. 正当な image 更新で main への push が PushEvent actor `<app-slug>[bot]` で記録され、deploy key `last_used` が進まないことを確認（Phase 2 の確認項目）。
 - 3c. `scripts/ruleset-integration-bypass.sh app-only <app-slug> --apply`: DeployKey bypass を除去し Integration のみにする。再度 App 主体の push 成功を確認してから Phase 4 へ。
-- 前提: 対象 App の slug（または App ID）。実行環境は Secret `argocd/repo-lolice-github-app` を読めず、`GET /user/installations` も gh の OAuth token では 403 のため、**owner から App の slug（`https://github.com/settings/apps/<slug>` の末尾、非秘密）の提示が必要**。スクリプトは `GET /apps/<slug>` で owner が `boxp` であることを検証してから使う。
+- 前提: 対象 App の slug と App ID（いずれも非秘密）。owner から slug `argocd-image-updater-for-lolice` は受領済み（2026-10-22 09:59 UTC）。ただし当該 App は **private App** のため `GET /apps/<slug>` は未認証・gh の OAuth token（owner boxp）いずれでも 404 になり、slug から App ID を引けない。実行環境は Secret `argocd/repo-lolice-github-app`（`githubAppID` を含む）を argocd / codex-workspace どちらの namespace でも読めず、controller ログも取得不可、`GET /user/installations` も 403。bot user `argocd-image-updater-for-lolice[bot]`（user id 346205362）は存在するが user id は App ID ではない。したがって **owner から App ID（`https://github.com/settings/apps/argocd-image-updater-for-lolice` 冒頭に表示される数値、非秘密）の提示が必要**。
+- App ID の照合: スクリプトは `--app-id` で渡された数値を GraphQL `node(id: base64("03:App<id>"))` で解決し、返る `slug` が指定 slug と一致することを確認してから使う（public App の既知 ID で動作確認済み。owner の token なら private App も解決できる想定で、解決できない場合は中断する）。public App なら従来どおり `GET /apps/<slug>` で owner=boxp も検証する。`--apply` 後と `show` では GraphQL `rulesets.bypassActors.actor { slug }` で Integration actor の slug を再確認する（REST は actor_id しか返さない）。
 - スクリプトは毎回 `/tmp/ruleset-509073-<timestamp>.json` に直前 GET を保存し、`restore <file> --apply` で戻せる。
 
 ### Phase 4: 旧認証の撤去
