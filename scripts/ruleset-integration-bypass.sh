@@ -57,10 +57,13 @@ graphql_app_slug() {
 }
 
 resolve_app_id() {
-  local slug="$1" json status
-  # HTTP status を取り、404 のときだけ private App として fallback する (一時障害・認証失敗では fallback しない)。
-  status="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $(gh auth token)" -H 'Accept: application/vnd.github+json' "https://api.github.com/apps/$slug")"
-  if [ "$status" = "200" ] && json="$(gh api "apps/$slug")"; then
+  local slug="$1" json status raw
+  # gh api -i で HTTP status を取り、404 のときだけ private App として fallback する (一時障害・認証失敗では fallback しない)。
+  # token は gh が内部で扱い、プロセス引数には載せない。
+  raw="$(gh api -i "apps/$slug" 2>/dev/null || true)"
+  status="$(printf '%s\n' "$raw" | awk 'NR==1 && $1 ~ /^HTTP/ {print $2}')"
+  json="$(printf '%s\n' "$raw" | awk 'body {print} /^\r?$/ {body=1}')"
+  if [ "$status" = "200" ] && [ -n "$json" ]; then
     echo "$json" | jq -r '"app: slug=\(.slug) id=\(.id) owner=\(.owner.login) permissions=\(.permissions|tostring)"' >&2
     [ "$(echo "$json" | jq -r .owner.login)" = "${APP_OWNER:-boxp}" ] || { echo "App owner が ${APP_OWNER:-boxp} ではない。中断。" >&2; exit 2; }
     local rest_id; rest_id="$(echo "$json" | jq -r .id)"
