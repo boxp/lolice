@@ -12,6 +12,8 @@
 # - App ID は公開 API GET /apps/<slug> の id (Integration actor_id)。Installation ID と混同しない。
 #   private App は GET /apps/<slug> が 404 になるため、その場合は --app-id <id> (App 設定画面冒頭の App ID、非秘密) を渡す。
 #   渡された id は GraphQL node(id: base64("03:App<id>")) で slug が一致することを照合してから使う。
+#   private App は API で owner を確認できないため、fallback は HTTP 404 のときだけ、かつ slug が
+#   PRIVATE_APP_SLUGS (既定: argocd-image-updater-for-lolice、owner 提示) に含まれる場合に限る。
 # - --apply 後は GraphQL の rulesets.bypassActors で Integration actor の slug を再確認する。
 # - 秘密値 (private key など) は一切扱わない。
 set -euo pipefail
@@ -55,8 +57,10 @@ graphql_app_slug() {
 }
 
 resolve_app_id() {
-  local slug="$1" json
-  if json="$(gh api "apps/$slug" 2>/dev/null)"; then
+  local slug="$1" json status
+  # HTTP status を取り、404 のときだけ private App として fallback する (一時障害・認証失敗では fallback しない)。
+  status="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $(gh auth token)" -H 'Accept: application/vnd.github+json' "https://api.github.com/apps/$slug")"
+  if [ "$status" = "200" ] && json="$(gh api "apps/$slug")"; then
     echo "$json" | jq -r '"app: slug=\(.slug) id=\(.id) owner=\(.owner.login) permissions=\(.permissions|tostring)"' >&2
     [ "$(echo "$json" | jq -r .owner.login)" = "${APP_OWNER:-boxp}" ] || { echo "App owner が ${APP_OWNER:-boxp} ではない。中断。" >&2; exit 2; }
     local rest_id; rest_id="$(echo "$json" | jq -r .id)"
@@ -65,7 +69,13 @@ resolve_app_id() {
     fi
     echo "$rest_id"; return
   fi
-  # private App: GET /apps/<slug> は 404。--app-id を GraphQL で slug 照合する。
+  [ "$status" = "404" ] || { echo "GET /apps/$slug が HTTP $status (404 以外)。一時障害や認証問題の可能性があるため private App として扱わず中断。" >&2; exit 2; }
+  # private App: GET /apps/<slug> は 404 で owner を API から確認できない。
+  # 代わりに owner が提示した slug の許可リスト (PRIVATE_APP_SLUGS、空白区切り) に含まれることを必須にし、
+  # --app-id を GraphQL で slug 照合する (slug は GitHub 全体で一意)。
+  local allowed=0 a
+  for a in ${PRIVATE_APP_SLUGS:-argocd-image-updater-for-lolice}; do [ "$a" = "$slug" ] && allowed=1; done
+  [ "$allowed" = 1 ] || { echo "private App '$slug' は PRIVATE_APP_SLUGS (owner 提示の slug) に含まれない。中断。" >&2; exit 2; }
   if [ -z "$app_id_opt" ]; then
     echo "GET /apps/$slug は 404 (private App か slug 誤り)。App 設定画面 https://github.com/settings/apps/$slug 冒頭の App ID (数値・非秘密) を --app-id で渡してください。" >&2
     exit 2
