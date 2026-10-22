@@ -15,6 +15,9 @@ spec:
       labels:
         app: codex-workspace
     spec:
+      nodeSelector:
+       kubernetes.io/arch: amd64
+       kubernetes.io/hostname: golyat-1
       serviceAccountName: codex-workspace
       automountServiceAccountToken: false
       nodeSelector:
