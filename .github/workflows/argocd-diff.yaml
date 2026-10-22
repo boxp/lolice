@@ -10,10 +10,9 @@ jobs:
   argocd-diff:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: write
-      repository-projects: write
-      id-token: write
+      contents: read       # checkout のみ。commit/push はしない
+      pull-requests: write # diff 結果を PR コメントに投稿するため
+      id-token: write      # Tailscale WIF (OIDC) 接続のため
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
