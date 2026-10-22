@@ -6,6 +6,8 @@
 
 Task Board lock には downward API から渡した Pod UID (`CODEX_TASK_BOARD_OWNER_ID`) と runner instance ID を記録します。計画 rollout では runner process 自身の SIGTERM shutdown hook と container の `preStop` が `/home/boxp/.codex-task-board/terminating-owners/` に同じ owner marker を書きます。`Recreate` で旧 Pod が完全に終了した後、別 UID の新 Pod だけが marker と owner / instance の一致する lock を `interrupted` にして再受付します。marker の作成・lock acquire・最終再走査・marker 削除は PVC 上の owner guard で直列化し、削除前に `/home/boxp/.codex-task-board/owners/` の旧 owner state を `:terminated` にするため、待機していた旧 owner が marker 削除直後に lock を作ることもありません。
 
+SIGTERM 時の終了側の動作（BOXP-252）: `task-board-runner` は `tini` を PID 1 にし、bb runner を子として起動します。runner の shutdown hook は marker を書いた後、`setsid` で起動した agent CLI の process group に TERM を送り、`CODEX_TASK_BOARD_SHUTDOWN_AGENT_GRACE_SECONDS`（既定 20 秒、上限 45 秒）だけ待ってから残りを KILL します。進行中の run は終了側が `:interrupted`（reason `planned workspace shutdown`）で記録し、Task Board のレーン・frontmatter・Notes は変更せず、lock も解放しません。lock の回収は上記の次 Pod の marker 経路に任せるため、agent や remote 推論の終了を確認できないまま別 Pod が同じ run を二重に始めることはありません。終了予算は preStop 約 3 秒 + agent 猶予 20 秒 + finalize 5 秒で、開始済みの lifecycle commit（レーン・frontmatter・summary・lock の一連の書き込み）だけは hook 開始から `CODEX_TASK_BOARD_SHUTDOWN_COMMIT_BUDGET_SECONDS`（既定 45 秒、上限 55 秒）まで待ってから抜けるため、いずれも `terminationGracePeriodSeconds: 60` の内側です。lock と一致しなかった他 owner の marker は 1 時間後に `:terminated` にして削除されます。設計正本は Obsidian `Projects/codex-task-board-runner/graceful-shutdown/design.md` です。
+
 旧 image からの初回 rollout、SIGKILL、node 障害など shutdown hook と preStop の両方が実行されない場合は heartbeat を使います。stale timeout は 180 秒、poll は 30 秒なので、最後の heartbeat から通常 210 秒以内に lock を回収します。marker のない fresh lock、owner または instance が一致しない marker、現在の Pod UID が所有する planned-shutdown markerは回収しません。
 
 ### Rollout
@@ -94,6 +96,7 @@ lock の手動削除は、Deployment が 1 replica、旧 owner UID の Pod が�
 
 - state: `/home/boxp/.novel-board/`（0700。`work/NOVEL-N/` の原稿・挿絵、`runs/`、`locks/`、`published/`）。Task Board runner とは別 root で lock を共有しません。
 - lock / heartbeat / planned shutdown は Task Board runner と同じ方式です（`CODEX_NOVEL_BOARD_OWNER_ID` = Pod UID、stale 180 秒、poll 30 秒、`preStop` で `prepare-shutdown`）。
+- SIGTERM 時も Task Board runner と同じです（BOXP-252）: entrypoint が `tini -- novel_board_runner.bb loop` を起動し、hook が cloud agent の process group を TERM → `CODEX_NOVEL_BOARD_SHUTDOWN_AGENT_GRACE_SECONDS`（既定 20 秒）→ KILL、localllm の stream は閉じて `work/NOVEL-N/manuscript.partial.md` に部分出力を残します。部分出力は `manuscript.md` に昇格せず、lane / assignee / lock は次 Pod の marker 回収に任せます。llama-server 側の生成は停止を確認できないため終了側は再要求しません。
 - local-llm は `--parallel 1` のため runner も localllm カードを同時に1件しか走らせません。llama-server は `codex-workspace` の NetworkPolicy で既に egress 許可済みです（`networkpolicy.yaml`）。
 - 挿絵は `GEMINI_API_KEY` と home PVC 上の `~/.claude/skills/generate-image/generate-image.bb` で runner が生成します。
 - 確認: `kubectl -n codex-workspace logs deploy/codex-workspace -c novel-board-runner --tail=50`。起動時に `novel-board runner started, ... localllm=http://llama-server.local-llm.svc.cluster.local:8080/v1 model=gemma4-26b` が出ます。
