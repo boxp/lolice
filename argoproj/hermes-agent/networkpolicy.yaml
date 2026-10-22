@@ -48,3 +48,28 @@ spec:
       destination:
         ports:
           - 2408
+---
+# BOXP-270: the webhook platform listens on 0.0.0.0:8644 inside the Pod. Only
+# the codex-workspace Pod (task-board event dispatcher) may reach it; every
+# other ingress to the hermes-agent Pod is denied. kubelet probes are not
+# subject to Calico workload policy (the codex-workspace dashboard probe runs
+# behind an equally strict ingress policy).
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: hermes-agent-webhook-ingress
+  namespace: hermes-agent
+spec:
+  tier: default
+  selector: app == 'hermes-agent'
+  types:
+    - Ingress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        selector: app == 'codex-workspace'
+      destination:
+        ports:
+          - 8644

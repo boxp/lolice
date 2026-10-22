@@ -49,6 +49,60 @@ spec:
                 chmod 0644 "$skill_dir/SKILL.md"
                 chmod 0755 "$skill_dir/bin/task-board.bb"
               fi
+              # BOXP-270: register the task-board webhook route. The route has
+              # no secret of its own; the gateway validates it with the global
+              # WEBHOOK_SECRET env. Other dynamic subscriptions are preserved.
+              python3 - <<'PY'
+              import json, os
+              path = "/opt/data/webhook_subscriptions.json"
+              with open("/bootstrap/task_board_webhook_route.json") as fh:
+                  managed = json.load(fh)
+              subs = {}
+              if os.path.exists(path):
+                  try:
+                      with open(path) as fh:
+                          subs = json.load(fh) or {}
+                  except Exception:
+                      subs = {}
+              subs.update(managed)
+              tmp = path + ".tmp"
+              with open(tmp, "w") as fh:
+                  json.dump(subs, fh, ensure_ascii=False, indent=2)
+              os.chmod(tmp, 0o600)
+              os.chown(tmp, 1000, 10000)
+              os.replace(tmp, path)
+              PY
+              # BOXP-270: webhook sessions need read_file / terminal /
+              # session_search (default webhook toolset is web/vision only).
+              # Idempotent migration of the persisted config.yaml: append the
+              # block once, never rewrite the file (it carries hand-edited
+              # comments); warn when a different value is already present.
+              python3 - <<'PY'
+              import os, yaml
+              path = "/opt/data/config.yaml"
+              want = ["terminal", "file", "session_search"]
+              with open(path) as fh:
+                  text = fh.read()
+              cfg = yaml.safe_load(text) or {}
+              current = (cfg.get("platform_toolsets") or {}).get("webhook")
+              if current == want:
+                  print("[bootstrap] platform_toolsets.webhook already configured")
+              elif "platform_toolsets" in cfg:
+                  print(f"[bootstrap] WARNING platform_toolsets.webhook is {current!r}, expected {want!r}; not rewriting config.yaml")
+              else:
+                  block = ("\n# BOXP-270: webhook sessions (Task Board event relay) get a toolset narrower\n"
+                           "# than Telegram: read tickets/runbook, run the task-board helper, recall sessions.\n"
+                           "platform_toolsets:\n  webhook:\n" + "".join(f"    - {t}\n" for t in want))
+                  tmp = path + ".tmp"
+                  with open(tmp, "w") as fh:
+                      fh.write(text.rstrip("\n") + "\n" + block)
+                  yaml.safe_load(open(tmp))
+                  st = os.stat(path)
+                  os.chown(tmp, st.st_uid, st.st_gid)
+                  os.chmod(tmp, st.st_mode & 0o777)
+                  os.replace(tmp, path)
+                  print("[bootstrap] appended platform_toolsets.webhook to config.yaml")
+              PY
               cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
               chmod 0755 /opt/data/scripts/quiet_gate.sh
               chown 1000:10000 /opt/data/scripts/quiet_gate.sh
@@ -134,6 +188,14 @@ spec:
               value: ornith-35b
             - name: HERMES_STREAM_READ_TIMEOUT
               value: "1800"
+            # BOXP-270: webhook platform (internal Service hermes-agent-webhook:8644).
+            - name: WEBHOOK_ENABLED
+              value: "true"
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-task-board-webhook
+                  key: password
             - name: OPENWEATHERMAP_API_KEY
               valueFrom:
                 secretKeyRef:
