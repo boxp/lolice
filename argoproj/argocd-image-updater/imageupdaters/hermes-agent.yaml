@@ -17,7 +17,7 @@ spec:
             kustomize:
               name: "ghcr.io/boxp/arch/hermes-agent"
   writeBackConfig:
-    method: "git:secret:argocd/repo-lolice"
+    method: "git:secret:argocd/repo-lolice-github-app"
     gitConfig:
-      repository: "git@github.com:boxp/lolice.git"
+      repository: "https://github.com/boxp/lolice.git"
       branch: "main"
