@@ -17,7 +17,7 @@ spec:
     spec:
       nodeSelector:
        kubernetes.io/arch: amd64
-       kubernetes.io/hostname: golyat-1
+       kubernetes.io/hostname: golyat-3
       serviceAccountName: codex-workspace
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 60
