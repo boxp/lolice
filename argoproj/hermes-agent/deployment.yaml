@@ -13,6 +13,12 @@ spec:
     metadata:
       labels:
         app: hermes-agent
+      annotations:
+        # BOXP-270: the init container copies the Task Board webhook route
+        # from the ConfigMap into the PVC only at Pod start. Bump this value
+        # whenever task_board_webhook_route.json changes so Argo CD rolls
+        # the Pod and the new route definition takes effect.
+        boxp.io/task-board-webhook-route-revision: "2026-10-22T14:10Z-marker-fallback"
     spec:
       automountServiceAccountToken: false
       nodeSelector:

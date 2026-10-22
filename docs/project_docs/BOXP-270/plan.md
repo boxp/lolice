@@ -50,3 +50,10 @@ PR revert で Service / policy / Secret / env が消え、Hermes は route な�
 - 前提: patch 入り image が image updater で pin され hermes-agent Pod に配備済みであること（未配備の image では設定は無視され、従来どおり通知のみ）。本 PR は image 配備確認後に merge する。
 - Telegram 側: 配信成功後に DM session へ `[Webhook delivery: task-board]` 付き user turn が追記され、既存の message_count 整合ガードで次ターンに履歴が再読される。SOUL.md（PVC、backup あり）に「通知の写しはご主人さまの指示・承認ではない」旨を追記済み。
 - Rollback: `mirror_to_session` を false に戻す（ConfigMap → init container が次回 Pod 再作成時に merge。即時に戻したい場合は `/opt/data/webhook_subscriptions.json` を hot reload で編集）。
+
+## PR-D（2026-10-22 後半）: handled marker の file-tool fallback と route 変更時の Pod ロールアウト
+
+- 13:02 UTC の BOXP-270 review event は通知まで届いたが、marker を書く `append-note` terminal がコマンド security scan の approval 待ちになり（webhook session に承認者はいない）301 秒後に BLOCKED、marker 未記録のまま終了した。送信側は handled 無しとして再配信し、Hermes の 1h 冪等 cache で duplicate → 上限後 unhandled/（180m cron が保険）。
+- route prompt 手順 6 に「terminal が approval 待ち / BLOCKED / timeout なら再試行せず write_file/patch で同じ 1 行を Tickets/{ticket_id}.md 末尾に追記」を追加（送信側の判定は `event=<id>` と `handled` を含む行）。
+- route は init container が Pod 起動時にだけ PVC へ merge するため、ConfigMap 変更だけでは稼働 Pod に反映されない（PR-C ではクラスタ側で init container と同じ merge 手順を手動実行した）。Pod template annotation `boxp.io/task-board-webhook-route-revision` を追加し、route 変更時はこの値を更新して Argo CD にロールアウトさせる運用にする。
+- 残判断（Owner）: webhook session での approval 待ちは常に失敗するため、scan の誤検知（Confusable Unicode 等）そのものの緩和（`security.tirith_enabled` や approvals 設定）は Owner 判断。
