@@ -20,8 +20,6 @@ spec:
        kubernetes.io/hostname: golyat-1
       serviceAccountName: codex-workspace
       automountServiceAccountToken: false
-      nodeSelector:
-        kubernetes.io/arch: amd64
       terminationGracePeriodSeconds: 60
       initContainers:
         - name: fetch-ssh-keys
