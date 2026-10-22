@@ -1,14 +1,11 @@
-name: Chainsaw Manifest Validation
+name: Manifest Validation
 
+# paths フィルタは付けない (BOXP-266)。main の ruleset で `status-check` を required status check に
+# しているため、docs-only の PR でも必ずこの workflow が走って status-check が報告される必要がある。
+# 重い chainsaw (kind) は detect job が変更ファイルから対象 component を選んだときだけ動く。
 on:
   pull_request:
     branches: [main]
-    paths:
-      - 'argoproj/**'
-      - 'tests/chainsaw/**'
-      - 'tests/workflows/**'
-      - '.github/workflows/chainsaw.yaml'
-      - '.github/workflows/chainsaw-preflight.yaml'
 
 jobs:
   detect:
@@ -16,6 +13,7 @@ jobs:
     outputs:
       components: ${{ steps.detect.outputs.components }}
       has_tests: ${{ steps.detect.outputs.has_tests }}
+      renovate_config_changed: ${{ steps.detect.outputs.renovate_config_changed }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -71,6 +69,80 @@ jobs:
             echo "has_tests=true" >> $GITHUB_OUTPUT
           fi
 
+          if grep -qx 'renovate.json' /tmp/changed_files.txt; then
+            echo "renovate_config_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "renovate_config_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  # 静的ゲート (BOXP-266): kustomize render + Rego (conftest) + workflow の unit test。
+  # kind を使わないので数十秒で終わる。chainsaw とは並列に走らせ、結果は status-check で集約する。
+  static-policy:
+    needs: detect
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      KUSTOMIZE_VERSION: v5.7.1
+      KUSTOMIZE_SHA256: ea375e7372f9aa029129d4b2d16c66b7750b7f1213c4f66f910d981c895818d8
+      CONFTEST_VERSION: 0.71.1
+      CONFTEST_SHA256: c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install kustomize and conftest
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          echo "${KUSTOMIZE_SHA256}  kustomize.tar.gz" | sha256sum -c -
+          tar -xzf kustomize.tar.gz kustomize
+          sudo install -m 555 kustomize /usr/local/bin/kustomize
+          rm kustomize kustomize.tar.gz
+          curl -fsSL --retry 3 -o conftest.tar.gz \
+            "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+          echo "${CONFTEST_SHA256}  conftest.tar.gz" | sha256sum -c -
+          tar -xzf conftest.tar.gz conftest
+          sudo install -m 555 conftest /usr/local/bin/conftest
+          rm conftest conftest.tar.gz
+          kustomize version
+          conftest --version
+          yq --version
+
+      - name: Workflow unit tests (tests/workflows)
+        run: python3 -B -m unittest discover -s tests/workflows -v
+
+      - name: Rego policy unit tests (conftest verify)
+        run: |
+          set -euo pipefail
+          conftest verify --no-color -p policy/kubernetes
+          conftest verify --no-color -p policy/kustomize
+
+      - name: Render manifests and run Rego policy (conftest test)
+        run: scripts/static-manifest-check.sh
+
+  # renovate.json を変更する PR だけ、Renovate 本体の validator で設定を strict 検証する。
+  renovate-config-validator:
+    needs: detect
+    if: needs.detect.outputs.renovate_config_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: renovate-config-validator --strict
+        # `npx renovate ...` だと renovate 本体が起動してしまうので --package + -c で validator を呼ぶ
+        run: npx --yes --package renovate@44.176.2 -c "renovate-config-validator --strict renovate.json"
+
   chainsaw:
     needs: detect
     if: needs.detect.outputs.has_tests == 'true'
@@ -87,9 +159,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
-
-      - name: Test preflight report gate
-        run: python3 -B -m unittest discover -s tests/workflows -v
 
       - name: Create kind cluster
         uses: helm/kind-action@v1
@@ -535,3 +604,24 @@ jobs:
             }
         env:
           RESULT_FILE: ${{ steps.chainsaw-run.outputs.result_file }}
+
+  # main の ruleset 509073 で required status check にしている集約 job (BOXP-266)。
+  # 対象外で skip された job (chainsaw / renovate-config-validator) は成功扱い、
+  # failure / cancelled が 1 つでもあれば失敗にする。新しい job を足したら needs にも足すこと。
+  status-check:
+    needs:
+      - detect
+      - static-policy
+      - renovate-config-validator
+      - chainsaw
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Fail if any needed job failed or was cancelled
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS"
+          echo "$NEEDS" | jq -e 'to_entries | all(.value.result == "success" or .value.result == "skipped")' > /dev/null
