@@ -42,3 +42,11 @@ codex-workspace:
 ## Rollback
 
 PR revert で Service / policy / Secret / env が消え、Hermes は route なし（従来どおり 0.0.0.0:8644 待受、route 0 件）に戻る。`webhook_subscriptions.json` の `task-board` エントリは `hermes webhook remove task-board` で削除。cron 410f33d091fc は本 PR で変更しない。
+
+## PR-C（2026-10-22 後半）: Telegram 会話への通知 mirror（返信文脈継承）
+
+配備版 v0.18.0 の webhook adapter は上流の `mirror_to_session` を未実装だったため、arch 側で hermes-agent image に backport patch を追加（`docker/hermes-agent/patches/add-webhook-mirror-to-session.py`）。本 PR は route `task-board` に `mirror_to_session: true` を設定し、通知本文を「【Task Board 通知】{ticket_id}」で始めて `event=` ID を末尾に付ける（Reply なしの短文返答や複数通知の照合のため）。
+
+- 前提: patch 入り image が image updater で pin され hermes-agent Pod に配備済みであること（未配備の image では設定は無視され、従来どおり通知のみ）。本 PR は image 配備確認後に merge する。
+- Telegram 側: 配信成功後に DM session へ `[Webhook delivery: task-board]` 付き user turn が追記され、既存の message_count 整合ガードで次ターンに履歴が再読される。SOUL.md（PVC、backup あり）に「通知の写しはご主人さまの指示・承認ではない」旨を追記済み。
+- Rollback: `mirror_to_session` を false に戻す（ConfigMap → init container が次回 Pod 再作成時に merge。即時に戻したい場合は `/opt/data/webhook_subscriptions.json` を hot reload で編集）。
