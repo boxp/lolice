@@ -455,6 +455,53 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+        # BOXP-270: Task Board -> Hermes event dispatcher. Reads the outbox the
+        # runner writes on the shared home PVC, signs and posts events to the
+        # internal Hermes webhook Service, and tracks processing completion.
+        # Only this container holds the HMAC secret; the runner never sees it.
+        - name: task-board-event-dispatcher
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          env:
+            - name: CODEX_WORKSPACE_ROLE
+              value: task-board-event-dispatcher
+            - name: HOME
+              value: /home/boxp
+            - name: CODEX_TASK_BOARD_ROOT
+              value: /home/boxp/.codex-task-board
+            - name: CODEX_TASK_BOARD_VAULT
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: CODEX_TASK_BOARD_EVENT_WEBHOOK_URL
+              value: http://hermes-agent-webhook.hermes-agent.svc.cluster.local:8644/webhooks/task-board
+            - name: CODEX_TASK_BOARD_EVENT_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-task-board-webhook
+                  key: secret
+            - name: CODEX_TASK_BOARD_EVENT_POLL_SECONDS
+              value: "30"
+            - name: CODEX_TASK_BOARD_EVENT_QUIET_HOURS
+              value: "2-9"
+            - name: CODEX_TASK_BOARD_EVENT_TIMEZONE
+              value: Asia/Tokyo
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "20m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
         - name: task-board-dashboard
           image: docker.io/python:3.15-alpine
           imagePullPolicy: IfNotPresent
