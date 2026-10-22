@@ -85,6 +85,7 @@ jobs:
       contents: read
     env:
       KUSTOMIZE_VERSION: v5.7.1
+      KUSTOMIZE_SHA256: ea375e7372f9aa029129d4b2d16c66b7750b7f1213c4f66f910d981c895818d8
       CONFTEST_VERSION: 0.71.1
       CONFTEST_SHA256: c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985
     steps:
@@ -98,6 +99,7 @@ jobs:
           set -euo pipefail
           curl -fsSL --retry 3 -o kustomize.tar.gz \
             "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          echo "${KUSTOMIZE_SHA256}  kustomize.tar.gz" | sha256sum -c -
           tar -xzf kustomize.tar.gz kustomize
           sudo install -m 555 kustomize /usr/local/bin/kustomize
           rm kustomize kustomize.tar.gz

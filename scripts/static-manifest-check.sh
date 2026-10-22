@@ -28,6 +28,7 @@ app_count="$(yq -N 'select(.kind == "Application") | .metadata.name' "$OUT_DIR/a
 echo "applications: $app_count (argoproj/kustomization.yaml)"
 
 # 2. この repo を source にする path を列挙する (単一 source / multi-source の両方)。
+#    repoURL は https://github.com/boxp/lolice(.git) と git@github.com:boxp/lolice.git の両方に一致させる。
 #    形式: "<path> <recurse: true|false>"
 yq -N '
   select(.kind == "Application")

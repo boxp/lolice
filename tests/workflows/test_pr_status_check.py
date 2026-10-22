@@ -54,7 +54,7 @@ class StatusCheckWiringTest(unittest.TestCase):
         self.assertIn('conftest verify --no-color -p policy/kubernetes', block)
         self.assertIn('conftest verify --no-color -p policy/kustomize', block)
         self.assertIn('python3 -B -m unittest discover -s tests/workflows', block)
-        self.assertIn('sha256sum -c -', block, 'conftest download must be checksum verified')
+        self.assertEqual(block.count('sha256sum -c -'), 2, 'kustomize and conftest downloads must be checksum verified')
 
     def test_chainsaw_still_selects_components_from_detect(self):
         block = job_block(self.text, 'chainsaw')
