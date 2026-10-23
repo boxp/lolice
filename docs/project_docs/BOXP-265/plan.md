@@ -43,23 +43,27 @@
 
 - 3a. 【適用済み 11:32 UTC】`scripts/ruleset-integration-bypass.sh add <app-slug> --app-id <App ID>`（dry-run）→ `--apply`: App ID（Integration actor_id、Installation ID ではない）を `bypass_actors` に **追加**。DeployKey は残す。rules / conditions / enforcement は直前 GET をそのまま使う。private App で GraphQL / rule-suites のどちらでも照合できない初回は `ALLOW_UNVERIFIED_APP_ID=1` を付ける（DeployKey bypass 保持のため可逆。誤 ID なら App push は `fail` のまま残り `suites` で判別できる）。
 - 3b. 正当な image 更新で main への push が rule-suites に `actor_name=<app-slug>[bot]` / `result=bypass` で記録され（`scripts/ruleset-integration-bypass.sh suites <app-slug>`）、PushEvent actor も `<app-slug>[bot]`、deploy key `last_used` が進まないことを確認。この `bypass` 記録が **App ID ↔ slug の最終照合**になる（現在の Integration actor_id の下で当該 bot の push が bypass されたことを示す。DeployKey bypass は deploy key 認証の push にしか効かず、その場合 actor は boxp と記録される）。無関係な image 更新・空 commit は作らない。
-- 3c. `scripts/ruleset-integration-bypass.sh app-only <app-slug> --app-id <App ID> --apply`: DeployKey bypass を除去し Integration のみにする。スクリプトは 3b の `bypass` 証拠（現在の ruleset 更新時刻以降）が無ければ中断する。再度 App 主体の push が `result=bypass` で成功することを確認してから Phase 4 へ。
+- 3c. 【適用済み 2026-10-23 02:40:24 UTC、ruleset history version 54410533】`scripts/ruleset-integration-bypass.sh app-only <app-slug> --app-id <App ID> --apply`: DeployKey bypass を除去し Integration のみにする。スクリプトは 3b の `bypass` 証拠（現在の ruleset 更新時刻以降）が無ければ中断する。適用後の `bypass_actors = [Integration actor_id=5421698/always]`、rules（deletion / non_fast_forward / pull_request / required_status_checks gitleaks+status-check）/ conditions / enforcement=active は直前 GET（`/tmp/ruleset-509073-20261023T024021Z.json`）のまま。**App-only の下で再度 App 主体の push が `result=bypass` で成功することの確認（次の正当な image 更新待ち）は未了**。それまで deploy key は削除しない（4b）。
+
+**3b 実証（2026-10-23 02:40 UTC 再照合）**: 3a 適用（11:32 UTC）以降、rule-suites に `actor_name=argocd-image-updater-for-lolice[bot]`（actor_id 346205362 = bot user）の main push が 2026-10-22 11:52:11 / 13:34:14 / 15:20:01 / 15:20:08 / 23:17:03 UTC の 5 件 `result=bypass` で記録（`rule_evaluations` は `pull_request` / `required_status_checks` とも fail 評価のまま bypass → Integration 5421698 の bypass が効いている）。対応する main commit は 2f90ad7 / f1a6f33 / 2d98cb4 / d7b8ee4 / 90ce0d6（いずれも author `argocd-image-updater`、`build: automatic update of …`）、PushEvent actor も `argocd-image-updater-for-lolice[bot]`。deploy key 141307619 の `last_used` は 2026-10-19T18:52:15Z から不変。これにより App ID 5421698 ↔ slug `argocd-image-updater-for-lolice` の照合が成立。
 - 前提: 対象 App の slug と App ID（いずれも非秘密）。owner から slug `argocd-image-updater-for-lolice` は受領済み（2026-10-22 09:59 UTC）。ただし当該 App は **private App** のため `GET /apps/<slug>` は未認証・gh の OAuth token（owner boxp）いずれでも 404 になり、slug から App ID を引けない。実行環境は Secret `argocd/repo-lolice-github-app`（`githubAppID` を含む）を argocd / codex-workspace どちらの namespace でも読めず、controller ログも取得不可、`GET /user/installations` も 403。bot user `argocd-image-updater-for-lolice[bot]`（user id 346205362）は存在するが user id は App ID ではない。したがって **owner から App ID（`https://github.com/settings/apps/argocd-image-updater-for-lolice` 冒頭に表示される数値、非秘密）の提示が必要**。
 - App ID の照合: スクリプトは `--app-id` で渡された数値を GraphQL `node(id: base64("03:App<id>"))` で解決し、返る `slug` が指定 slug と一致することを確認してから使う（public App の既知 ID で動作確認済み）。public App なら従来どおり `GET /apps/<slug>` で owner=boxp も検証する。**private App は owner の OAuth token でも GraphQL `node(id)` が NOT_FOUND、`rulesets.bypassActors.actor` も null になる**（2026-10-22 11:31 / 11:40 UTC 実測、legacy `MDM6QXBw…` / 新形式 `A_kw…` とも）。そのため private App の照合は rule-suites の `bypass` 記録（上記 3b）で行い、`show` の GraphQL 表示は public App の場合のみ slug が出る。App ID は owner が設定画面 `https://github.com/settings/apps/argocd-image-updater-for-lolice` 冒頭から提示した 5421698（非秘密）。
 - スクリプトは毎回 `/tmp/ruleset-509073-<timestamp>.json` に直前 GET を保存し、`restore <file> --apply` で戻せる。
 
 ### Phase 4: 旧認証の撤去
 
-- `external-secret-repo-lolice`（Secret `repo-lolice`）を削除する PR。
-- deploy key 141307619 `argocd-image-updater@lolice` を削除（用途が上記のみであることを確認済みの上で）。
-- SSM `argocd-image-updater-lolice-github-secret-key` の削除は AWS 操作のため owner に依頼。
+- 4a（本 PR、可逆）: `argoproj/argocd/base/external-secret-repo.yaml`（ExternalSecret `external-secret-repo-lolice` → Secret `argocd/repo-lolice`、SSH deploy key の Argo CD repository credential）と `argoproj/argocd/kustomization.yaml` の参照を削除する。2026-10-23 02:45 UTC 時点で live の Application 37 件はすべて `repoURL=https://github.com/boxp/lolice(.git)`（公開 repo のため fetch に credential 不要）、ImageUpdater 10 件はすべて `git:secret:argocd/repo-lolice-github-app` で、`repo-lolice` を参照するものは無い。削除しても SSM parameter と deploy key は残るため、ExternalSecret を戻せば Secret は再生成できる（切戻しに鍵の再生成は不要）。
+- 4b（App-only push の成功確認後）: deploy key 141307619 `argocd-image-updater@lolice`（用途は Argo CD / image-updater の lolice 認証のみ、`last_used` 2026-10-19T18:52:15Z 以降未使用）を削除。削除後は切戻しが鍵の再生成前提になるため、3c 適用後の App-only bypass で正当な push が `result=bypass` になることを確認してから行う。
+- SSM `argocd-image-updater-lolice-github-secret-key` の削除、および Retain された旧 Secret の掃除は AWS 操作のため owner に依頼（秘密値は不要）。
 
 ## rollback
 
 - Phase 1: PR を revert（旧認証は無変更）。
 - Phase 2: PR を revert すると `repo-lolice`（SSH）に戻る。Phase 4 前なら旧 deploy key は生きている。
 - Phase 3: `scripts/ruleset-integration-bypass.sh restore <直前GETのjson> --apply`（`bypass_actors` に DeployKey を戻す）。3a の段階では DeployKey bypass が残っているため、App 側で問題があっても PR #872 の revert で SSH 経路に戻れる。3a 適用前の状態は ruleset history version 54249606（06:05 UTC、DeployKey のみ）としても GitHub 側に残っている。
-- Phase 4 以降は旧鍵を復活できないため、Phase 2〜3 の確認を終えてから実施する。
+- 3c 適用後（App-only）: `scripts/ruleset-integration-bypass.sh restore /tmp/ruleset-509073-20261023T024021Z.json --apply` で `bypass_actors` に DeployKey を戻す（3a 状態 = history version 54289062）。write-back 自体は App 認証のまま動くので、ruleset を戻すだけで deploy key 認証への切替は不要。
+- 4a（ExternalSecret 削除）: PR を revert すれば ESO が SSM parameter から Secret `repo-lolice` を再生成する（4b 前なら deploy key も生きている）。
+- 4b（deploy key 削除）以降は旧鍵を復活できないため、App-only での push 成功確認を終えてから実施する。
 
 ## 安全境界
 
