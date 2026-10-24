@@ -349,9 +349,13 @@ spec:
             # Projects/task-board-localllm-docs/proposals only).
             - name: CODEX_TASK_BOARD_LOCALLLM_READ_ROOTS
               value: "."
-            # Default research corpus when a ticket declares no docs-sources.
+            # Default research corpus when a ticket declares no docs-sources
+            # (BOXP-290, owner decision 2026-10-24): the real setting folder, so a
+            # card needs only `assignee: localllm` and a plain-language request.
+            # Read permission stays vault-wide (READ_ROOTS above); only the default
+            # exploration target narrows. An explicit docs-sources still wins.
             - name: CODEX_TASK_BOARD_LOCALLLM_DEFAULT_SOURCES
-              value: "."
+              value: "ひとはこさんバース"
             - name: CODEX_TASK_BOARD_OWNER_ID
               valueFrom:
                 fieldRef:
