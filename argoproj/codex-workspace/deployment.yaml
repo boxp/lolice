@@ -342,6 +342,16 @@ spec:
               value: "30"
             - name: CODEX_TASK_BOARD_LOCK_STALE_SECONDS
               value: "180"
+            # BOXP-282 (owner approval 2026-10-24): the localllm docs route may read
+            # every ordinary note of the vault. Hidden dirs, Tickets/Boards/Templates
+            # and its own proposals folder stay excluded by the runner, secret-looking
+            # lines are redacted on load, and the write roots are unchanged (pilot +
+            # Projects/task-board-localllm-docs/proposals only).
+            - name: CODEX_TASK_BOARD_LOCALLLM_READ_ROOTS
+              value: "."
+            # Default research corpus when a ticket declares no docs-sources.
+            - name: CODEX_TASK_BOARD_LOCALLLM_DEFAULT_SOURCES
+              value: "."
             - name: CODEX_TASK_BOARD_OWNER_ID
               valueFrom:
                 fieldRef:
