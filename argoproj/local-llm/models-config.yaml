@@ -32,3 +32,25 @@ data:
     threads = 12
     threads-batch = 12
     reasoning-budget = 0
+
+    # BOXP-294: Qwen3.8-27B (HauhauCS Aggressive, Q4_K_P 17.92 GB, HF revision
+    # 993a5971, sha256 ba36dc3c…) as a selectable model next to gemma4-26b. The
+    # default model is unchanged; with --models-max 1 the router loads this one
+    # only when a request names it and unloads it again when another model is
+    # requested. No ctx-size here: in b11669 the router overlays its own CLI
+    # args (-c 262144, --parallel 1, -fa auto, --reasoning off, ...) on every
+    # preset, so a preset ctx-size would be ignored anyway. Measured on golyat-4
+    # with the live image through the router at ctx 262144: ~36 GB RSS alone
+    # (load ~2.5 min, decode ~3.5 tok/s, thinking off, Japanese ok).
+    # Sampler = publisher non-thinking recommendation; callers may override.
+    [qwen38-27b]
+    model = /models/boxp294-qwen38/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+    temp = 0.7
+    top-p = 0.8
+    top-k = 20
+    min-p = 0
+    presence-penalty = 1.5
