@@ -90,7 +90,10 @@ spec:
           resources:
             requests:
               cpu: "4"
-              memory: 28Gi
+              # BOXP-294: the largest preset (qwen38-27b at the router ctx 262144)
+              # measured ~36 GB RSS on golyat-4; keep the request above it so the
+              # scheduler does not hand that memory to other pods.
+              memory: 40Gi
               gpu.intel.com/i915: "1"
             limits:
               gpu.intel.com/i915: "1"
