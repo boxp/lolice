@@ -356,6 +356,13 @@ spec:
             # exploration target narrows. An explicit docs-sources still wins.
             - name: CODEX_TASK_BOARD_LOCALLLM_DEFAULT_SOURCES
               value: "ひとはこさんバース"
+            # Folders the model may pick a target / destination in by content search
+            # and write to only after the owner confirmed the Backlog groom plan
+            # (BOXP-296, owner decision 2026-10-25). DOCS_ROOTS (pilot) and the
+            # proposal root are unchanged; writes stay limited to the planned
+            # note / section, wrapped in unreviewed markers, backed up per run.
+            - name: CODEX_TASK_BOARD_LOCALLLM_CANON_ROOTS
+              value: "ひとはこさんバース"
             - name: CODEX_TASK_BOARD_OWNER_ID
               valueFrom:
                 fieldRef:
