@@ -84,12 +84,20 @@ spec:
               # block once, never rewrite the file (it carries hand-edited
               # comments); warn when a different value is already present.
               python3 - <<'PY'
-              import os, yaml
+              import os
+              # BOXP-313: the Hermes v0.22.x image venv ships ruamel.yaml (via
+              # hermes_yaml), not PyYAML; the v0.18 image had PyYAML. Support both.
+              try:
+                  import yaml
+                  safe_load = yaml.safe_load
+              except ImportError:
+                  from ruamel.yaml import YAML
+                  safe_load = YAML(typ="safe", pure=True).load
               path = "/opt/data/config.yaml"
               want = ["terminal", "file", "session_search"]
               with open(path) as fh:
                   text = fh.read()
-              cfg = yaml.safe_load(text) or {}
+              cfg = safe_load(text) or {}
               current = (cfg.get("platform_toolsets") or {}).get("webhook")
               if current == want:
                   print("[bootstrap] platform_toolsets.webhook already configured")
@@ -102,7 +110,7 @@ spec:
                   tmp = path + ".tmp"
                   with open(tmp, "w") as fh:
                       fh.write(text.rstrip("\n") + "\n" + block)
-                  yaml.safe_load(open(tmp))
+                  safe_load(open(tmp).read())
                   st = os.stat(path)
                   os.chown(tmp, st.st_uid, st.st_gid)
                   os.chmod(tmp, st.st_mode & 0o777)
