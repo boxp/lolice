@@ -182,8 +182,14 @@ spec:
               value: "10000"
             - name: API_SERVER_ENABLED
               value: "false"
+            # BOXP-313: Hermes v0.22.x refuses to start the dashboard when
+            # dashboard.public_url is set without an auth provider, and the
+            # failure takes the co-supervised gateway down with it. Keep the
+            # dashboard off until an auth provider is approved and configured
+            # (new credential -> separate owner approval). Flip back to "true"
+            # together with that change.
             - name: HERMES_DASHBOARD
-              value: "true"
+              value: "false"
             - name: HERMES_DASHBOARD_HOST
               value: "127.0.0.1"
             - name: HERMES_DASHBOARD_PORT
