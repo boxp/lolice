@@ -182,24 +182,20 @@ spec:
               value: "10000"
             - name: API_SERVER_ENABLED
               value: "false"
-            # BOXP-313: Hermes v0.22.x refuses to start the dashboard when
-            # dashboard.public_url is set without an auth provider, and the
-            # failure takes the co-supervised gateway down with it. Keep the
-            # dashboard off until an auth provider is approved and configured
-            # (new credential -> separate owner approval). Flip back to "true"
-            # together with that change.
+            # BOXP-313: the dashboard binds loopback only (HERMES_DASHBOARD_HOST) and
+            # is reached through the cloudflared tunnel behind Cloudflare Access
+            # (arch terraform/cloudflare/b0xp.io/hermes-agent/access.tf), the same
+            # posture as before the v0.22.5 upgrade. HERMES_DASHBOARD_PUBLIC_URL must
+            # stay unset: on v0.22.x an operator-declared public URL engages the
+            # in-gateway auth gate and, without an auth provider, the gateway itself
+            # exits with SystemExit on every start. Adding a Hermes-side auth provider
+            # (basic auth / OAuth) is a separate approval; re-add the public URL with it.
             - name: HERMES_DASHBOARD
-              value: "false"
+              value: "true"
             - name: HERMES_DASHBOARD_HOST
               value: "127.0.0.1"
             - name: HERMES_DASHBOARD_PORT
               value: "9119"
-            # BOXP-313: HERMES_DASHBOARD_PUBLIC_URL (https://hermes-agent.b0xp.io) is
-            # intentionally unset. On Hermes v0.22.x an operator-declared public URL
-            # engages the dashboard auth gate inside the gateway process itself (even
-            # with HERMES_DASHBOARD=false), and without an auth provider the gateway
-            # exits with SystemExit on every start. Re-add it together with the auth
-            # provider (dashboard.basic_auth or OAuth) once that credential is approved.
             - name: HOME
               value: /opt/data
             - name: OBSIDIAN_VAULT_PATH
