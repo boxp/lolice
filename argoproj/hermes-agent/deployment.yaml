@@ -194,8 +194,12 @@ spec:
               value: "127.0.0.1"
             - name: HERMES_DASHBOARD_PORT
               value: "9119"
-            - name: HERMES_DASHBOARD_PUBLIC_URL
-              value: "https://hermes-agent.b0xp.io"
+            # BOXP-313: HERMES_DASHBOARD_PUBLIC_URL (https://hermes-agent.b0xp.io) is
+            # intentionally unset. On Hermes v0.22.x an operator-declared public URL
+            # engages the dashboard auth gate inside the gateway process itself (even
+            # with HERMES_DASHBOARD=false), and without an auth provider the gateway
+            # exits with SystemExit on every start. Re-add it together with the auth
+            # provider (dashboard.basic_auth or OAuth) once that credential is approved.
             - name: HOME
               value: /opt/data
             - name: OBSIDIAN_VAULT_PATH
