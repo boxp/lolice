@@ -192,14 +192,21 @@ spec:
                       matches = [i for i in range(start, end) if re.fullmatch(r"  enabled: *(?:\[\])? *(?:#.*)?\n?", lines[i])]
                       if len(matches) == 1:
                           idx = matches[0]
-                  if idx is None:
-                      print("[bootstrap] WARNING plugins.enabled has an unsupported shape; not rewriting")
-                  else:
+                  new = None
+                  if "plugins" not in cfg and not headers:
+                      # Older persisted configs have no plugins block: append one.
+                      enabled = []
+                      new = text + ("" if text.endswith("\n") or not text else "\n") + \
+                          "\n# BOXP-332: owner-DM-only reference context from Kohako G2.\nplugins:\n  enabled:\n    - kohako-g2-context\n"
+                  elif idx is not None:
                       line = lines[idx]
                       if re.match(r"  enabled: *\[\]", line):
                           lines[idx] = re.sub(r" *\[\]", "", line, count=1)
                       lines.insert(idx + 1, "    - kohako-g2-context\n")
                       new = "".join(lines)
+                  if new is None:
+                      print("[bootstrap] WARNING plugins.enabled has an unsupported shape; not rewriting")
+                  else:
                       try:
                           result = safe_load(new)
                           assert result["plugins"]["enabled"] == [name] + enabled
