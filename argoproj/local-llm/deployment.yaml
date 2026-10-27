@@ -5,7 +5,9 @@ metadata:
   annotations:
     configmap.reloader.stakater.com/reload: "llama-server-models"
 spec:
-  replicas: 1
+  # BOXP-336: Strata 検証（argoproj/strata-eval）の間だけ一時停止。GPU（gpu.intel.com/i915: 1）を
+  # strata-eval へ渡すため。model・設定・hostPath は残す。検証後に 1 へ戻す。
+  replicas: 0
   strategy:
     type: Recreate
   selector:

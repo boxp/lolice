@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: strata-server
+data:
+  # BOXP-336: Strata v0.2.6（commit 4b9e05a2）/ engine 0.1.50 SYCL の server 設定。
+  # /s は golyat-4 の /var/lib/local-llm/models/boxp336-strata（engine・pack・GGUF は
+  # SHA256 照合済みで事前配置。install.sh / setup.sh は使わない）。
+  # STRATA_UMA_HEADROOM_GIB と --expert-cache で UMA の自動 sizing（MemAvailable-6GiB）を抑える。
+  strata.json: |
+    {
+      "engine": "strata",
+      "backend": "sycl",
+      "exe": "/s/engine/strata",
+      "cwd": "/s/src-4b9e05a2",
+      "tokenizer": "/s/packs/q2_0/tokenizer",
+      "model_name": "flash-next-q2_0",
+      "log": "/logs/strata-engine.log",
+      "lib_dirs": ["/s/engine"],
+      "args": [
+        "--pack", "/s/packs/q2_0",
+        "--native", "/s/flash-next-q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf",
+        "--ple-gguf", "/s/flash-next-q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00002-of-00002.gguf",
+        "--expert-profile", "/s/src-4b9e05a2/data/expert-profile-sycl.bin",
+        "--expert-cache", "2000",
+        "--prefill", "4096",
+        "--max-context", "32768",
+        "--kv", "int8",
+        "--vram-reserve-mib", "300",
+        "--spec", "4",
+        "--spec-min-p", "0.5"
+      ],
+      "env": {
+        "STRATA_VERIFY_NO_HOST": "0",
+        "STRATA_VERIFY_DEVICE_PLAN": "1",
+        "STRATA_UMA_HEADROOM_GIB": "40",
+        "SYCL_CACHE_PERSISTENT": "0",
+        "ZES_ENABLE_SYSMAN": "1",
+        "IGC_EnableDPEmulation": "1",
+        "OverrideDefaultFP64Settings": "1",
+        "NEOReadDebugKeys": "1"
+      }
+    }

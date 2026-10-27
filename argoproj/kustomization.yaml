@@ -20,6 +20,8 @@ resources:
 - kubernetes-dashboard/application.yaml
 - local-volume-provisioner/application.yaml
 - local-llm/application.yaml
+- strata-eval/appproject.yaml
+- strata-eval/application.yaml
 - stable-diffusion/application.yaml
 - longhorn/application.yaml
 - node-feature-discovery/application.yaml
