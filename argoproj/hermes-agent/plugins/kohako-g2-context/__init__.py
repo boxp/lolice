@@ -144,9 +144,15 @@ def _session_source(session_id):
         db.close()
 
 
-def _readable(path):
+# Hermes spills large tool results (e.g. a long SKILL.md) here and tells the model to read them back.
+_SPILLOVER = re.compile(r'/opt/data/cache/spillover/call_[0-9a-f]{32}\.txt')
+
+
+def _readable(path, spillover=False):
     if not isinstance(path, str) or not path.startswith('/'):
         return False
+    if _SPILLOVER.fullmatch(path):
+        return spillover
     real = os.path.realpath(path)
     return any(real == root.rstrip('/') or real.startswith(root) for root in _READ_ROOTS)
 
@@ -163,7 +169,8 @@ def _shown_command(command):
     command = command.strip()
     if any(ord(c) < 32 or 127 <= ord(c) < 160 for c in command):
         return None
-    shown = 'task-board ' + command[len(_HELPER):] if command.startswith(_HELPER) else command
+    # The helper path is shortened to a form that is not itself a runnable command.
+    shown = 'bb …/task-board.bb ' + command[len(_HELPER):] if command.startswith(_HELPER) else command
     return shown if len(shown) <= _SHOWN else None
 
 
@@ -188,7 +195,7 @@ def _decide(tool_name, args, sid, tool_call_id):
         return {'action': 'block', 'message': _BLOCK} if _session_source(sid) == 'api_server' else None
     if tool_name in _FREE_TOOLS:
         return None
-    if tool_name in _PATH_TOOLS and _readable(args.get('path')):
+    if tool_name in _PATH_TOOLS and _readable(args.get('path'), spillover=tool_name == 'read_file'):
         return None
     if tool_name == 'terminal' and isinstance(args.get('command'), str) and _BOARD_READ.fullmatch(args['command'].strip()) \
             and not args.get('background'):

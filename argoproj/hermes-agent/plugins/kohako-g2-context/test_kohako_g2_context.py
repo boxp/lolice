@@ -92,6 +92,7 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(plugin._gate(tool_name='terminal', args={}, session_id='tg-unknown')['action'], 'block')
     def test_read_only_tools_pass(self):
         self.assertIsNone(self.gate('skill_view', {'name': 'obsidian-task-board'}))
+        self.assertIsNone(self.gate('read_file', {'path': '/opt/data/cache/spillover/call_0a00551c780545b0add7042ac7b37191.txt'}))
         self.assertIsNone(self.gate('session_search', {'query': 'x'}))
         self.assertIsNone(self.gate('read_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/Tickets/BOXP-1.md'}))
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --lane review'}))
@@ -99,11 +100,12 @@ class GateTests(unittest.TestCase):
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --vault /home/boxp/Documents/obsidian-headless/BOXP --lane review'}))
     def test_short_terminal_commands_need_approval_with_the_full_command(self):
         cases = [
-            (self.HELPER + 'create --title G2テスト --repo boxp/even-g2-lab'.replace('create', ' create', 1), '実行: task-board create --title G2テスト --repo boxp/even-g2-lab'),
-            (self.HELPER + ' list; rm -rf /', '実行: task-board list; rm -rf /'),
-            (self.HELPER + ' show ../../../../opt/data/secret', '実行: task-board show ../../../../opt/data/secret'),
-            (self.HELPER + ' list --vault /tmp/other', '実行: task-board list --vault /tmp/other'),
+            (self.HELPER + 'create --title G2テスト --repo boxp/even-g2-lab'.replace('create', ' create', 1), '実行: bb …/task-board.bb create --title G2テスト --repo boxp/even-g2-lab'),
+            (self.HELPER + ' list; rm -rf /', '実行: bb …/task-board.bb list; rm -rf /'),
+            (self.HELPER + ' show ../../../../opt/data/secret', '実行: bb …/task-board.bb show ../../../../opt/data/secret'),
+            (self.HELPER + ' list --vault /tmp/other', '実行: bb …/task-board.bb list --vault /tmp/other'),
             ('ls', '実行: ls'),
+            ('task-board show BOXP-332', '実行: task-board show BOXP-332'),
             ("printf 'a   b'", "実行: printf 'a   b'"),
         ]
         keys = set()
@@ -123,6 +125,9 @@ class GateTests(unittest.TestCase):
             ('read_file', {'path': '/opt/data/.env'}),
             ('read_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/../../../../opt/data/.env'}),
             ('read_file', {'path': 'relative.md'}),
+            ('read_file', {'path': '/opt/data/cache/spillover/../../.env'}),
+            ('read_file', {'path': '/opt/data/cache/spillover/other.txt'}),
+            ('search_files', {'path': '/opt/data/cache/spillover/call_0a00551c780545b0add7042ac7b37191.txt'}),
             ('write_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/x.md', 'content': 'x'}),
             ('patch', {'path': '/opt/data/SOUL.md'}),
             ('skill_manage', {'action': 'create'}),
