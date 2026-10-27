@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kohako-g2-web
+  namespace: even-g2-lab
+spec:
+  # BOXP-328: Kohako G2 published route only. cloudflared reaches this Service
+  # by FQDN for kohako-g2.b0xp.io (boxp/arch terraform/cloudflare/b0xp.io/
+  # even-g2-lab/tunnel.tf), behind Cloudflare Access. The ClusterIP is NOT
+  # pinned and is NOT routed to WARP clients (only even-g2-main is), so the
+  # private L4 path cannot reach nginx :8081. Keep this type ClusterIP.
+  type: ClusterIP
+  selector:
+    app: even-g2-main
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: kohako-web
