@@ -104,6 +104,7 @@ class GateTests(unittest.TestCase):
             (self.HELPER + ' show ../../../../opt/data/secret', '実行: task-board show ../../../../opt/data/secret'),
             (self.HELPER + ' list --vault /tmp/other', '実行: task-board list --vault /tmp/other'),
             ('ls', '実行: ls'),
+            ("printf 'a   b'", "実行: printf 'a   b'"),
         ]
         keys = set()
         for command, message in cases:
@@ -117,6 +118,7 @@ class GateTests(unittest.TestCase):
         refused = [
             ('terminal', {'command': 'echo ' + 'a' * 100 + ' && rm -rf /'}),
             ('terminal', {'command': 'echo ok\nrm -rf /'}),
+            ('terminal', {'command': 'echo ok\trm'}),
             ('terminal', {'command': self.HELPER + ' show x', 'background': True}),
             ('read_file', {'path': '/opt/data/.env'}),
             ('read_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/../../../../opt/data/.env'}),

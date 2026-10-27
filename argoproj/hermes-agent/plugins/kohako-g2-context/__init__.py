@@ -159,11 +159,11 @@ _NO_APPROVAL = 'Kohako G2: この tool は G2 では使えません（内容を�
 
 
 def _shown_command(command):
+    # Shown as is (no whitespace folding), so what the Owner approves is what runs.
     command = command.strip()
-    if '\n' in command or '\r' in command:
+    if any(ord(c) < 32 or 127 <= ord(c) < 160 for c in command):
         return None
     shown = 'task-board ' + command[len(_HELPER):] if command.startswith(_HELPER) else command
-    shown = ' '.join(shown.split())
     return shown if len(shown) <= _SHOWN else None
 
 
