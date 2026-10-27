@@ -98,6 +98,48 @@ class GateTests(unittest.TestCase):
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --lane review'}))
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' show BOXP-332'}))
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --vault /home/boxp/Documents/obsidian-headless/BOXP --lane review'}))
+    def test_board_changes_without_approval(self):
+        cases = [
+            'create --title "G2 からのテスト" --priority medium',
+            "update BOXP-12 --lane 'In Progress'",
+            'append-note BOXP-332 --note "メモ (括弧) です"',
+            'request-codex BOXP-5 --lane Ready',
+            'create --vault /home/boxp/Documents/obsidian-headless/BOXP --json',
+            "create --vault '/home/boxp/Documents/obsidian-headless/BOXP' --json",
+        ]
+        for suffix in cases:
+            with self.subTest(suffix=suffix):
+                self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' ' + suffix}))
+
+    def test_board_changes_rejected_from_free_path(self):
+        cases = [
+            'delete BOXP-1 --confirm',
+            'create --title "$(id)"',
+            'create --title "a`id`"',
+            'create --title x; rm -rf /',
+            'create --summary-file /etc/passwd',
+            'update BOXP-1 --vault /tmp',
+            'update ../x',
+            'update BOXP-1 --lane Ready && echo',
+            "create --title 'a'b",
+            'create --title "x\\"',
+            'create --title --json',
+            'create BOXP-1',
+            'update BOXP-1 BOXP-2',
+            'create --confirm',
+        ]
+        for suffix in cases:
+            with self.subTest(suffix=suffix):
+                command = self.HELPER + ' ' + suffix
+                self.assertFalse(plugin._board_change(command))
+                self.assertEqual(self.gate('terminal', {'command': command})['action'], 'approve')
+        command = self.HELPER + ' create --title ok'
+        for extra in ({'background': True}, {'workdir': '/tmp'}):
+            self.assertEqual(self.gate('terminal', {'command': command, **extra})['action'], 'block')
+        self.assertEqual(self.gate('terminal', {'command': command + '\nnext'})['action'], 'block')
+        self.assertEqual(self.gate('terminal', {'command': command}, sid='kohako-g2-cand-x')['action'], 'block')
+        self.assertEqual(self.gate('terminal', {'command': command}, sid='api-other')['action'], 'block')
+
     def test_short_terminal_commands_need_approval_with_the_full_command(self):
         cases = [
             (self.HELPER + 'create --title G2テスト --repo boxp/even-g2-lab'.replace('create', ' create', 1), '実行: bb …/task-board.bb create --title G2テスト --repo boxp/even-g2-lab'),

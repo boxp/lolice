@@ -20,3 +20,8 @@ Owner 承認済み：G2 マイク → BFF → lolice 内 whisper.cpp（CPU の�
 - 実測（同じ image・引数・CPU 2・メモリ 2GiB、合成日本語）：1 件 3.6〜4.7 秒、RSS 約 0.35〜0.42GiB。無音・雑音は VAD で空。ログに認識本文は出ない。
 
 rollback：本 PR の revert（BFF は `KOHAKO_STT_URL` が無くなり 503 `stt_disabled`、G2 は「音声: STT未接続」でマイクを開かない）。
+
+## 追補: G2 からの Task Board 変更を承認不要に（2026-10-27 Owner 承認）
+
+- `kohako-g2-context` plugin 1.2.0: `kohako-g2-*` session の terminal で `task-board.bb` の `create` / `update` / `append-note` / `request-codex` を承認なしで通す。shell 展開のない形に限り（独自 tokenizer で `$` `` ` `` `\` `;` `&&` glob 等を拒否）、`--*-file` / `--confirm` / workdir / background と、固定 vault 以外の `--vault` は承認なしの対象外。
+- `delete` と Task Board 以外の terminal 操作は従来どおり G2 の許可画面で承認。候補 session と他の API server session は tool なしのまま。

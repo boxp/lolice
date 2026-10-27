@@ -2,7 +2,8 @@
 
 - pre_llm_call: read-only, owner-only reference context for Telegram turns.
 - pre_tool_call: tool gate for API server sessions. Kohako G2 (`kohako-g2-*`) may use read-only
-  tools freely; every other tool call goes to the official human-approval gate, which the BFF
+  tools and Task Board changes except delete freely at the Owner's request (BOXP-332); other
+  tool calls go to the official human-approval gate, which the BFF
   shows on G2 (once/deny only). Candidate runs (`kohako-g2-cand-*`) and any other API server
   session get no tools at all.
 """
@@ -113,6 +114,73 @@ _BOARD_READ = re.compile(
     r'bb\s+/opt/data/skills/note-taking/obsidian-task-board/bin/task-board\.bb\s+(?:list|show)'
     r'(?:\s+(?:--vault\s+/home/boxp/Documents/obsidian-headless/BOXP|[A-Za-z0-9_:=@-]+))*\s*'
 )
+_BOARD_PATH = '/opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb'
+_BOARD_VAULT = '/home/boxp/Documents/obsidian-headless/BOXP'
+_BOARD_VALUES = {'--title', '--summary', '--acceptance', '--context', '--plan', '--notes',
+                 '--note', '--source', '--priority', '--assignee', '--repo', '--lane'}
+_BOARD_FLAGS = {'--json', '--dry-run'}
+
+
+def _board_change(command):
+    # Parse whole tokens without shell expansion; only the helper and vault paths may be bare.
+    if any(ord(c) < 32 or 127 <= ord(c) < 160 for c in command):
+        return False
+    tokens = []
+    command = command.strip()
+    i = 0
+    while i < len(command):
+        if command[i] == ' ':
+            i += 1
+            continue
+        quote = command[i] if command[i] in "\"'" else None
+        if quote:
+            end = command.find(quote, i + 1)
+            if end < 0:
+                return False
+            value = command[i + 1:end]
+            if quote == '"' and any(c in value for c in '$`\\'):
+                return False
+            i = end + 1
+        else:
+            end = command.find(' ', i)
+            if end < 0:
+                end = len(command)
+            value = command[i:end]
+            if value not in (_BOARD_PATH, _BOARD_VAULT) and not re.fullmatch(r'[A-Za-z0-9_:=@,+-]+', value):
+                return False
+            i = end
+        if i < len(command) and command[i] != ' ':
+            return False
+        tokens.append((value, quote is None))
+    if len(tokens) < 3 or tokens[:2] != [('bb', True), (_BOARD_PATH, True)]:
+        return False
+    subcommand, bare = tokens[2]
+    if not bare or subcommand not in {'create', 'update', 'append-note', 'request-codex'}:
+        return False
+    i = 3
+    if subcommand != 'create':
+        if i >= len(tokens) or not tokens[i][1] or not re.fullmatch(r'BOXP-[0-9]+', tokens[i][0]):
+            return False
+        i += 1
+    while i < len(tokens):
+        option, bare = tokens[i]
+        if not bare:
+            return False
+        i += 1
+        if option in _BOARD_FLAGS:
+            continue
+        if option not in _BOARD_VALUES and option != '--vault' or i >= len(tokens):
+            return False
+        value, value_bare = tokens[i]
+        if option == '--vault':
+            if value != _BOARD_VAULT:
+                return False
+        elif value_bare and (value.startswith('-') or value in (_BOARD_PATH, _BOARD_VAULT)):
+            return False
+        i += 1
+    return True
+
+
 _BLOCK = 'Kohako G2: この session では tool を使えません。tool を使わずに答えてください。'
 
 
@@ -220,6 +288,10 @@ def _decide(tool_name, args, sid, tool_call_id):
         return None
     if tool_name == 'terminal' and isinstance(args.get('command'), str) and _BOARD_READ.fullmatch(args['command'].strip()) \
             and not args.get('background'):
+        return None
+    # Owner requested Task Board changes except delete without approval (BOXP-332).
+    if tool_name == 'terminal' and isinstance(args.get('command'), str) and _board_change(args['command']) \
+            and not set(k for k, v in args.items() if v not in (None, False, '')) - _SHOWN_ARGS:
         return None
     # Terminal commands short enough to be shown in full go to the official human-approval gate,
     # answered on G2. The rule key is unique per call so an approval can never widen into a
