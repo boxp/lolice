@@ -92,7 +92,7 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(plugin._gate(tool_name='terminal', args={}, session_id='tg-unknown')['action'], 'block')
     def test_read_only_tools_pass(self):
         self.assertIsNone(self.gate('skill_view', {'name': 'obsidian-task-board'}))
-        self.assertIsNone(self.gate('read_file', {'path': '/opt/data/cache/spillover/call_0a00551c780545b0add7042ac7b37191.txt'}))
+
         self.assertIsNone(self.gate('session_search', {'query': 'x'}))
         self.assertIsNone(self.gate('read_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/Tickets/BOXP-1.md'}))
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --lane review'}))
@@ -135,6 +135,14 @@ class GateTests(unittest.TestCase):
         ]
         for tool, args in refused:
             self.assertEqual(self.gate(tool, args)['action'], 'block', (tool, args))
+    def test_spillover_only_of_own_tool_calls(self):
+        own, other = 'call_' + 'a' * 32, 'call_' + 'b' * 32
+        spill = lambda c: {'path': f'/opt/data/cache/spillover/{c}.txt'}
+        self.assertIsNone(plugin._gate(tool_name='skill_view', args={'name': 'x'}, session_id='kohako-g2-s1', tool_call_id=own))
+        self.assertIsNone(plugin._gate(tool_name='read_file', args=spill(own), session_id='kohako-g2-s1', tool_call_id='call_' + 'c' * 32))
+        self.assertEqual(plugin._gate(tool_name='read_file', args=spill(own), session_id='kohako-g2-s2', tool_call_id='call_' + 'd' * 32)['action'], 'block')
+        self.assertEqual(plugin._gate(tool_name='read_file', args=spill(other), session_id='kohako-g2-s1', tool_call_id='call_' + 'e' * 32)['action'], 'block')
+        self.assertEqual(plugin._gate(tool_name='search_files', args=spill(own), session_id='kohako-g2-s1', tool_call_id='call_' + 'f' * 32)['action'], 'block')
     def test_api_session_blocked_from_pre_llm_platform_even_if_db_fails(self):
         plugin._hook(session_id='api_9', platform='api_server', sender_id='')
         with patch.object(plugin, '_open_db', side_effect=RuntimeError('db')):

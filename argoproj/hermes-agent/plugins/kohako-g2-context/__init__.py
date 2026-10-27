@@ -144,15 +144,32 @@ def _session_source(session_id):
         db.close()
 
 
-# Hermes spills large tool results (e.g. a long SKILL.md) here and tells the model to read them back.
-_SPILLOVER = re.compile(r'/opt/data/cache/spillover/call_[0-9a-f]{32}\.txt')
+# Hermes spills large tool results (e.g. a long SKILL.md) to a file named after the tool call id and
+# tells the model to read it back. A G2 session may read only the spill files of its own tool calls.
+_SPILLOVER = re.compile(r'/opt/data/cache/spillover/(call_[0-9a-f]{32})\.txt')
+_calls = OrderedDict()
 
 
-def _readable(path, spillover=False):
+def _remember_call(sid, tool_call_id):
+    if not isinstance(tool_call_id, str) or not re.fullmatch(r'call_[0-9a-f]{32}', tool_call_id):
+        return
+    with _lock:
+        calls = _calls.setdefault(sid, OrderedDict())
+        calls[tool_call_id] = None
+        while len(calls) > 256:
+            calls.popitem(last=False)
+        _calls.move_to_end(sid)
+        while len(_calls) > 64:
+            _calls.popitem(last=False)
+
+
+def _readable(path, spillover_sid=None):
     if not isinstance(path, str) or not path.startswith('/'):
         return False
-    if _SPILLOVER.fullmatch(path):
-        return spillover
+    spill = _SPILLOVER.fullmatch(path)
+    if spill:
+        with _lock:
+            return spillover_sid is not None and spill.group(1) in _calls.get(spillover_sid, ())
     real = os.path.realpath(path)
     return any(real == root.rstrip('/') or real.startswith(root) for root in _READ_ROOTS)
 
@@ -193,9 +210,10 @@ def _decide(tool_name, args, sid, tool_call_id):
     if not sid.startswith('kohako-g2-'):
         # Only the Kohako G2 BFF talks to the API server; any other API server session gets no tools.
         return {'action': 'block', 'message': _BLOCK} if _session_source(sid) == 'api_server' else None
+    _remember_call(sid, tool_call_id)
     if tool_name in _FREE_TOOLS:
         return None
-    if tool_name in _PATH_TOOLS and _readable(args.get('path'), spillover=tool_name == 'read_file'):
+    if tool_name in _PATH_TOOLS and _readable(args.get('path'), spillover_sid=sid if tool_name == 'read_file' else None):
         return None
     if tool_name == 'terminal' and isinstance(args.get('command'), str) and _BOARD_READ.fullmatch(args['command'].strip()) \
             and not args.get('background'):
