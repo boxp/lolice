@@ -118,6 +118,13 @@ class GateTests(unittest.TestCase):
             self.assertTrue(result['rule_key'].startswith('kohako-g2:'))
             keys.add(result['rule_key'])
         self.assertEqual(len(keys), len(cases))
+    def test_api_session_blocked_from_pre_llm_platform_even_if_db_fails(self):
+        plugin._hook(session_id='api_9', platform='api_server', sender_id='')
+        with patch.object(plugin, '_open_db', side_effect=RuntimeError('db')):
+            self.assertEqual(plugin._gate(tool_name='terminal', args={}, session_id='api_9')['action'], 'block')
+        plugin._hook(session_id='tg-9', platform='telegram', sender_id='other')
+        with patch.object(plugin, '_open_db', side_effect=RuntimeError('db')):
+            self.assertIsNone(plugin._gate(tool_name='terminal', args={}, session_id='tg-9'))
     def test_gate_error_fails_closed_for_g2(self):
         with patch.object(plugin, '_decide', side_effect=RuntimeError('x')):
             with self.assertLogs(plugin.__name__, level='WARNING'):

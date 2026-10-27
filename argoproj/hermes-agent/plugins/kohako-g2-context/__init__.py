@@ -48,6 +48,7 @@ def _clean(text):
 
 
 def _hook(*, session_id=None, platform=None, sender_id=None, **kwargs):
+    _remember_platform(session_id, platform)
     try:
         return _context(session_id, platform, sender_id)
     except Exception as exc:
@@ -112,7 +113,26 @@ _BOARD_READ = re.compile(
 _BLOCK = 'Kohako G2: この session では tool を使えません。tool を使わずに答えてください。'
 
 
+_platforms = OrderedDict()
+
+
+def _remember_platform(session_id, platform):
+    # pre_llm_call runs before any tool call of a turn and carries the platform, which
+    # pre_tool_call does not; remember it so the gate does not depend on the DB alone.
+    if not isinstance(session_id, str) or not isinstance(platform, str):
+        return
+    with _lock:
+        _platforms[session_id] = platform
+        _platforms.move_to_end(session_id)
+        while len(_platforms) > 256:
+            _platforms.popitem(last=False)
+
+
 def _session_source(session_id):
+    with _lock:
+        known = _platforms.get(session_id)
+    if known is not None:
+        return known
     db = _open_db()
     try:
         row = db.get_session(session_id)
