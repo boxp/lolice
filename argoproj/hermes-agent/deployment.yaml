@@ -157,6 +157,18 @@ spec:
               else:
                   print(f"[bootstrap] WARNING platform_toolsets is {pts!r}; api_server not configured")
               PY
+              # BOXP-332: API_SERVER_KEY comes from the Deployment env (Secret
+              # hermes-agent-api-server-key, shared only with the Kohako BFF). The
+              # upstream entrypoint auto-generated a key into /opt/data/.env while
+              # the env had none, and .env is loaded with override=True, so that
+              # unused value would shadow the managed key. Drop only that line.
+              if [ -f /opt/data/.env ] && grep -q '^API_SERVER_KEY=' /opt/data/.env; then
+                env_owner=$(stat -c '%u:%g' /opt/data/.env)
+                sed -i '/^API_SERVER_KEY=/d' /opt/data/.env
+                chown "$env_owner" /opt/data/.env
+                chmod 0600 /opt/data/.env
+                echo "[bootstrap] removed auto-generated API_SERVER_KEY from .env (managed key comes from env)"
+              fi
               cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
               chmod 0755 /opt/data/scripts/quiet_gate.sh
               chown 1000:10000 /opt/data/scripts/quiet_gate.sh
