@@ -9,3 +9,14 @@
 - 確認：Hermes Pod 内から `/health`・`/v1/toolsets` が全 disabled・検証用 session で `/v1/runs` 1 往復。Telegram の動作継続。
 
 rollback：本 PR の revert（`API_SERVER_ENABLED=false` に戻り、BFF は鍵が無くなるので Pod 再作成時に Secret 参照で止まる → 先に even-g2-lab の deployment env を戻す順）。
+
+## 追補（2026-10-27 音声入力 M5：lolice 内 whisper.cpp）
+
+Owner 承認済み：G2 マイク → BFF → lolice 内 whisper.cpp（CPU のみ）→ 認識文を G2 で確認 → 送信。外部 STT・課金・新 credential なし。
+
+- `deployment-kohako-stt.yaml`：`even-g2-lab/kohako-stt`。公式 image `ghcr.io/ggml-org/whisper.cpp:main` を digest 固定。init container が `ggml-small-q5_1.bin` と silero VAD を Hugging Face の固定 revision から取得し sha256 を検証（失敗なら起動しない）。`whisper-server --language ja --threads 2 --suppress-nst --vad --no-gpu`。golyat-4 に固定（GPU は使わない）。requests CPU 2 / メモリ 1Gi、limits CPU 2 / メモリ 2Gi。非 root・read-only root・SA token なし。ClusterIP Service `kohako-stt:8080`。
+- `networkpolicy-kohako-stt.yaml`：ingress は `even-g2-main` から 8080 だけ。egress は DNS と公開 IP の 443（init container の model 取得用。Calico は container 単位で絞れない。whisper-server 自体は外へ通信しない）。
+- `even-g2-main`：egress に `kohako-stt:8080` を追加し、BFF に `KOHAKO_STT_URL`。BFF が対応していない旧 image では env は無視される。
+- 実測（同じ image・引数・CPU 2・メモリ 2GiB、合成日本語）：1 件 3.6〜4.7 秒、RSS 約 0.35〜0.42GiB。無音・雑音は VAD で空。ログに認識本文は出ない。
+
+rollback：本 PR の revert（BFF は `KOHAKO_STT_URL` が無くなり 503 `stt_disabled`、G2 は「音声: STT未接続」でマイクを開かない）。

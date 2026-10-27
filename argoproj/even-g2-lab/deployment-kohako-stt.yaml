@@ -1,0 +1,146 @@
+# BOXP-332 (M5): Kohako G2 voice input. whisper.cpp server on CPU only, reachable
+# only from the kohako-bff sidecar of even-g2-main (see networkpolicy-kohako-stt.yaml).
+# Audio stays in this cluster: the BFF posts the PCM it received from the G2 app,
+# whisper-server keeps it in memory for the one request and returns the text.
+# No external STT, no credential. Models come from Hugging Face at pinned revisions
+# and are verified by sha256 before the server starts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kohako-stt
+  namespace: even-g2-lab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: kohako-stt
+  template:
+    metadata:
+      labels:
+        app: kohako-stt
+    spec:
+      automountServiceAccountToken: false
+      # golyat-4 has the spare CPU/memory; its Intel GPU stays with llama-server.
+      nodeSelector:
+        kubernetes.io/hostname: golyat-4
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: fetch-models
+          image: ghcr.io/ggml-org/whisper.cpp:main@sha256:cdfceef9caa5fed3efaf07bfc7d1ea0e43d28536e1521f448570b0ab02886abb
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cd /models
+              fetch() {
+                curl -fsSL --retry 3 --max-time 600 -o "$1.part" "$2"
+                echo "$3  $1.part" | sha256sum -c -
+                mv "$1.part" "$1"
+              }
+              fetch model.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small-q5_1.bin ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb
+              fetch vad.bin https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v5.1.2.bin 29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: models
+              mountPath: /models
+      containers:
+        - name: whisper
+          image: ghcr.io/ggml-org/whisper.cpp:main@sha256:cdfceef9caa5fed3efaf07bfc7d1ea0e43d28536e1521f448570b0ab02886abb
+          command:
+            - /app/build/bin/whisper-server
+          args:
+            - --model
+            - /models/model.bin
+            - --language
+            - ja
+            - --threads
+            - "2"
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8080"
+            # Silence/noise otherwise turns into made-up phrases; with VAD it is empty
+            # and the BFF answers 422 no_speech.
+            - --suppress-nst
+            - --vad
+            - --vad-model
+            - /models/vad.bin
+            - --no-gpu
+          workingDir: /tmp
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          # Measured with small-q5_1 + VAD, 2 threads: ~0.4 GiB RSS, 3.6-4.7 s per request.
+          resources:
+            requests:
+              cpu: "2"
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: models
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kohako-stt
+  namespace: even-g2-lab
+spec:
+  type: ClusterIP
+  selector:
+    app: kohako-stt
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: http

@@ -11,3 +11,5 @@ resources:
   - service.yaml
   - service-kohako-g2-web.yaml
   - networkpolicy.yaml
+  - deployment-kohako-stt.yaml
+  - networkpolicy-kohako-stt.yaml

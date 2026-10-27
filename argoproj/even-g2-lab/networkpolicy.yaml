@@ -56,6 +56,14 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
         ports:
           - 8642
+    # BOXP-332 (M5): kohako-bff -> whisper.cpp STT (same namespace, in-cluster only).
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'kohako-stt'
+        ports:
+          - 8080
     - action: Allow
       protocol: TCP
       source: {}

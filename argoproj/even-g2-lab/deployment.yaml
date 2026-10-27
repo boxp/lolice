@@ -66,6 +66,9 @@ spec:
             # The key stays in this sidecar (web container and device never see it).
             - name: KOHAKO_HERMES_URL
               value: http://hermes-agent-api.hermes-agent.svc.cluster.local:8642
+            # BOXP-332 (M5): in-cluster whisper.cpp (deployment-kohako-stt.yaml). Unset = voice disabled.
+            - name: KOHAKO_STT_URL
+              value: http://kohako-stt.even-g2-lab.svc.cluster.local:8080
             - name: KOHAKO_HERMES_KEY
               valueFrom:
                 secretKeyRef:
