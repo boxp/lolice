@@ -71,6 +71,20 @@ spec:
                 secretKeyRef:
                   name: kohako-hermes-api-key
                   key: key
+            # BOXP-332: G2 reads the Owner's own Telegram DM (read-only, official
+            # /api/sessions API) as shared context. Only this Telegram user's open
+            # session is read; nothing is posted to Telegram.
+            - name: KOHAKO_SHARED_CONTEXT
+              value: telegram-dm
+            - name: KOHAKO_TELEGRAM_USER_ID
+              value: "8202126858"
+            # Suggestion candidates only: light model on the existing openai-codex
+            # subscription (no new provider/credential). The conversation itself
+            # keeps the Hermes default model.
+            - name: KOHAKO_CANDIDATE_PROVIDER
+              value: openai-codex
+            - name: KOHAKO_CANDIDATE_MODEL
+              value: gpt-5.6-luna
             - name: KOHAKO_BFF_HOST
               value: 127.0.0.1
             - name: KOHAKO_BFF_PORT
