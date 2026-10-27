@@ -60,13 +60,16 @@ data:
     # 9654466e, sha256 71667f9e…) as a selectable model for the 26B-A4B vs 31B
     # comparison. Same author, series and quant as gemma4-26b; the default
     # model is unchanged and this preset is only loaded when a request names
-    # it (--models-max 1 unloads gemma4-26b meanwhile). batch / ubatch /
-    # threads match gemma4-26b so the comparison differs only in the model
-    # file; ctx and the other router CLI args are overlaid as for every preset.
+    # it (--models-max 1 unloads gemma4-26b meanwhile). batch / threads match
+    # gemma4-26b; ctx and the other router CLI args are overlaid as for every
+    # preset. ubatch is 512, not 2048: with 2048 the dense 31B (60 layers, 32
+    # heads) stalled the Arc 140T on an 8.3k-token prefill (i915 "Fence
+    # expiration time out", no progress for 19 min). Short prompts were fine.
+    # 512 is what the dense qwen38-27b uses for 34k-token prefills.
     # No sampler here (same as gemma4-26b); callers pass it.
     [gemma4-31b]
     model = /models/boxp337-gemma4-31b/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
     batch-size = 2048
-    ubatch-size = 2048
+    ubatch-size = 512
     threads = 14
     threads-batch = 14

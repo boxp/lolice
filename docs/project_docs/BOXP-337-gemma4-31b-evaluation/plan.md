@@ -40,3 +40,13 @@ HauhauCS が公開している 31B 版はこの 1 つだけで、配布されて
 ## 範囲外
 
 既定モデルの切替、Strata の再試験、driver の変更、外部公開、既存モデルの削除、MTP（BOXP-253 で起動に失敗し、OOM のインシデントがあったため）。
+
+## 追記: 31B の ubatch を 512 に変更（2026-10-27）
+
+31B を ubatch 2048 で動かしたところ、短い prompt は正常だった（decode 約 3.5 tok/s）。しかし 8.3k token の prefill で iGPU が止まった。
+
+- dmesg に i915 の `Fence expiration time out` が出ており、19 分たっても prompt が先に進まなかった。
+- 自分の試験 client を止めてから、router の通常の `POST /models/unload` で 31B を解放した。GPU reset は起きなかった。
+- gemma4-26b は 1 回の要求で再ロードでき、`/health` も ok だった。
+
+対策として、31B の preset だけ ubatch を 512 にする。512 は dense の qwen38-27b で 34k token の prefill に使った実績がある値である。26B の preset は変えない。ubatch は prefill の分割単位なので、出力の分布には影響しない。条件の差として owner-summary に明記する。
