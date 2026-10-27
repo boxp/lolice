@@ -9,6 +9,7 @@ data:
     import json
     import os
     import re
+    import threading
     import time
     from datetime import datetime, timezone
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,6 +23,9 @@ data:
     LOG_FILES = ("events.jsonl", "stderr.log", "last-message.md")
     MAX_LOG_BYTES = int(os.environ.get("DASHBOARD_MAX_LOG_BYTES", str(256 * 1024)))
     RECENT_LIMIT = int(os.environ.get("DASHBOARD_RECENT_LIMIT", "80"))
+    KOHAKO_VAULT_ROOT = os.environ.get("KOHAKO_VAULT_ROOT", "/home/boxp/Documents/obsidian-headless/BOXP")
+
+    import kohako_board
 
     def utc_now_iso():
       return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -327,11 +331,274 @@ data:
       def log_message(self, fmt, *args):
         print("%s %s" % (self.address_string(), fmt % args), flush=True)
 
+    class KohakoBoardHandler(BaseHTTPRequestHandler):
+      """BOXP-329: separate port that serves only the Kohako G2 Board projection."""
+
+      def do_GET(self):
+        path = urlparse(self.path).path
+        if path == "/healthz":
+          self.send_json({"ok": True})
+        elif path == "/api/kohako/board":
+          try:
+            self.send_json(kohako_board.build_projection(KOHAKO_VAULT_ROOT))
+          except Exception:
+            self.send_json({"error": "projection failed"}, 500)
+        else:
+          self.send_json({"error": "not found"}, 404)
+
+      def do_POST(self):
+        self.send_error(405)
+
+      def do_PUT(self):
+        self.send_error(405)
+
+      def do_DELETE(self):
+        self.send_error(405)
+
+      def do_PATCH(self):
+        self.send_error(405)
+
+      send_json = Handler.send_json
+
+      def log_message(self, fmt, *args):
+        print("kohako-board %s" % (fmt % args), flush=True)
+
     if __name__ == "__main__":
+      # Served on its own port so even-g2-lab can be allowed to reach the projection only.
+      kohako_port = int(os.environ.get("KOHAKO_BOARD_PORT", "8090"))
+      kohako_server = ThreadingHTTPServer(("0.0.0.0", kohako_port), KohakoBoardHandler)
+      threading.Thread(target=kohako_server.serve_forever, daemon=True).start()
+      print(f"kohako board projection listening on :{kohako_port}", flush=True)
       port = int(os.environ.get("PORT", "8080"))
       server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
       print(f"codex task board dashboard listening on :{port}; root={BOARD_ROOT}", flush=True)
       server.serve_forever()
+
+  kohako_board.py: |
+    """Read-only Task Board projection for Kohako G2 (BOXP-329).
+
+    Returns only a fixed set of fields for active tickets, with
+    short masked excerpts of the latest Notes. Never returns Notes in full, ticket
+    bodies, attachments or vault paths, and never writes to the vault.
+    """
+    import re
+    from datetime import datetime, timedelta, timezone
+    from pathlib import Path
+
+    SCHEMA = "kohako-board/v1"
+    LANE_ORDER = ("In Progress", "Review", "Blocked", "Ready", "Done")
+    LANE_STATUS = {"Ready": "ready", "In Progress": "in-progress", "Review": "review", "Blocked": "blocked", "Done": "done"}
+    ITEM_LIMIT = 30
+    EXCERPT_CHARS = 80
+    TITLE_CHARS = 120
+    DONE_WINDOW = timedelta(hours=48)
+    MAX_FILE_BYTES = 512 * 1024
+    NOTE_SCAN = 10
+
+    TICKET_ID = re.compile(r"^BOXP-\d{1,6}$")
+    CARD = re.compile(r"^- \[[ xX]\] \[\[Tickets/(BOXP-\d{1,6})\|([^\]]*)\]\](.*)$")
+    FIELD = re.compile(r"(\w+)::(\S+)")
+    NOTE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}(?::\d{2})?) UTC)?(?: \[([^\]\n]{1,40})\])?:\s*(.*)$")
+    BLOCKER = re.compile(r"(?i)\bblock(?:ed|er|ing)?\b|阻害|ブロッカー")
+    DECISION = re.compile(r"(?i)要判断|判断が必要|判断待ち|承認待ち|返答待ち|必要な判断|owner\s*(?:の|に)?\s*(?:判断|承認|確認|回答|返答)\s*(?:が必要|を求め|待ち|をお願い|を依頼)")
+
+    URL = re.compile(r"https?://([^/\s)>\]]+)[^\s)>\]]*")
+    EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+    SECRET_WORD = re.compile(r"(?i)\b([\w-]*(?:token|secret|password|passwd|api[_-]?key|key))\b(\s*[:=]?\s*)\S+")
+    LONG_TOKEN = re.compile(r"[A-Za-z0-9_+/=-]{32,}")
+    WIKILINK = re.compile(r"\[\[(?:[^\]|]*\|)?([^\]]*)\]\]")
+    CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+    def iso(dt):
+      return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if dt else None
+
+
+    def mtime(path):
+      try:
+        return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+      except OSError:
+        return None
+
+
+    def read_limited(path):
+      with path.open("rb") as f:
+        data = f.read(MAX_FILE_BYTES + 1)
+      return data[:MAX_FILE_BYTES].decode("utf-8", errors="replace")
+
+
+    def mask(text):
+      text = WIKILINK.sub(r"\1", text)
+      text = URL.sub(lambda m: m.group(1) + "/…", text)
+      text = EMAIL.sub("…", text)
+      text = SECRET_WORD.sub(lambda m: m.group(1) + m.group(2) + "…", text)
+      text = LONG_TOKEN.sub("…", text)
+      return text
+
+
+    def excerpt(text, limit=EXCERPT_CHARS):
+      if not text:
+        return None
+      text = " ".join(CONTROL.sub(" ", mask(text.replace("**", "").replace("`", ""))).split())
+      if not text:
+        return None
+      return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+    def parse_board(text):
+      """Return [(lane, id, label, fields)] for the lanes Kohako shows."""
+      cards, lane = [], None
+      for line in text.splitlines():
+        if line.startswith("## "):
+          lane = line[3:].strip()
+          continue
+        if lane not in LANE_STATUS:
+          continue
+        m = CARD.match(line)
+        if not m:
+          continue
+        fields = {}
+        for key, value in FIELD.findall(m.group(3)):
+          fields.setdefault(key, value)
+        label = m.group(2)
+        prefix = m.group(1) + ":"
+        title = label[len(prefix):].strip() if label.startswith(prefix) else label.strip()
+        cards.append((lane, m.group(1), title, fields))
+      return cards
+
+
+    def parse_frontmatter(text):
+      if not text.startswith("---\n"):
+        return {}
+      end = text.find("\n---", 4)
+      if end < 0:
+        return {}
+      result = {}
+      for line in text[4:end].splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key and not key.startswith((" ", "-")):
+          result[key.strip()] = value.strip()
+      return result
+
+
+    def parse_notes(text):
+      """Return note entries in file order: [(datetime|None, source|None, text)]."""
+      lines = text.splitlines()
+      try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == "## Notes")
+      except StopIteration:
+        return []
+      notes = []
+      for line in lines[start + 1:]:
+        if line.startswith("## "):
+          break
+        m = NOTE.match(line)
+        if not m:
+          continue
+        date, clock, source, body = m.groups()
+        try:
+          fmt = "%Y-%m-%d %H:%M:%S" if clock and clock.count(":") == 2 else "%Y-%m-%d %H:%M" if clock else "%Y-%m-%d"
+          at = datetime.strptime(f"{date} {clock}" if clock else date, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+          at = None
+        notes.append((at, source, body))
+      return notes
+
+
+    def find_recent(notes, pattern):
+      for _, _, body in reversed(notes[-NOTE_SCAN:]):
+        if pattern.search(body):
+          return excerpt(body)
+      return None
+
+
+    def by_time(notes):
+      """Oldest first by note time; file order breaks ties and places untimed notes first."""
+      floor = datetime.min.replace(tzinfo=timezone.utc)
+      order = sorted(range(len(notes)), key=lambda i: (notes[i][0] or floor, i))
+      return [notes[i] for i in order]
+
+
+    def project_ticket(tickets_root, lane, ticket_id, title, fields):
+      item = {
+        "id": ticket_id,
+        "title": excerpt(title, TITLE_CHARS) or ticket_id,
+        "lane": lane,
+        "status": None,
+        "laneStatusMismatch": False,
+        "assignee": fields.get("assignee"),
+        "ticketAssignee": None,
+        "assigneeMismatch": False,
+        "priority": fields.get("priority"),
+        "ticketUpdatedAt": None,
+        "latestNoteAt": None,
+        "latestNoteSource": None,
+        "progress": None,
+        "blocker": None,
+        "decision": None,
+        "readError": None,
+      }
+      path = tickets_root / f"{ticket_id}.md"
+      if not path.is_file():
+        item["readError"] = "ticket_missing"
+        return item, None
+      updated = mtime(path)
+      item["ticketUpdatedAt"] = iso(updated)
+      try:
+        text = read_limited(path)
+      except OSError:
+        item["readError"] = "ticket_unreadable"
+        return item, updated
+      front = parse_frontmatter(text)
+      status = front.get("status") or None
+      item["status"] = status
+      item["laneStatusMismatch"] = bool(status) and status != LANE_STATUS[lane]
+      ticket_assignee = front.get("assignee") or None
+      item["ticketAssignee"] = ticket_assignee
+      item["assigneeMismatch"] = bool(ticket_assignee and item["assignee"]) and ticket_assignee != item["assignee"]
+      item["priority"] = item["priority"] or front.get("priority") or None
+      notes = by_time(parse_notes(text))
+      if notes:
+        # Time, source and excerpt all come from the same (latest) note.
+        latest_at, latest_source, latest_body = notes[-1]
+        item["latestNoteAt"] = iso(latest_at)
+        item["latestNoteSource"] = latest_source
+        item["progress"] = excerpt(latest_body)
+        item["blocker"] = find_recent(notes, BLOCKER)
+        item["decision"] = find_recent(notes, DECISION)
+      return item, updated
+
+
+    def build_projection(vault_root, now=None):
+      now = now or datetime.now(timezone.utc)
+      vault_root = Path(vault_root).resolve()
+      board_path = vault_root / "Boards" / "Task Board.md"
+      tickets_root = (vault_root / "Tickets").resolve()
+      if tickets_root.parent != vault_root:
+        raise ValueError("tickets root escapes vault")
+      rank = {lane: i for i, lane in enumerate(LANE_ORDER)}
+      items, seen = [], set()
+      for lane, ticket_id, title, fields in parse_board(read_limited(board_path)):
+        if ticket_id in seen or not TICKET_ID.match(ticket_id):
+          continue
+        seen.add(ticket_id)
+        updated = mtime(tickets_root / f"{ticket_id}.md")
+        if lane == "Done" and (not updated or now - updated > DONE_WINDOW):
+          continue
+        items.append((lane, ticket_id, title, fields, updated))
+      # Lane priority first, then the most recently updated ticket first within a lane.
+      items.sort(key=lambda card: (rank[card[0]], -(card[4].timestamp() if card[4] else 0)))
+      items = [card[:4] for card in items]
+      projected = [project_ticket(tickets_root, *card)[0] for card in items[:ITEM_LIMIT]]
+      return {
+        "schema": SCHEMA,
+        "generatedAt": iso(now),
+        "boardUpdatedAt": iso(mtime(board_path)),
+        "total": len(items),
+        "limit": ITEM_LIMIT,
+        "truncated": len(items) > ITEM_LIMIT,
+        "items": projected,
+      }
 
   index.html: |
     <!doctype html>

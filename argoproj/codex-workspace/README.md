@@ -138,6 +138,17 @@ Kubernetes 上では `codex-task-board-dashboard` ClusterIP Service の port 808
 
 Dashboard サイドカーは `/home/boxp` PVC を `readOnly: true` で mount します。HTTP API は `GET` のみを受け付け、Task Board card、ticket file、run directory、lock file を変更しません。
 
+## Kohako G2 Board projection (BOXP-329)
+
+Dashboard サイドカーは別 port `8090`（Service `codex-task-board-kohako`）で、Kohako G2 BFF 向けの読み取り専用 projection だけを返します。
+
+- `GET /api/kohako/board`（schema `kohako-board/v1`）と `GET /healthz` のみ。他の path は 404、GET 以外は 405。既存 `:8080` の runs / log API はこの port から見えません。
+- 入力は vault（`KOHAKO_VAULT_ROOT`、既定 `/home/boxp/Documents/obsidian-headless/BOXP`）の `Boards/Task Board.md` と `Tickets/BOXP-N.md`。ID は `BOXP-数字` だけ、ファイルは 512KB まで読みます。
+- 返すのは In Progress → Review → Blocked → Ready → Done（48 時間以内に更新）の最大 30 件と、id・title・lane・status・担当（カード / 票）と不一致 flag・priority・更新時刻・最新 Notes の時刻 / source・進捗 / 阻害 / 要判断の 80 字抜粋・読取エラーだけです。抜粋は URL の path / query、メール、`token` / `key` / `secret` / `password` の値、32 字以上の英数字列を `…` に置き換えます。阻害・要判断はキーワードによる推定です。
+- NetworkPolicy で `8090` への ingress は `even-g2-lab` の `app == 'even-g2-main'`（Kohako BFF sidecar）だけに許可します。
+- 試験: `python3 -B -m unittest tests/workflows/test_kohako_board_projection.py`（yq v4 が必要）。
+- コードは ConfigMap の `kohako_board.py` / `server.py` なので、反映は Pod の次の再起動（image 自動更新など）時です。
+
 ## Runner Kubernetes debug access
 
 `task-board-runner` は `system:serviceaccount:codex-workspace:codex-workspace` の projected token と `codex-workspace-kubeconfig` を使って Kubernetes API に接続します。既存の cluster-wide 権限は read-only で、debug 用の write/connect 権限は `codex-workspace` と `hermes-agent` namespace の `Role/codex-workspace-debug` に限定しています。
