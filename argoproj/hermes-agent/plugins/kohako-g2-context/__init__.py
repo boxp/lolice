@@ -151,15 +151,20 @@ def _readable(path):
     return any(real == root.rstrip('/') or real.startswith(root) for root in _READ_ROOTS)
 
 
-def _summary(tool_name, args):
-    if tool_name == 'terminal':
-        target = str(args.get('command', ''))
-    elif tool_name in ('write_file', 'patch', 'read_file', 'search_files'):
-        target = str(args.get('path', ''))
-    else:
-        target = ','.join(sorted(str(k) for k in args)[:6])
-    target = ' '.join(target.split())
-    return f'G2 から {tool_name}: {target[:120]}'
+_HELPER = 'bb /opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb '
+_SHOWN = 96  # G2 approval screen shows the whole command; never ask to approve what it cannot show.
+_TOO_LONG = ('Kohako G2: G2 の承認画面に全文を表示できない操作は承認に回せません。'
+             '1 つの短いコマンド（task-board の場合は 1 操作ずつ、本文は短く）に分けてください。')
+_NO_APPROVAL = 'Kohako G2: この tool は G2 では使えません（内容を承認画面に出せないため）。task-board の短いコマンドか読み取りだけを使ってください。'
+
+
+def _shown_command(command):
+    command = command.strip()
+    if '\n' in command or '\r' in command:
+        return None
+    shown = 'task-board ' + command[len(_HELPER):] if command.startswith(_HELPER) else command
+    shown = ' '.join(shown.split())
+    return shown if len(shown) <= _SHOWN else None
 
 
 def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kwargs):
@@ -168,8 +173,11 @@ def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kw
         return _decide(tool_name, args if isinstance(args, dict) else {}, sid, tool_call_id)
     except Exception as exc:
         _log.warning('kohako-g2-gate: error (%s)', type(exc).__name__)
-        # Fail closed for G2 sessions; leave other platforms (Telegram etc.) to Hermes' own checks.
-        return {'action': 'block', 'message': _BLOCK} if sid.startswith('kohako-g2-') else None
+        # Fail closed for G2 sessions and sessions whose platform is unknown (pre_llm_call records
+        # the platform of every turn, so Telegram etc. are normally known without the DB).
+        with _lock:
+            known = _platforms.get(sid)
+        return None if known is not None and known != 'api_server' else {'action': 'block', 'message': _BLOCK}
 
 
 def _decide(tool_name, args, sid, tool_call_id):
@@ -185,7 +193,13 @@ def _decide(tool_name, args, sid, tool_call_id):
     if tool_name == 'terminal' and isinstance(args.get('command'), str) and _BOARD_READ.fullmatch(args['command'].strip()) \
             and not args.get('background'):
         return None
-    # Everything else: the official human-approval gate, answered on G2. The rule key is unique per
-    # call so an approval can never widen into a session/always allowlist entry for later calls.
+    # Terminal commands short enough to be shown in full go to the official human-approval gate,
+    # answered on G2. The rule key is unique per call so an approval can never widen into a
+    # session/always allowlist entry for later calls. Everything else is refused in G2.
+    if tool_name != 'terminal' or args.get('background'):
+        return {'action': 'block', 'message': _NO_APPROVAL}
+    shown = _shown_command(args.get('command')) if isinstance(args.get('command'), str) else None
+    if shown is None:
+        return {'action': 'block', 'message': _TOO_LONG}
     digest = hashlib.sha256(json.dumps([tool_name, args, tool_call_id], sort_keys=True, default=str).encode()).hexdigest()[:16]
-    return {'action': 'approve', 'message': _summary(str(tool_name), args), 'rule_key': f'kohako-g2:{tool_name}:{digest}'}
+    return {'action': 'approve', 'message': f'実行: {shown}', 'rule_key': f'kohako-g2:{tool_name}:{digest}'}

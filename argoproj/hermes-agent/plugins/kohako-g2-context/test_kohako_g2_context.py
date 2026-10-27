@@ -87,7 +87,9 @@ class GateTests(unittest.TestCase):
     def test_other_platforms_untouched(self):
         self.assertIsNone(self.gate('terminal', {'command': 'rm -rf x'}, sid='tg-1', source='telegram'))
         with patch.object(plugin, '_open_db', side_effect=RuntimeError('db')):
-            self.assertIsNone(plugin._gate(tool_name='terminal', args={}, session_id='tg-1'))
+            with self.assertLogs(plugin.__name__, level='WARNING'):
+                # Platform unknown and the DB unreadable: fail closed.
+                self.assertEqual(plugin._gate(tool_name='terminal', args={}, session_id='tg-unknown')['action'], 'block')
     def test_read_only_tools_pass(self):
         self.assertIsNone(self.gate('skill_view', {'name': 'obsidian-task-board'}))
         self.assertIsNone(self.gate('session_search', {'query': 'x'}))
@@ -95,8 +97,27 @@ class GateTests(unittest.TestCase):
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --lane review'}))
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' show BOXP-332'}))
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --vault /home/boxp/Documents/obsidian-headless/BOXP --lane review'}))
-    def test_everything_else_needs_approval(self):
+    def test_short_terminal_commands_need_approval_with_the_full_command(self):
         cases = [
+            (self.HELPER + 'create --title G2テスト --repo boxp/even-g2-lab'.replace('create', ' create', 1), '実行: task-board create --title G2テスト --repo boxp/even-g2-lab'),
+            (self.HELPER + ' list; rm -rf /', '実行: task-board list; rm -rf /'),
+            (self.HELPER + ' show ../../../../opt/data/secret', '実行: task-board show ../../../../opt/data/secret'),
+            (self.HELPER + ' list --vault /tmp/other', '実行: task-board list --vault /tmp/other'),
+            ('ls', '実行: ls'),
+        ]
+        keys = set()
+        for command, message in cases:
+            result = self.gate('terminal', {'command': command})
+            self.assertEqual(result['action'], 'approve', command)
+            self.assertEqual(result['message'], message)
+            self.assertTrue(result['rule_key'].startswith('kohako-g2:terminal:'))
+            keys.add(result['rule_key'])
+        self.assertEqual(len(keys), len(cases))
+    def test_what_cannot_be_shown_in_full_is_refused(self):
+        refused = [
+            ('terminal', {'command': 'echo ' + 'a' * 100 + ' && rm -rf /'}),
+            ('terminal', {'command': 'echo ok\nrm -rf /'}),
+            ('terminal', {'command': self.HELPER + ' show x', 'background': True}),
             ('read_file', {'path': '/opt/data/.env'}),
             ('read_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/../../../../opt/data/.env'}),
             ('read_file', {'path': 'relative.md'}),
@@ -104,24 +125,9 @@ class GateTests(unittest.TestCase):
             ('patch', {'path': '/opt/data/SOUL.md'}),
             ('skill_manage', {'action': 'create'}),
             ('process_manage', {}),
-            ('terminal', {'command': self.HELPER + ' create --title x'}),
-            ('terminal', {'command': self.HELPER + ' list; rm -rf /'}),
-            ('terminal', {'command': self.HELPER + ' list $(id)'}),
-            ('terminal', {'command': self.HELPER + ' show x', 'background': True}),
-            ('terminal', {'command': 'ls'}),
-            ('terminal', {'command': self.HELPER + ' show ../../../../opt/data/secret'}),
-            ('terminal', {'command': self.HELPER + ' list --vault /tmp/other'}),
-            ('terminal', {'command': self.HELPER + ' show BOXP-1.md'}),
         ]
-        keys = set()
-        for tool, args in cases:
-            result = self.gate(tool, args)
-            self.assertEqual(result['action'], 'approve', (tool, args))
-            self.assertTrue(result['message'].startswith('G2 から ' + tool))
-            self.assertLessEqual(len(result['message']), 160)
-            self.assertTrue(result['rule_key'].startswith('kohako-g2:'))
-            keys.add(result['rule_key'])
-        self.assertEqual(len(keys), len(cases))
+        for tool, args in refused:
+            self.assertEqual(self.gate(tool, args)['action'], 'block', (tool, args))
     def test_api_session_blocked_from_pre_llm_platform_even_if_db_fails(self):
         plugin._hook(session_id='api_9', platform='api_server', sender_id='')
         with patch.object(plugin, '_open_db', side_effect=RuntimeError('db')):
