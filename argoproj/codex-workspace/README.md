@@ -205,3 +205,9 @@ kubectl -n default exec deploy/some-target-outside-debug-scope -- id
 ```
 
 監査は kube-apiserver audit log で `user.username=system:serviceaccount:codex-workspace:codex-workspace` と `objectRef.subresource` (`exec`, `attach`, `log`, `ephemeralcontainers`) を確認します。Task Board 側の `/home/boxp/.codex-task-board/runs/{ticket}/{run}/events.jsonl`、`stderr.log`、`last-message.md` と突き合わせると、ticket/run 単位で誰がどの runner からどの Pod に操作したかを追えます。
+
+### Dashboard ConfigMap
+
+`task-board-dashboard` sidecar は `/app`（`dashboard-configmap.yaml`）を process 起動時にだけ読み込みます。ConfigMap volume は Pod 内で更新されますが、実行中の process には反映されません（BOXP-329 の Kohako Board projection `:8090` はこのため未稼働のままでした）。
+
+`dashboard-configmap.yaml` の `server.py` / `kohako_board.py` などを変更するときは、同じ PR で `deployment.yaml` の Pod template annotation `codex-workspace.boxp.tk/dashboard-config-revision` を更新し、上記の通常 Argo CD sync による計画 rollout で反映します。進行中の Task Board run は planned shutdown として `interrupted` 記録され、新 Pod が即時に再受付します。
