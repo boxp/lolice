@@ -21,6 +21,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # BOXP-328: Kohako G2 listener for the published HTTPS route only.
+            - name: kohako-web
+              containerPort: 8081
           readinessProbe:
             httpGet:
               path: /

@@ -8,4 +8,5 @@ resources:
   - deployment.yaml
   - service-cloudflared-metrics.yaml
   - service.yaml
+  - service-kohako-g2-web.yaml
   - networkpolicy.yaml

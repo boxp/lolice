@@ -16,3 +16,5 @@ spec:
       destination:
         ports:
           - 8080
+          # BOXP-328: Kohako G2 published route (Service kohako-g2-web).
+          - 8081
