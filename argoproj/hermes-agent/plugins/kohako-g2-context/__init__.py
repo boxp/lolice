@@ -175,9 +175,12 @@ def _readable(path, spillover_sid=None):
 
 
 _HELPER = 'bb /opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb '
-_SHOWN = 96  # G2 approval screen shows the whole command; never ask to approve what it cannot show.
+_SHOWN = 150  # G2 approval screen (208 px header, BFF/G2 keep 160 chars) shows the whole command; never ask to approve what it cannot show.
+_SHOWN_ARGS = {'command', 'timeout'}  # anything else (workdir, background, ...) would not be visible on G2
 _TOO_LONG = ('Kohako G2: G2 の承認画面に全文を表示できない操作は承認に回せません。'
              '1 つの短いコマンド（task-board の場合は 1 操作ずつ、本文は短く）に分けてください。')
+_HIDDEN_ARGS = ('Kohako G2: workdir などの指定は G2 の承認画面に出せないので使えません。'
+                'helper は絶対 path（bb /opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb）で、command だけで実行してください。')
 _NO_APPROVAL = 'Kohako G2: この tool は G2 では使えません（内容を承認画面に出せないため）。task-board の短いコマンドか読み取りだけを使ってください。'
 
 
@@ -221,8 +224,10 @@ def _decide(tool_name, args, sid, tool_call_id):
     # Terminal commands short enough to be shown in full go to the official human-approval gate,
     # answered on G2. The rule key is unique per call so an approval can never widen into a
     # session/always allowlist entry for later calls. Everything else is refused in G2.
-    if tool_name != 'terminal' or args.get('background'):
+    if tool_name != 'terminal':
         return {'action': 'block', 'message': _NO_APPROVAL}
+    if set(k for k, v in args.items() if v not in (None, False, '')) - _SHOWN_ARGS:
+        return {'action': 'block', 'message': _HIDDEN_ARGS}
     shown = _shown_command(args.get('command')) if isinstance(args.get('command'), str) else None
     if shown is None:
         return {'action': 'block', 'message': _TOO_LONG}
