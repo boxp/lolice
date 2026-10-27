@@ -106,6 +106,9 @@ class GateTests(unittest.TestCase):
             'request-codex BOXP-5 --lane Ready',
             'create --vault /home/boxp/Documents/obsidian-headless/BOXP --json',
             "create --vault '/home/boxp/Documents/obsidian-headless/BOXP' --json",
+            'show "BOXP-338"',
+            "update 'BOXP-338' --priority medium",
+            'list --lane "In Progress" --json',
         ]
         for suffix in cases:
             with self.subTest(suffix=suffix):
@@ -127,12 +130,16 @@ class GateTests(unittest.TestCase):
             'create BOXP-1',
             'update BOXP-1 BOXP-2',
             'create --confirm',
+            'show "BOXP-1; id"',
+            'show "../BOXP-1"',
         ]
         for suffix in cases:
             with self.subTest(suffix=suffix):
                 command = self.HELPER + ' ' + suffix
-                self.assertFalse(plugin._board_change(command))
+                self.assertFalse(plugin._board_command(command))
                 self.assertEqual(self.gate('terminal', {'command': command})['action'], 'approve')
+        for suffix in ('list BOXP-1', 'show'):  # malformed reads: not this parser's, harmless under _BOARD_READ
+            self.assertFalse(plugin._board_command(self.HELPER + ' ' + suffix))
         command = self.HELPER + ' create --title ok'
         for extra in ({'background': True}, {'workdir': '/tmp'}):
             self.assertEqual(self.gate('terminal', {'command': command, **extra})['action'], 'block')

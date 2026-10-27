@@ -121,7 +121,7 @@ _BOARD_VALUES = {'--title', '--summary', '--acceptance', '--context', '--plan', 
 _BOARD_FLAGS = {'--json', '--dry-run'}
 
 
-def _board_change(command):
+def _board_command(command):
     # Parse whole tokens without shell expansion; only the helper and vault paths may be bare.
     if any(ord(c) < 32 or 127 <= ord(c) < 160 for c in command):
         return False
@@ -155,11 +155,12 @@ def _board_change(command):
     if len(tokens) < 3 or tokens[:2] != [('bb', True), (_BOARD_PATH, True)]:
         return False
     subcommand, bare = tokens[2]
-    if not bare or subcommand not in {'create', 'update', 'append-note', 'request-codex'}:
+    if not bare or subcommand not in {'list', 'show', 'create', 'update', 'append-note', 'request-codex'}:
         return False
     i = 3
-    if subcommand != 'create':
-        if i >= len(tokens) or not tokens[i][1] or not re.fullmatch(r'BOXP-[0-9]+', tokens[i][0]):
+    if subcommand not in ('list', 'create'):
+        # A quoted id is literal too, so it is accepted like a bare one.
+        if i >= len(tokens) or not re.fullmatch(r'BOXP-[0-9]+', tokens[i][0]):
             return False
         i += 1
     while i < len(tokens):
@@ -289,8 +290,8 @@ def _decide(tool_name, args, sid, tool_call_id):
     if tool_name == 'terminal' and isinstance(args.get('command'), str) and _BOARD_READ.fullmatch(args['command'].strip()) \
             and not args.get('background'):
         return None
-    # Owner requested Task Board changes except delete without approval (BOXP-332).
-    if tool_name == 'terminal' and isinstance(args.get('command'), str) and _board_change(args['command']) \
+    # Task Board reads, and changes except delete at the Owner's request (BOXP-332), run without approval.
+    if tool_name == 'terminal' and isinstance(args.get('command'), str) and _board_command(args['command']) \
             and not set(k for k, v in args.items() if v not in (None, False, '')) - _SHOWN_ARGS:
         return None
     # Terminal commands short enough to be shown in full go to the official human-approval gate,
