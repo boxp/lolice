@@ -105,6 +105,7 @@ class GateTests(unittest.TestCase):
             (self.HELPER + ' show ../../../../opt/data/secret', '実行: bb …/task-board.bb show ../../../../opt/data/secret'),
             (self.HELPER + ' list --vault /tmp/other', '実行: bb …/task-board.bb list --vault /tmp/other'),
             ('ls', '実行: ls'),
+            ("bb /opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb create --title '[試験] Kohako G2 指示入口 M7 の E2E 確認（削除可）' --repo boxp/even-g2-lab --priority low", "実行: bb …/task-board.bb create --title '[試験] Kohako G2 指示入口 M7 の E2E 確認（削除可）' --repo boxp/even-g2-lab --priority low"),
             ('task-board show BOXP-332', '実行: task-board show BOXP-332'),
             ("printf 'a   b'", "実行: printf 'a   b'"),
         ]
@@ -118,7 +119,9 @@ class GateTests(unittest.TestCase):
         self.assertEqual(len(keys), len(cases))
     def test_what_cannot_be_shown_in_full_is_refused(self):
         refused = [
-            ('terminal', {'command': 'echo ' + 'a' * 100 + ' && rm -rf /'}),
+            ('terminal', {'command': 'echo ' + 'a' * 150 + ' && rm -rf /'}),
+            ('terminal', {'command': './task-board.bb create --title x', 'workdir': '/opt/data/skills/note-taking/obsidian-task-board/bin'}),
+            ('terminal', {'command': 'ls', 'pty': True}),
             ('terminal', {'command': 'echo ok\nrm -rf /'}),
             ('terminal', {'command': 'echo ok\trm'}),
             ('terminal', {'command': self.HELPER + ' show x', 'background': True}),
