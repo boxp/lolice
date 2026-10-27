@@ -118,8 +118,9 @@ spec:
                   print("[bootstrap] appended platform_toolsets.webhook to config.yaml")
               PY
               # BOXP-332: the API server (Kohako G2 BFF) gets NO tools. Insert
-              # `api_server: []` under the existing platform_toolsets block once,
+              # `api_server: [no_mcp]` under the existing platform_toolsets block once,
               # without rewriting the hand-edited file; never widen an existing value.
+              # (`no_mcp` keeps globally enabled MCP servers out; `[]` alone would not.)
               python3 - <<'PY'
               import os
               try:
@@ -135,16 +136,16 @@ spec:
               pts = cfg.get("platform_toolsets")
               current = (pts or {}).get("api_server") if isinstance(pts, dict) else None
               if isinstance(pts, dict) and "api_server" in pts:
-                  if current == []:
-                      print("[bootstrap] platform_toolsets.api_server already empty")
+                  if current == ["no_mcp"]:
+                      print("[bootstrap] platform_toolsets.api_server already [no_mcp]")
                   else:
-                      print(f"[bootstrap] WARNING platform_toolsets.api_server is {current!r}, expected []; not rewriting (Kohako BFF stays disabled)")
+                      print(f"[bootstrap] WARNING platform_toolsets.api_server is {current!r}, expected ['no_mcp']; not rewriting")
               elif isinstance(pts, dict):
                   lines = text.splitlines(keepends=True)
                   idx = next(i for i, l in enumerate(lines) if l.rstrip() == "platform_toolsets:")
-                  lines.insert(idx + 1, "  # BOXP-332: Kohako G2 BFF via API server: no tools.\n  api_server: []\n")
+                  lines.insert(idx + 1, "  # BOXP-332: Kohako G2 BFF via API server: no tools, no MCP.\n  api_server:\n    - no_mcp\n")
                   new = "".join(lines)
-                  assert (safe_load(new).get("platform_toolsets") or {}).get("api_server") == []
+                  assert (safe_load(new).get("platform_toolsets") or {}).get("api_server") == ["no_mcp"]
                   tmp = path + ".tmp"
                   with open(tmp, "w") as fh:
                       fh.write(new)
@@ -152,9 +153,9 @@ spec:
                   os.chown(tmp, st.st_uid, st.st_gid)
                   os.chmod(tmp, st.st_mode & 0o777)
                   os.replace(tmp, path)
-                  print("[bootstrap] inserted platform_toolsets.api_server: []")
+                  print("[bootstrap] inserted platform_toolsets.api_server: [no_mcp]")
               else:
-                  print(f"[bootstrap] WARNING platform_toolsets is {pts!r}; api_server not configured (Kohako BFF stays disabled)")
+                  print(f"[bootstrap] WARNING platform_toolsets is {pts!r}; api_server not configured")
               PY
               cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
               chmod 0755 /opt/data/scripts/quiet_gate.sh
@@ -221,8 +222,9 @@ spec:
               value: "10000"
             # BOXP-332: API server for the Kohako G2 BFF only (Service hermes-agent-api,
             # NetworkPolicy hermes-agent-api-ingress = even-g2-main only). It runs with
-            # platform_toolsets.api_server: [] (no tools; set by bootstrap-config) and the
-            # BFF refuses to send while /v1/toolsets reports any enabled toolset.
+            # platform_toolsets.api_server: [no_mcp] (no tools, no MCP; set by
+            # bootstrap-config) and the BFF refuses to send while /v1/toolsets reports
+            # any enabled toolset.
             - name: API_SERVER_ENABLED
               value: "true"
             - name: API_SERVER_HOST
