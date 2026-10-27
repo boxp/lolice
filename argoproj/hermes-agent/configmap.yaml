@@ -39,8 +39,9 @@ data:
     # than Telegram: read tickets/runbook, run the task-board helper, recall sessions.
     platform_toolsets:
       # BOXP-332: Kohako G2 BFF via API server. `no_mcp` keeps globally enabled MCP
-      # servers out; the kohako-g2-context pre_tool_call gate sends every non-read-only
-      # tool call to the approval gate answered on G2 (bootstrap falls back to [no_mcp]
+      # servers out; the kohako-g2-context pre_tool_call gate lets reads and Task Board
+      # changes (except delete) run, and sends other tool calls to the approval gate
+      # answered on G2 (bootstrap falls back to [no_mcp]
       # when the gate is not installed).
       api_server:
         - no_mcp
