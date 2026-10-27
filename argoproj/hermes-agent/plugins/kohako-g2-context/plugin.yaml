@@ -1,0 +1,6 @@
+name: kohako-g2-context
+version: 1.0.0
+description: Reference recent Kohako G2 conversations in owner Telegram turns.
+author: boxp
+provides_hooks:
+  - pre_llm_call

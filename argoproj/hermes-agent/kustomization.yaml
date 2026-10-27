@@ -18,3 +18,9 @@ resources:
   - rbac.yaml
   - networkpolicy.yaml
   - oauth-egress-check-job.yaml
+
+configMapGenerator:
+  - name: hermes-agent-kohako-g2-context-plugin
+    files:
+      - plugins/kohako-g2-context/plugin.yaml
+      - plugins/kohako-g2-context/__init__.py

@@ -157,6 +157,64 @@ spec:
               else:
                   print(f"[bootstrap] WARNING platform_toolsets is {pts!r}; api_server not configured")
               PY
+              # BOXP-332: install the managed user plugin on every bootstrap.
+              plugin_dir=/opt/data/plugins/kohako-g2-context
+              mkdir -p "$plugin_dir"
+              cp /bootstrap-plugins/kohako-g2-context/plugin.yaml /bootstrap-plugins/kohako-g2-context/__init__.py "$plugin_dir/"
+              chown 1000:10000 /opt/data/plugins "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              chmod 2775 /opt/data/plugins "$plugin_dir"
+              chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              # BOXP-332: enable the plugin without rewriting hand-edited YAML.
+              python3 - <<'PYCONFIG'
+              import os, re
+              try:
+                  import yaml
+                  safe_load = yaml.safe_load
+              except ImportError:
+                  from ruamel.yaml import YAML
+                  safe_load = YAML(typ="safe", pure=True).load
+              path = "/opt/data/config.yaml"
+              with open(path) as fh:
+                  text = fh.read()
+              cfg = safe_load(text) or {}
+              plugins = cfg.get("plugins") if isinstance(cfg, dict) else None
+              enabled = plugins.get("enabled") if isinstance(plugins, dict) else None
+              name = "kohako-g2-context"
+              if isinstance(enabled, list) and name in enabled:
+                  print("[bootstrap] kohako-g2-context already enabled")
+              else:
+                  lines = text.splitlines(keepends=True)
+                  headers = [i for i, line in enumerate(lines) if re.fullmatch(r"plugins:\s*(?:#.*)?\n?", line)]
+                  idx = None
+                  if isinstance(enabled, list) and len(headers) == 1:
+                      start = headers[0] + 1
+                      end = next((i for i in range(start, len(lines)) if re.match(r"[^\s#]", lines[i])), len(lines))
+                      matches = [i for i in range(start, end) if re.fullmatch(r"  enabled: *(?:\[\])? *(?:#.*)?\n?", lines[i])]
+                      if len(matches) == 1:
+                          idx = matches[0]
+                  if idx is None:
+                      print("[bootstrap] WARNING plugins.enabled has an unsupported shape; not rewriting")
+                  else:
+                      line = lines[idx]
+                      if re.match(r"  enabled: *\[\]", line):
+                          lines[idx] = re.sub(r" *\[\]", "", line, count=1)
+                      lines.insert(idx + 1, "    - kohako-g2-context\n")
+                      new = "".join(lines)
+                      try:
+                          result = safe_load(new)
+                          assert result["plugins"]["enabled"] == [name] + enabled
+                      except Exception:
+                          print("[bootstrap] WARNING plugins.enabled edit did not validate; not rewriting")
+                      else:
+                          tmp = path + ".tmp"
+                          with open(tmp, "w") as fh:
+                              fh.write(new)
+                          st = os.stat(path)
+                          os.chown(tmp, st.st_uid, st.st_gid)
+                          os.chmod(tmp, st.st_mode & 0o7777)
+                          os.replace(tmp, path)
+                          print("[bootstrap] enabled kohako-g2-context")
+              PYCONFIG
               # BOXP-332: API_SERVER_KEY comes from the Deployment env (Secret
               # hermes-agent-api-server-key, shared only with the Kohako BFF). The
               # upstream entrypoint auto-generated a key into /opt/data/.env while
@@ -220,6 +278,9 @@ spec:
             - name: config
               mountPath: /bootstrap
               readOnly: true
+            - name: kohako-g2-context-plugin
+              mountPath: /bootstrap-plugins/kohako-g2-context
+              readOnly: true
       containers:
         - name: hermes-agent
           image: ghcr.io/boxp/arch/hermes-agent:latest
@@ -228,6 +289,9 @@ spec:
             - gateway
             - run
           env:
+            # BOXP-332: only this Telegram owner can receive G2 reference context.
+            - name: KOHAKO_G2_CONTEXT_OWNER_TELEGRAM_USER_ID
+              value: "8202126858"
             - name: HERMES_UID
               value: "1000"
             - name: HERMES_GID
@@ -386,6 +450,9 @@ spec:
         - name: config
           configMap:
             name: hermes-agent-config
+        - name: kohako-g2-context-plugin
+          configMap:
+            name: hermes-agent-kohako-g2-context-plugin
         - name: tmp
           emptyDir:
             sizeLimit: 2Gi
