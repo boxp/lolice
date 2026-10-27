@@ -29,6 +29,12 @@ data:
         exact_failure: 5
         idempotent_no_progress: 5
 
+    # BOXP-332: owner-DM-only reference context from recent Kohako G2 turns
+    # (plugin files are installed by bootstrap-config).
+    plugins:
+      enabled:
+        - kohako-g2-context
+
     # BOXP-270: webhook sessions (Task Board event relay) get a toolset narrower
     # than Telegram: read tickets/runbook, run the task-board helper, recall sessions.
     platform_toolsets:
