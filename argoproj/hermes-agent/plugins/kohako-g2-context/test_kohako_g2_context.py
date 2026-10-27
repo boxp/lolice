@@ -74,4 +74,72 @@ class ContextTests(unittest.TestCase):
                 self.assertIsNone(self.call())
             self.assertNotIn('sensitive', str(logs.output))
 
+class GateTests(unittest.TestCase):
+    HELPER = 'bb /opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb'
+    def gate(self, tool, args, sid='kohako-g2-abc', source='api_server'):
+        db = DB(); db.session = {'source': source}
+        with patch.object(plugin, '_open_db', return_value=db):
+            return plugin._gate(tool_name=tool, args=args, session_id=sid, tool_call_id='c1')
+    def test_candidate_and_unknown_api_sessions_get_no_tools(self):
+        for tool in ('read_file', 'skill_view', 'terminal'):
+            self.assertEqual(self.gate(tool, {'path': '/opt/data/skills/x'}, sid='kohako-g2-cand-1')['action'], 'block')
+            self.assertEqual(self.gate(tool, {}, sid='api_123', source='api_server')['action'], 'block')
+    def test_other_platforms_untouched(self):
+        self.assertIsNone(self.gate('terminal', {'command': 'rm -rf x'}, sid='tg-1', source='telegram'))
+        with patch.object(plugin, '_open_db', side_effect=RuntimeError('db')):
+            with self.assertLogs(plugin.__name__, level='WARNING'):
+                # Platform unknown and the DB unreadable: fail closed.
+                self.assertEqual(plugin._gate(tool_name='terminal', args={}, session_id='tg-unknown')['action'], 'block')
+    def test_read_only_tools_pass(self):
+        self.assertIsNone(self.gate('skill_view', {'name': 'obsidian-task-board'}))
+        self.assertIsNone(self.gate('session_search', {'query': 'x'}))
+        self.assertIsNone(self.gate('read_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/Tickets/BOXP-1.md'}))
+        self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --lane review'}))
+        self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' show BOXP-332'}))
+        self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --vault /home/boxp/Documents/obsidian-headless/BOXP --lane review'}))
+    def test_short_terminal_commands_need_approval_with_the_full_command(self):
+        cases = [
+            (self.HELPER + 'create --title G2テスト --repo boxp/even-g2-lab'.replace('create', ' create', 1), '実行: task-board create --title G2テスト --repo boxp/even-g2-lab'),
+            (self.HELPER + ' list; rm -rf /', '実行: task-board list; rm -rf /'),
+            (self.HELPER + ' show ../../../../opt/data/secret', '実行: task-board show ../../../../opt/data/secret'),
+            (self.HELPER + ' list --vault /tmp/other', '実行: task-board list --vault /tmp/other'),
+            ('ls', '実行: ls'),
+            ("printf 'a   b'", "実行: printf 'a   b'"),
+        ]
+        keys = set()
+        for command, message in cases:
+            result = self.gate('terminal', {'command': command})
+            self.assertEqual(result['action'], 'approve', command)
+            self.assertEqual(result['message'], message)
+            self.assertTrue(result['rule_key'].startswith('kohako-g2:terminal:'))
+            keys.add(result['rule_key'])
+        self.assertEqual(len(keys), len(cases))
+    def test_what_cannot_be_shown_in_full_is_refused(self):
+        refused = [
+            ('terminal', {'command': 'echo ' + 'a' * 100 + ' && rm -rf /'}),
+            ('terminal', {'command': 'echo ok\nrm -rf /'}),
+            ('terminal', {'command': 'echo ok\trm'}),
+            ('terminal', {'command': self.HELPER + ' show x', 'background': True}),
+            ('read_file', {'path': '/opt/data/.env'}),
+            ('read_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/../../../../opt/data/.env'}),
+            ('read_file', {'path': 'relative.md'}),
+            ('write_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/x.md', 'content': 'x'}),
+            ('patch', {'path': '/opt/data/SOUL.md'}),
+            ('skill_manage', {'action': 'create'}),
+            ('process_manage', {}),
+        ]
+        for tool, args in refused:
+            self.assertEqual(self.gate(tool, args)['action'], 'block', (tool, args))
+    def test_api_session_blocked_from_pre_llm_platform_even_if_db_fails(self):
+        plugin._hook(session_id='api_9', platform='api_server', sender_id='')
+        with patch.object(plugin, '_open_db', side_effect=RuntimeError('db')):
+            self.assertEqual(plugin._gate(tool_name='terminal', args={}, session_id='api_9')['action'], 'block')
+        plugin._hook(session_id='tg-9', platform='telegram', sender_id='other')
+        with patch.object(plugin, '_open_db', side_effect=RuntimeError('db')):
+            self.assertIsNone(plugin._gate(tool_name='terminal', args={}, session_id='tg-9'))
+    def test_gate_error_fails_closed_for_g2(self):
+        with patch.object(plugin, '_decide', side_effect=RuntimeError('x')):
+            with self.assertLogs(plugin.__name__, level='WARNING'):
+                self.assertEqual(plugin._gate(tool_name='terminal', args={}, session_id='kohako-g2-1')['action'], 'block')
+
 if __name__ == '__main__': unittest.main()

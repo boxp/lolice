@@ -38,10 +38,16 @@ data:
     # BOXP-270: webhook sessions (Task Board event relay) get a toolset narrower
     # than Telegram: read tickets/runbook, run the task-board helper, recall sessions.
     platform_toolsets:
-      # BOXP-332: Kohako G2 BFF via API server: no tools. `no_mcp` also keeps globally
-      # enabled MCP servers out (an empty list alone would still add them).
+      # BOXP-332: Kohako G2 BFF via API server. `no_mcp` keeps globally enabled MCP
+      # servers out; the kohako-g2-context pre_tool_call gate sends every non-read-only
+      # tool call to the approval gate answered on G2 (bootstrap falls back to [no_mcp]
+      # when the gate is not installed).
       api_server:
         - no_mcp
+        - file
+        - session_search
+        - skills
+        - terminal
       webhook:
         - terminal
         - file
