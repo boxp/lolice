@@ -47,6 +47,15 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
         ports:
           - 8090
+    # BOXP-332: kohako-bff -> Hermes API server (Runs API, bearer key).
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'hermes-agent'
+        namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
+        ports:
+          - 8642
     - action: Allow
       protocol: TCP
       source: {}

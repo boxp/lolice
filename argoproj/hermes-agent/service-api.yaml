@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-agent-api
+  namespace: hermes-agent
+spec:
+  # BOXP-332: internal-only entry for the Hermes API server (Runs API), reached
+  # only from the Kohako G2 BFF sidecar (NetworkPolicy hermes-agent-api-ingress).
+  # Never exposed through cloudflared or a LoadBalancer.
+  type: ClusterIP
+  selector:
+    app: hermes-agent
+  ports:
+    - name: api
+      port: 8642
+      targetPort: 8642
+      protocol: TCP
