@@ -24,6 +24,8 @@ spec:
   egress:
     - action: Allow
       protocol: UDP
+      # Calico defaults an empty source; keep it explicit so Argo CD SSA stays in sync.
+      source: {}
       destination:
         selector: k8s-app == 'kube-dns'
         namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
@@ -31,6 +33,7 @@ spec:
           - 53
     - action: Allow
       protocol: TCP
+      source: {}
       destination:
         selector: k8s-app == 'kube-dns'
         namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
@@ -38,6 +41,7 @@ spec:
           - 53
     - action: Allow
       protocol: TCP
+      source: {}
       destination:
         selector: app == 'codex-workspace'
         namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
@@ -45,6 +49,7 @@ spec:
           - 8090
     - action: Allow
       protocol: TCP
+      source: {}
       destination:
         notNets:
           - 10.0.0.0/8
