@@ -43,4 +43,50 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
-
+        # BOXP-329: Kohako G2 BFF. Same image as web; listens on 127.0.0.1 only so it
+        # is reachable just through nginx :8081 /kohako/api/v1/ (published route).
+        # It verifies the Cloudflare Access JWT on every request; none of these
+        # values is a secret (the AUD is public in Access responses and the Owner
+        # email is already in boxp/arch terraform/cloudflare/b0xp.io/even-g2-lab).
+        - name: kohako-bff
+          image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main:bootstrap
+          command:
+            - node
+            - /opt/kohako-bff/server.js
+          env:
+            - name: KOHAKO_ACCESS_TEAM_DOMAIN
+              value: https://boxp.cloudflareaccess.com
+            - name: KOHAKO_ACCESS_AUD
+              value: c98ec040b98358a12ac478984c00ded11e85e9336f2acb768c5f772351fbcbcb
+            - name: KOHAKO_OWNER_EMAILS
+              value: tiyotiyouda@gmail.com
+            - name: KOHAKO_BOARD_URL
+              value: http://codex-task-board-kohako.codex-workspace.svc.cluster.local:8090/api/kohako/board
+            - name: KOHAKO_BFF_HOST
+              value: 127.0.0.1
+            - name: KOHAKO_BFF_PORT
+              value: "8787"
+          livenessProbe:
+            exec:
+              command:
+                - wget
+                - -q
+                - -O
+                - /dev/null
+                - http://127.0.0.1:8787/healthz
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

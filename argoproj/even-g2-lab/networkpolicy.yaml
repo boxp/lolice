@@ -7,6 +7,7 @@ spec:
   selector: app == 'even-g2-main'
   types:
     - Ingress
+    - Egress
   ingress:
     - action: Allow
       protocol: TCP
@@ -18,3 +19,37 @@ spec:
           - 8080
           # BOXP-328: Kohako G2 published route (Service kohako-g2-web).
           - 8081
+  # BOXP-329: egress for the kohako-bff sidecar only (nginx needs none):
+  # DNS, the Access team domain JWKS over HTTPS, and the read-only Board projection.
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'codex-workspace'
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        ports:
+          - 8090
+    - action: Allow
+      protocol: TCP
+      destination:
+        notNets:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+          - 192.178.0.0/16
+        ports:
+          - 443

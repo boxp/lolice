@@ -19,6 +19,15 @@ spec:
           - 2222
           - 3456
           - 8080
+    # BOXP-329: Kohako G2 BFF (even-g2-main Pod sidecar) -> read-only Task Board projection only.
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'even-g2-lab'
+        selector: app == 'even-g2-main'
+      destination:
+        ports:
+          - 8090
     - action: Allow
       protocol: TCP
       source:
