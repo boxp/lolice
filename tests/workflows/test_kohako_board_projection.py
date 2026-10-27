@@ -116,6 +116,17 @@ class KohakoBoardProjectionTest(unittest.TestCase):
         self.assertIn('判断が必要', item['decision'])
         self.assertEqual(item['progress'], 'progress update')
 
+    def test_latest_note_time_source_and_excerpt_come_from_the_same_entry(self):
+        self.write_board({'Review': [self.card(15, 'Out of order', 'review')]})
+        self.write_ticket('BOXP-15', ticket('review', 'codex', [
+            '- 2026-10-27 09:00:00 UTC [hermes-agent]: newest by time',
+            '- 2026-10-27 08:00:00 UTC [codex]: appended later but older',
+        ]))
+        [item] = self.project()['items']
+        self.assertEqual(item['latestNoteAt'], '2026-10-27T09:00:00Z')
+        self.assertEqual(item['latestNoteSource'], 'hermes-agent')
+        self.assertEqual(item['progress'], 'newest by time')
+
     def test_masks_urls_emails_secrets_and_long_tokens(self):
         self.write_board({'Ready': [self.card(13, 'Mask', 'ready')]})
         self.write_ticket('BOXP-13', ticket('ready', 'codex', [

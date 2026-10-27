@@ -512,6 +512,13 @@ data:
       return None
 
 
+    def by_time(notes):
+      """Oldest first by note time; file order breaks ties and places untimed notes first."""
+      floor = datetime.min.replace(tzinfo=timezone.utc)
+      order = sorted(range(len(notes)), key=lambda i: (notes[i][0] or floor, i))
+      return [notes[i] for i in order]
+
+
     def project_ticket(tickets_root, lane, ticket_id, title, fields):
       item = {
         "id": ticket_id,
@@ -550,12 +557,13 @@ data:
       item["ticketAssignee"] = ticket_assignee
       item["assigneeMismatch"] = bool(ticket_assignee and item["assignee"]) and ticket_assignee != item["assignee"]
       item["priority"] = item["priority"] or front.get("priority") or None
-      notes = parse_notes(text)
+      notes = by_time(parse_notes(text))
       if notes:
-        timed = [at for at, _, _ in notes if at]
-        item["latestNoteAt"] = iso(max(timed)) if timed else None
-        item["latestNoteSource"] = notes[-1][1]
-        item["progress"] = excerpt(notes[-1][2])
+        # Time, source and excerpt all come from the same (latest) note.
+        latest_at, latest_source, latest_body = notes[-1]
+        item["latestNoteAt"] = iso(latest_at)
+        item["latestNoteSource"] = latest_source
+        item["progress"] = excerpt(latest_body)
         item["blocker"] = find_recent(notes, BLOCKER)
         item["decision"] = find_recent(notes, DECISION)
       return item, updated
