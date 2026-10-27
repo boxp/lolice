@@ -108,7 +108,10 @@ _READ_ROOTS = ('/home/boxp/Documents/obsidian-headless/BOXP/', '/opt/data/skills
 _FREE_TOOLS = {'skills_list', 'skill_view', 'session_search'}
 _PATH_TOOLS = {'read_file', 'search_files'}
 _BOARD_READ = re.compile(
-    r'bb\s+/opt/data/skills/note-taking/obsidian-task-board/bin/task-board\.bb\s+(?:list|show)(?:\s+[A-Za-z0-9_./:=@-]+)*\s*'
+    # Arguments may not contain '/' or '.', so `show` cannot leave the vault's Tickets; the
+    # only path allowed is the managed vault itself.
+    r'bb\s+/opt/data/skills/note-taking/obsidian-task-board/bin/task-board\.bb\s+(?:list|show)'
+    r'(?:\s+(?:--vault\s+/home/boxp/Documents/obsidian-headless/BOXP|[A-Za-z0-9_:=@-]+))*\s*'
 )
 _BLOCK = 'Kohako G2: この session では tool を使えません。tool を使わずに答えてください。'
 

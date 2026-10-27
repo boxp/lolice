@@ -94,6 +94,7 @@ class GateTests(unittest.TestCase):
         self.assertIsNone(self.gate('read_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/Tickets/BOXP-1.md'}))
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --lane review'}))
         self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' show BOXP-332'}))
+        self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --vault /home/boxp/Documents/obsidian-headless/BOXP --lane review'}))
     def test_everything_else_needs_approval(self):
         cases = [
             ('read_file', {'path': '/opt/data/.env'}),
@@ -108,6 +109,9 @@ class GateTests(unittest.TestCase):
             ('terminal', {'command': self.HELPER + ' list $(id)'}),
             ('terminal', {'command': self.HELPER + ' show x', 'background': True}),
             ('terminal', {'command': 'ls'}),
+            ('terminal', {'command': self.HELPER + ' show ../../../../opt/data/secret'}),
+            ('terminal', {'command': self.HELPER + ' list --vault /tmp/other'}),
+            ('terminal', {'command': self.HELPER + ' show BOXP-1.md'}),
         ]
         keys = set()
         for tool, args in cases:
