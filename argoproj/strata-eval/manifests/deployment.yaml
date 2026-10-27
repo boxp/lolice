@@ -5,9 +5,9 @@ metadata:
   annotations:
     configmap.reloader.stakater.com/reload: "strata-server"
 spec:
-  # BOXP-336: 検証中だけ 1。gpu.intel.com/i915 は node に 1 つしかないため、
-  # local-llm/llama-server を 0 にしている間だけ起動できる。検証後は 0 に戻す。
-  replicas: 1
+  # BOXP-336: 検証は終了（Strata は不採用）。gpu.intel.com/i915 は node に 1 つしかなく、
+  # local-llm/llama-server と同時には動かせないため 0 にしておく。再検証するときは local-llm を止めてから 1 にする。
+  replicas: 0
   strategy:
     type: Recreate
   selector:
