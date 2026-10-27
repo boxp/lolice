@@ -12,6 +12,10 @@ spec:
       app: codex-workspace
   template:
     metadata:
+      annotations:
+        # Bump when dashboard-configmap.yaml changes: the dashboard sidecar only
+        # loads /app at process start. See README "Dashboard ConfigMap".
+        codex-workspace.boxp.tk/dashboard-config-revision: "BOXP-329-kohako-board-projection"
       labels:
         app: codex-workspace
     spec:
