@@ -1,0 +1,22 @@
+# BOXP-336: Strata 実機検証専用の Argo CD AppProject。
+# 既存 local-llm（project: default）とは分け、lolice repo から strata-eval namespace へ
+# ConfigMap / Deployment だけを配備できるように権限を絞る。cluster-scoped resource は
+# 許可しない（namespace は Application の CreateNamespace で destination のものだけ作る）。
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: strata-eval
+  namespace: argocd
+spec:
+  description: BOXP-336 Strata evaluation on golyat-4 (temporary, local-only)
+  sourceRepos:
+    - https://github.com/boxp/lolice
+  destinations:
+    - namespace: strata-eval
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: apps
+      kind: Deployment
