@@ -62,6 +62,15 @@ spec:
               value: tiyotiyouda@gmail.com
             - name: KOHAKO_BOARD_URL
               value: http://codex-task-board-kohako.codex-workspace.svc.cluster.local:8090/api/kohako/board
+            # BOXP-332: real Hermes conversation through the internal API server.
+            # The key stays in this sidecar (web container and device never see it).
+            - name: KOHAKO_HERMES_URL
+              value: http://hermes-agent-api.hermes-agent.svc.cluster.local:8642
+            - name: KOHAKO_HERMES_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kohako-hermes-api-key
+                  key: key
             - name: KOHAKO_BFF_HOST
               value: 127.0.0.1
             - name: KOHAKO_BFF_PORT

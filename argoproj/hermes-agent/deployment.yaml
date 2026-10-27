@@ -117,6 +117,45 @@ spec:
                   os.replace(tmp, path)
                   print("[bootstrap] appended platform_toolsets.webhook to config.yaml")
               PY
+              # BOXP-332: the API server (Kohako G2 BFF) gets NO tools. Insert
+              # `api_server: []` under the existing platform_toolsets block once,
+              # without rewriting the hand-edited file; never widen an existing value.
+              python3 - <<'PY'
+              import os
+              try:
+                  import yaml
+                  safe_load = yaml.safe_load
+              except ImportError:
+                  from ruamel.yaml import YAML
+                  safe_load = YAML(typ="safe", pure=True).load
+              path = "/opt/data/config.yaml"
+              with open(path) as fh:
+                  text = fh.read()
+              cfg = safe_load(text) or {}
+              pts = cfg.get("platform_toolsets")
+              current = (pts or {}).get("api_server") if isinstance(pts, dict) else None
+              if isinstance(pts, dict) and "api_server" in pts:
+                  if current == []:
+                      print("[bootstrap] platform_toolsets.api_server already empty")
+                  else:
+                      print(f"[bootstrap] WARNING platform_toolsets.api_server is {current!r}, expected []; not rewriting (Kohako BFF stays disabled)")
+              elif isinstance(pts, dict):
+                  lines = text.splitlines(keepends=True)
+                  idx = next(i for i, l in enumerate(lines) if l.rstrip() == "platform_toolsets:")
+                  lines.insert(idx + 1, "  # BOXP-332: Kohako G2 BFF via API server: no tools.\n  api_server: []\n")
+                  new = "".join(lines)
+                  assert (safe_load(new).get("platform_toolsets") or {}).get("api_server") == []
+                  tmp = path + ".tmp"
+                  with open(tmp, "w") as fh:
+                      fh.write(new)
+                  st = os.stat(path)
+                  os.chown(tmp, st.st_uid, st.st_gid)
+                  os.chmod(tmp, st.st_mode & 0o777)
+                  os.replace(tmp, path)
+                  print("[bootstrap] inserted platform_toolsets.api_server: []")
+              else:
+                  print(f"[bootstrap] WARNING platform_toolsets is {pts!r}; api_server not configured (Kohako BFF stays disabled)")
+              PY
               cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
               chmod 0755 /opt/data/scripts/quiet_gate.sh
               chown 1000:10000 /opt/data/scripts/quiet_gate.sh
@@ -180,8 +219,21 @@ spec:
               value: "1000"
             - name: HERMES_GID
               value: "10000"
+            # BOXP-332: API server for the Kohako G2 BFF only (Service hermes-agent-api,
+            # NetworkPolicy hermes-agent-api-ingress = even-g2-main only). It runs with
+            # platform_toolsets.api_server: [] (no tools; set by bootstrap-config) and the
+            # BFF refuses to send while /v1/toolsets reports any enabled toolset.
             - name: API_SERVER_ENABLED
-              value: "false"
+              value: "true"
+            - name: API_SERVER_HOST
+              value: "0.0.0.0"
+            - name: API_SERVER_PORT
+              value: "8642"
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-api-server-key
+                  key: password
             # BOXP-313: the dashboard binds loopback only (HERMES_DASHBOARD_HOST) and
             # is reached through the cloudflared tunnel behind Cloudflare Access
             # (arch terraform/cloudflare/b0xp.io/hermes-agent/access.tf), the same

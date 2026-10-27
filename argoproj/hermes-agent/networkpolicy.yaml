@@ -73,3 +73,26 @@ spec:
       destination:
         ports:
           - 8644
+---
+# BOXP-332: the API server listens on 0.0.0.0:8642 inside the Pod (bearer
+# API_SERVER_KEY required by Hermes). Only the Kohako G2 BFF sidecar in the
+# even-g2-main Pod may reach it.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: hermes-agent-api-ingress
+  namespace: hermes-agent
+spec:
+  tier: default
+  selector: app == 'hermes-agent'
+  types:
+    - Ingress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'even-g2-lab'
+        selector: app == 'even-g2-main'
+      destination:
+        ports:
+          - 8642

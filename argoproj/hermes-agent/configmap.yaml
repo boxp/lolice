@@ -32,6 +32,8 @@ data:
     # BOXP-270: webhook sessions (Task Board event relay) get a toolset narrower
     # than Telegram: read tickets/runbook, run the task-board helper, recall sessions.
     platform_toolsets:
+      # BOXP-332: Kohako G2 BFF via API server: no tools.
+      api_server: []
       webhook:
         - terminal
         - file

@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - external-secret-cloudflared.yaml
+  - external-secret-hermes-api-key.yaml
   - deployment-cloudflared.yaml
   - deployment.yaml
   - service-cloudflared-metrics.yaml
