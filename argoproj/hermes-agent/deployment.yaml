@@ -117,46 +117,6 @@ spec:
                   os.replace(tmp, path)
                   print("[bootstrap] appended platform_toolsets.webhook to config.yaml")
               PY
-              # BOXP-332: the API server (Kohako G2 BFF) gets NO tools. Insert
-              # `api_server: [no_mcp]` under the existing platform_toolsets block once,
-              # without rewriting the hand-edited file; never widen an existing value.
-              # (`no_mcp` keeps globally enabled MCP servers out; `[]` alone would not.)
-              python3 - <<'PY'
-              import os
-              try:
-                  import yaml
-                  safe_load = yaml.safe_load
-              except ImportError:
-                  from ruamel.yaml import YAML
-                  safe_load = YAML(typ="safe", pure=True).load
-              path = "/opt/data/config.yaml"
-              with open(path) as fh:
-                  text = fh.read()
-              cfg = safe_load(text) or {}
-              pts = cfg.get("platform_toolsets")
-              current = (pts or {}).get("api_server") if isinstance(pts, dict) else None
-              if isinstance(pts, dict) and "api_server" in pts:
-                  if current == ["no_mcp"]:
-                      print("[bootstrap] platform_toolsets.api_server already [no_mcp]")
-                  else:
-                      print(f"[bootstrap] WARNING platform_toolsets.api_server is {current!r}, expected ['no_mcp']; not rewriting")
-              elif isinstance(pts, dict):
-                  lines = text.splitlines(keepends=True)
-                  idx = next(i for i, l in enumerate(lines) if l.rstrip() == "platform_toolsets:")
-                  lines.insert(idx + 1, "  # BOXP-332: Kohako G2 BFF via API server: no tools, no MCP.\n  api_server:\n    - no_mcp\n")
-                  new = "".join(lines)
-                  assert (safe_load(new).get("platform_toolsets") or {}).get("api_server") == ["no_mcp"]
-                  tmp = path + ".tmp"
-                  with open(tmp, "w") as fh:
-                      fh.write(new)
-                  st = os.stat(path)
-                  os.chown(tmp, st.st_uid, st.st_gid)
-                  os.chmod(tmp, st.st_mode & 0o777)
-                  os.replace(tmp, path)
-                  print("[bootstrap] inserted platform_toolsets.api_server: [no_mcp]")
-              else:
-                  print(f"[bootstrap] WARNING platform_toolsets is {pts!r}; api_server not configured")
-              PY
               # BOXP-332: install the managed user plugin on every bootstrap.
               plugin_dir=/opt/data/plugins/kohako-g2-context
               mkdir -p "$plugin_dir"
@@ -222,6 +182,77 @@ spec:
                           os.replace(tmp, path)
                           print("[bootstrap] enabled kohako-g2-context")
               PYCONFIG
+              # BOXP-332 M7: the API server (Kohako G2 BFF) gets file / session_search / skills /
+              # terminal (no MCP), and ONLY while the kohako-g2-context plugin with its
+              # pre_tool_call gate is installed and enabled: the gate blocks every tool in
+              # candidate and non-G2 API sessions and sends every non-read-only tool call in
+              # G2 sessions to the human-approval gate answered on G2. Otherwise fall back to
+              # [no_mcp] (no tools). Only a missing value or one of these two managed values is
+              # rewritten; anything else is left alone with a warning.
+              python3 - <<'PY'
+              import os
+              try:
+                  import yaml
+                  safe_load = yaml.safe_load
+              except ImportError:
+                  from ruamel.yaml import YAML
+                  safe_load = YAML(typ="safe", pure=True).load
+              NO_TOOLS = ["no_mcp"]
+              G2_TOOLS = ["no_mcp", "file", "session_search", "skills", "terminal"]
+              path = "/opt/data/config.yaml"
+              with open(path) as fh:
+                  text = fh.read()
+              cfg = safe_load(text) or {}
+              plugins = cfg.get("plugins") if isinstance(cfg, dict) else None
+              enabled = plugins.get("enabled") if isinstance(plugins, dict) else None
+              try:
+                  with open("/opt/data/plugins/kohako-g2-context/__init__.py") as fh:
+                      gate = 'ctx.register_hook("pre_tool_call", _gate)' in fh.read()
+              except OSError:
+                  gate = False
+              gated = gate and isinstance(enabled, list) and "kohako-g2-context" in enabled
+              target = G2_TOOLS if gated else NO_TOOLS
+              pts = cfg.get("platform_toolsets")
+              current = pts.get("api_server") if isinstance(pts, dict) else None
+              block = "  # BOXP-332: Kohako G2 BFF via API server (tools gated by the kohako-g2-context plugin).\n  api_server:\n" + "".join(f"    - {t}\n" for t in target)
+              lines = text.splitlines(keepends=True)
+              new = None
+              if not isinstance(pts, dict):
+                  print(f"[bootstrap] WARNING platform_toolsets is {pts!r}; api_server not configured")
+              elif current == target:
+                  print(f"[bootstrap] platform_toolsets.api_server already {target}")
+              elif "api_server" not in pts:
+                  idx = next(i for i, l in enumerate(lines) if l.rstrip() == "platform_toolsets:")
+                  lines.insert(idx + 1, block)
+                  new = "".join(lines)
+              elif current in (NO_TOOLS, G2_TOOLS):
+                  idx = next((i for i, l in enumerate(lines) if l.rstrip() == "  api_server:"), None)
+                  if idx is not None:
+                      first = idx - 1 if idx and lines[idx - 1].lstrip().startswith("# BOXP-332") else idx
+                      last = idx + 1
+                      while last < len(lines) and lines[last].startswith("    - "):
+                          last += 1
+                      if last - idx - 1 == len(current):
+                          lines[first:last] = [block]
+                          new = "".join(lines)
+                  if new is None:
+                      print("[bootstrap] WARNING platform_toolsets.api_server has an unsupported shape; not rewriting")
+              else:
+                  print(f"[bootstrap] WARNING platform_toolsets.api_server is {current!r}; not rewriting")
+              if new is not None:
+                  result = safe_load(new)
+                  assert result["platform_toolsets"]["api_server"] == target
+                  assert {k: v for k, v in result.items() if k != "platform_toolsets"} == {k: v for k, v in cfg.items() if k != "platform_toolsets"}
+                  assert {k: v for k, v in result["platform_toolsets"].items() if k != "api_server"} == {k: v for k, v in pts.items() if k != "api_server"}
+                  tmp = path + ".tmp"
+                  with open(tmp, "w") as fh:
+                      fh.write(new)
+                  st = os.stat(path)
+                  os.chown(tmp, st.st_uid, st.st_gid)
+                  os.chmod(tmp, st.st_mode & 0o7777)
+                  os.replace(tmp, path)
+                  print(f"[bootstrap] set platform_toolsets.api_server: {target}")
+              PY
               # BOXP-332: API_SERVER_KEY comes from the Deployment env (Secret
               # hermes-agent-api-server-key, shared only with the Kohako BFF). The
               # upstream entrypoint auto-generated a key into /opt/data/.env while
@@ -304,10 +335,10 @@ spec:
             - name: HERMES_GID
               value: "10000"
             # BOXP-332: API server for the Kohako G2 BFF only (Service hermes-agent-api,
-            # NetworkPolicy hermes-agent-api-ingress = even-g2-main only). It runs with
-            # platform_toolsets.api_server: [no_mcp] (no tools, no MCP; set by
-            # bootstrap-config) and the BFF refuses to send while /v1/toolsets reports
-            # any enabled toolset.
+            # NetworkPolicy hermes-agent-api-ingress = even-g2-main only). Toolsets are
+            # file/session_search/skills/terminal (no MCP) behind the kohako-g2-context
+            # pre_tool_call gate (set by bootstrap-config), and the BFF refuses to send
+            # unless /v1/toolsets reports exactly that set.
             - name: API_SERVER_ENABLED
               value: "true"
             - name: API_SERVER_HOST

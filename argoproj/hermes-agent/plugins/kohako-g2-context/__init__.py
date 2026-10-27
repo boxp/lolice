@@ -1,4 +1,13 @@
-"""Read-only, owner-only reference context for Telegram turns."""
+"""Kohako G2 plugin (BOXP-332).
+
+- pre_llm_call: read-only, owner-only reference context for Telegram turns.
+- pre_tool_call: tool gate for API server sessions. Kohako G2 (`kohako-g2-*`) may use read-only
+  tools freely; every other tool call goes to the official human-approval gate, which the BFF
+  shows on G2 (once/deny only). Candidate runs (`kohako-g2-cand-*`) and any other API server
+  session get no tools at all.
+"""
+import hashlib
+import json
 import logging
 import os
 import re
@@ -23,6 +32,7 @@ _PATTERNS = [
 
 def register(ctx):
     ctx.register_hook("pre_llm_call", _hook)
+    ctx.register_hook("pre_tool_call", _gate)
 
 
 def _open_db():
@@ -90,3 +100,69 @@ def _context(session_id, platform, sender_id):
     finally:
         if db is not None:
             db.close()
+
+
+# --- pre_tool_call gate -------------------------------------------------------------------------
+_READ_ROOTS = ('/home/boxp/Documents/obsidian-headless/BOXP/', '/opt/data/skills/')
+_FREE_TOOLS = {'skills_list', 'skill_view', 'session_search'}
+_PATH_TOOLS = {'read_file', 'search_files'}
+_BOARD_READ = re.compile(
+    r'bb\s+/opt/data/skills/note-taking/obsidian-task-board/bin/task-board\.bb\s+(?:list|show)(?:\s+[A-Za-z0-9_./:=@-]+)*\s*'
+)
+_BLOCK = 'Kohako G2: この session では tool を使えません。tool を使わずに答えてください。'
+
+
+def _session_source(session_id):
+    db = _open_db()
+    try:
+        row = db.get_session(session_id)
+        return row.get('source') if isinstance(row, dict) else None
+    finally:
+        db.close()
+
+
+def _readable(path):
+    if not isinstance(path, str) or not path.startswith('/'):
+        return False
+    real = os.path.realpath(path)
+    return any(real == root.rstrip('/') or real.startswith(root) for root in _READ_ROOTS)
+
+
+def _summary(tool_name, args):
+    if tool_name == 'terminal':
+        target = str(args.get('command', ''))
+    elif tool_name in ('write_file', 'patch', 'read_file', 'search_files'):
+        target = str(args.get('path', ''))
+    else:
+        target = ','.join(sorted(str(k) for k in args)[:6])
+    target = ' '.join(target.split())
+    return f'G2 から {tool_name}: {target[:120]}'
+
+
+def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kwargs):
+    sid = session_id if isinstance(session_id, str) else ''
+    try:
+        return _decide(tool_name, args if isinstance(args, dict) else {}, sid, tool_call_id)
+    except Exception as exc:
+        _log.warning('kohako-g2-gate: error (%s)', type(exc).__name__)
+        # Fail closed for G2 sessions; leave other platforms (Telegram etc.) to Hermes' own checks.
+        return {'action': 'block', 'message': _BLOCK} if sid.startswith('kohako-g2-') else None
+
+
+def _decide(tool_name, args, sid, tool_call_id):
+    if sid.startswith('kohako-g2-cand-'):
+        return {'action': 'block', 'message': _BLOCK}
+    if not sid.startswith('kohako-g2-'):
+        # Only the Kohako G2 BFF talks to the API server; any other API server session gets no tools.
+        return {'action': 'block', 'message': _BLOCK} if _session_source(sid) == 'api_server' else None
+    if tool_name in _FREE_TOOLS:
+        return None
+    if tool_name in _PATH_TOOLS and _readable(args.get('path')):
+        return None
+    if tool_name == 'terminal' and isinstance(args.get('command'), str) and _BOARD_READ.fullmatch(args['command'].strip()) \
+            and not args.get('background'):
+        return None
+    # Everything else: the official human-approval gate, answered on G2. The rule key is unique per
+    # call so an approval can never widen into a session/always allowlist entry for later calls.
+    digest = hashlib.sha256(json.dumps([tool_name, args, tool_call_id], sort_keys=True, default=str).encode()).hexdigest()[:16]
+    return {'action': 'approve', 'message': _summary(str(tool_name), args), 'rule_key': f'kohako-g2:{tool_name}:{digest}'}

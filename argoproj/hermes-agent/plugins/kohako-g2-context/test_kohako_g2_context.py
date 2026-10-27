@@ -74,4 +74,53 @@ class ContextTests(unittest.TestCase):
                 self.assertIsNone(self.call())
             self.assertNotIn('sensitive', str(logs.output))
 
+class GateTests(unittest.TestCase):
+    HELPER = 'bb /opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb'
+    def gate(self, tool, args, sid='kohako-g2-abc', source='api_server'):
+        db = DB(); db.session = {'source': source}
+        with patch.object(plugin, '_open_db', return_value=db):
+            return plugin._gate(tool_name=tool, args=args, session_id=sid, tool_call_id='c1')
+    def test_candidate_and_unknown_api_sessions_get_no_tools(self):
+        for tool in ('read_file', 'skill_view', 'terminal'):
+            self.assertEqual(self.gate(tool, {'path': '/opt/data/skills/x'}, sid='kohako-g2-cand-1')['action'], 'block')
+            self.assertEqual(self.gate(tool, {}, sid='api_123', source='api_server')['action'], 'block')
+    def test_other_platforms_untouched(self):
+        self.assertIsNone(self.gate('terminal', {'command': 'rm -rf x'}, sid='tg-1', source='telegram'))
+        with patch.object(plugin, '_open_db', side_effect=RuntimeError('db')):
+            self.assertIsNone(plugin._gate(tool_name='terminal', args={}, session_id='tg-1'))
+    def test_read_only_tools_pass(self):
+        self.assertIsNone(self.gate('skill_view', {'name': 'obsidian-task-board'}))
+        self.assertIsNone(self.gate('session_search', {'query': 'x'}))
+        self.assertIsNone(self.gate('read_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/Tickets/BOXP-1.md'}))
+        self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' list --lane review'}))
+        self.assertIsNone(self.gate('terminal', {'command': self.HELPER + ' show BOXP-332'}))
+    def test_everything_else_needs_approval(self):
+        cases = [
+            ('read_file', {'path': '/opt/data/.env'}),
+            ('read_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/../../../../opt/data/.env'}),
+            ('read_file', {'path': 'relative.md'}),
+            ('write_file', {'path': '/home/boxp/Documents/obsidian-headless/BOXP/x.md', 'content': 'x'}),
+            ('patch', {'path': '/opt/data/SOUL.md'}),
+            ('skill_manage', {'action': 'create'}),
+            ('process_manage', {}),
+            ('terminal', {'command': self.HELPER + ' create --title x'}),
+            ('terminal', {'command': self.HELPER + ' list; rm -rf /'}),
+            ('terminal', {'command': self.HELPER + ' list $(id)'}),
+            ('terminal', {'command': self.HELPER + ' show x', 'background': True}),
+            ('terminal', {'command': 'ls'}),
+        ]
+        keys = set()
+        for tool, args in cases:
+            result = self.gate(tool, args)
+            self.assertEqual(result['action'], 'approve', (tool, args))
+            self.assertTrue(result['message'].startswith('G2 から ' + tool))
+            self.assertLessEqual(len(result['message']), 160)
+            self.assertTrue(result['rule_key'].startswith('kohako-g2:'))
+            keys.add(result['rule_key'])
+        self.assertEqual(len(keys), len(cases))
+    def test_gate_error_fails_closed_for_g2(self):
+        with patch.object(plugin, '_decide', side_effect=RuntimeError('x')):
+            with self.assertLogs(plugin.__name__, level='WARNING'):
+                self.assertEqual(plugin._gate(tool_name='terminal', args={}, session_id='kohako-g2-1')['action'], 'block')
+
 if __name__ == '__main__': unittest.main()
