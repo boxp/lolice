@@ -54,3 +54,19 @@ data:
     top-k = 20
     min-p = 0
     presence-penalty = 1.5
+
+    # BOXP-337: Gemma4-31B (HauhauCS Balanced QAT, dense, Q4_K_M 18.69 GB, HF
+    # repo HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP revision
+    # 9654466e, sha256 71667f9e…) as a selectable model for the 26B-A4B vs 31B
+    # comparison. Same author, series and quant as gemma4-26b; the default
+    # model is unchanged and this preset is only loaded when a request names
+    # it (--models-max 1 unloads gemma4-26b meanwhile). batch / ubatch /
+    # threads match gemma4-26b so the comparison differs only in the model
+    # file; ctx and the other router CLI args are overlaid as for every preset.
+    # No sampler here (same as gemma4-26b); callers pass it.
+    [gemma4-31b]
+    model = /models/boxp337-gemma4-31b/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
+    batch-size = 2048
+    ubatch-size = 2048
+    threads = 14
+    threads-batch = 14
