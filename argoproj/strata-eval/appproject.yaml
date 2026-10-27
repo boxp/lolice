@@ -1,7 +1,7 @@
 # BOXP-336: Strata 実機検証専用の Argo CD AppProject。
 # 既存 local-llm（project: default）とは分け、lolice repo から strata-eval namespace へ
 # ConfigMap / Deployment だけを配備できるように権限を絞る。cluster-scoped resource は
-# 許可しない（namespace は Application の CreateNamespace で destination のものだけ作る）。
+# 許可しない（namespace は親 argocd-apps が strata-eval/namespace.yaml で作る）。
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
