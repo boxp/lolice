@@ -292,6 +292,13 @@ class DecisionTests(unittest.TestCase):
         os.unlink(plugin._path('dec-event-1'))
         self.g2(); plugin._gate(session_id='kohako-g2-main', tool_name='terminal', args={'command': GateTests.HELPER + ' update BOXP-1 --lane Ready'})
         plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['state'], 'claimed')
+    def test_success_then_unknown_stays_claimed(self):
+        # One call succeeded, a later one errored (e.g. timed out after an external success):
+        # not 'done' (which would expire and allow a re-run), no done marker.
+        self.tg(); self.assertIsNone(self.gate('tg', status='ok')); self.assertIsNone(self.gate('tg', call='call_' + 'b' * 32, status='error'))
+        self.assertIsNone(plugin._transform(session_id='tg', response_text='ok'))
+        plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'claimed')
+        self.g2(); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
     def test_detection_error_fails_closed(self):
         self.g2(); self.gate('kohako-g2-main'); plugin._post(session_id='kohako-g2-main')
         with patch.object(plugin, '_owner', side_effect=RuntimeError('db')):
@@ -384,6 +391,15 @@ class DecisionTests(unittest.TestCase):
         self.assertIsNone(self.gate('tg')); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
         self.tg([self.delivery, {'role': 'assistant', 'content': [{'type': 'text', 'text': 'x'}]}, self.cur()])
         self.assertIn(('tg', '1'), plugin._pending)
+    def test_multimodal_last_message_is_ambiguous(self):
+        # The history ends with an image message: it may be a past one (current message missing)
+        # or the current one stored multimodal. A notification beyond it is never claimed and
+        # side effects are blocked.
+        image = {'role': 'user', 'content': [{'type': 'image_url', 'image_url': {'url': 'x'}}], 'timestamp': time.time()}
+        self.tg([self.delivery, image]); self.assertFalse(plugin._pending[('tg', '1')]['claimed'])
+        self.assertEqual(self.gate('tg')['action'], 'block'); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+        self.assertIsNone(self.gate('tg', 'show BOXP-1'))
+        self.tg([{'role': 'user', 'content': 'hello'}, image]); self.assertNotIn(('tg', '1'), plugin._pending)
     def test_repeated_identical_message_is_not_taken_for_current(self):
         # "はい" twice: a history without the current message ends with the previous "はい",
         # whose timestamp anchored an earlier turn, so the old notification is not connected.

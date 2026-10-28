@@ -215,7 +215,15 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         # cannot tell it from an earlier identical message ("はい" twice), so it is identified
         # by its timestamp, which must not be the anchor of an earlier turn.
         ambiguous = None
-        if history and _is_current(history[-1], user_message):
+        last = history[-1] if history else None
+        if isinstance(last, dict) and last.get('role') == 'user' and not isinstance(last.get('content'), str):
+            # A multimodal last message cannot be compared with user_message: it may be the
+            # current message or an earlier one (with the current one missing). Neither ends
+            # the walk safely nor may be skipped silently, so a notification beyond it is
+            # ambiguous (fail closed: no claim, side effects blocked).
+            ambiguous = ValueError('last message cannot be identified')
+            history.pop()
+        elif history and _is_current(history[-1], user_message):
             try:
                 _anchor(sid, history[-1])
             except (OSError, ValueError) as exc:
@@ -336,7 +344,7 @@ def _is_current(message, user_message):
         return False
     content = message.get('content')
     if not isinstance(content, str):
-        return True  # multimodal content cannot be compared; earlier ones end the walk
+        return False  # multimodal content cannot be compared
     if content.lstrip().startswith('[Webhook delivery:'):
         return False
     stored, current = ' '.join(content.split()), ' '.join(user_message.split())
@@ -433,7 +441,7 @@ def _transform(*, response_text=None, session_id=None, turn_id=None, **kwargs):
     try:
         with _lock:
             _, pending = _find(session_id, turn_id)
-            if pending and pending['claimed'] and pending['ok']:
+            if pending and pending['claimed'] and pending['ok'] and not pending['inflight'] and not pending['unknown']:
                 return response_text + '\n\n[kohako-decision] done decision=' + pending['decisionId']
     except Exception as exc:
         _log.warning('kohako-decision: transform error (%s)', type(exc).__name__)
@@ -449,10 +457,12 @@ def _post(*, session_id=None, turn_id=None, **kwargs):
             _pending.pop(key)
         if not pending or not pending['claimed']:
             return
-        if pending['ok']:
+        if pending['inflight'] or pending['unknown']:
+            # Result unknown (incl. errors), even after another call succeeded: stays claimed and
+            # is never re-run by either entry point (a 'done' would expire and allow a re-run).
+            return
+        elif pending['ok']:
             state = 'done'
-        elif pending['inflight'] or pending['unknown']:
-            return  # result unknown (incl. errors): stays claimed and is never re-run by either entry point
         else:
             state = None  # every claimed call was blocked or denied: nothing ran
         with _store_lock():
