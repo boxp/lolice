@@ -268,9 +268,11 @@ class DecisionTests(unittest.TestCase):
         plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['via'], 'telegram')
         self.tg(turn='2'); self.assertEqual(self.gate('tg')['action'], 'block')
         self.assertIsNone(self.gate('tg', 'show BOXP-1'))
-    def test_error_then_ok_is_done(self):
-        self.g2(); self.gate('kohako-g2-main', status='error'); self.gate('kohako-g2-main', call='call_' + 'b' * 32)
-        plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['state'], 'done')
+    def test_error_blocks_retry_in_same_turn(self):
+        self.g2(); self.assertIsNone(self.gate('kohako-g2-main', status='error'))
+        self.assertIn('結果不明', self.gate('kohako-g2-main', call='call_' + 'b' * 32)['message'])
+        self.assertIsNone(plugin._transform(session_id='kohako-g2-main', response_text='ok'))
+        plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['state'], 'claimed')
     def test_ok_wins_and_unknown_stays_claimed(self):
         self.tg(); self.gate('tg', status='blocked'); self.gate('tg', call='call_' + 'b' * 32)
         plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')
