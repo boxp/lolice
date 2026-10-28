@@ -2,6 +2,9 @@ import importlib.util
 import os
 from pathlib import Path
 import time
+import json
+import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -206,5 +209,70 @@ class GateTests(unittest.TestCase):
         with patch.object(plugin, '_decide', side_effect=RuntimeError('x')):
             with self.assertLogs(plugin.__name__, level='WARNING'):
                 self.assertEqual(plugin._gate(tool_name='terminal', args={}, session_id='kohako-g2-1')['action'], 'block')
+
+class DecisionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.env = patch.dict(os.environ, {'KOHAKO_DECISION_STORE': self.tmp.name, 'KOHAKO_G2_CONTEXT_OWNER_TELEGRAM_USER_ID': '123'})
+        self.env.start(); self.addCleanup(self.env.stop)
+        self.db = DB()
+        self.factory = patch.object(plugin, '_open_db', return_value=self.db)
+        self.factory.start(); self.addCleanup(self.factory.stop)
+        plugin._pending.clear(); plugin._injected.clear()
+        self.delivery = {'role': 'assistant', 'content': '[Webhook delivery: task-board]\n【Task Board 通知】BOXP-1 event=old event=event-1'}
+    def tg(self, history=None, sid='tg', turn='1', **kwargs):
+        return plugin._hook(session_id=sid, platform='telegram', sender_id=kwargs.get('sender_id', '123'), user_message='はい', turn_id=turn, conversation_history=history if history is not None else [self.delivery, {'role': 'user', 'content': 'はい'}])
+    def g2(self, message='[kohako-decision] reply decision=dec-event-1 operation=12345678', sid='kohako-g2-main'):
+        return plugin._hook(session_id=sid, platform='api_server', user_message=message)
+    def gate(self, sid, command='update BOXP-1 --lane Ready'):
+        return plugin._gate(session_id=sid, tool_name='terminal', args={'command': GateTests.HELPER + ' ' + command})
+    def data(self):
+        with open(plugin._path('dec-event-1')) as f: return json.load(f)
+    def test_claim_transform_and_settle(self):
+        self.tg(); self.assertIsNone(self.gate('tg')); self.assertIsNone(self.gate('tg'))
+        self.assertEqual(self.data()['state'], 'claimed')
+        self.assertIn('[kohako-decision] done decision=dec-event-1', plugin._transform(session_id='tg', response_text='ok'))
+        plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')
+    def test_both_orders_and_read_only(self):
+        for first, second in (('g2', 'tg'), ('tg', 'g2')):
+            with self.subTest(first=first):
+                if os.path.exists(plugin._path('dec-event-1')): os.unlink(plugin._path('dec-event-1'))
+                plugin._pending.clear()
+                getattr(self, first)(); self.assertIsNone(self.gate('kohako-g2-main' if first == 'g2' else 'tg'))
+                result = getattr(self, second)(); self.assertIn('既に対応済み', result['context'])
+                sid = 'kohako-g2-main' if second == 'g2' else 'tg'
+                self.assertIsNone(self.gate(sid, 'show BOXP-1'))
+                self.assertIsNone(plugin._gate(session_id=sid, tool_name='read_file', args={'path': '/home/boxp/Documents/obsidian-headless/BOXP/a'}))
+                self.assertEqual(self.gate(sid)['action'], 'block')
+    def test_race(self):
+        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via}
+        results = []
+        threads = [threading.Thread(target=lambda v=v: results.append(plugin._claim(pending(v)))) for v in ('g2', 'telegram')]
+        for thread in threads: thread.start()
+        for thread in threads: thread.join()
+        self.assertEqual(results.count(None), 1)
+    def test_read_only_then_other_claims(self):
+        self.tg(); self.assertIsNone(self.gate('tg', 'show BOXP-1'))
+        self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+        self.g2(); self.assertIsNone(self.gate('kohako-g2-main'))
+    def test_old_redelivery_and_restart(self):
+        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}, {'role': 'user', 'content': 'はい'}])
+        self.assertNotIn('tg', plugin._pending)
+        self.assertIsNone(self.gate('tg'))
+        self.tg([self.delivery, self.delivery, {'role': 'user', 'content': 'はい'}]); self.assertIsNone(self.gate('tg'))
+        plugin._pending.clear(); self.g2(); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
+    def test_unparsable_and_invalid(self):
+        path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path))
+        with open(path, 'w') as f: f.write('{')
+        self.tg(); self.assertEqual(self.gate('tg')['action'], 'block')
+        for message, sid in (('hello', 'kohako-g2-main'), ('[kohako-decision] bad', 'kohako-g2-main'), ('[kohako-decision] reply decision=dec-event-1 operation=12345678', 'kohako-g2-cand-x')):
+            self.g2(message, sid); self.assertNotIn(sid, plugin._pending)
+    def test_current_message_stored_differently(self):
+        self.tg([self.delivery, {'role': 'user', 'content': '[note] はい'}]); self.assertIn('tg', plugin._pending)
+        self.tg([self.delivery]); self.assertIn('tg', plugin._pending)
+    def test_non_owner_and_group(self):
+        self.tg(sender_id='other'); self.assertNotIn('tg', plugin._pending)
+        self.db.session['chat_type'] = 'group'; self.tg(); self.assertNotIn('tg', plugin._pending)
 
 if __name__ == '__main__': unittest.main()

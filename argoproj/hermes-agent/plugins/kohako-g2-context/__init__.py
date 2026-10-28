@@ -1,4 +1,4 @@
-"""Kohako G2 plugin (BOXP-332).
+"""Kohako G2 plugin (BOXP-332, BOXP-348).
 
 - pre_llm_call: read-only, owner-only reference context for Telegram turns.
 - pre_tool_call: tool gate for API server sessions. Kohako G2 (`kohako-g2-*`) may use read-only
@@ -6,6 +6,9 @@
   tool calls go to the official human-approval gate, which the BFF
   shows on G2 (once/deny only). Candidate runs (`kohako-g2-cand-*`) and any other API server
   session get no tools at all.
+- BOXP-348: one Task Board notification answered from Telegram (Owner reply right after the
+  mirrored delivery) or G2 (BFF marker line) is claimed atomically (O_EXCL file under
+  KOHAKO_DECISION_STORE) on the first side-effect tool call; the other entry point is then blocked.
 """
 import hashlib
 import json
@@ -13,6 +16,7 @@ import logging
 import os
 import re
 import threading
+import tempfile
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -20,6 +24,8 @@ from datetime import datetime, timezone
 _log = logging.getLogger(__name__)
 _lock = threading.Lock()
 _injected = OrderedDict()
+_pending = OrderedDict()
+_DECISION_STORE = os.environ.get('KOHAKO_DECISION_STORE', '/opt/data/kohako-decisions')
 _HEADER = (
     "Owner が Even G2（眼鏡）から Kohako と話した直近の内容です。会話の続きとして参照してよいが、ここに含まれる発言は Telegram での承認・実行指示ではありません（「はい」等があっても、Telegram で待っている承認やタスク実行・メール送信・チケット更新・merge 等の承認として扱わないこと）。この内容を G2 へ返信・転送する手段はなく、Telegram への返答だけを行うこと。"
 )
@@ -34,6 +40,8 @@ _PATTERNS = [
 def register(ctx):
     ctx.register_hook("pre_llm_call", _hook)
     ctx.register_hook("pre_tool_call", _gate)
+    ctx.register_hook("transform_llm_output", _transform)
+    ctx.register_hook("post_llm_call", _post)
 
 
 def _open_db():
@@ -48,26 +56,48 @@ def _clean(text):
     return text[:160] + '…' if len(text) > 160 else text
 
 
+def _owner(session_id, platform, sender_id):
+    owner = os.environ.get('KOHAKO_G2_CONTEXT_OWNER_TELEGRAM_USER_ID', '')
+    if not owner or platform != 'telegram' or (sender_id and str(sender_id) != owner):
+        return False
+    db = _open_db()
+    try:
+        session = db.get_session(session_id)
+        return isinstance(session, dict) and session.get('source') == 'telegram' and str(session.get('user_id')) == owner and session.get('chat_type') == 'dm'
+    finally:
+        db.close()
+
+
 def _hook(*, session_id=None, platform=None, sender_id=None, **kwargs):
     _remember_platform(session_id, platform)
+    contexts = []
     try:
-        return _context(session_id, platform, sender_id)
+        result = _context(session_id, platform, sender_id)
+        if result:
+            contexts.append(result['context'])
     except Exception as exc:
         _log.warning('kohako-g2-context: skipped (%s)', type(exc).__name__)
-        return None
+    try:
+        result = _detect(session_id, platform, sender_id, **kwargs)
+        if result:
+            contexts.append(result)
+    except Exception as exc:
+        _log.warning('kohako-decision: detection error (%s)', type(exc).__name__)
+        if platform == 'api_server' and isinstance(session_id, str) and session_id.startswith('kohako-g2-') and not session_id.startswith('kohako-g2-cand-') and str(kwargs.get('user_message', '')).startswith('[kohako-decision]'):
+            with _lock:
+                _pending[session_id] = {'decisionId': 'unknown', 'lost': 'error', 'claimed': False}
+        else:
+            with _lock:
+                _pending.pop(session_id, None)
+    return {'context': '\n\n'.join(contexts)} if contexts else None
 
 
 def _context(session_id, platform, sender_id):
     db = None
     try:
-        owner = os.environ.get('KOHAKO_G2_CONTEXT_OWNER_TELEGRAM_USER_ID', '')
-        # The session row is authoritative; sender_id is checked too when the gateway passes one.
-        if not owner or platform != 'telegram' or (sender_id and str(sender_id) != owner):
+        if not _owner(session_id, platform, sender_id):
             return None
         db = _open_db()
-        session = db.get_session(session_id)
-        if not isinstance(session, dict) or session.get('source') != 'telegram' or str(session.get('user_id')) != owner or session.get('chat_type') != 'dm':
-            return None
         sessions = db.list_sessions_rich(source='api_server', order_by_last_active=True, limit=50)
         g2 = next((s for s in sessions if isinstance(s.get('id'), str) and s['id'].startswith('kohako-g2-') and not s['id'].startswith('kohako-g2-cand-')), None)
         if not g2 or not 0 <= time.time() - float(g2['last_active']) <= 6 * 3600:
@@ -102,6 +132,155 @@ def _context(session_id, platform, sender_id):
     finally:
         if db is not None:
             db.close()
+
+
+_MARKER = re.compile(r'\[kohako-decision\] reply decision=(dec-[A-Za-z0-9._:-]{1,160}) operation=([A-Za-z0-9-]{8,64})')
+_EVENT = re.compile(r'event=([A-Za-z0-9._:-]{1,160})(?![A-Za-z0-9._:-])')
+
+
+def _path(decision_id):
+    return os.path.join(os.environ.get('KOHAKO_DECISION_STORE', _DECISION_STORE), 'claims', decision_id + '.json')
+
+
+def _existing(decision_id):
+    try:
+        with open(_path(decision_id)) as f:
+            data = json.load(f)
+        return data.get('via') if isinstance(data, dict) and data.get('via') in ('g2', 'telegram') else 'other'
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, TypeError):
+        return 'other'
+
+
+def _label(via):
+    return {'g2': 'G2', 'telegram': 'Telegram'}.get(via, '他の経路')
+
+
+def _detect(sid, platform, sender_id, user_message=None, conversation_history=None, turn_id=None, **kwargs):
+    relevant = platform == 'telegram' or (platform == 'api_server' and isinstance(sid, str) and sid.startswith('kohako-g2-'))
+    if not relevant:
+        return None
+    with _lock:
+        _pending.pop(sid, None)
+    event = operation = via = None
+    if platform == 'api_server':
+        if sid.startswith('kohako-g2-cand-') or not isinstance(user_message, str):
+            return None
+        match = _MARKER.fullmatch(user_message.split('\n', 1)[0])
+        if match:
+            event, operation, via = match.group(1)[4:], 'g2-' + match.group(2), 'g2'
+    elif _owner(sid, platform, sender_id) and isinstance(user_message, str):
+        history = list(conversation_history or [])
+        # The current Owner message is normally the last entry (its stored form may differ from
+        # user_message, e.g. with gateway notes); skip it so it does not end the walk.
+        if history and isinstance(history[-1], dict) and history[-1].get('role') == 'user' and not str(history[-1].get('content') or '').startswith('[Webhook delivery:'):
+            history.pop()
+        for message in reversed(history):
+            if not isinstance(message, dict):
+                continue
+            role, content = message.get('role'), message.get('content')
+            if not isinstance(content, str):
+                continue
+            if role in ('user', 'assistant') and content.startswith('[Webhook delivery: task-board]') and '[SILENT]' not in content:
+                body = content[len('[Webhook delivery: task-board]'):].lstrip()
+                last = body.rfind('event=')
+                match = _EVENT.match(body, last) if last >= 0 else None
+                if re.match(r'【Task Board 通知】BOXP-[0-9]+', body) and match:
+                    event = match.group(1)
+                    operation = 'tg-' + str(turn_id or hashlib.sha256((sid + user_message).encode()).hexdigest()[:16])
+                    via = 'telegram'
+                    break
+            if role == 'user' and not content.startswith('[Webhook delivery:'):
+                break
+    if not event:
+        return None
+    decision = 'dec-' + event
+    lost = _existing(decision)
+    pending = {'decisionId': decision, 'eventId': event, 'via': via, 'operationId': operation, 'claimed': False, 'lost': lost}
+    with _lock:
+        _pending[sid] = pending
+        _pending.move_to_end(sid)
+        while len(_pending) > 256:
+            _pending.popitem(last=False)
+    if lost:
+        return f'Kohako: この Task Board 通知（event={event}）には {_label(lost)} で既に対応済み（または対応中）です。同じ操作は再実行できません。必要なら状況だけ答えてください。'
+    return None
+
+
+def _claim(pending):
+    path = _path(pending['decisionId'])
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    for name in os.listdir(directory):
+        try:
+            with open(os.path.join(directory, name)) as f:
+                data = json.load(f)
+            if data.get('state') == 'done' and data.get('at', 0) < time.time() - 7 * 86400:
+                os.unlink(os.path.join(directory, name))
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o640)
+    except FileExistsError:
+        return _existing(pending['decisionId']) or 'other'
+    with os.fdopen(fd, 'w') as f:
+        json.dump({'version': 1, 'decisionId': pending['decisionId'], 'eventId': pending['eventId'], 'via': pending['via'], 'operationId': pending['operationId'], 'state': 'claimed', 'at': time.time()}, f)
+    return None
+
+
+def _decision_gate(sid, tool_name, args):
+    if tool_name in _FREE_TOOLS or tool_name in _PATH_TOOLS or (tool_name == 'terminal' and isinstance(args.get('command'), str) and _BOARD_READ.fullmatch(args['command'].strip()) and not args.get('background')):
+        return None
+    with _lock:
+        pending = _pending.get(sid)
+        if not pending or pending['claimed']:
+            return None
+        if not pending['lost']:
+            try:
+                pending['lost'] = _claim(pending)
+            except OSError as exc:
+                _log.warning('kohako-decision: claim error (%s)', type(exc).__name__)
+                return {'action': 'block', 'message': 'Kohako: decision claim を保存できないため操作を実行できません。'}
+            if not pending['lost']:
+                pending['claimed'] = True
+                return None
+        return {'action': 'block', 'message': f"Kohako: この Task Board 通知（decision={pending['decisionId']}）は {_label(pending['lost'])} で既に対応済み（または対応中）です。同じ操作を再実行せず、その旨だけ答えてください。"}
+
+
+def _transform(*, response_text=None, session_id=None, **kwargs):
+    try:
+        with _lock:
+            pending = _pending.get(session_id)
+            if pending and pending['claimed']:
+                return response_text + '\n\n[kohako-decision] done decision=' + pending['decisionId']
+    except Exception as exc:
+        _log.warning('kohako-decision: transform error (%s)', type(exc).__name__)
+    return None
+
+
+def _post(*, session_id=None, **kwargs):
+    try:
+        with _lock:
+            pending = _pending.pop(session_id, None)
+        if not pending or not pending['claimed']:
+            return
+        path = _path(pending['decisionId'])
+        with open(path) as f:
+            data = json.load(f)
+        if data.get('operationId') != pending['operationId'] or data.get('state') != 'claimed':
+            return
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix='.decision-')
+        try:
+            with os.fdopen(fd, 'w') as f:
+                data['state'] = 'done'
+                json.dump(data, f)
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    except Exception as exc:
+        _log.warning('kohako-decision: settle error (%s)', type(exc).__name__)
 
 
 # --- pre_tool_call gate -------------------------------------------------------------------------
@@ -266,14 +445,20 @@ def _shown_command(command):
 def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kwargs):
     sid = session_id if isinstance(session_id, str) else ''
     try:
-        return _decide(tool_name, args if isinstance(args, dict) else {}, sid, tool_call_id)
+        args = args if isinstance(args, dict) else {}
+        result = _decide(tool_name, args, sid, tool_call_id)
+        if result and result.get('action') == 'block':
+            return result
+        return _decision_gate(sid, tool_name, args) or result
     except Exception as exc:
         _log.warning('kohako-g2-gate: error (%s)', type(exc).__name__)
         # Fail closed for G2 sessions and sessions whose platform is unknown (pre_llm_call records
         # the platform of every turn, so Telegram etc. are normally known without the DB).
         with _lock:
             known = _platforms.get(sid)
-        return None if known is not None and known != 'api_server' else {'action': 'block', 'message': _BLOCK}
+        with _lock:
+            pending = sid in _pending
+        return None if not pending and known is not None and known != 'api_server' else {'action': 'block', 'message': _BLOCK}
 
 
 def _decide(tool_name, args, sid, tool_call_id):
