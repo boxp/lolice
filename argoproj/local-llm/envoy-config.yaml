@@ -72,6 +72,22 @@ data:
                                     ["cache-control"] = "no-store"}, state .. "\n")
                                   return
                                 end
+                                -- A fixed synthetic restore probe is permitted only
+                                -- after GitOps has entered the verify phase (Qwen=0).
+                                -- Caller-supplied body/model/prompt are never forwarded.
+                                if path == "/__board_pilot__/restore-probe" then
+                                  if method ~= "POST" or mode ~= "verify" then
+                                    handle:respond({[":status"] = "503"}, "restore probe unavailable\n")
+                                    return
+                                  end
+                                  local headers, body = handle:httpCall("llama_server",
+                                    {[":method"] = "POST", [":path"] = "/v1/chat/completions",
+                                     [":authority"] = "localhost", ["content-type"] = "application/json"},
+                                    '{"model":"gemma4-26b","messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":4,"temperature":0,"stream":false}',
+                                    300000)
+                                  handle:respond({[":status"] = headers[":status"], ["content-type"] = "application/json"}, body)
+                                  return
+                                end
                                 -- Probes never invoke inference, even while fenced.
                                 if path == "/health" and method == "GET" then return end
                                 if mode ~= "open" then
@@ -136,6 +152,39 @@ data:
                               direct_response:
                                 status: 404
                     http_filters:
+                      - name: envoy.filters.http.lua
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                          default_source_code:
+                            inline_string: |
+                              function envoy_on_request(handle)
+                                local path = handle:headers():get(":path") or ""
+                                if path:match("^/__board_pilot__/slots") then
+                                  local model = path:match("^/__board_pilot__/slots%?model=([%w_-]+)$")
+                                  local ok, state = pcall(function()
+                                    local f = io.open("/etc/llm-admission/state", "r")
+                                    if not f then return "" end
+                                    local v = f:read(256); f:close(); return v
+                                  end)
+                                  if not ok or not state or not (state:match("^closed:[%w_-]+%s*$") or state:match("^verify:[%w_-]+%s*$")) or not model then
+                                    handle:respond({[":status"] = "503"}, "slots unavailable\n"); return
+                                  end
+                                  -- Router GET /slots can load an unloaded model.
+                                  -- Consult the read-only model list first, accepting
+                                  -- only its known schema and an already loaded id.
+                                  local headers, body = handle:httpCall("llama_health",
+                                    {[":method"] = "GET", [":path"] = "/models", [":authority"] = "localhost"}, "", 5000)
+                                  local loaded = false
+                                  if headers[":status"] == "200" then
+                                    for id, value in body:gmatch('"id"%s*:%s*"([%w_-]+)"[^}]-"status"%s*:%s*{%s*"value"%s*:%s*"([%a_]+)"') do
+                                      if id == model and value == "loaded" then loaded = true end
+                                    end
+                                  end
+                                  if not loaded then
+                                    handle:respond({[":status"] = "503"}, "model not loaded\n")
+                                  end
+                                end
+                              end
                       - name: envoy.filters.http.router
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router

@@ -25,6 +25,12 @@
 
 この準備PR自体のrollbackは通常Git revert/PR/Argo反映。評価中にgate実装をrevertすると封鎖が失われるため、Qwen停止とGemma復帰を確認するまでrevertしない。ConfigMap stateの開放だけを復帰の代わりにしない。
 
+## 復帰観測の制限
+
+`verify:<token>` は一般推論を閉じたまま、固定の合成短文・既定Gemma・4tokenの復帰probeだけを許可する。依頼者のbody/modelは転送しない。`closed`ではprobeも拒否する。verifyへの変更はQwen=0を実確認してからGemma=1と同じGitOps段階で行う。
+
+routerの`GET /slots?model=...`は未ロードmodelをロードし得るため、観測窓口はclosed/verify時のみ、`/models`で既にloadedと返るidに限定する。未知schemaや未ロードmodelは503。Qwen workloadはegressも全拒否し、既存wheelの存在確認後のみ起動する。
+
 ## 進捗
 
 実機切替・実画像生成・文章復帰は未実施。初期stateは`open:baseline`、Gemma=1/Qwen=0のまま。live readbackと2枚のPNGを別途記録する。

@@ -19,7 +19,8 @@ from pathlib import Path
 import time
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200); self.end_headers(); self.wfile.write(self.path.encode())
+        self.send_response(200); self.end_headers()
+        self.wfile.write(b'{"data":[{"id":"gemma4-26b","status":{"value":"loaded"}},{"id":"qwen38-27b","status":{"value":"unloaded"}}]}' if self.path == '/models' else self.path.encode())
     def do_POST(self):
         if self.path == '/slow':
             Path('/tmp/started').touch()
@@ -137,10 +138,16 @@ class AdmissionTest(unittest.TestCase):
         self.assertEqual(self.request('/stats/prometheus', port=9901)[0], 200)
         self.assertEqual(self.request('/server_info', port=9901)[0], 200)
         self.assertEqual(self.request('/stats', 'POST', 9901)[0], 404)
+        self.assertEqual(self.request('/__board_pilot__/restore-probe', 'POST')[0], 503)
+        self.state('verify:test-e')
+        self.assertEqual(self.request('/v1/chat/completions', 'POST')[0], 503)
+        self.assertEqual(self.request('/__board_pilot__/restore-probe', 'GET')[0], 503)
+        self.assertEqual(self.request('/__board_pilot__/restore-probe', 'POST'), [200, 'completed'])
+        self.assertEqual(self.request('/__board_pilot__/slots?model=qwen38-27b', port=9901)[0], 503)
         self.assertEqual(self.request('/__board_pilot__/slots?model=gemma4-26b', port=9901),
                          [200, '/slots?model=gemma4-26b'])
-        self.assertEqual(self.request('/__board_pilot__/models', port=9901), [200, '/models'])
-        self.assertEqual(self.request('/__board_pilot__/slots', 'POST', 9901)[0], 404)
+        self.assertEqual(json.loads(self.request('/__board_pilot__/models', port=9901)[1])['data'][0]['id'], 'gemma4-26b')
+        self.assertEqual(self.request('/__board_pilot__/slots', 'POST', 9901)[0], 503)
 
 
 if __name__ == '__main__':
