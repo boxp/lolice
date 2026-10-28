@@ -11,8 +11,6 @@ spec:
           imageName: "ghcr.io/boxp/arch/codex-workspace:latest"
           commonUpdateSettings:
             updateStrategy: "newest-build"
-            # BOXP-349: release immediately after the active GPU safety run.
-            allowTags: "regexp:^sha-e8fb485$"
             platforms:
               - "linux/amd64"
           manifestTargets:
