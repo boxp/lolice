@@ -221,6 +221,11 @@ class DecisionTests(unittest.TestCase):
         self.factory.start(); self.addCleanup(self.factory.stop)
         plugin._pending.clear(); plugin._injected.clear()
         self.delivery = {'role': 'assistant', 'content': '[Webhook delivery: task-board]\n【Task Board 通知】BOXP-1 event=old event=event-1'}
+        self.record('tg')
+    def record(self, sid, since=None):
+        # The turn record of a session that has been running since before these turns.
+        path = plugin._turns_path(sid); os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w') as f: json.dump({'since': time.time() - 1000 if since is None else since, 'seen': []}, f)
     def cur(self, content='はい'):
         self.stamp = getattr(self, 'stamp', time.time() - 300) + 1
         return {'role': 'user', 'content': content, 'timestamp': self.stamp}
@@ -337,7 +342,7 @@ class DecisionTests(unittest.TestCase):
         self.g2(); self.assertIsNone(self.gate('kohako-g2-main'))
     def test_old_redelivery_and_restart(self):
         self.tg([self.delivery, {'role': 'user', 'content': 'previous'}, self.cur()])
-        self.assertNotIn('tg', plugin._pending)
+        self.assertNotIn(('tg', '1'), plugin._pending)
         self.assertIsNone(self.gate('tg'))
         self.tg([self.delivery, self.delivery, self.cur()]); self.assertIsNone(self.gate('tg'))
         plugin._pending.clear(); self.g2(); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
@@ -346,30 +351,30 @@ class DecisionTests(unittest.TestCase):
         with open(path, 'w') as f: f.write('{')
         self.tg(); self.assertEqual(self.gate('tg')['action'], 'block')
         for message, sid in (('hello', 'kohako-g2-main'), ('[kohako-decision] bad', 'kohako-g2-main'), ('[kohako-decision] reply decision=dec-event-1 operation=12345678', 'kohako-g2-cand-x')):
-            self.g2(message, sid); self.assertNotIn(sid, plugin._pending)
+            self.g2(message, sid); self.assertNotIn((sid, None), plugin._pending)
     def test_current_message_stored_differently(self):
-        self.tg([self.delivery, self.cur('[note] はい')]); self.assertIn('tg', plugin._pending)
-        self.tg([self.delivery]); self.assertIn('tg', plugin._pending)
+        self.tg([self.delivery, self.cur('[note] はい')]); self.assertIn(('tg', '1'), plugin._pending)
+        self.tg([self.delivery]); self.assertIn(('tg', '1'), plugin._pending)
     def test_history_without_current_message(self):
         # The previous Owner message ends the walk; it is not taken for the current message.
-        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}]); self.assertNotIn('tg', plugin._pending)
-        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}, self.cur()]); self.assertNotIn('tg', plugin._pending)
-        self.tg([self.delivery, self.cur()]); self.assertIn('tg', plugin._pending)
+        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}]); self.assertNotIn(('tg', '1'), plugin._pending)
+        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}, self.cur()]); self.assertNotIn(('tg', '1'), plugin._pending)
+        self.tg([self.delivery, self.cur()]); self.assertIn(('tg', '1'), plugin._pending)
     def test_repeated_identical_message_is_not_taken_for_current(self):
         # "はい" twice: a history without the current message ends with the previous "はい",
         # whose timestamp anchored an earlier turn, so the old notification is not connected.
         previous = self.cur()
-        self.tg([{'role': 'user', 'content': 'hello'}, previous]); self.assertNotIn('tg', plugin._pending)
+        self.tg([{'role': 'user', 'content': 'hello'}, previous]); self.assertNotIn(('tg', '1'), plugin._pending)
         with self.assertLogs(plugin.__name__, level='WARNING'):
             self.tg([self.delivery, previous])
-        self.assertEqual(plugin._pending['tg']['lost'], 'error'); self.assertIn('確認できない', self.gate('tg')['message'])
+        self.assertEqual(plugin._pending[('tg', '1')]['lost'], 'error'); self.assertIn('確認できない', self.gate('tg')['message'])
         self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
-        self.tg([{'role': 'user', 'content': 'hello'}, previous]); self.assertNotIn('tg', plugin._pending)  # no notification: unaffected
-        self.tg([self.delivery, previous, {'role': 'assistant', 'content': 'ok'}, self.cur()]); self.assertNotIn('tg', plugin._pending)
-        self.tg([self.delivery, self.cur()]); self.assertIn('tg', plugin._pending)
+        self.tg([{'role': 'user', 'content': 'hello'}, previous]); self.assertNotIn(('tg', '1'), plugin._pending)  # no notification: unaffected
+        self.tg([self.delivery, previous, {'role': 'assistant', 'content': 'ok'}, self.cur()]); self.assertNotIn(('tg', '1'), plugin._pending)
+        self.tg([self.delivery, self.cur()]); self.assertIn(('tg', '1'), plugin._pending)
         with self.assertLogs(plugin.__name__, level='WARNING'):
             self.tg([self.delivery, {'role': 'user', 'content': 'はい'}])  # unstamped: cannot be identified
-        self.assertEqual(plugin._pending['tg']['lost'], 'error')
+        self.assertEqual(plugin._pending[('tg', '1')]['lost'], 'error')
     def test_unrecorded_old_message_is_not_taken_for_current(self):
         # Without the current message, the history may end with an identical "はい" that was
         # never recorded (before the plugin, or pushed out of the record): not provably current.
@@ -377,12 +382,49 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(stamp=stamp):
                 with self.assertLogs(plugin.__name__, level='WARNING'):
                     self.tg([self.delivery, {'role': 'user', 'content': 'はい', 'timestamp': stamp}])
-                self.assertEqual(plugin._pending['tg']['lost'], 'error'); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+                self.assertEqual(plugin._pending[('tg', '1')]['lost'], 'error'); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
         self.tg([{'role': 'user', 'content': 'hello'}, self.cur()]); later = self.stamp
         with self.assertLogs(plugin.__name__, level='WARNING'):  # unrecorded but older than a recorded turn
             self.tg([self.delivery, {'role': 'user', 'content': 'はい', 'timestamp': later - 0.5}])
-        self.assertEqual(plugin._pending['tg']['lost'], 'error')
+        self.assertEqual(plugin._pending[('tg', '1')]['lost'], 'error')
         self.tg([self.delivery, self.cur()]); self.assertIsNone(self.gate('tg'))
+    def test_unrecorded_recent_message_before_record_is_not_current(self):
+        # A fresh "はい" sent just before the plugin started recording turns is not provably
+        # current: the first turn of a new record never connects to a notification.
+        os.unlink(plugin._turns_path('tg'))
+        old = {'role': 'user', 'content': 'はい', 'timestamp': time.time() - 120}
+        with self.assertLogs(plugin.__name__, level='WARNING'):
+            self.tg([self.delivery, old])
+        self.assertEqual(plugin._pending[('tg', '1')]['lost'], 'error'); self.assertEqual(self.gate('tg')['action'], 'block')
+        self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+        self.stamp = time.time()  # the next Owner message, sent after the record began
+        self.tg([self.delivery, old, {'role': 'assistant', 'content': 'ok'}, self.delivery, self.cur()], turn='2')
+        self.assertIsNone(plugin._pending[('tg', '2')]['lost'])
+    def test_concurrent_turns_of_one_session_keep_their_own_state(self):
+        # A second turn starting while the first one (answering a notification) still runs
+        # must neither drop the first turn's claim nor let it run unclaimed.
+        call = lambda turn, c, status='ok', command='update BOXP-1 --lane Ready': self._turn_gate(turn, c, status, command)
+        self.tg(turn='t1'); self.assertIsNone(call('t1', 'a'))
+        plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message='hello', turn_id='t2',
+                     conversation_history=[self.delivery, self.cur(), {'role': 'assistant', 'content': 'ok'}, self.cur('hello')])
+        self.assertIn(('tg', 't1'), plugin._pending)
+        self.assertIsNone(call('t2', 'b'))  # not a reply: no claim involved
+        self.assertIsNone(call('t1', 'c'))  # still claimed by t1
+        self.tg(turn='t3'); self.assertEqual(call('t3', 'd')['action'], 'block')  # same notification again
+        self.assertIn('[kohako-decision] done', plugin._transform(session_id='tg', turn_id='t1', response_text='ok'))
+        self.assertIsNone(plugin._transform(session_id='tg', turn_id='t3', response_text='ok'))
+        plugin._post(session_id='tg', turn_id='t2'); self.assertEqual(self.data()['state'], 'claimed')
+        plugin._post(session_id='tg', turn_id='t1'); self.assertEqual(self.data()['state'], 'done')
+        plugin._post(session_id='tg', turn_id='t3'); self.assertEqual(self.data()['via'], 'telegram')
+        # Hooks without a turn id cannot be attributed while two turns are open: fail closed.
+        self.tg(turn='t4'); self.tg(turn='t5')
+        self.assertEqual(plugin._gate(session_id='tg', tool_name='terminal', args={'command': GateTests.HELPER + ' update BOXP-1 --lane Ready'}, tool_call_id='call_' + 'e' * 32)['action'], 'block')
+    def _turn_gate(self, turn, c, status, command):
+        call = 'call_' + c * 32
+        result = plugin._gate(session_id='tg', tool_name='terminal', args={'command': GateTests.HELPER + ' ' + command}, tool_call_id=call, turn_id=turn)
+        if status and not (result and result.get('action') == 'block'):
+            plugin._after(session_id='tg', tool_name='terminal', tool_call_id=call, status=status, turn_id=turn)
+        return result
     def test_expired_done_does_not_block_its_notification(self):
         path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path))
         with open(path, 'w') as f: json.dump({'state': 'done', 'via': 'telegram', 'at': time.time() - 8 * 86400}, f)
@@ -391,7 +433,7 @@ class DecisionTests(unittest.TestCase):
         self.assertIn('既に対応済み', self.tg()['context'])
     def test_webhook_turn_is_not_a_reply(self):
         plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message=self.delivery['content'], turn_id='w', conversation_history=[{'role': 'user', 'content': self.delivery['content'], 'timestamp': 1.0}])
-        self.assertNotIn('tg', plugin._pending)
+        self.assertNotIn(('tg', '1'), plugin._pending)
     def test_inspection_commands_do_not_claim(self):
         self.tg()
         for command in ('date', 'git status', 'git log --oneline -5', 'gh pr view 929', 'gh pr checks 929 --repo boxp/lolice', 'ls -la', 'kubectl get pods -n hermes-agent -o wide'):
@@ -403,7 +445,7 @@ class DecisionTests(unittest.TestCase):
                 self.assertFalse(plugin._read_only_command(command))
         self.g2(); self.assertIsNone(self.gate('kohako-g2-main'))
     def test_non_owner_and_group(self):
-        self.tg(sender_id='other'); self.assertNotIn('tg', plugin._pending)
-        self.db.session['chat_type'] = 'group'; self.tg(); self.assertNotIn('tg', plugin._pending)
+        self.tg(sender_id='other'); self.assertNotIn(('tg', '1'), plugin._pending)
+        self.db.session['chat_type'] = 'group'; self.tg(); self.assertNotIn(('tg', '1'), plugin._pending)
 
 if __name__ == '__main__': unittest.main()

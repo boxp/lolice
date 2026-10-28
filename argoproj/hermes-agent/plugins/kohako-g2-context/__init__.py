@@ -14,6 +14,8 @@
   if one ran ok, is released if all were blocked/denied (nothing ran), and stays claimed otherwise:
   an error may come after a partial change or a timed-out external success, so it is treated as
   result unknown and never re-run by either entry point. A detection error blocks side effects.
+  Decision state is kept per turn (session id + turn id), so concurrent turns of one session
+  never drop or borrow each other's claim.
 """
 import contextlib
 import fcntl
@@ -96,10 +98,10 @@ def _hook(*, session_id=None, platform=None, sender_id=None, **kwargs):
         # Whether this turn answers a notification is unknown, so side effects fail closed.
         if platform == 'telegram' or (platform == 'api_server' and isinstance(session_id, str) and session_id.startswith('kohako-g2-') and not session_id.startswith('kohako-g2-cand-') and str(kwargs.get('user_message', '')).startswith('[kohako-decision]')):
             with _lock:
-                _pending[session_id] = {'decisionId': 'unknown', 'lost': 'error', 'claimed': False}
+                _pending[(session_id, kwargs.get('turn_id'))] = {'decisionId': 'unknown', 'lost': 'error', 'claimed': False}
         else:
             with _lock:
-                _pending.pop(session_id, None)
+                _pending.pop((session_id, kwargs.get('turn_id')), None)
     return {'context': '\n\n'.join(contexts)} if contexts else None
 
 
@@ -194,7 +196,7 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
     if not relevant:
         return None
     with _lock:
-        _pending.pop(sid, None)
+        _pending.pop((sid, turn_id), None)
     event = operation = via = None
     if platform == 'api_server':
         if sid.startswith('kohako-g2-cand-') or not isinstance(user_message, str):
@@ -241,8 +243,8 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
     pending = {'decisionId': decision, 'eventId': event, 'via': via, 'operationId': operation, 'claimed': False, 'lost': lost,
                'inflight': set(), 'ok': False, 'unknown': False}
     with _lock:
-        _pending[sid] = pending
-        _pending.move_to_end(sid)
+        _pending[(sid, turn_id)] = pending
+        _pending.move_to_end((sid, turn_id))
         while len(_pending) > 256:
             _pending.popitem(last=False)
     if lost:
@@ -254,29 +256,52 @@ def _anchor(sid, message):
     stamp = message.get('timestamp')
     if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
         raise ValueError('current message has no timestamp')
-    # Only a fresh timestamp newer than every earlier turn is the current message: an
-    # unrecorded old one (before this plugin, or pushed out of the record) is ambiguous.
-    if not -60 <= time.time() - stamp <= _TURN_FRESH:
-        raise ValueError('current message timestamp is not fresh')
+    # Only a fresh timestamp newer than every earlier turn is the current message. Every Owner
+    # turn since the record began ('since') is recorded, so an unrecorded message from before
+    # that (before this plugin) or pushed out of the record (older than what is kept) is
+    # ambiguous; the first turn of a new record is therefore never taken as a reply.
+    fresh = -60 <= time.time() - stamp <= _TURN_FRESH
     key = f'{stamp!r}'
-    path = os.path.join(os.environ.get('KOHAKO_DECISION_STORE', _DECISION_STORE), 'turns', hashlib.sha256(sid.encode()).hexdigest()[:32] + '.json')
+    path = _turns_path(sid)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with _lock:
         try:
             with open(path) as f:
-                seen = json.load(f)
+                record = json.load(f)
         except FileNotFoundError:
-            seen = []
-        if not isinstance(seen, list):
+            record = {'since': time.time(), 'seen': []}
+        if not isinstance(record, dict) or not isinstance(record.get('seen'), list) \
+                or not isinstance(record.get('since'), (int, float)) or isinstance(record.get('since'), bool):
             raise ValueError('unreadable turn anchors')
-        if key in seen or any(_stamp_value(k) >= stamp for k in seen):
-            # An earlier turn's message (the history lacks the current one, or a re-drive):
-            # whether this turn answers a notification is unknown.
-            raise ValueError('message is an earlier turn')
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
-        with os.fdopen(fd, 'w') as f:
-            json.dump((seen + [key])[-64:], f)
-        os.replace(tmp, path)
+        seen = record['seen']
+        # An earlier turn's message (the history lacks the current one, or a re-drive).
+        earlier = key in seen or any(_stamp_value(k) >= stamp for k in seen)
+        if fresh and key not in seen:
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+            with os.fdopen(fd, 'w') as f:
+                json.dump({'since': record['since'], 'seen': (seen + [key])[-64:]}, f)
+            os.replace(tmp, path)
+    if not fresh:
+        raise ValueError('current message timestamp is not fresh')
+    if stamp <= record['since']:
+        raise ValueError('message predates the turn record')
+    if earlier:
+        raise ValueError('message is an earlier turn')
+
+
+def _turns_path(sid):
+    return os.path.join(os.environ.get('KOHAKO_DECISION_STORE', _DECISION_STORE), 'turns', hashlib.sha256(sid.encode()).hexdigest()[:32] + '.json')
+
+
+def _find(sid, turn_id):
+    # Caller holds _lock. Exact (session, turn) first; a hook without a turn id (or a turn
+    # recorded without one) only matches when it is the session's single decision turn.
+    if (sid, turn_id) in _pending:
+        return (sid, turn_id), _pending[(sid, turn_id)]
+    keys = [k for k in _pending if k[0] == sid and (turn_id is None or k[1] is None)]
+    if len(keys) == 1:
+        return keys[0], _pending[keys[0]]
+    return None, ({'decisionId': 'unknown', 'lost': 'error', 'claimed': False} if keys else None)
 
 
 def _stamp_value(key):
@@ -334,12 +359,12 @@ def _claim(pending):
     return None
 
 
-def _decision_gate(sid, tool_name, args, tool_call_id=None):
+def _decision_gate(sid, tool_name, args, tool_call_id=None, turn_id=None):
     if tool_name in _FREE_TOOLS or tool_name in _PATH_TOOLS or (tool_name == 'terminal' and isinstance(args.get('command'), str) and not args.get('background')
                                                                 and (_BOARD_READ.fullmatch(args['command'].strip()) or _read_only_command(args['command']))):
         return None
     with _lock:
-        pending = _pending.get(sid)
+        _, pending = _find(sid, turn_id)
         if not pending:
             return None
         if not pending['claimed'] and not pending['lost']:
@@ -359,10 +384,10 @@ def _decision_gate(sid, tool_name, args, tool_call_id=None):
         return None
 
 
-def _after(*, session_id=None, tool_call_id=None, status=None, **kwargs):
+def _after(*, session_id=None, tool_call_id=None, status=None, turn_id=None, **kwargs):
     try:
         with _lock:
-            pending = _pending.get(session_id)
+            _, pending = _find(session_id, turn_id)
             if not pending or not pending.get('claimed') or tool_call_id not in pending['inflight']:
                 return
             pending['inflight'].discard(tool_call_id)
@@ -374,10 +399,10 @@ def _after(*, session_id=None, tool_call_id=None, status=None, **kwargs):
         _log.warning('kohako-decision: outcome error (%s)', type(exc).__name__)
 
 
-def _transform(*, response_text=None, session_id=None, **kwargs):
+def _transform(*, response_text=None, session_id=None, turn_id=None, **kwargs):
     try:
         with _lock:
-            pending = _pending.get(session_id)
+            _, pending = _find(session_id, turn_id)
             if pending and pending['claimed'] and pending['ok']:
                 return response_text + '\n\n[kohako-decision] done decision=' + pending['decisionId']
     except Exception as exc:
@@ -385,10 +410,13 @@ def _transform(*, response_text=None, session_id=None, **kwargs):
     return None
 
 
-def _post(*, session_id=None, **kwargs):
+def _post(*, session_id=None, turn_id=None, **kwargs):
     try:
         with _lock:
-            pending = _pending.pop(session_id, None)
+            key, pending = _find(session_id, turn_id)
+            if key is None:
+                return  # ambiguous or none: any claim stays claimed (result unknown)
+            _pending.pop(key)
         if not pending or not pending['claimed']:
             return
         if pending['ok']:
@@ -602,7 +630,7 @@ def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kw
         result = _decide(tool_name, args, sid, tool_call_id)
         if result and result.get('action') == 'block':
             return result
-        return _decision_gate(sid, tool_name, args, tool_call_id) or result
+        return _decision_gate(sid, tool_name, args, tool_call_id, kwargs.get('turn_id')) or result
     except Exception as exc:
         _log.warning('kohako-g2-gate: error (%s)', type(exc).__name__)
         # Fail closed for G2 sessions and sessions whose platform is unknown (pre_llm_call records
@@ -610,7 +638,7 @@ def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kw
         with _lock:
             known = _platforms.get(sid)
         with _lock:
-            pending = sid in _pending
+            pending = any(k[0] == sid for k in _pending)
         return None if not pending and known is not None and known != 'api_server' else {'action': 'block', 'message': _BLOCK}
 
 

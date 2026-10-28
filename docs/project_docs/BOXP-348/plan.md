@@ -45,3 +45,8 @@
 
 - 未記録の過去発言の誤認: 履歴に現在発言がなく、末尾が未記録の同じ発言（plugin 導入前や記録 64 件から外れたもの）だと現在発言と誤認し古い通知へ接続し得た。現在発言と認めるのは timestamp が現在時刻から -60 秒〜600 秒以内、かつ記録済みの全ターンより新しい時だけにし、それ以外は曖昧として通知が見つかれば副作用 tool を block（fail closed）。
 - 期限切れ `done` が残り続ける: `_existing` が `done` の期限を見ず、同じ通知への返答が `_claim`（GC）に届かないため 7 日を過ぎても block され続けた。期限切れ `done` は未 claim 扱いにし、次の claim の GC（store lock 下）で消してから O_EXCL claim する。
+
+## 追記（plugin 1.3.8, codex-review 対応）
+
+- 同一 session の並行ターン: pending を session 単位で持ち、次ターンの `pre_llm_call` が先行ターンの判定を消して、先行ターンの副作用 tool が claim なしで通り得た。Hermes は `pre_llm_call`/`pre_tool_call`/`post_tool_call`/`transform_llm_output`/`post_llm_call` の全てに `turn_id` を渡す（稼働 pod の turn_context.py・turn_finalizer.py・model_tools.py で確認）ので、pending を (session id, turn id) 単位で持つ。turn id の無い hook は、その session に開いている判定ターンが 1 つだけの時だけ対応付け、2 つ以上なら副作用 tool を block（fail closed）し、確定もしない（claim は結果不明のまま残る）。
+- 未記録の直近の同文発言: 鮮度と記録の欠如だけでは現在発言と言えない（導入直前の「はい」）。ターン記録に開始時刻 `since` を持たせ、Owner Telegram の各ターンの現在発言をそれ以降すべて記録する。現在発言と認めるのは `since` より後・記録済み全ターンより新しい・新鮮、の全てを満たす時だけ。記録を始めた最初のターン（導入直後）は返答扱いせず、通知が見つかれば副作用 tool を block する。
