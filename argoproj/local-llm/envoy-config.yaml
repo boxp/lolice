@@ -35,6 +35,11 @@ data:
                             - "*"
                           routes:
                             - match:
+                                path: /health
+                              route:
+                                cluster: llama_health
+                                timeout: 5s
+                            - match:
                                 prefix: /
                               route:
                                 cluster: llama_server
@@ -42,10 +47,123 @@ data:
                                 max_stream_duration:
                                   max_stream_duration: 0s
                     http_filters:
+                      - name: envoy.filters.http.lua
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                          default_source_code:
+                            inline_string: |
+                              function envoy_on_request(handle)
+                                local state = "invalid"
+                                local ok, value = pcall(function()
+                                  local f = io.open("/etc/llm-admission/state", "r")
+                                  if not f then return "invalid" end
+                                  local v = f:read(256)
+                                  f:close()
+                                  return v
+                                end)
+                                if ok and value then
+                                  state = value:match("^%s*(%a+:[%w_-]+)%s*$") or "invalid"
+                                end
+                                local mode = state:match("^(%a+):")
+                                local path = handle:headers():get(":path")
+                                local method = handle:headers():get(":method")
+                                if path == "/__board_pilot__/admission" and method == "GET" then
+                                  handle:respond({[":status"] = "200", ["content-type"] = "text/plain",
+                                    ["cache-control"] = "no-store"}, state .. "\n")
+                                  return
+                                end
+                                -- Probes never invoke inference, even while fenced.
+                                if path == "/health" and method == "GET" then return end
+                                if mode ~= "open" then
+                                  handle:respond({[":status"] = "503", ["content-type"] = "text/plain",
+                                    ["retry-after"] = "60"}, "local-llm admission closed\n")
+                                end
+                              end
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+        # Only expose read-only admin paths. The mutation-capable admin socket
+        # is loopback-only on 9903; LAN Service still exposes only inference.
+        - name: local_llm_observation
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 9901
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: local_llm_observation
+                    route_config:
+                      name: observation
+                      virtual_hosts:
+                        - name: observation
+                          domains: ["*"]
+                          routes:
+                            - match:
+                                path: /__board_pilot__/slots
+                                headers:
+                                  - name: ":method"
+                                    string_match:
+                                      exact: GET
+                              route:
+                                cluster: llama_health
+                                prefix_rewrite: /slots
+                                timeout: 5s
+                            - match:
+                                path: /__board_pilot__/models
+                                headers:
+                                  - name: ":method"
+                                    string_match:
+                                      exact: GET
+                              route:
+                                cluster: llama_health
+                                prefix_rewrite: /models
+                                timeout: 5s
+                            - match:
+                                safe_regex:
+                                  regex: "/(stats|stats/prometheus|server_info)"
+                                headers:
+                                  - name: ":method"
+                                    string_match:
+                                      exact: GET
+                              route:
+                                cluster: envoy_admin
+                                timeout: 5s
+                            - match:
+                                prefix: /
+                              direct_response:
+                                status: 404
+                    http_filters:
                       - name: envoy.filters.http.router
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
       clusters:
+        - name: envoy_admin
+          connect_timeout: 1s
+          type: STATIC
+          load_assignment:
+            cluster_name: envoy_admin
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: 9903
+        - name: llama_health
+          connect_timeout: 1s
+          type: STATIC
+          load_assignment:
+            cluster_name: llama_health
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: 8081
         - name: llama_server
           connect_timeout: 5s
           type: STATIC
@@ -62,5 +180,5 @@ data:
     admin:
       address:
         socket_address:
-          address: 0.0.0.0
-          port_value: 9901
+          address: 127.0.0.1
+          port_value: 9903
