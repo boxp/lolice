@@ -6,4 +6,4 @@ kind: ConfigMap
 metadata:
   name: llama-server-admission
 data:
-  state: open:baseline
+  state: closed:BOXP-344-20261028T053334Z
