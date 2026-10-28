@@ -27,3 +27,8 @@
 
 - Telegram の現在発言の除外は、履歴末尾の user 発言が現在の発言と一致（空白正規化後の包含）する時だけ行う。履歴に現在の発言が無く末尾が前回の Owner 発言なら、そこで探索を止め古い通知へ結び付けない。
 - `date`・`git status/log/diff/show`・`gh pr view/checks` 等のシェル構文を含まない簡単な確認コマンドは claim しない（承認ゲートは従来どおり適用）。`--output`/`--pre` 等の書き込み・実行系オプションや連結・リダイレクト・置換を含むものは従来どおり副作用扱い。
+
+## 追記（plugin 1.3.4, codex-review 対応）
+
+- 「はい」が続く等、同じ文面の過去発言を現在の発言と取り違えないよう、現在の発言は本文一致に加えて Hermes がターン開始時に付ける `timestamp` で識別する。各 Owner Telegram ターンの現在発言 timestamp を Hermes PVC の `kohako-decisions/turns/<session hash>.json`（最新64件）に記録し、既に前ターンの現在発言として記録済み・timestamp なし・記録失敗の発言を末尾に持つ履歴で通知が見つかった場合は、検出エラーとして副作用toolを block（fail closed、読み取りは可、claim しない）。通知が見つからない通常ターンには影響しない。
+- `[Webhook delivery:` で始まる通知ターン自体は返答として扱わない。

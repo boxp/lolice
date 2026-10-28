@@ -221,8 +221,11 @@ class DecisionTests(unittest.TestCase):
         self.factory.start(); self.addCleanup(self.factory.stop)
         plugin._pending.clear(); plugin._injected.clear()
         self.delivery = {'role': 'assistant', 'content': '[Webhook delivery: task-board]\n【Task Board 通知】BOXP-1 event=old event=event-1'}
+    def cur(self, content='はい'):
+        self.stamp = getattr(self, 'stamp', 1000.0) + 1
+        return {'role': 'user', 'content': content, 'timestamp': self.stamp}
     def tg(self, history=None, sid='tg', turn='1', **kwargs):
-        return plugin._hook(session_id=sid, platform='telegram', sender_id=kwargs.get('sender_id', '123'), user_message='はい', turn_id=turn, conversation_history=history if history is not None else [self.delivery, {'role': 'user', 'content': 'はい'}])
+        return plugin._hook(session_id=sid, platform='telegram', sender_id=kwargs.get('sender_id', '123'), user_message='はい', turn_id=turn, conversation_history=history if history is not None else [self.delivery, self.cur()])
     def g2(self, message='[kohako-decision] reply decision=dec-event-1 operation=12345678', sid='kohako-g2-main'):
         return plugin._hook(session_id=sid, platform='api_server', user_message=message)
     def gate(self, sid, command='update BOXP-1 --lane Ready', call='call_' + 'a' * 32, status='ok'):
@@ -301,10 +304,10 @@ class DecisionTests(unittest.TestCase):
         self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
         self.g2(); self.assertIsNone(self.gate('kohako-g2-main'))
     def test_old_redelivery_and_restart(self):
-        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}, {'role': 'user', 'content': 'はい'}])
+        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}, self.cur()])
         self.assertNotIn('tg', plugin._pending)
         self.assertIsNone(self.gate('tg'))
-        self.tg([self.delivery, self.delivery, {'role': 'user', 'content': 'はい'}]); self.assertIsNone(self.gate('tg'))
+        self.tg([self.delivery, self.delivery, self.cur()]); self.assertIsNone(self.gate('tg'))
         plugin._pending.clear(); self.g2(); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
     def test_unparsable_and_invalid(self):
         path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path))
@@ -313,13 +316,31 @@ class DecisionTests(unittest.TestCase):
         for message, sid in (('hello', 'kohako-g2-main'), ('[kohako-decision] bad', 'kohako-g2-main'), ('[kohako-decision] reply decision=dec-event-1 operation=12345678', 'kohako-g2-cand-x')):
             self.g2(message, sid); self.assertNotIn(sid, plugin._pending)
     def test_current_message_stored_differently(self):
-        self.tg([self.delivery, {'role': 'user', 'content': '[note] はい'}]); self.assertIn('tg', plugin._pending)
+        self.tg([self.delivery, self.cur('[note] はい')]); self.assertIn('tg', plugin._pending)
         self.tg([self.delivery]); self.assertIn('tg', plugin._pending)
     def test_history_without_current_message(self):
         # The previous Owner message ends the walk; it is not taken for the current message.
         self.tg([self.delivery, {'role': 'user', 'content': 'previous'}]); self.assertNotIn('tg', plugin._pending)
-        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}, {'role': 'user', 'content': 'はい'}]); self.assertNotIn('tg', plugin._pending)
-        self.tg([self.delivery, {'role': 'user', 'content': 'はい'}]); self.assertIn('tg', plugin._pending)
+        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}, self.cur()]); self.assertNotIn('tg', plugin._pending)
+        self.tg([self.delivery, self.cur()]); self.assertIn('tg', plugin._pending)
+    def test_repeated_identical_message_is_not_taken_for_current(self):
+        # "はい" twice: a history without the current message ends with the previous "はい",
+        # whose timestamp anchored an earlier turn, so the old notification is not connected.
+        previous = self.cur()
+        self.tg([{'role': 'user', 'content': 'hello'}, previous]); self.assertNotIn('tg', plugin._pending)
+        with self.assertLogs(plugin.__name__, level='WARNING'):
+            self.tg([self.delivery, previous])
+        self.assertEqual(plugin._pending['tg']['lost'], 'error'); self.assertIn('確認できない', self.gate('tg')['message'])
+        self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+        self.tg([{'role': 'user', 'content': 'hello'}, previous]); self.assertNotIn('tg', plugin._pending)  # no notification: unaffected
+        self.tg([self.delivery, previous, {'role': 'assistant', 'content': 'ok'}, self.cur()]); self.assertNotIn('tg', plugin._pending)
+        self.tg([self.delivery, self.cur()]); self.assertIn('tg', plugin._pending)
+        with self.assertLogs(plugin.__name__, level='WARNING'):
+            self.tg([self.delivery, {'role': 'user', 'content': 'はい'}])  # unstamped: cannot be identified
+        self.assertEqual(plugin._pending['tg']['lost'], 'error')
+    def test_webhook_turn_is_not_a_reply(self):
+        plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message=self.delivery['content'], turn_id='w', conversation_history=[{'role': 'user', 'content': self.delivery['content'], 'timestamp': 1.0}])
+        self.assertNotIn('tg', plugin._pending)
     def test_inspection_commands_do_not_claim(self):
         self.tg()
         for command in ('date', 'git status', 'git log --oneline -5', 'gh pr view 929', 'gh pr checks 929 --repo boxp/lolice', 'ls -la', 'kubectl get pods -n hermes-agent -o wide'):

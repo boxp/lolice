@@ -184,11 +184,19 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         if match:
             event, operation, via = match.group(1)[4:], 'g2-' + match.group(2), 'g2'
     elif _owner(sid, platform, sender_id) and isinstance(user_message, str):
+        if user_message.startswith('[Webhook delivery:'):
+            return None  # a notification turn itself is not a reply to it
         history = list(conversation_history or [])
-        # Hermes appends the current Owner message last (its stored form may differ from
-        # user_message, e.g. with gateway notes); skip it only when it is that message, so an
-        # earlier Owner message still ends the walk when the history lacks the current one.
+        # Hermes appends the current Owner message last, stamped with this turn's timestamp
+        # (its stored form may differ from user_message, e.g. with gateway notes). Text alone
+        # cannot tell it from an earlier identical message ("はい" twice), so it is identified
+        # by its timestamp, which must not be the anchor of an earlier turn.
+        ambiguous = None
         if history and _is_current(history[-1], user_message):
+            try:
+                _anchor(sid, history[-1])
+            except (OSError, ValueError) as exc:
+                ambiguous = exc  # fatal only when the walk finds a notification
             history.pop()
         for message in reversed(history):
             if not isinstance(message, dict):
@@ -204,6 +212,8 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
                     event = match.group(1)
                     operation = 'tg-' + str(turn_id or hashlib.sha256((sid + user_message).encode()).hexdigest()[:16])
                     via = 'telegram'
+                    if ambiguous:
+                        raise ambiguous
                     break
             if role == 'user' and not content.startswith('[Webhook delivery:'):
                 break
@@ -221,6 +231,31 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
     if lost:
         return f'Kohako: この Task Board 通知（event={event}）には {_label(lost)} で既に対応済み（または対応中・結果不明）です。同じ操作は再実行できません。必要なら状況だけ答えてください。'
     return None
+
+
+def _anchor(sid, message):
+    stamp = message.get('timestamp')
+    if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
+        raise ValueError('current message has no timestamp')
+    key = f'{stamp!r}'
+    path = os.path.join(os.environ.get('KOHAKO_DECISION_STORE', _DECISION_STORE), 'turns', hashlib.sha256(sid.encode()).hexdigest()[:32] + '.json')
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with _lock:
+        try:
+            with open(path) as f:
+                seen = json.load(f)
+        except FileNotFoundError:
+            seen = []
+        if not isinstance(seen, list):
+            raise ValueError('unreadable turn anchors')
+        if key in seen:
+            # An earlier turn's message (the history lacks the current one, or a re-drive):
+            # whether this turn answers a notification is unknown.
+            raise ValueError('message is an earlier turn')
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+        with os.fdopen(fd, 'w') as f:
+            json.dump((seen + [key])[-64:], f)
+        os.replace(tmp, path)
 
 
 def _is_current(message, user_message):
