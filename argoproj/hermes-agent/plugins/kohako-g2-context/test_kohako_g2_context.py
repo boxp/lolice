@@ -252,6 +252,13 @@ class DecisionTests(unittest.TestCase):
         plugin._post(session_id='kohako-g2-main'); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
         self.assertNotIn('既に対応済み', str(self.tg())); self.assertIsNone(self.gate('tg'))
         plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done'); self.assertEqual(self.data()['via'], 'telegram')
+    def test_release_after_other_turn_started_allows_claim(self):
+        # G2 claims, Telegram's turn starts (sees G2 as owner), then G2's operations are all denied.
+        self.g2(); self.assertIsNone(self.gate('kohako-g2-main', status='blocked'))
+        self.assertIn('既に対応済み', str(self.tg())); self.assertEqual(self.gate('tg')['action'], 'block')
+        plugin._post(session_id='kohako-g2-main'); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+        self.assertIsNone(self.gate('tg', call='call_' + 'c' * 32))
+        plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done'); self.assertEqual(self.data()['via'], 'telegram')
     def test_error_stays_claimed_and_is_not_rerun(self):
         # An error may follow a partial change or a timed-out external success: result unknown.
         self.tg(); self.assertIsNone(self.gate('tg', status='error'))

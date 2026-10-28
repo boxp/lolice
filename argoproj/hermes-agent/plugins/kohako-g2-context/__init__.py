@@ -385,7 +385,9 @@ def _decision_gate(sid, tool_name, args, tool_call_id=None, turn_id=None):
         _, pending = _find(sid, turn_id)
         if not pending:
             return None
-        if not pending['claimed'] and not pending['lost']:
+        # 'lost' from pre_llm_call is only a snapshot: the other route may have released its
+        # claim since (all of its operations denied), so retry the atomic claim at each operation.
+        if not pending['claimed'] and pending['lost'] != 'error':
             try:
                 pending['lost'] = _claim(pending)
             except OSError as exc:

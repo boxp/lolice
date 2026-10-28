@@ -54,3 +54,7 @@
 ## 追記（plugin 1.3.9, codex-review 対応）
 
 - 判定上限での実行中ターン削除: pending が 256 件を超えると最古の判定を無条件に削除し、そのターンが後で副作用 tool を呼ぶと判定なしとして gate を通り、もう一方の経路の claim 済みでも重複実行し得た。開いているターンの判定は追い出さず、`post_llm_call` で外す（`post_llm_call` に届かなかったターンだけ 24 時間で期限切れ）。期限切れを除いても上限なら、新しいターンの判定を fail closed（claim せず副作用 tool を block）にする。
+
+## 追記（plugin 1.3.10, codex-review 対応）
+
+- pre_llm_call 時点の「他経路で対応済み」判定はスナップショットに過ぎないため、副作用 tool ごとに原子的 claim を再試行する。他経路の操作がすべて拒否され claim が解放された後は、もう一方の経路で対応できる（claim 済みなら従来どおり block）。判定不能（error）は引き続き fail closed。
