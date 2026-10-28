@@ -292,6 +292,21 @@ class DecisionTests(unittest.TestCase):
                 self.assertIsNone(self.gate(sid, 'show BOXP-1'))
                 self.assertIsNone(plugin._gate(session_id=sid, tool_name='read_file', args={'path': '/home/boxp/Documents/obsidian-headless/BOXP/a'}))
                 self.assertEqual(self.gate(sid)['action'], 'block')
+    def test_notice_format_matches_bff(self):
+        # Every notification the BFF lists for a G2 reply must be claimable from Telegram too.
+        for content in ('[Webhook delivery: task-board]\n【Task Board 通知】 BOXP-1 ...\nevent=event-1',
+                        '  [Webhook delivery: task-board] 【Task Board 通知】\u3000BOXP-1 event=event-1',
+                        '[Webhook delivery: task-board]\n【Task Board 通知】ABC-1 event=old\nevent=event-1'):
+            with self.subTest(content=content):
+                if os.path.exists(plugin._path('dec-event-1')): os.unlink(plugin._path('dec-event-1'))
+                plugin._pending.clear()
+                self.tg(history=[{'role': 'assistant', 'content': content}, self.cur()]); self.assertIsNone(self.gate('tg'))
+                self.assertIn('既に対応済み', self.g2()['context']); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
+        for content in ('[Webhook delivery: task-board]\n【Task Board 通知】BOXP-1 xevent=event-1',
+                        '[Webhook delivery: task-board]\n【Task Board 通知】BOXP-1x event=event-1',
+                        '[Webhook delivery: task-board]\n[SILENT] 【Task Board 通知】BOXP-1 event=event-1'):
+            with self.subTest(ignored=content):
+                self.assertIsNone(plugin._notice_event(content))
     def test_race(self):
         pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via}
         results = []

@@ -142,7 +142,20 @@ def _context(session_id, platform, sender_id):
 
 
 _MARKER = re.compile(r'\[kohako-decision\] reply decision=(dec-[A-Za-z0-9._:-]{1,160}) operation=([A-Za-z0-9-]{8,64})')
-_EVENT = re.compile(r'event=([A-Za-z0-9._:-]{1,160})(?![A-Za-z0-9._:-])')
+_EVENT = re.compile(r'\bevent=([A-Za-z0-9._:-]{1,160})(?![A-Za-z0-9._:-])')
+# Same recognition as the BFF (apps/kohako-bff/src/notifications.ts extractNotices), so a
+# notification that one route can answer is always claimable from the other one too.
+_DELIVERY = re.compile(r'\s*\[Webhook delivery: task-board\]')
+_TICKET = re.compile(r'【Task Board 通知】\s*[A-Z]+-[0-9]+\b')
+
+
+def _notice_event(content):
+    prefix = _DELIVERY.match(content)
+    if not prefix or '[SILENT]' in content:
+        return None
+    body = content[prefix.end():].strip()
+    events = _EVENT.findall(body)
+    return events[-1] if _TICKET.match(body) and events else None
 
 
 def _path(decision_id):
@@ -184,7 +197,7 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         if match:
             event, operation, via = match.group(1)[4:], 'g2-' + match.group(2), 'g2'
     elif _owner(sid, platform, sender_id) and isinstance(user_message, str):
-        if user_message.startswith('[Webhook delivery:'):
+        if user_message.lstrip().startswith('[Webhook delivery:'):
             return None  # a notification turn itself is not a reply to it
         history = list(conversation_history or [])
         # Hermes appends the current Owner message last, stamped with this turn's timestamp
@@ -204,18 +217,16 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
             role, content = message.get('role'), message.get('content')
             if not isinstance(content, str):
                 continue
-            if role in ('user', 'assistant') and content.startswith('[Webhook delivery: task-board]') and '[SILENT]' not in content:
-                body = content[len('[Webhook delivery: task-board]'):].lstrip()
-                last = body.rfind('event=')
-                match = _EVENT.match(body, last) if last >= 0 else None
-                if re.match(r'【Task Board 通知】BOXP-[0-9]+', body) and match:
-                    event = match.group(1)
+            notice = _notice_event(content) if role in ('user', 'assistant') else None
+            if notice:
+                event = notice
+                if event:
                     operation = 'tg-' + str(turn_id or hashlib.sha256((sid + user_message).encode()).hexdigest()[:16])
                     via = 'telegram'
                     if ambiguous:
                         raise ambiguous
                     break
-            if role == 'user' and not content.startswith('[Webhook delivery:'):
+            if role == 'user' and not content.lstrip().startswith('[Webhook delivery:'):
                 break
     if not event:
         return None
@@ -264,7 +275,7 @@ def _is_current(message, user_message):
     content = message.get('content')
     if not isinstance(content, str):
         return True  # multimodal content cannot be compared and is skipped by the walk anyway
-    if content.startswith('[Webhook delivery:'):
+    if content.lstrip().startswith('[Webhook delivery:'):
         return False
     stored, current = ' '.join(content.split()), ' '.join(user_message.split())
     return bool(current) and (current in stored or (bool(stored) and stored in current))

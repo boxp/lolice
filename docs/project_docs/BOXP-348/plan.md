@@ -32,3 +32,7 @@
 
 - 「はい」が続く等、同じ文面の過去発言を現在の発言と取り違えないよう、現在の発言は本文一致に加えて Hermes がターン開始時に付ける `timestamp` で識別する。各 Owner Telegram ターンの現在発言 timestamp を Hermes PVC の `kohako-decisions/turns/<session hash>.json`（最新64件）に記録し、既に前ターンの現在発言として記録済み・timestamp なし・記録失敗の発言を末尾に持つ履歴で通知が見つかった場合は、検出エラーとして副作用toolを block（fail closed、読み取りは可、claim しない）。通知が見つからない通常ターンには影響しない。
 - `[Webhook delivery:` で始まる通知ターン自体は返答として扱わない。
+
+## 追記（plugin 1.3.5, codex-review 対応）
+
+- Telegram 側の通知認識を BFF（`apps/kohako-bff/src/notifications.ts` の `extractNotices`）と揃える: 先頭空白を許す `[Webhook delivery: task-board]`、`【Task Board 通知】` とチケット番号の間の空白（全角含む）、`[A-Z]+-数字` のチケット、語境界付きの最後の `event=`、`[SILENT]` 除外。G2 で返答できる通知は必ず Telegram 側でも claim 対象になり、空白の有無で片側だけ claim されない。
