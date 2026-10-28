@@ -50,3 +50,7 @@
 
 - 同一 session の並行ターン: pending を session 単位で持ち、次ターンの `pre_llm_call` が先行ターンの判定を消して、先行ターンの副作用 tool が claim なしで通り得た。Hermes は `pre_llm_call`/`pre_tool_call`/`post_tool_call`/`transform_llm_output`/`post_llm_call` の全てに `turn_id` を渡す（稼働 pod の turn_context.py・turn_finalizer.py・model_tools.py で確認）ので、pending を (session id, turn id) 単位で持つ。turn id の無い hook は、その session に開いている判定ターンが 1 つだけの時だけ対応付け、2 つ以上なら副作用 tool を block（fail closed）し、確定もしない（claim は結果不明のまま残る）。
 - 未記録の直近の同文発言: 鮮度と記録の欠如だけでは現在発言と言えない（導入直前の「はい」）。ターン記録に開始時刻 `since` を持たせ、Owner Telegram の各ターンの現在発言をそれ以降すべて記録する。現在発言と認めるのは `since` より後・記録済み全ターンより新しい・新鮮、の全てを満たす時だけ。記録を始めた最初のターン（導入直後）は返答扱いせず、通知が見つかれば副作用 tool を block する。
+
+## 追記（plugin 1.3.9, codex-review 対応）
+
+- 判定上限での実行中ターン削除: pending が 256 件を超えると最古の判定を無条件に削除し、そのターンが後で副作用 tool を呼ぶと判定なしとして gate を通り、もう一方の経路の claim 済みでも重複実行し得た。開いているターンの判定は追い出さず、`post_llm_call` で外す（`post_llm_call` に届かなかったターンだけ 24 時間で期限切れ）。期限切れを除いても上限なら、新しいターンの判定を fail closed（claim せず副作用 tool を block）にする。

@@ -425,6 +425,22 @@ class DecisionTests(unittest.TestCase):
         if status and not (result and result.get('action') == 'block'):
             plugin._after(session_id='tg', tool_name='terminal', tool_call_id=call, status=status, turn_id=turn)
         return result
+    def test_full_pending_does_not_evict_open_turns(self):
+        # An open turn's decision is never dropped for a newer one; the newer one fails closed.
+        self.g2(); self.assertIsNone(self.gate('kohako-g2-main'))  # G2 claims first
+        self.tg(turn='t0')
+        with patch.object(plugin, '_PENDING_MAX', 2):
+            self.tg(turn='t1')
+            self.assertIn('確認できない', self.tg(turn='t2')['context'])
+        self.assertIn(('tg', 't0'), plugin._pending)
+        self.assertEqual(self._turn_gate('t0', 'a', 'ok', 'update BOXP-1 --lane Ready')['action'], 'block')
+        self.assertEqual(self._turn_gate('t2', 'b', 'ok', 'update BOXP-1 --lane Ready')['action'], 'block')
+        self.assertEqual(self.data()['via'], 'g2')
+        # Turns that never reached post_llm_call expire after the TTL and free their slot.
+        for value in plugin._pending.values(): value['at'] -= plugin._PENDING_TTL + 1
+        with patch.object(plugin, '_PENDING_MAX', 2):
+            self.assertNotIn('確認できない', str(self.tg(turn='t3')))
+        self.assertEqual(list(plugin._pending), [('tg', 't3')])
     def test_expired_done_does_not_block_its_notification(self):
         path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path))
         with open(path, 'w') as f: json.dump({'state': 'done', 'via': 'telegram', 'at': time.time() - 8 * 86400}, f)
