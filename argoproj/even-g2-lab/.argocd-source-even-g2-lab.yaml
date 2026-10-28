@@ -1,3 +1,3 @@
 kustomize:
   images:
-  - 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main=839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main:003a9c4dd342ca17f4391a1df232bcb664e9e761
+  - 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main=839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main:8b8df433b920a868d9937efcd0cd22ddb81ae7f8
