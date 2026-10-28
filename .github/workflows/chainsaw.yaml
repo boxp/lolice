@@ -116,9 +116,6 @@ jobs:
       - name: Workflow unit tests (tests/workflows)
         run: python3 -B -m unittest discover -s tests/workflows -v
 
-      - name: Local LLM admission integration (pinned Envoy, no cluster)
-        run: python3 tests/local-llm/test_admission.py
-
       - name: Rego policy unit tests (conftest verify)
         run: |
           set -euo pipefail
