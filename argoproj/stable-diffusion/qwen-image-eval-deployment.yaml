@@ -2,6 +2,8 @@
 # Shares the single gpu.intel.com/i915 on golyat-4 with local-llm and
 # stable-diffusion-webui, so keep replicas at 0 except during a scheduled test
 # window where local-llm is scaled to 0 in the same change.
+# .github/workflows/llm-sd-deploy.yaml does not touch this Deployment: return
+# it to 0 with the restore PR before using that workflow.
 # No Service: the pod is driven with kubectl exec only.
 apiVersion: apps/v1
 kind: Deployment
@@ -36,6 +38,9 @@ spec:
       containers:
         - name: qwen-image
           # sdnext-ipex provides torch 2.12+xpu and the Level Zero runtime.
+          # The stable-diffusion ImageUpdater kustomize override also applies to
+          # this name, so the effective digest follows sdnext-ipex; the eval
+          # records the running pod imageID instead of relying on this pin.
           # diffusers/transformers are installed into /work/pylib at test time.
           image: ghcr.io/boxp/arch/sdnext-ipex@sha256:e4d3ff1aeed35778efcd859348fc1257699f73ea60400521a6a518f38695b333
           imagePullPolicy: IfNotPresent
