@@ -10,4 +10,4 @@ spec:
   types:
     - Ingress
     - Egress
-  egress: []
+  # No ingress/egress rules: deny all. Calico omits empty arrays on readback.
