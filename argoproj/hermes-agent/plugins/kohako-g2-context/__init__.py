@@ -8,7 +8,8 @@
   session get no tools at all.
 - BOXP-348: one Task Board notification answered from Telegram (Owner reply right after the
   mirrored delivery) or G2 (BFF marker line) is claimed atomically (O_EXCL file under
-  KOHAKO_DECISION_STORE) on the first side-effect tool call; the other entry point is then blocked.
+  KOHAKO_DECISION_STORE) on the first side-effect tool call (reads and simple inspection commands
+  do not claim); the other entry point is then blocked.
   post_tool_call records each claimed call's outcome: at the end of the turn the claim becomes done
   if one ran ok, is released if all were blocked/denied (nothing ran), and stays claimed otherwise:
   an error may come after a partial change or a timed-out external success, so it is treated as
@@ -184,9 +185,10 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
             event, operation, via = match.group(1)[4:], 'g2-' + match.group(2), 'g2'
     elif _owner(sid, platform, sender_id) and isinstance(user_message, str):
         history = list(conversation_history or [])
-        # The current Owner message is normally the last entry (its stored form may differ from
-        # user_message, e.g. with gateway notes); skip it so it does not end the walk.
-        if history and isinstance(history[-1], dict) and history[-1].get('role') == 'user' and not str(history[-1].get('content') or '').startswith('[Webhook delivery:'):
+        # Hermes appends the current Owner message last (its stored form may differ from
+        # user_message, e.g. with gateway notes); skip it only when it is that message, so an
+        # earlier Owner message still ends the walk when the history lacks the current one.
+        if history and _is_current(history[-1], user_message):
             history.pop()
         for message in reversed(history):
             if not isinstance(message, dict):
@@ -221,6 +223,18 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
     return None
 
 
+def _is_current(message, user_message):
+    if not isinstance(message, dict) or message.get('role') != 'user':
+        return False
+    content = message.get('content')
+    if not isinstance(content, str):
+        return True  # multimodal content cannot be compared and is skipped by the walk anyway
+    if content.startswith('[Webhook delivery:'):
+        return False
+    stored, current = ' '.join(content.split()), ' '.join(user_message.split())
+    return bool(current) and (current in stored or (bool(stored) and stored in current))
+
+
 def _claim(pending):
     path = _path(pending['decisionId'])
     directory = os.path.dirname(path)
@@ -243,7 +257,8 @@ def _claim(pending):
 
 
 def _decision_gate(sid, tool_name, args, tool_call_id=None):
-    if tool_name in _FREE_TOOLS or tool_name in _PATH_TOOLS or (tool_name == 'terminal' and isinstance(args.get('command'), str) and _BOARD_READ.fullmatch(args['command'].strip()) and not args.get('background')):
+    if tool_name in _FREE_TOOLS or tool_name in _PATH_TOOLS or (tool_name == 'terminal' and isinstance(args.get('command'), str) and not args.get('background')
+                                                                and (_BOARD_READ.fullmatch(args['command'].strip()) or _read_only_command(args['command']))):
         return None
     with _lock:
         pending = _pending.get(sid)
@@ -336,6 +351,22 @@ _BOARD_READ = re.compile(
     r'bb\s+/opt/data/skills/note-taking/obsidian-task-board/bin/task-board\.bb\s+(?:list|show)'
     r'(?:\s+(?:--vault\s+/home/boxp/Documents/obsidian-headless/BOXP|[A-Za-z0-9_:=@-]+))*\s*'
 )
+# Simple inspection commands do not claim a decision (the approval gate still applies to them).
+# No shell syntax, so nothing can be chained, redirected or substituted; anything else claims.
+_READ_ONLY = re.compile(
+    r'(?:date|pwd|whoami|uptime|ls|cat|head|tail|wc|grep|rg|'
+    r'git\s+(?:status|log|diff|show|rev-parse)|'
+    r'gh\s+(?:pr\s+(?:view|list|checks|diff|status)|issue\s+(?:view|list)|run\s+(?:view|list))|'
+    r'kubectl\s+(?:get|describe|logs))'
+    r'(?:\s+[A-Za-z0-9_@%+=:,./~^-]+)*\s*'
+)
+
+
+def _read_only_command(command):
+    command = command.strip()
+    return bool(_READ_ONLY.fullmatch(command)) and not re.search(r'(?:^|\s)(?:--output|--ext-diff|--textconv|--pre)', command)
+
+
 _BOARD_PATH = '/opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb'
 _BOARD_VAULT = '/home/boxp/Documents/obsidian-headless/BOXP'
 _BOARD_VALUES = {'--title', '--summary', '--acceptance', '--context', '--plan', '--notes',

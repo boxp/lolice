@@ -315,6 +315,21 @@ class DecisionTests(unittest.TestCase):
     def test_current_message_stored_differently(self):
         self.tg([self.delivery, {'role': 'user', 'content': '[note] はい'}]); self.assertIn('tg', plugin._pending)
         self.tg([self.delivery]); self.assertIn('tg', plugin._pending)
+    def test_history_without_current_message(self):
+        # The previous Owner message ends the walk; it is not taken for the current message.
+        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}]); self.assertNotIn('tg', plugin._pending)
+        self.tg([self.delivery, {'role': 'user', 'content': 'previous'}, {'role': 'user', 'content': 'はい'}]); self.assertNotIn('tg', plugin._pending)
+        self.tg([self.delivery, {'role': 'user', 'content': 'はい'}]); self.assertIn('tg', plugin._pending)
+    def test_inspection_commands_do_not_claim(self):
+        self.tg()
+        for command in ('date', 'git status', 'git log --oneline -5', 'gh pr view 929', 'gh pr checks 929 --repo boxp/lolice', 'ls -la', 'kubectl get pods -n hermes-agent -o wide'):
+            with self.subTest(command=command):
+                self.assertIsNone(plugin._gate(session_id='tg', tool_name='terminal', args={'command': command}, tool_call_id='call_' + 'c' * 32))
+        self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+        for command in ('date; touch x', 'git diff --output=x', 'git push', 'gh pr merge 929', 'cat a > b', 'ls $(rm x)', 'rg --pre=sh x', 'gh api -X POST x'):
+            with self.subTest(command=command):
+                self.assertFalse(plugin._read_only_command(command))
+        self.g2(); self.assertIsNone(self.gate('kohako-g2-main'))
     def test_non_owner_and_group(self):
         self.tg(sender_id='other'); self.assertNotIn('tg', plugin._pending)
         self.db.session['chat_type'] = 'group'; self.tg(); self.assertNotIn('tg', plugin._pending)
