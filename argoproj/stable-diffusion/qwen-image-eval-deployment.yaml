@@ -4,7 +4,8 @@
 # window where local-llm is scaled to 0 in the same change.
 # .github/workflows/llm-sd-deploy.yaml does not touch this Deployment: return
 # it to 0 with the restore PR before using that workflow.
-# No Service: the pod is driven with kubectl exec only.
+# No Service and no pods/exec: the pod runs /work/runner.sh (hostPath, owned by
+# boxp on the node) which processes job files dropped into /work/queue.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -47,8 +48,9 @@ spec:
           command:
             - /usr/bin/tini
             - --
-            - sleep
-            - infinity
+            - sh
+            - -c
+            - if [ -f /work/runner.sh ]; then exec sh /work/runner.sh; fi; exec sleep infinity
           env:
             - name: PYTHONPATH
               value: /work/pylib
