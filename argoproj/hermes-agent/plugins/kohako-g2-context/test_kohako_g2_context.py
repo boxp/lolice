@@ -244,20 +244,18 @@ class DecisionTests(unittest.TestCase):
         plugin._post(session_id='kohako-g2-main'); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
         self.assertNotIn('既に対応済み', str(self.tg())); self.assertIsNone(self.gate('tg'))
         plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done'); self.assertEqual(self.data()['via'], 'telegram')
-    def test_failure_is_retryable_once(self):
-        self.tg(); self.assertIsNone(self.gate('tg', status='error')); plugin._post(session_id='tg')
-        self.assertEqual(self.data()['state'], 'failed')
-        self.assertIn('失敗', self.g2()['context']); self.assertIsNone(self.gate('kohako-g2-main'))
+    def test_error_stays_claimed_and_is_not_rerun(self):
+        # An error may follow a partial change or a timed-out external success: result unknown.
+        self.tg(); self.assertIsNone(self.gate('tg', status='error'))
+        self.assertIsNone(plugin._transform(session_id='tg', response_text='ok'))
+        plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'claimed')
+        self.assertIn('結果不明', self.g2()['context']); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
+        plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['via'], 'telegram')
+        self.tg(turn='2'); self.assertEqual(self.gate('tg')['action'], 'block')
+        self.assertIsNone(self.gate('tg', 'show BOXP-1'))
+    def test_error_then_ok_is_done(self):
+        self.g2(); self.gate('kohako-g2-main', status='error'); self.gate('kohako-g2-main', call='call_' + 'b' * 32)
         plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['state'], 'done')
-        self.assertIn('既に対応済み', self.tg()['context']); self.assertEqual(self.gate('tg')['action'], 'block')
-    def test_failed_reclaim_race(self):
-        self.tg(); self.gate('tg', status='error'); plugin._post(session_id='tg')
-        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via}
-        results = []
-        threads = [threading.Thread(target=lambda v=v: results.append(plugin._claim(pending(v)))) for v in ('g2', 'telegram', 'g2')]
-        for thread in threads: thread.start()
-        for thread in threads: thread.join()
-        self.assertEqual(results.count(None), 1)
     def test_ok_wins_and_unknown_stays_claimed(self):
         self.tg(); self.gate('tg', status='blocked'); self.gate('tg', call='call_' + 'b' * 32)
         plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')

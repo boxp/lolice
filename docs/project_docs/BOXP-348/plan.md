@@ -16,3 +16,9 @@
 
 ## 試験
 - `python3 -B -m unittest argoproj/hermes-agent/plugins/kohako-g2-context/test_kohako_g2_context.py`
+
+## 追記（plugin 1.3.2, codex-review 対応）
+
+- `error` は副作用が起きていないと断定できない（変更後のエラー終了、外部操作成功後のタイムアウト等）ため、`failed`（再 claim 可）を廃止し、結果不明として `claimed` のまま保持する。どちらの経路からも再実行しない（読み取りと状況説明は可）。
+- reclaim lock と `failed` 状態を削除。GC は `done` のみ（7 日）。
+- 誤って commit されていた `__pycache__` を削除。unittest 29 件成功。
