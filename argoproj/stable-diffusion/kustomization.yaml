@@ -10,3 +10,5 @@ resources:
   - cloudflared-deployment.yaml
   - external-secret.yaml
   - networkpolicy.yaml
+  - qwen-image-eval-deployment.yaml
+  - qwen-image-eval-networkpolicy.yaml

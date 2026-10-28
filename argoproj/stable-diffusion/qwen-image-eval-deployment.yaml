@@ -1,0 +1,101 @@
+# BOXP-340: Qwen-Image-2.1 isolated evaluation workload.
+# Shares the single gpu.intel.com/i915 on golyat-4 with local-llm and
+# stable-diffusion-webui, so keep replicas at 0 except during a scheduled test
+# window where local-llm is scaled to 0 in the same change.
+# .github/workflows/llm-sd-deploy.yaml does not touch this Deployment: return
+# it to 0 with the restore PR before using that workflow.
+# No Service: the pod is driven with kubectl exec only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qwen-image-eval
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: qwen-image-eval
+  template:
+    metadata:
+      labels:
+        app: qwen-image-eval
+    spec:
+      automountServiceAccountToken: false
+      priorityClassName: gpu-workload-high
+      nodeSelector:
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 1000
+        supplementalGroups:
+          - 44
+          - 110
+      containers:
+        - name: qwen-image
+          # sdnext-ipex provides torch 2.12+xpu and the Level Zero runtime.
+          # The stable-diffusion ImageUpdater kustomize override also applies to
+          # this name, so the effective digest follows sdnext-ipex; the eval
+          # records the running pod imageID instead of relying on this pin.
+          # diffusers/transformers are installed into /work/pylib at test time.
+          image: ghcr.io/boxp/arch/sdnext-ipex@sha256:e4d3ff1aeed35778efcd859348fc1257699f73ea60400521a6a518f38695b333
+          imagePullPolicy: IfNotPresent
+          command:
+            - /usr/bin/tini
+            - --
+            - sleep
+            - infinity
+          env:
+            - name: PYTHONPATH
+              value: /work/pylib
+            - name: HF_HOME
+              value: /work/cache/huggingface
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            - name: XDG_CACHE_HOME
+              value: /work/cache
+            - name: TMPDIR
+              value: /work/tmp
+            - name: ONEAPI_DEVICE_SELECTOR
+              value: level_zero:gpu
+            - name: ZE_ENABLE_PCI_ID_DEVICE_ORDER
+              value: "1"
+            - name: ZES_ENABLE_SYSMAN
+              value: "1"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "4"
+              memory: 40Gi
+              gpu.intel.com/i915: "1"
+            limits:
+              cpu: "14"
+              memory: 80Gi
+              gpu.intel.com/i915: "1"
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+            - name: work
+              mountPath: /work
+      volumes:
+        - name: models
+          hostPath:
+            path: /var/lib/local-llm/models/boxp340-qwen-image-21
+            type: Directory
+        - name: work
+          hostPath:
+            # Pre-created by boxp (uid 1000) next to the weights; weights stay
+            # read-only via the models mount.
+            path: /var/lib/local-llm/models/boxp340-qwen-image-21/work
+            type: Directory

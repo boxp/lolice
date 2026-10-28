@@ -1,0 +1,32 @@
+# BOXP-340: no ingress; egress only for DNS and HTTPS (pip install of the
+# pinned diffusers/transformers wheels). Model weights are pre-fetched on the
+# node and loaded with HF_HUB_OFFLINE=1.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: qwen-image-eval
+spec:
+  selector: app == 'qwen-image-eval'
+  types:
+    - Ingress
+    - Egress
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports:
+          - 443
