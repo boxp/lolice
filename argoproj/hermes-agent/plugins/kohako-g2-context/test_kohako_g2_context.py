@@ -377,6 +377,13 @@ class DecisionTests(unittest.TestCase):
         self.tg([self.delivery, {'role': 'user', 'content': 'previous'}]); self.assertNotIn(('tg', '1'), plugin._pending)
         self.tg([self.delivery, {'role': 'user', 'content': 'previous'}, self.cur()]); self.assertNotIn(('tg', '1'), plugin._pending)
         self.tg([self.delivery, self.cur()]); self.assertIn(('tg', '1'), plugin._pending)
+    def test_multimodal_owner_message_ends_the_walk(self):
+        # An image message after the notification is an Owner turn; a later instruction is not a reply.
+        image = {'role': 'user', 'content': [{'type': 'text', 'text': 'これ見て'}, {'type': 'image_url', 'image_url': {'url': 'x'}}]}
+        self.tg([self.delivery, image, self.cur()]); self.assertNotIn(('tg', '1'), plugin._pending)
+        self.assertIsNone(self.gate('tg')); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+        self.tg([self.delivery, {'role': 'assistant', 'content': [{'type': 'text', 'text': 'x'}]}, self.cur()])
+        self.assertIn(('tg', '1'), plugin._pending)
     def test_repeated_identical_message_is_not_taken_for_current(self):
         # "はい" twice: a history without the current message ends with the previous "はい",
         # whose timestamp anchored an earlier turn, so the old notification is not connected.

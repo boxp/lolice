@@ -226,6 +226,8 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
                 continue
             role, content = message.get('role'), message.get('content')
             if not isinstance(content, str):
+                if role == 'user':
+                    break  # a multimodal Owner message (e.g. an image) ends the walk like any other
                 continue
             notice = _notice_event(content) if role in ('user', 'assistant') else None
             if notice:
@@ -334,7 +336,7 @@ def _is_current(message, user_message):
         return False
     content = message.get('content')
     if not isinstance(content, str):
-        return True  # multimodal content cannot be compared and is skipped by the walk anyway
+        return True  # multimodal content cannot be compared; earlier ones end the walk
     if content.lstrip().startswith('[Webhook delivery:'):
         return False
     stored, current = ' '.join(content.split()), ' '.join(user_message.split())
