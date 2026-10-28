@@ -13,3 +13,7 @@
 SAはlocal-llm、named Scale2個とnamed ConfigMap1個のみget/patch。Deployment本体、pods/exec、Secret、RBAC編集、cluster-adminは付与しない。fieldのRBAC制限は不可能だがtransportは条件付き /data/state 以外を拒否する。workerは既存workspace image digestを固定し、workspace/PVC/model/外部API credentialはmountしない。node上のruntime-apiディレクトリへアクセスできるuid1000を信頼境界とする。
 
 rollbackは先にQwen停止/Pod消失/GPU解放→Gemma health/短文推論→openを確認し、Gitの3値を実状態と合わせる通常PRを作ってから対象ignoreを解除する。生成中にignoreだけ削除したりopenへ単純revertしない。model/PVC/既存画像/lockは削除しない。
+
+## 配備readback
+
+2026-10-28: #930 CI/独立レビュー後merge。専用transport 1/1と実Scale GETを確認。arch ownership_check.pyで両Appの名指し3field/RespectIgnoreDifferences/selfHeal/prune/Syncedを確認後に、本bootstrap初期値変更を作成した。既存live gateはopenを保ち、再作成時だけclosedで起動する。
