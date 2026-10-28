@@ -72,20 +72,8 @@ data:
                                     ["cache-control"] = "no-store"}, state .. "\n")
                                   return
                                 end
-                                -- A fixed synthetic restore probe is permitted only
-                                -- after GitOps has entered the verify phase (Qwen=0).
-                                -- Caller-supplied body/model/prompt are never forwarded.
                                 if path == "/__board_pilot__/restore-probe" then
-                                  if method ~= "POST" or mode ~= "verify" then
-                                    handle:respond({[":status"] = "503"}, "restore probe unavailable\n")
-                                    return
-                                  end
-                                  local headers, body = handle:httpCall("llama_server",
-                                    {[":method"] = "POST", [":path"] = "/v1/chat/completions",
-                                     [":authority"] = "localhost", ["content-type"] = "application/json"},
-                                    '{"model":"gemma4-26b","messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":4,"temperature":0,"stream":false}',
-                                    300000)
-                                  handle:respond({[":status"] = headers[":status"], ["content-type"] = "application/json"}, body)
+                                  handle:respond({[":status"] = "503"}, "use private observation endpoint\n")
                                   return
                                 end
                                 -- Probes never invoke inference, even while fenced.
@@ -117,6 +105,30 @@ data:
                         - name: observation
                           domains: ["*"]
                           routes:
+                            - match:
+                                path: /__board_pilot__/restore-probe
+                                headers:
+                                  - name: ":method"
+                                    string_match:
+                                      exact: POST
+                              direct_response:
+                                status: 404
+                              typed_per_filter_config:
+                                envoy.filters.http.local_ratelimit:
+                                  "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                                  stat_prefix: restore_probe
+                                  token_bucket:
+                                    max_tokens: 1
+                                    tokens_per_fill: 1
+                                    fill_interval: 300s
+                                  filter_enabled:
+                                    default_value:
+                                      numerator: 100
+                                      denominator: HUNDRED
+                                  filter_enforced:
+                                    default_value:
+                                      numerator: 100
+                                      denominator: HUNDRED
                             - match:
                                 path: /__board_pilot__/slots
                                 headers:
@@ -152,6 +164,10 @@ data:
                               direct_response:
                                 status: 404
                     http_filters:
+                      - name: envoy.filters.http.local_ratelimit
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                          stat_prefix: observation_limits
                       - name: envoy.filters.http.lua
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
@@ -159,6 +175,23 @@ data:
                             inline_string: |
                               function envoy_on_request(handle)
                                 local path = handle:headers():get(":path") or ""
+                                if path == "/__board_pilot__/restore-probe" then
+                                  local ok, state = pcall(function()
+                                    local f = io.open("/etc/llm-admission/state", "r")
+                                    if not f then return "" end
+                                    local v = f:read(256); f:close(); return v
+                                  end)
+                                  if not ok or not state or not state:match("^verify:[%w_-]+%s*$") or handle:headers():get(":method") ~= "POST" then
+                                    handle:respond({[":status"] = "503"}, "restore probe unavailable\n"); return
+                                  end
+                                  local headers, body = handle:httpCall("llama_server",
+                                    {[":method"] = "POST", [":path"] = "/v1/chat/completions",
+                                     [":authority"] = "localhost", ["content-type"] = "application/json"},
+                                    '{"model":"gemma4-26b","messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":4,"temperature":0,"stream":false}',
+                                    300000)
+                                  handle:respond({[":status"] = headers[":status"], ["content-type"] = "application/json"}, body)
+                                  return
+                                end
                                 if path:match("^/__board_pilot__/slots") then
                                   local model = path:match("^/__board_pilot__/slots%?model=([%w_-]+)$")
                                   local ok, state = pcall(function()

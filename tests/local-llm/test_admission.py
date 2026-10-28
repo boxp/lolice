@@ -141,8 +141,9 @@ class AdmissionTest(unittest.TestCase):
         self.assertEqual(self.request('/__board_pilot__/restore-probe', 'POST')[0], 503)
         self.state('verify:test-e')
         self.assertEqual(self.request('/v1/chat/completions', 'POST')[0], 503)
-        self.assertEqual(self.request('/__board_pilot__/restore-probe', 'GET')[0], 503)
-        self.assertEqual(self.request('/__board_pilot__/restore-probe', 'POST'), [200, 'completed'])
+        self.assertEqual(self.request('/__board_pilot__/restore-probe', 'GET', 9901)[0], 503)
+        self.assertEqual(self.request('/__board_pilot__/restore-probe', 'POST', 9901), [200, 'completed'])
+        self.assertEqual(self.request('/__board_pilot__/restore-probe', 'POST', 9901)[0], 429)
         self.assertEqual(self.request('/__board_pilot__/slots?model=qwen38-27b', port=9901)[0], 503)
         self.assertEqual(self.request('/__board_pilot__/slots?model=gemma4-26b', port=9901),
                          [200, '/slots?model=gemma4-26b'])

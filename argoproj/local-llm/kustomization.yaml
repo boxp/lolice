@@ -6,6 +6,7 @@ resources:
   - namespace.yaml
   - models-config.yaml
   - admission-config.yaml
+  - observation-networkpolicy.yaml
   - envoy-config.yaml
   - deployment.yaml
   - service.yaml
