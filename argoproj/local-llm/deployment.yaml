@@ -37,7 +37,7 @@ spec:
           args:
             - llama-server
             - --host
-            - 0.0.0.0
+            - 127.0.0.1
             - --port
             - "8081"
             - -dev
@@ -100,20 +100,19 @@ spec:
           startupProbe:
             httpGet:
               path: /health
-              port: llama-http
+              port: 8080
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /health
-              port: llama-http
+              port: 8080
             periodSeconds: 10
             timeoutSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /health
-              port: llama-http
+            exec:
+              command: ["curl", "--fail", "--silent", "--max-time", "4", "http://127.0.0.1:8081/health"]
             initialDelaySeconds: 60
             periodSeconds: 20
             timeoutSeconds: 5
@@ -169,11 +168,17 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
           volumeMounts:
+            - name: admission
+              mountPath: /etc/llm-admission
+              readOnly: true
             - name: envoy-config
               mountPath: /etc/envoy/envoy.yaml
               subPath: envoy.yaml
               readOnly: true
       volumes:
+        - name: admission
+          configMap:
+            name: llama-server-admission
         - name: models
           hostPath:
             path: /var/lib/local-llm/models

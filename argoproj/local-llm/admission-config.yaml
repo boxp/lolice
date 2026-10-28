@@ -1,0 +1,9 @@
+# Projected without subPath: a GitOps state change must NOT restart inference.
+# Use closed:<unique-run-token> for the evaluation fence, open:<token> to resume.
+# Missing/invalid state fails closed. Read back EVERY pod before draining.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llama-server-admission
+data:
+  state: open:baseline

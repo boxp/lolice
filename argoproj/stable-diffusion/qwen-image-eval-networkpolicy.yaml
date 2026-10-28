@@ -1,6 +1,6 @@
-# BOXP-340: no ingress; egress only for DNS and HTTPS (pip install of the
-# pinned diffusers/transformers wheels). Model weights are pre-fetched on the
-# node and loaded with HF_HUB_OFFLINE=1.
+# BOXP-344: closed evaluation; deny all ingress and egress.
+# Existing pinned wheels and weights must already be present on the node.
+# The live controller refuses to start when pylib/.ok is missing; no fallback.
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
 metadata:
@@ -10,23 +10,4 @@ spec:
   types:
     - Ingress
     - Egress
-  egress:
-    - action: Allow
-      protocol: UDP
-      destination:
-        selector: k8s-app == 'kube-dns'
-        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
-        ports:
-          - 53
-    - action: Allow
-      protocol: TCP
-      destination:
-        selector: k8s-app == 'kube-dns'
-        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
-        ports:
-          - 53
-    - action: Allow
-      protocol: TCP
-      destination:
-        ports:
-          - 443
+  egress: []

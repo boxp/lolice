@@ -98,6 +98,8 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
         ports:
           - 8080
+          # Read-only Envoy stats and loaded-model slots; no admin mutations.
+          - 9901
     # BOXP-270: Task Board event dispatcher -> Hermes webhook platform.
     - action: Allow
       protocol: TCP
