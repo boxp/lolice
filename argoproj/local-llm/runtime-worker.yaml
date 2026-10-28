@@ -1,0 +1,81 @@
+# The only write credential lives in this dedicated Pod. Ordinary runners send
+# control metadata through the existing node SSH/file path; no token is exported.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qwen-runtime-controller
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: qwen-runtime-controller
+  template:
+    metadata:
+      labels:
+        app: qwen-runtime-controller
+    spec:
+      serviceAccountName: qwen-runtime-controller
+      automountServiceAccountToken: false
+      nodeSelector:
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: api-transport
+          # Already deployed workspace digest; no API keys or workspace volume.
+          image: ghcr.io/boxp/arch/codex-workspace@sha256:35ece76d6bde1b6d19b8df9bbc756e1a448fa97f6861126b95b52997158558d7
+          command: [python3, -B, /code/runtime_api_worker.py]
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: code
+              mountPath: /code
+              readOnly: true
+            - name: requests
+              mountPath: /runtime-api
+            - name: identity
+              mountPath: /var/run/runtime-identity
+              readOnly: true
+      volumes:
+        - name: code
+          configMap:
+            name: qwen-runtime-api-code
+        - name: requests
+          hostPath:
+            path: /var/lib/local-llm/models/boxp340-qwen-image-21/work/runtime-api
+            type: Directory
+        - name: identity
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt

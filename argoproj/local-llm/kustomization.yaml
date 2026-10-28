@@ -12,3 +12,10 @@ resources:
   - service.yaml
   - service-lan.yaml
   - servicemonitor.yaml
+  - runtime-authorization.yaml
+  - runtime-worker.yaml
+
+configMapGenerator:
+  - name: qwen-runtime-api-code
+    files:
+      - runtime_api_worker.py

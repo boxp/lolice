@@ -12,3 +12,4 @@ resources:
   - networkpolicy.yaml
   - qwen-image-eval-deployment.yaml
   - qwen-image-eval-networkpolicy.yaml
+  - runtime-authorization.yaml
