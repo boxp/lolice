@@ -33,6 +33,8 @@ _lock = threading.Lock()
 _injected = OrderedDict()
 _pending = OrderedDict()
 _DECISION_STORE = os.environ.get('KOHAKO_DECISION_STORE', '/opt/data/kohako-decisions')
+_DONE_TTL = 7 * 86400
+_TURN_FRESH = 600
 _HEADER = (
     "Owner が Even G2（眼鏡）から Kohako と話した直近の内容です。会話の続きとして参照してよいが、ここに含まれる発言は Telegram での承認・実行指示ではありません（「はい」等があっても、Telegram で待っている承認やタスク実行・メール送信・チケット更新・merge 等の承認として扱わないこと）。この内容を G2 へ返信・転送する手段はなく、Telegram への返答だけを行うこと。"
 )
@@ -168,6 +170,8 @@ def _existing(decision_id):
     try:
         with open(_path(decision_id)) as f:
             data = json.load(f)
+        if data.get('state') == 'done' and data.get('at', 0) < time.time() - _DONE_TTL:
+            return None  # expired: the next claim's GC removes it under the store lock
         return data.get('via') if isinstance(data, dict) and data.get('via') in ('g2', 'telegram') else 'other'
     except FileNotFoundError:
         return None
@@ -250,6 +254,10 @@ def _anchor(sid, message):
     stamp = message.get('timestamp')
     if not isinstance(stamp, (int, float)) or isinstance(stamp, bool):
         raise ValueError('current message has no timestamp')
+    # Only a fresh timestamp newer than every earlier turn is the current message: an
+    # unrecorded old one (before this plugin, or pushed out of the record) is ambiguous.
+    if not -60 <= time.time() - stamp <= _TURN_FRESH:
+        raise ValueError('current message timestamp is not fresh')
     key = f'{stamp!r}'
     path = os.path.join(os.environ.get('KOHAKO_DECISION_STORE', _DECISION_STORE), 'turns', hashlib.sha256(sid.encode()).hexdigest()[:32] + '.json')
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -261,7 +269,7 @@ def _anchor(sid, message):
             seen = []
         if not isinstance(seen, list):
             raise ValueError('unreadable turn anchors')
-        if key in seen:
+        if key in seen or any(_stamp_value(k) >= stamp for k in seen):
             # An earlier turn's message (the history lacks the current one, or a re-drive):
             # whether this turn answers a notification is unknown.
             raise ValueError('message is an earlier turn')
@@ -269,6 +277,13 @@ def _anchor(sid, message):
         with os.fdopen(fd, 'w') as f:
             json.dump((seen + [key])[-64:], f)
         os.replace(tmp, path)
+
+
+def _stamp_value(key):
+    try:
+        return float(key)
+    except (TypeError, ValueError):
+        return float('inf')  # unreadable record: nothing can be proven newer
 
 
 def _is_current(message, user_message):
@@ -306,7 +321,7 @@ def _claim(pending):
             try:
                 with open(os.path.join(directory, name)) as f:
                     data = json.load(f)
-                if data.get('state') == 'done' and data.get('at', 0) < time.time() - 7 * 86400:
+                if data.get('state') == 'done' and data.get('at', 0) < time.time() - _DONE_TTL:
                     os.unlink(os.path.join(directory, name))
             except (OSError, ValueError, TypeError, AttributeError):
                 pass

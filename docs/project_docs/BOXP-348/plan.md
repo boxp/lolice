@@ -40,3 +40,8 @@
 ## 追記（plugin 1.3.6, codex-review 対応）
 
 - GC と claim の競合: 期限切れ `done` を読んでから unlink するまでの間に別経路が新しい claim を作ると GC がそれを消し、両経路が claim できた。store 直下の `claims.lock` を `fcntl.flock` で排他し、GC・O_EXCL claim・確定（done/解放）を同じ lock 下で直列化（スレッド・別 process 共通）。GC の unlink 中に別経路が claim する順序を再現する並行 fixture を追加（lock なしでは失敗することを確認）。
+
+## 追記（plugin 1.3.7, codex-review 対応）
+
+- 未記録の過去発言の誤認: 履歴に現在発言がなく、末尾が未記録の同じ発言（plugin 導入前や記録 64 件から外れたもの）だと現在発言と誤認し古い通知へ接続し得た。現在発言と認めるのは timestamp が現在時刻から -60 秒〜600 秒以内、かつ記録済みの全ターンより新しい時だけにし、それ以外は曖昧として通知が見つかれば副作用 tool を block（fail closed）。
+- 期限切れ `done` が残り続ける: `_existing` が `done` の期限を見ず、同じ通知への返答が `_claim`（GC）に届かないため 7 日を過ぎても block され続けた。期限切れ `done` は未 claim 扱いにし、次の claim の GC（store lock 下）で消してから O_EXCL claim する。

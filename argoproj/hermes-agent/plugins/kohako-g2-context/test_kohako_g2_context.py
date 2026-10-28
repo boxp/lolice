@@ -222,7 +222,7 @@ class DecisionTests(unittest.TestCase):
         plugin._pending.clear(); plugin._injected.clear()
         self.delivery = {'role': 'assistant', 'content': '[Webhook delivery: task-board]\n【Task Board 通知】BOXP-1 event=old event=event-1'}
     def cur(self, content='はい'):
-        self.stamp = getattr(self, 'stamp', 1000.0) + 1
+        self.stamp = getattr(self, 'stamp', time.time() - 300) + 1
         return {'role': 'user', 'content': content, 'timestamp': self.stamp}
     def tg(self, history=None, sid='tg', turn='1', **kwargs):
         return plugin._hook(session_id=sid, platform='telegram', sender_id=kwargs.get('sender_id', '123'), user_message='はい', turn_id=turn, conversation_history=history if history is not None else [self.delivery, self.cur()])
@@ -370,6 +370,25 @@ class DecisionTests(unittest.TestCase):
         with self.assertLogs(plugin.__name__, level='WARNING'):
             self.tg([self.delivery, {'role': 'user', 'content': 'はい'}])  # unstamped: cannot be identified
         self.assertEqual(plugin._pending['tg']['lost'], 'error')
+    def test_unrecorded_old_message_is_not_taken_for_current(self):
+        # Without the current message, the history may end with an identical "はい" that was
+        # never recorded (before the plugin, or pushed out of the record): not provably current.
+        for stamp in (time.time() - 3600, time.time() + 3600):
+            with self.subTest(stamp=stamp):
+                with self.assertLogs(plugin.__name__, level='WARNING'):
+                    self.tg([self.delivery, {'role': 'user', 'content': 'はい', 'timestamp': stamp}])
+                self.assertEqual(plugin._pending['tg']['lost'], 'error'); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+        self.tg([{'role': 'user', 'content': 'hello'}, self.cur()]); later = self.stamp
+        with self.assertLogs(plugin.__name__, level='WARNING'):  # unrecorded but older than a recorded turn
+            self.tg([self.delivery, {'role': 'user', 'content': 'はい', 'timestamp': later - 0.5}])
+        self.assertEqual(plugin._pending['tg']['lost'], 'error')
+        self.tg([self.delivery, self.cur()]); self.assertIsNone(self.gate('tg'))
+    def test_expired_done_does_not_block_its_notification(self):
+        path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path))
+        with open(path, 'w') as f: json.dump({'state': 'done', 'via': 'telegram', 'at': time.time() - 8 * 86400}, f)
+        self.assertIsNone(self.g2()); self.assertIsNone(self.gate('kohako-g2-main'))
+        plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['via'], 'g2'); self.assertEqual(self.data()['state'], 'done')
+        self.assertIn('既に対応済み', self.tg()['context'])
     def test_webhook_turn_is_not_a_reply(self):
         plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message=self.delivery['content'], turn_id='w', conversation_history=[{'role': 'user', 'content': self.delivery['content'], 'timestamp': 1.0}])
         self.assertNotIn('tg', plugin._pending)
