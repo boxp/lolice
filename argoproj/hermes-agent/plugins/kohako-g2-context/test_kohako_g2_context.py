@@ -225,8 +225,11 @@ class DecisionTests(unittest.TestCase):
         return plugin._hook(session_id=sid, platform='telegram', sender_id=kwargs.get('sender_id', '123'), user_message='はい', turn_id=turn, conversation_history=history if history is not None else [self.delivery, {'role': 'user', 'content': 'はい'}])
     def g2(self, message='[kohako-decision] reply decision=dec-event-1 operation=12345678', sid='kohako-g2-main'):
         return plugin._hook(session_id=sid, platform='api_server', user_message=message)
-    def gate(self, sid, command='update BOXP-1 --lane Ready'):
-        return plugin._gate(session_id=sid, tool_name='terminal', args={'command': GateTests.HELPER + ' ' + command})
+    def gate(self, sid, command='update BOXP-1 --lane Ready', call='call_' + 'a' * 32, status='ok'):
+        result = plugin._gate(session_id=sid, tool_name='terminal', args={'command': GateTests.HELPER + ' ' + command}, tool_call_id=call)
+        if status and not (result and result.get('action') == 'block'):
+            plugin._after(session_id=sid, tool_name='terminal', tool_call_id=call, status=status)
+        return result
     def data(self):
         with open(plugin._path('dec-event-1')) as f: return json.load(f)
     def test_claim_transform_and_settle(self):
@@ -234,6 +237,49 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(self.data()['state'], 'claimed')
         self.assertIn('[kohako-decision] done decision=dec-event-1', plugin._transform(session_id='tg', response_text='ok'))
         plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')
+    def test_denied_or_blocked_releases_claim(self):
+        self.g2(); self.assertIsNone(self.gate('kohako-g2-main', status='blocked'))
+        self.assertEqual(self.data()['state'], 'claimed')
+        self.assertIsNone(plugin._transform(session_id='kohako-g2-main', response_text='ok'))
+        plugin._post(session_id='kohako-g2-main'); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+        self.assertNotIn('既に対応済み', str(self.tg())); self.assertIsNone(self.gate('tg'))
+        plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done'); self.assertEqual(self.data()['via'], 'telegram')
+    def test_failure_is_retryable_once(self):
+        self.tg(); self.assertIsNone(self.gate('tg', status='error')); plugin._post(session_id='tg')
+        self.assertEqual(self.data()['state'], 'failed')
+        self.assertIn('失敗', self.g2()['context']); self.assertIsNone(self.gate('kohako-g2-main'))
+        plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['state'], 'done')
+        self.assertIn('既に対応済み', self.tg()['context']); self.assertEqual(self.gate('tg')['action'], 'block')
+    def test_failed_reclaim_race(self):
+        self.tg(); self.gate('tg', status='error'); plugin._post(session_id='tg')
+        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via}
+        results = []
+        threads = [threading.Thread(target=lambda v=v: results.append(plugin._claim(pending(v)))) for v in ('g2', 'telegram', 'g2')]
+        for thread in threads: thread.start()
+        for thread in threads: thread.join()
+        self.assertEqual(results.count(None), 1)
+    def test_ok_wins_and_unknown_stays_claimed(self):
+        self.tg(); self.gate('tg', status='blocked'); self.gate('tg', call='call_' + 'b' * 32)
+        plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')
+        os.unlink(plugin._path('dec-event-1'))
+        self.g2(); self.gate('kohako-g2-main', status=None)  # no post_tool_call: result unknown
+        self.assertIsNone(plugin._transform(session_id='kohako-g2-main', response_text='ok'))
+        plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['state'], 'claimed')
+        self.tg(); self.assertEqual(self.gate('tg')['action'], 'block')
+        os.unlink(plugin._path('dec-event-1'))
+        self.g2(); plugin._gate(session_id='kohako-g2-main', tool_name='terminal', args={'command': GateTests.HELPER + ' update BOXP-1 --lane Ready'})
+        plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['state'], 'claimed')
+    def test_detection_error_fails_closed(self):
+        self.g2(); self.gate('kohako-g2-main'); plugin._post(session_id='kohako-g2-main')
+        with patch.object(plugin, '_owner', side_effect=RuntimeError('db')):
+            with self.assertLogs(plugin.__name__, level='WARNING'):
+                self.tg()
+        self.assertEqual(self.gate('tg')['action'], 'block')
+        self.assertIsNone(self.gate('tg', 'show BOXP-1'))
+        with patch.object(plugin, '_owner', side_effect=RuntimeError('db')):
+            with self.assertLogs(plugin.__name__, level='WARNING'):
+                self.tg(history=[{'role': 'user', 'content': 'hello'}])
+        self.assertIn('確認できない', self.gate('tg')['message'])
     def test_both_orders_and_read_only(self):
         for first, second in (('g2', 'tg'), ('tg', 'g2')):
             with self.subTest(first=first):

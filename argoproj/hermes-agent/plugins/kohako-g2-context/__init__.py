@@ -9,6 +9,9 @@
 - BOXP-348: one Task Board notification answered from Telegram (Owner reply right after the
   mirrored delivery) or G2 (BFF marker line) is claimed atomically (O_EXCL file under
   KOHAKO_DECISION_STORE) on the first side-effect tool call; the other entry point is then blocked.
+  post_tool_call records each claimed call's outcome: at the end of the turn the claim becomes done
+  if one ran ok, is released if all were blocked/denied, becomes failed (retryable) if all failed,
+  and stays claimed (result unknown, never re-run) otherwise. A detection error blocks side effects.
 """
 import hashlib
 import json
@@ -41,6 +44,7 @@ def register(ctx):
     ctx.register_hook("pre_llm_call", _hook)
     ctx.register_hook("pre_tool_call", _gate)
     ctx.register_hook("transform_llm_output", _transform)
+    ctx.register_hook("post_tool_call", _after)
     ctx.register_hook("post_llm_call", _post)
 
 
@@ -83,7 +87,8 @@ def _hook(*, session_id=None, platform=None, sender_id=None, **kwargs):
             contexts.append(result)
     except Exception as exc:
         _log.warning('kohako-decision: detection error (%s)', type(exc).__name__)
-        if platform == 'api_server' and isinstance(session_id, str) and session_id.startswith('kohako-g2-') and not session_id.startswith('kohako-g2-cand-') and str(kwargs.get('user_message', '')).startswith('[kohako-decision]'):
+        # Whether this turn answers a notification is unknown, so side effects fail closed.
+        if platform == 'telegram' or (platform == 'api_server' and isinstance(session_id, str) and session_id.startswith('kohako-g2-') and not session_id.startswith('kohako-g2-cand-') and str(kwargs.get('user_message', '')).startswith('[kohako-decision]')):
             with _lock:
                 _pending[session_id] = {'decisionId': 'unknown', 'lost': 'error', 'claimed': False}
         else:
@@ -143,9 +148,12 @@ def _path(decision_id):
 
 
 def _existing(decision_id):
+    # A failed claim (every claimed call failed) is not an answer; it may be claimed again.
     try:
         with open(_path(decision_id)) as f:
             data = json.load(f)
+        if isinstance(data, dict) and data.get('state') == 'failed':
+            return None
         return data.get('via') if isinstance(data, dict) and data.get('via') in ('g2', 'telegram') else 'other'
     except FileNotFoundError:
         return None
@@ -155,6 +163,12 @@ def _existing(decision_id):
 
 def _label(via):
     return {'g2': 'G2', 'telegram': 'Telegram'}.get(via, '他の経路')
+
+
+def _lost_message(pending):
+    if pending['lost'] == 'error':
+        return 'Kohako: Task Board 通知への返答かどうかを確認できないため、変更・実行の操作はできません。読み取りだけで答えてください。'
+    return f"Kohako: この Task Board 通知（decision={pending['decisionId']}）は {_label(pending['lost'])} で既に対応済み（または対応中）です。同じ操作を再実行せず、その旨だけ答えてください。"
 
 
 def _detect(sid, platform, sender_id, user_message=None, conversation_history=None, turn_id=None, **kwargs):
@@ -197,7 +211,8 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         return None
     decision = 'dec-' + event
     lost = _existing(decision)
-    pending = {'decisionId': decision, 'eventId': event, 'via': via, 'operationId': operation, 'claimed': False, 'lost': lost}
+    pending = {'decisionId': decision, 'eventId': event, 'via': via, 'operationId': operation, 'claimed': False, 'lost': lost,
+               'inflight': set(), 'ok': False, 'failed': False, 'unknown': False}
     with _lock:
         _pending[sid] = pending
         _pending.move_to_end(sid)
@@ -205,6 +220,8 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
             _pending.popitem(last=False)
     if lost:
         return f'Kohako: この Task Board 通知（event={event}）には {_label(lost)} で既に対応済み（または対応中）です。同じ操作は再実行できません。必要なら状況だけ答えてください。'
+    if os.path.exists(_path(decision)):
+        return f'Kohako: この Task Board 通知（event={event}）への前回の対応は失敗として記録されています。操作する前に現在の状態を確認してください。'
     return None
 
 
@@ -216,43 +233,86 @@ def _claim(pending):
         try:
             with open(os.path.join(directory, name)) as f:
                 data = json.load(f)
-            if data.get('state') == 'done' and data.get('at', 0) < time.time() - 7 * 86400:
+            if data.get('state') in ('done', 'failed') and data.get('at', 0) < time.time() - 7 * 86400:
                 os.unlink(os.path.join(directory, name))
         except (OSError, ValueError, TypeError, AttributeError):
             pass
     try:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o640)
     except FileExistsError:
-        return _existing(pending['decisionId']) or 'other'
+        lost = _existing(pending['decisionId'])
+        if lost:
+            return lost
+        # Failed earlier: claim again only while holding the reclaim lock and after re-checking.
+        # A lock left by a crash keeps the decision blocked (fail closed).
+        lock = path + '.reclaim'
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o640))
+        except FileExistsError:
+            return 'other'
+        try:
+            lost = _existing(pending['decisionId']) if os.path.exists(path) else None
+            if lost:
+                return lost
+            if os.path.exists(path):
+                os.replace(path, f'{path}.failed-{time.time_ns()}')
+            try:
+                fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o640)
+            except FileExistsError:
+                return _existing(pending['decisionId']) or 'other'
+        finally:
+            os.unlink(lock)
     with os.fdopen(fd, 'w') as f:
         json.dump({'version': 1, 'decisionId': pending['decisionId'], 'eventId': pending['eventId'], 'via': pending['via'], 'operationId': pending['operationId'], 'state': 'claimed', 'at': time.time()}, f)
     return None
 
 
-def _decision_gate(sid, tool_name, args):
+def _decision_gate(sid, tool_name, args, tool_call_id=None):
     if tool_name in _FREE_TOOLS or tool_name in _PATH_TOOLS or (tool_name == 'terminal' and isinstance(args.get('command'), str) and _BOARD_READ.fullmatch(args['command'].strip()) and not args.get('background')):
         return None
     with _lock:
         pending = _pending.get(sid)
-        if not pending or pending['claimed']:
+        if not pending:
             return None
-        if not pending['lost']:
+        if not pending['claimed'] and not pending['lost']:
             try:
                 pending['lost'] = _claim(pending)
             except OSError as exc:
                 _log.warning('kohako-decision: claim error (%s)', type(exc).__name__)
                 return {'action': 'block', 'message': 'Kohako: decision claim を保存できないため操作を実行できません。'}
-            if not pending['lost']:
-                pending['claimed'] = True
-                return None
-        return {'action': 'block', 'message': f"Kohako: この Task Board 通知（decision={pending['decisionId']}）は {_label(pending['lost'])} で既に対応済み（または対応中）です。同じ操作を再実行せず、その旨だけ答えてください。"}
+            pending['claimed'] = not pending['lost']
+        if not pending['claimed']:
+            return {'action': 'block', 'message': _lost_message(pending)}
+        # The outcome comes from post_tool_call (approval denial and other blocks report 'blocked').
+        if isinstance(tool_call_id, str) and tool_call_id:
+            pending['inflight'].add(tool_call_id)
+        else:
+            pending['unknown'] = True
+        return None
+
+
+def _after(*, session_id=None, tool_call_id=None, status=None, **kwargs):
+    try:
+        with _lock:
+            pending = _pending.get(session_id)
+            if not pending or not pending.get('claimed') or tool_call_id not in pending['inflight']:
+                return
+            pending['inflight'].discard(tool_call_id)
+            if status == 'ok':
+                pending['ok'] = True
+            elif status == 'error':
+                pending['failed'] = True
+            elif status != 'blocked':
+                pending['unknown'] = True
+    except Exception as exc:
+        _log.warning('kohako-decision: outcome error (%s)', type(exc).__name__)
 
 
 def _transform(*, response_text=None, session_id=None, **kwargs):
     try:
         with _lock:
             pending = _pending.get(session_id)
-            if pending and pending['claimed']:
+            if pending and pending['claimed'] and pending['ok']:
                 return response_text + '\n\n[kohako-decision] done decision=' + pending['decisionId']
     except Exception as exc:
         _log.warning('kohako-decision: transform error (%s)', type(exc).__name__)
@@ -265,15 +325,27 @@ def _post(*, session_id=None, **kwargs):
             pending = _pending.pop(session_id, None)
         if not pending or not pending['claimed']:
             return
+        if pending['ok']:
+            state = 'done'
+        elif pending['inflight'] or pending['unknown']:
+            return  # result unknown: stays claimed and is never re-run by either entry point
+        elif pending['failed']:
+            state = 'failed'
+        else:
+            state = None  # every claimed call was blocked or denied: nothing ran
         path = _path(pending['decisionId'])
         with open(path) as f:
             data = json.load(f)
         if data.get('operationId') != pending['operationId'] or data.get('state') != 'claimed':
             return
+        if state is None:
+            os.unlink(path)
+            return
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix='.decision-')
         try:
             with os.fdopen(fd, 'w') as f:
-                data['state'] = 'done'
+                data['state'] = state
+                data['at'] = time.time()
                 json.dump(data, f)
             os.replace(tmp, path)
         finally:
@@ -449,7 +521,7 @@ def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kw
         result = _decide(tool_name, args, sid, tool_call_id)
         if result and result.get('action') == 'block':
             return result
-        return _decision_gate(sid, tool_name, args) or result
+        return _decision_gate(sid, tool_name, args, tool_call_id) or result
     except Exception as exc:
         _log.warning('kohako-g2-gate: error (%s)', type(exc).__name__)
         # Fail closed for G2 sessions and sessions whose platform is unknown (pre_llm_call records
