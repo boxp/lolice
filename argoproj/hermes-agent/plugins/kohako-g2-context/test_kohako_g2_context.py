@@ -273,6 +273,14 @@ class DecisionTests(unittest.TestCase):
         self.assertIn('結果不明', self.gate('kohako-g2-main', call='call_' + 'b' * 32)['message'])
         self.assertIsNone(plugin._transform(session_id='kohako-g2-main', response_text='ok'))
         plugin._post(session_id='kohako-g2-main'); self.assertEqual(self.data()['state'], 'claimed')
+    def test_inflight_blocks_parallel_operation_in_same_turn(self):
+        # The first operation has not reported back (status=None): a second one must not run alongside it.
+        self.tg(); self.assertIsNone(self.gate('tg', status=None))
+        self.assertIn('先行操作', self.gate('tg', call='call_' + 'b' * 32, status=None)['message'])
+        self.assertIsNone(self.gate('tg', 'show BOXP-1'))
+        plugin._after(session_id='tg', tool_call_id='call_' + 'a' * 32, status='ok')
+        self.assertIsNone(self.gate('tg', call='call_' + 'c' * 32))
+        plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')
     def test_ok_wins_and_unknown_stays_claimed(self):
         self.tg(); self.gate('tg', status='blocked'); self.gate('tg', call='call_' + 'b' * 32)
         plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')

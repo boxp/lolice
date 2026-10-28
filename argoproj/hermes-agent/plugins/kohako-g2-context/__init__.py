@@ -400,6 +400,10 @@ def _decision_gate(sid, tool_name, args, tool_call_id=None, turn_id=None):
             # An earlier operation of this turn errored or never reported back: it may have run,
             # so a retry in the same turn could execute it twice.
             return {'action': 'block', 'message': f"Kohako: この Task Board 通知（decision={pending['decisionId']}）への操作は結果不明です。同じ操作を再実行せず、結果を確認できない旨だけ答えてください。"}
+        if pending['inflight']:
+            # An earlier operation of this turn has not reported back yet: running another one in
+            # parallel could repeat it if the earlier one succeeds and then times out.
+            return {'action': 'block', 'message': f"Kohako: この Task Board 通知（decision={pending['decisionId']}）への先行操作の結果がまだ返っていません。並行して操作せず、先行操作の結果を確認してから必要な場合だけ続けてください。"}
         # The outcome comes from post_tool_call (approval denial and other blocks report 'blocked').
         if isinstance(tool_call_id, str) and tool_call_id:
             pending['inflight'].add(tool_call_id)
