@@ -11,7 +11,7 @@ kind: Deployment
 metadata:
   name: qwen-image-eval
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
