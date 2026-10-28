@@ -36,3 +36,7 @@
 ## 追記（plugin 1.3.5, codex-review 対応）
 
 - Telegram 側の通知認識を BFF（`apps/kohako-bff/src/notifications.ts` の `extractNotices`）と揃える: 先頭空白を許す `[Webhook delivery: task-board]`、`【Task Board 通知】` とチケット番号の間の空白（全角含む）、`[A-Z]+-数字` のチケット、語境界付きの最後の `event=`、`[SILENT]` 除外。G2 で返答できる通知は必ず Telegram 側でも claim 対象になり、空白の有無で片側だけ claim されない。
+
+## 追記（plugin 1.3.6, codex-review 対応）
+
+- GC と claim の競合: 期限切れ `done` を読んでから unlink するまでの間に別経路が新しい claim を作ると GC がそれを消し、両経路が claim できた。store 直下の `claims.lock` を `fcntl.flock` で排他し、GC・O_EXCL claim・確定（done/解放）を同じ lock 下で直列化（スレッド・別 process 共通）。GC の unlink 中に別経路が claim する順序を再現する並行 fixture を追加（lock なしでは失敗することを確認）。

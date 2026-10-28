@@ -314,6 +314,23 @@ class DecisionTests(unittest.TestCase):
         for thread in threads: thread.start()
         for thread in threads: thread.join()
         self.assertEqual(results.count(None), 1)
+    def test_gc_cannot_delete_a_fresh_claim(self):
+        # GC reads an expired 'done' file; a concurrent caller must not slip a new claim in
+        # before GC unlinks, or GC would delete it and both entry points could claim.
+        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via}
+        path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path))
+        with open(path, 'w') as f: json.dump({'state': 'done', 'via': 'telegram', 'at': time.time() - 8 * 86400}, f)
+        real_unlink, results, threads = os.unlink, [], []
+        def unlink(target, *args, **kwargs):
+            if target == path and not threads:
+                threads.append(threading.Thread(target=lambda: results.append(plugin._claim(pending('telegram')))))
+                threads[0].start(); threads[0].join(0.3)
+            return real_unlink(target, *args, **kwargs)
+        with patch.object(plugin.os, 'unlink', side_effect=unlink):
+            results.append(plugin._claim(pending('g2')))
+            threads[0].join()
+        self.assertEqual(sorted(map(str, results)), ['None', 'g2'])
+        self.assertEqual(self.data()['state'], 'claimed'); self.assertEqual(self.data()['via'], 'g2')
     def test_read_only_then_other_claims(self):
         self.tg(); self.assertIsNone(self.gate('tg', 'show BOXP-1'))
         self.assertFalse(os.path.exists(plugin._path('dec-event-1')))

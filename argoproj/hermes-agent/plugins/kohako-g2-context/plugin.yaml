@@ -1,5 +1,5 @@
 name: kohako-g2-context
-version: 1.3.5
+version: 1.3.6
 description: Reference recent Kohako G2 conversations in owner Telegram turns, and gate tools in Kohako G2 API server sessions.
 author: boxp
 provides_hooks:

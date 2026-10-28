@@ -15,6 +15,8 @@
   an error may come after a partial change or a timed-out external success, so it is treated as
   result unknown and never re-run by either entry point. A detection error blocks side effects.
 """
+import contextlib
+import fcntl
 import hashlib
 import json
 import logging
@@ -281,24 +283,39 @@ def _is_current(message, user_message):
     return bool(current) and (current in stored or (bool(stored) and stored in current))
 
 
+@contextlib.contextmanager
+def _store_lock():
+    # Serializes GC, claim and settle across threads and processes: a GC that read an expired
+    # 'done' file must not unlink a fresh claim another caller created in between.
+    store = os.environ.get('KOHAKO_DECISION_STORE', _DECISION_STORE)
+    os.makedirs(store, exist_ok=True)
+    with open(os.path.join(store, 'claims.lock'), 'a') as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def _claim(pending):
     path = _path(pending['decisionId'])
     directory = os.path.dirname(path)
     os.makedirs(directory, exist_ok=True)
-    for name in os.listdir(directory):
+    with _store_lock():
+        for name in os.listdir(directory):
+            try:
+                with open(os.path.join(directory, name)) as f:
+                    data = json.load(f)
+                if data.get('state') == 'done' and data.get('at', 0) < time.time() - 7 * 86400:
+                    os.unlink(os.path.join(directory, name))
+            except (OSError, ValueError, TypeError, AttributeError):
+                pass
         try:
-            with open(os.path.join(directory, name)) as f:
-                data = json.load(f)
-            if data.get('state') == 'done' and data.get('at', 0) < time.time() - 7 * 86400:
-                os.unlink(os.path.join(directory, name))
-        except (OSError, ValueError, TypeError, AttributeError):
-            pass
-    try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o640)
-    except FileExistsError:
-        return _existing(pending['decisionId']) or 'other'
-    with os.fdopen(fd, 'w') as f:
-        json.dump({'version': 1, 'decisionId': pending['decisionId'], 'eventId': pending['eventId'], 'via': pending['via'], 'operationId': pending['operationId'], 'state': 'claimed', 'at': time.time()}, f)
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o640)
+        except FileExistsError:
+            return _existing(pending['decisionId']) or 'other'
+        with os.fdopen(fd, 'w') as f:
+            json.dump({'version': 1, 'decisionId': pending['decisionId'], 'eventId': pending['eventId'], 'via': pending['via'], 'operationId': pending['operationId'], 'state': 'claimed', 'at': time.time()}, f)
     return None
 
 
@@ -365,24 +382,25 @@ def _post(*, session_id=None, **kwargs):
             return  # result unknown (incl. errors): stays claimed and is never re-run by either entry point
         else:
             state = None  # every claimed call was blocked or denied: nothing ran
-        path = _path(pending['decisionId'])
-        with open(path) as f:
-            data = json.load(f)
-        if data.get('operationId') != pending['operationId'] or data.get('state') != 'claimed':
-            return
-        if state is None:
-            os.unlink(path)
-            return
-        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix='.decision-')
-        try:
-            with os.fdopen(fd, 'w') as f:
-                data['state'] = state
-                data['at'] = time.time()
-                json.dump(data, f)
-            os.replace(tmp, path)
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
+        with _store_lock():
+            path = _path(pending['decisionId'])
+            with open(path) as f:
+                data = json.load(f)
+            if data.get('operationId') != pending['operationId'] or data.get('state') != 'claimed':
+                return
+            if state is None:
+                os.unlink(path)
+                return
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix='.decision-')
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    data['state'] = state
+                    data['at'] = time.time()
+                    json.dump(data, f)
+                os.replace(tmp, path)
+            finally:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
     except Exception as exc:
         _log.warning('kohako-decision: settle error (%s)', type(exc).__name__)
 
