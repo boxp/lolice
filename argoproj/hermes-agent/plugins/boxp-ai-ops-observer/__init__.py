@@ -50,8 +50,9 @@ _stats = {"emitted": 0, "dropped_queue_full": 0, "dropped_file_full": 0, "write_
 _worker = None
 _salt = None
 _metrics_lock = None  # open fd holding the metrics writer flock
-_ledger_offsets = {}  # path -> (device, inode, byte offset)
+_ledger_offsets = {}  # file name -> (inode, byte offset)
 _ledger_counts = {"by_type": {}, "run_finished": {}, "malformed": 0, "last_emit": 0}
+_ledger_state_loaded = False
 _EVENT_TYPES = ("run.started", "run.finished", "approval.requested", "approval.resolved")
 _STATUSES = ("succeeded", "failed", "interrupted", "unknown")
 _LOSS_KEYS = ("dropped_queue_full", "dropped_file_full", "write_errors", "api_request_errors")
@@ -236,10 +237,49 @@ def _write(e):
         fh.write(json.dumps(e, separators=(",", ":")) + "\n")
 
 
+def _ledger_state_path():
+    return os.path.join(_DIR, "ledger-state.json")
+
+
+def _load_ledger_state():
+    """Resume counts and offsets persisted by a previous metrics owner, so an owner change
+    (process exit / pod restart) neither re-counts retained lines nor loses pruned counts."""
+    global _ledger_state_loaded
+    if _ledger_state_loaded:
+        return
+    try:
+        with open(_ledger_state_path()) as fh:
+            state = json.load(fh)
+        offsets = {str(k): (int(v[0]), int(v[1])) for k, v in state["offsets"].items()}
+        counts = state["counts"]
+        loaded = {"by_type": {k: int(v) for k, v in counts["by_type"].items() if k in _EVENT_TYPES},
+                  "run_finished": {k: int(v) for k, v in counts["run_finished"].items() if k in _STATUSES},
+                  "malformed": int(counts["malformed"]), "last_emit": float(counts["last_emit"])}
+    except FileNotFoundError:
+        offsets, loaded = {}, None
+    # Other errors propagate: exporting from zero would look like a counter reset and
+    # re-count every retained line, so the owner keeps the previous metrics.prom instead.
+    _ledger_offsets.clear()
+    _ledger_offsets.update(offsets)
+    if loaded:
+        _ledger_counts.update(loaded)
+    _ledger_state_loaded = True
+
+
+def _save_ledger_state():
+    _atomic_json(_ledger_state_path(), {
+        "offsets": {k: list(v) for k, v in _ledger_offsets.items()},
+        "counts": _ledger_counts})
+
+
 def _read_ledger():
-    """Count complete appended lines, retaining counts when old files are pruned."""
+    """Count complete appended lines, retaining counts when old files are pruned.
+    The state is persisted before metrics.prom is written, so exported counters never go
+    backwards across owner changes."""
+    _load_ledger_state()
     directory = os.path.join(_DIR, "ledger")
-    for name in sorted(os.listdir(directory) if os.path.isdir(directory) else []):
+    names = sorted(os.listdir(directory) if os.path.isdir(directory) else [])
+    for name in names:
         if not (name.startswith("events-") and name.endswith(".jsonl")
                 and len(name) == len("events-YYYY-MM-DD.jsonl")):
             continue
@@ -247,9 +287,9 @@ def _read_ledger():
         try:
             with open(path, "rb") as fh:
                 stat = os.fstat(fh.fileno())
-                identity = (stat.st_dev, stat.st_ino)
-                previous = _ledger_offsets.get(path)
-                offset = previous[2] if previous and previous[:2] == identity and stat.st_size >= previous[2] else 0
+                # inode only: the device number of the PVC can change between pods.
+                previous = _ledger_offsets.get(name)
+                offset = previous[1] if previous and previous[0] == stat.st_ino and stat.st_size >= previous[1] else 0
                 fh.seek(offset)
                 while True:
                     line = fh.readline()
@@ -273,10 +313,13 @@ def _read_ledger():
                                 status = "unknown"
                             counts = _ledger_counts["run_finished"]
                             counts[status] = counts.get(status, 0) + 1
-                _ledger_offsets[path] = (*identity, offset)
+                _ledger_offsets[name] = (stat.st_ino, offset)
                 _ledger_counts["last_emit"] = max(_ledger_counts["last_emit"], stat.st_mtime)
         except FileNotFoundError:
             continue  # retention may remove a file while it is being scanned
+    for name in [n for n in _ledger_offsets if n not in names]:
+        del _ledger_offsets[name]  # pruned file: its counts stay in _ledger_counts
+    _save_ledger_state()
 
 
 def _atomic_json(path, data):
@@ -318,6 +361,9 @@ def _pid_alive(pid, start):
 
 
 def _process_totals():
+    """Sum loss counters of live processes and of exited ones (retired.json).
+    retired.json records which stats files it already absorbed, so a crash or unlink failure
+    between updating it and deleting the file does not count that process twice."""
     directory = os.path.join(_DIR, "proc-stats")
     os.makedirs(directory, exist_ok=True)
     retired_path = os.path.join(directory, "retired.json")
@@ -326,14 +372,23 @@ def _process_totals():
             retired = json.load(fh)
     except FileNotFoundError:
         retired = {}
-    totals = {key: retired.get(key, 0) for key in _LOSS_KEYS}
+    names = os.listdir(directory)
+    # Ids whose file is gone can never be absorbed again; drop them to keep the file small.
+    absorbed = {n for n in retired.get("absorbed", []) if n in names}
+    if absorbed != set(retired.get("absorbed", [])):
+        retired["absorbed"] = sorted(absorbed)
+        _atomic_json(retired_path, retired)
+    totals = {key: int(retired.get(key, 0)) for key in _LOSS_KEYS}
     depth = processes = 0
-    for name in os.listdir(directory):
+    for name in names:
         m = re.fullmatch(r"(\d+)-(\d+)\.json", name)
         if not m:
             continue
         path = os.path.join(directory, name)
         try:
+            if name in absorbed:
+                os.unlink(path)  # already in retired totals; only the deletion was left
+                continue
             with open(path) as fh:
                 data = json.load(fh)
             pid, start = int(m.group(1)), int(m.group(2))
@@ -345,7 +400,9 @@ def _process_totals():
                 depth += max(0, int(data.get("queue_depth", 0)))
             else:
                 for key in _LOSS_KEYS:
-                    retired[key] = retired.get(key, 0) + values[key]
+                    retired[key] = int(retired.get(key, 0)) + values[key]
+                absorbed.add(name)
+                retired["absorbed"] = sorted(absorbed)
                 _atomic_json(retired_path, retired)
                 os.unlink(path)
             for key in _LOSS_KEYS:
@@ -353,6 +410,7 @@ def _process_totals():
         except (OSError, ValueError, TypeError, AttributeError):
             continue
     return totals, depth, processes
+
 
 def _metrics_text():
     _read_ledger()

@@ -36,14 +36,23 @@ def ledger_lines():
     return [l for f in sorted(d.glob("events-*.jsonl")) for l in f.read_text().splitlines() if l]
 
 
+def new_owner():
+    """Simulate a fresh metrics owner process (in-memory ledger state lost)."""
+    plugin._ledger_offsets.clear()
+    plugin._ledger_counts.update(by_type={}, run_finished={}, malformed=0, last_emit=0)
+    plugin._ledger_state_loaded = False
+
+
 class ObserverTests(unittest.TestCase):
     def setUp(self):
         for f in Path(TMP).glob("ledger/*.jsonl"):
             f.unlink()
         for f in Path(TMP).glob("proc-stats/*.json"):
             f.unlink()
-        plugin._ledger_offsets.clear()
-        plugin._ledger_counts.update(by_type={}, run_finished={}, malformed=0, last_emit=0)
+        for name in ("ledger-state.json", "proc-stats/retired.json"):
+            if Path(TMP, name).exists():
+                Path(TMP, name).unlink()
+        new_owner()
         for key in plugin._LOSS_KEYS:
             plugin._stats[key] = 0
         plugin._turns.clear()
@@ -174,6 +183,68 @@ class ObserverTests(unittest.TestCase):
         self.assertIn('ai_ops_hermes_lost_events_total{reason="queue_full"} 3', text)
         self.assertIn('ai_ops_hermes_processes 1', text)
         self.assertIn('ai_ops_hermes_queue_depth 0', text)
+
+    def test_owner_change_keeps_counters_monotonic(self):
+        d = Path(TMP, "ledger")
+        d.mkdir(exist_ok=True)
+        old = d / "events-2000-01-01.jsonl"
+        cur = Path(plugin._day_file(plugin._now()))
+        old.write_text('{"event_type":"run.started"}\n' * 2)
+        cur.write_text('{"event_type":"run.started"}\n')
+        plugin._write_metrics()
+        metrics = Path(TMP, "metrics.prom")
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.started"} 3', metrics.read_text())
+        old.unlink()  # pruned while owned by the first process
+        new_owner()
+        with cur.open("a") as fh:
+            fh.write('{"event_type":"run.started"}\n')
+        plugin._write_metrics()
+        # neither a reset (pruned 2 lost) nor a re-count of the retained line
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.started"} 4', metrics.read_text())
+        new_owner()
+        plugin._write_metrics()
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.started"} 4', metrics.read_text())
+        state = Path(TMP, "ledger-state.json").read_text()
+        self.assertNotIn(old.name, state)
+
+    def test_corrupt_ledger_state_does_not_reset_counters(self):
+        cur = Path(plugin._day_file(plugin._now()))
+        cur.parent.mkdir(parents=True, exist_ok=True)
+        cur.write_text('{"event_type":"run.started"}\n')
+        plugin._write_metrics()
+        Path(TMP, "ledger-state.json").write_text("{broken")
+        new_owner()
+        with self.assertRaises(ValueError):
+            plugin._write_metrics()
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.started"} 1',
+                      Path(TMP, "metrics.prom").read_text())
+
+    def test_retire_is_idempotent_when_unlink_fails(self):
+        directory = Path(TMP, "proc-stats")
+        directory.mkdir(exist_ok=True)
+        dead = directory / "999998-7.json"
+        dead.write_text(json.dumps({"pid": 999998, "start": 7, "write_errors": 4}))
+        real_unlink = os.unlink
+
+        def failing_unlink(path):
+            if str(path).endswith("999998-7.json"):
+                raise OSError("unlink failed")
+            return real_unlink(path)
+
+        alive = lambda pid, start: pid != 999998
+        with patch.object(plugin, "_pid_alive", side_effect=alive), \
+                patch.object(plugin.os, "unlink", side_effect=failing_unlink):
+            plugin._write_metrics()
+        self.assertTrue(dead.exists())
+        with patch.object(plugin, "_pid_alive", side_effect=alive):
+            plugin._write_metrics()
+            plugin._write_metrics()
+        self.assertFalse(dead.exists())
+        retired = json.loads((directory / "retired.json").read_text())
+        self.assertEqual(retired["write_errors"], 4)
+        self.assertEqual(retired["absorbed"], [])
+        self.assertIn('ai_ops_hermes_lost_events_total{reason="write_error"} 4',
+                      Path(TMP, "metrics.prom").read_text())
 
     def test_reused_pid_from_previous_pod_is_retired(self):
         # proc-stats/ lives on the PVC; after a pod restart a new process can get the same pid.
