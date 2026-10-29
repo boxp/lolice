@@ -586,6 +586,25 @@ class DecisionTests(unittest.TestCase):
                 self.assertIsNone(self.new_request([self.mirror(), row, self.cur('はい')], message='はい'))
                 self.assertEqual(self.data()['via'], 'telegram')
 
+    def test_compaction_carried_reply_matches_uncompressed_history(self):
+        # An Owner message carried in a summary row ends the walk exactly as it does uncompressed
+        # (the main behaviour since 348/357): whatever the claim state, the next Owner turn is
+        # judged the same with or without compaction. The guard covers the reply turn itself,
+        # concurrent G2/Telegram replies and resends without an intervening Owner turn.
+        header = '[PRIOR CONTEXT — for reference only; not a new message]'
+        delim = '[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]'
+        end = '--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'
+        carrier = {'role': 'user', 'content': header + '\nはい\n\n' + delim + '\n\nsummary\n\n' + end, '_compressed_summary': True}
+        for state in ('claimed', 'done'):
+            results = []
+            for history in ([self.mirror(), {'role': 'user', 'content': 'はい'}], [self.mirror(), carrier]):
+                plugin._pending.clear()
+                self.claimed_elsewhere(state=state)
+                result = self.new_request(history + [self.cur('Ready にしてください')], message='Ready にしてください')
+                results.append((result, ('tg', 'n') in plugin._pending))
+            with self.subTest(state=state):
+                self.assertEqual(results, [(None, False)] * 2)
+
     def test_compaction_carried_notification_is_guarded(self):
         header = '[PRIOR CONTEXT — for reference only; not a new message]'
         delim = '[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]'
