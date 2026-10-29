@@ -500,6 +500,67 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertFalse(plugin._read_only_command(command))
         self.g2(); self.assertIsNone(self.gate('kohako-g2-main'))
+    def mirror(self, event='event-1'):
+        # How Hermes really mirrors a delivery into the Telegram session (gateway/platforms/webhook.py).
+        return {'role': 'user', 'content': f'[Webhook delivery: task-board]\n【Task Board 通知】BOXP-1 event={event}'}
+    def claimed_elsewhere(self, via='telegram', **extra):
+        path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w') as f: json.dump({'state': 'done', 'via': via, 'operationId': 'tg-x', 'at': time.time() - 100} | extra, f)
+    def new_request(self, history, turn='n', message='新しい不具合の修復依頼を登録して'):
+        plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message=message, turn_id=turn, conversation_history=history)
+        return plugin._gate(session_id='tg', tool_name='terminal', args={'command': GateTests.HELPER + ' create --title x'}, tool_call_id='call_' + 'f' * 32, turn_id=turn)
+    def test_mirrored_user_delivery_is_claimable(self):
+        self.tg([self.mirror(), self.cur()]); self.assertIsNone(self.gate('tg'))
+        plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')
+    def test_compaction_summary_ends_the_walk(self):
+        # BOXP-362: compaction folded the Owner's reply (and the turn it started) into a summary; the
+        # protected head still ends with the old notification. A new instruction is not its reply.
+        self.claimed_elsewhere()
+        summaries = (
+            {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted ...\n\n--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'},
+            {'role': 'assistant', 'content': '[PRIOR CONTEXT — for reference only; not a new message]\n対応しました\n\n[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]\n\nsummary\n\n--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'},
+            {'role': 'assistant', 'content': [{'type': 'text', 'text': 'summary'}], '_compressed_summary': True},
+        )
+        for summary in summaries:
+            with self.subTest(summary=str(summary)[:40]):
+                history = [{'role': 'user', 'content': 'hello'}, self.mirror(), summary, {'role': 'assistant', 'content': '反映しました'}, self.cur('新しい不具合の修復依頼を登録して')]
+                self.assertIsNone(self.new_request(history)); self.assertNotIn(('tg', 'n'), plugin._pending)
+        self.assertEqual(self.data()['via'], 'telegram')
+        # A notification after the summary is still answerable, and still guarded when handled.
+        self.assertEqual(self.new_request([summaries[0], self.mirror(), self.cur('新しい不具合の修復依頼を登録して')])['action'], 'block')
+    def test_later_message_of_the_answering_conversation_is_new(self):
+        # BOXP-362: this conversation's earlier message answered (claimed) the notification; the
+        # reply then fell out of the history. A later new instruction is not blocked by that claim.
+        self.tg([self.mirror(), self.cur()], turn='r'); self.assertIsNone(self._turn_gate('r', 'a', 'ok', 'update BOXP-1 --lane Ready'))
+        # A second tap sent before that turn finished is still the same reply: blocked.
+        self.tg([self.mirror(), self.cur()], turn='d'); self.assertEqual(self._turn_gate('d', 'b', 'ok', 'update BOXP-1 --lane Ready')['action'], 'block')
+        plugin._post(session_id='tg', turn_id='r'); self.assertEqual(self.data()['state'], 'done')
+        plugin._post(session_id='tg', turn_id='d')
+        self.assertEqual(self.data()['session'], plugin._session_key('tg'))
+        self.assertEqual(self.new_request([self.mirror(), self.cur('新しい不具合の修復依頼を登録して')])['action'], 'block')  # sent before done
+        self.stamp = time.time()  # sent after the reply's turn finished
+        self.assertIsNone(self.new_request([self.mirror(), {'role': 'assistant', 'content': '対応しました'}, self.cur('新しい不具合の修復依頼を登録して')]))
+        self.assertNotIn(('tg', 'n'), plugin._pending)
+        # The same notification answered again from G2, or from another Telegram conversation: blocked.
+        self.assertIn('既に対応済み', self.g2()['context']); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
+        plugin._post(session_id='kohako-g2-main')
+        self.record('tg-other')
+        self.assertIn('既に対応済み', self.tg([self.mirror(), self.cur()], sid='tg-other')['context'])
+        self.assertEqual(plugin._gate(session_id='tg-other', tool_name='terminal', args={'command': GateTests.HELPER + ' create --title x'}, tool_call_id='call_' + 'e' * 32, turn_id='1')['action'], 'block')
+    def test_result_unknown_still_blocks_other_routes(self):
+        self.tg([self.mirror(), self.cur()], turn='r'); self._turn_gate('r', 'a', 'error', 'update BOXP-1 --lane Ready')
+        plugin._post(session_id='tg', turn_id='r'); self.assertEqual(self.data()['state'], 'claimed')
+        self.assertIn('結果不明', self.g2()['context']); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
+    def test_claims_without_conversation_still_block(self):
+        # G2 claims and claims made before BOXP-362 carry no conversation: the reply rule applies.
+        key = plugin._session_key('tg')
+        for extra in ({'via': 'g2', 'session': key, 'stamp': 1.0}, {}, {'session': 'x', 'stamp': 1.0}, {'session': key, 'stamp': time.time() + 60},
+                      {'session': key, 'stamp': True}, {'session': key, 'stamp': 1.0, 'state': 'claimed'}, {'session': key, 'stamp': 1.0, 'at': time.time() + 60}):
+            with self.subTest(extra=extra):
+                plugin._pending.clear(); self.claimed_elsewhere(**extra); self.stamp = time.time() - 10
+                self.assertEqual(self.new_request([self.mirror(), self.cur('新しい不具合の修復依頼を登録して')])['action'], 'block')
+        plugin._pending.clear(); self.claimed_elsewhere(session=key, stamp=1.0); self.stamp = time.time() - 5
+        self.assertIsNone(self.new_request([self.mirror(), self.cur('新しい不具合の修復依頼を登録して')]))  # the control: same conversation, finished
     def test_non_owner_and_group(self):
         self.tg(sender_id='other'); self.assertNotIn(('tg', '1'), plugin._pending)
         self.db.session['chat_type'] = 'group'; self.tg(); self.assertNotIn(('tg', '1'), plugin._pending)
