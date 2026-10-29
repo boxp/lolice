@@ -46,3 +46,7 @@ BOXP-360 の承認済み Hermes 再起動 1 回（lolice #943）と重複させ�
 ## 関連
 - Novel 挿絵不具合は BOXP-363 として正規登録・着手済み（重複起票しない）。
 - 記録: Obsidian `Projects/kohako-decision-misbinding/owner-summary.md`
+
+## guard の範囲（設計の明記, 2026-10-29）
+- guard 対象: 通知への返答ターン自体、G2/Telegram 同時返答、Owner の別発言を挟まない返答再送・結果不明時の再送。
+- Owner の別ターン発言を挟んだ後は main の非圧縮時と同じく境界で止まる。圧縮 carrier 行内の元 Owner 発言も同一扱い（parity test で固定）。言い換え再依頼は文面で別件と区別できないため、圧縮越し解除時は対応済み警告を LLM に注入する。
