@@ -1028,7 +1028,7 @@
       "cellHeight" : "sm"
     }
   }, {
-    "description" : "gate=all の fail/pass/skip。codex-review 指摘は agent-system 是正 (暫定)",
+    "description" : "gate=all の fail/pass/skip。codex-review 指摘は agent-system 是正 (暫定)。exporter は許可済み label 組をすべて 0 から出力するため初回 event も増分に数える (arch #14231 以降)",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
@@ -1479,7 +1479,7 @@
       }
     }
   }, {
-    "description" : "runner ledger の run 終了 status 別 (配備 2026-10-29 14:33Z 以降)",
+    "description" : "runner ledger の run 終了 status 別 (配備 2026-10-29 14:33Z 以降)。exporter は許可済み label 組をすべて 0 から出力するため初回 event も増分に数える (arch #14231 以降)",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
