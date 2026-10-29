@@ -17,6 +17,8 @@ resources:
   - deployment.yaml
   - rbac.yaml
   - networkpolicy.yaml
+  - service-ai-ops-metrics.yaml
+  - servicemonitor-ai-ops-metrics.yaml
   - oauth-egress-check-job.yaml
 
 configMapGenerator:
@@ -24,3 +26,10 @@ configMapGenerator:
     files:
       - plugins/kohako-g2-context/plugin.yaml
       - plugins/kohako-g2-context/__init__.py
+  - name: hermes-agent-boxp-ai-ops-observer-plugin
+    files:
+      - plugins/boxp-ai-ops-observer/plugin.yaml
+      - plugins/boxp-ai-ops-observer/__init__.py
+  - name: hermes-agent-ai-ops-metrics
+    files:
+      - ai-ops-metrics/server.py

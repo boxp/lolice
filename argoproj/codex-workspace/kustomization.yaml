@@ -16,3 +16,10 @@ resources:
   - dashboard-service.yaml
   - service-kohako-board.yaml
   - networkpolicy.yaml
+  - service-ai-ops-metrics.yaml
+  - servicemonitor-ai-ops-metrics.yaml
+
+configMapGenerator:
+  - name: codex-workspace-ai-ops-metrics
+    files:
+      - ai-ops-metrics/server.py

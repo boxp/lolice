@@ -96,3 +96,25 @@ spec:
       destination:
         ports:
           - 8642
+---
+# BOXP-360: prometheus-k8s scrapes the read-only AI ops metrics sidecar
+# (low-cardinality counters only; the sidecar mounts just the ai-ops directory).
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: hermes-agent-ai-ops-metrics-ingress
+  namespace: hermes-agent
+spec:
+  tier: default
+  selector: app == 'hermes-agent'
+  types:
+    - Ingress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'monitoring'
+        selector: app.kubernetes.io/name == 'prometheus' && prometheus == 'k8s'
+      destination:
+        ports:
+          - 9464

@@ -1,0 +1,15 @@
+# BOXP-360: AI ops observer metrics (read-only sidecar, low-cardinality labels only).
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-agent-ai-ops-metrics
+  labels:
+    app: hermes-agent-ai-ops-metrics
+spec:
+  type: ClusterIP
+  selector:
+    app: hermes-agent
+  ports:
+    - name: ai-ops-metrics
+      port: 9464
+      targetPort: ai-ops-metrics

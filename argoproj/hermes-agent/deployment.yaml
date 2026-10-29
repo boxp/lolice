@@ -124,7 +124,15 @@ spec:
               chown 1000:10000 /opt/data/plugins "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
               chmod 2775 /opt/data/plugins "$plugin_dir"
               chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
-              # BOXP-332: enable the plugin without rewriting hand-edited YAML.
+              # BOXP-360: metadata-only AI ops observer plugin and its ledger directory
+              # (the ai-ops-metrics sidecar mounts only this directory, read-only).
+              plugin_dir=/opt/data/plugins/boxp-ai-ops-observer
+              mkdir -p "$plugin_dir" /opt/data/ai-ops
+              cp /bootstrap-plugins/boxp-ai-ops-observer/plugin.yaml /bootstrap-plugins/boxp-ai-ops-observer/__init__.py "$plugin_dir/"
+              chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py" /opt/data/ai-ops
+              chmod 2775 "$plugin_dir" /opt/data/ai-ops
+              chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              # BOXP-332: enable the plugins without rewriting hand-edited YAML.
               python3 - <<'PYCONFIG'
               import os, re
               try:
@@ -134,53 +142,55 @@ spec:
                   from ruamel.yaml import YAML
                   safe_load = YAML(typ="safe", pure=True).load
               path = "/opt/data/config.yaml"
-              with open(path) as fh:
-                  text = fh.read()
-              cfg = safe_load(text) or {}
-              plugins = cfg.get("plugins") if isinstance(cfg, dict) else None
-              enabled = plugins.get("enabled") if isinstance(plugins, dict) else None
-              name = "kohako-g2-context"
-              if isinstance(enabled, list) and name in enabled:
-                  print("[bootstrap] kohako-g2-context already enabled")
-              else:
-                  lines = text.splitlines(keepends=True)
-                  headers = [i for i, line in enumerate(lines) if re.fullmatch(r"plugins:\s*(?:#.*)?\n?", line)]
-                  idx = None
-                  if isinstance(enabled, list) and len(headers) == 1:
-                      start = headers[0] + 1
-                      end = next((i for i in range(start, len(lines)) if re.match(r"[^\s#]", lines[i])), len(lines))
-                      matches = [i for i in range(start, end) if re.fullmatch(r"  enabled: *(?:\[\])? *(?:#.*)?\n?", lines[i])]
-                      if len(matches) == 1:
-                          idx = matches[0]
-                  new = None
-                  if "plugins" not in cfg and not headers:
-                      # Older persisted configs have no plugins block: append one.
-                      enabled = []
-                      new = text + ("" if text.endswith("\n") or not text else "\n") + \
-                          "\n# BOXP-332: owner-DM-only reference context from Kohako G2.\nplugins:\n  enabled:\n    - kohako-g2-context\n"
-                  elif idx is not None:
-                      line = lines[idx]
-                      if re.match(r"  enabled: *\[\]", line):
-                          lines[idx] = re.sub(r" *\[\]", "", line, count=1)
-                      lines.insert(idx + 1, "    - kohako-g2-context\n")
-                      new = "".join(lines)
-                  if new is None:
-                      print("[bootstrap] WARNING plugins.enabled has an unsupported shape; not rewriting")
+              # BOXP-360: the same idempotent edit also enables the metadata-only AI ops observer.
+              for name, note in [("kohako-g2-context", "BOXP-332: owner-DM-only reference context from Kohako G2."),
+                                 ("boxp-ai-ops-observer", "BOXP-360: metadata-only AI ops ledger.")]:
+                  with open(path) as fh:
+                      text = fh.read()
+                  cfg = safe_load(text) or {}
+                  plugins = cfg.get("plugins") if isinstance(cfg, dict) else None
+                  enabled = plugins.get("enabled") if isinstance(plugins, dict) else None
+                  if isinstance(enabled, list) and name in enabled:
+                      print(f"[bootstrap] {name} already enabled")
                   else:
-                      try:
-                          result = safe_load(new)
-                          assert result["plugins"]["enabled"] == [name] + enabled
-                      except Exception:
-                          print("[bootstrap] WARNING plugins.enabled edit did not validate; not rewriting")
+                      lines = text.splitlines(keepends=True)
+                      headers = [i for i, line in enumerate(lines) if re.fullmatch(r"plugins:\s*(?:#.*)?\n?", line)]
+                      idx = None
+                      if isinstance(enabled, list) and len(headers) == 1:
+                          start = headers[0] + 1
+                          end = next((i for i in range(start, len(lines)) if re.match(r"[^\s#]", lines[i])), len(lines))
+                          matches = [i for i in range(start, end) if re.fullmatch(r"  enabled: *(?:\[\])? *(?:#.*)?\n?", lines[i])]
+                          if len(matches) == 1:
+                              idx = matches[0]
+                      new = None
+                      if "plugins" not in cfg and not headers:
+                          # Older persisted configs have no plugins block: append one.
+                          enabled = []
+                          new = text + ("" if text.endswith("\n") or not text else "\n") + \
+                              f"\n# {note}\nplugins:\n  enabled:\n    - {name}\n"
+                      elif idx is not None:
+                          line = lines[idx]
+                          if re.match(r"  enabled: *\[\]", line):
+                              lines[idx] = re.sub(r" *\[\]", "", line, count=1)
+                          lines.insert(idx + 1, f"    - {name}\n")
+                          new = "".join(lines)
+                      if new is None:
+                          print(f"[bootstrap] WARNING plugins.enabled has an unsupported shape; not enabling {name}")
                       else:
-                          tmp = path + ".tmp"
-                          with open(tmp, "w") as fh:
-                              fh.write(new)
-                          st = os.stat(path)
-                          os.chown(tmp, st.st_uid, st.st_gid)
-                          os.chmod(tmp, st.st_mode & 0o7777)
-                          os.replace(tmp, path)
-                          print("[bootstrap] enabled kohako-g2-context")
+                          try:
+                              result = safe_load(new)
+                              assert result["plugins"]["enabled"] == [name] + enabled
+                          except Exception:
+                              print(f"[bootstrap] WARNING plugins.enabled edit did not validate; not enabling {name}")
+                          else:
+                              tmp = path + ".tmp"
+                              with open(tmp, "w") as fh:
+                                  fh.write(new)
+                              st = os.stat(path)
+                              os.chown(tmp, st.st_uid, st.st_gid)
+                              os.chmod(tmp, st.st_mode & 0o7777)
+                              os.replace(tmp, path)
+                              print(f"[bootstrap] enabled {name}")
               PYCONFIG
               # BOXP-332 M7: the API server (Kohako G2 BFF) gets file / session_search / skills /
               # terminal (no MCP), and ONLY while the kohako-g2-context plugin with its
@@ -319,6 +329,9 @@ spec:
             - name: kohako-g2-context-plugin
               mountPath: /bootstrap-plugins/kohako-g2-context
               readOnly: true
+            - name: boxp-ai-ops-observer-plugin
+              mountPath: /bootstrap-plugins/boxp-ai-ops-observer
+              readOnly: true
       containers:
         - name: hermes-agent
           image: ghcr.io/boxp/arch/hermes-agent:latest
@@ -408,6 +421,52 @@ spec:
               mountPath: /etc/gai.conf
               subPath: gai.conf
               readOnly: true
+        # BOXP-360: read-only /metrics for the observer plugin's exposition file. Mounts
+        # only the ai-ops directory of the data PVC (no sessions / config / memory).
+        - name: ai-ops-metrics
+          image: docker.io/python:3.15-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/server.py
+          ports:
+            - name: ai-ops-metrics
+              containerPort: 9464
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PORT
+              value: "9464"
+            - name: AI_OPS_METRICS_FILE
+              value: /data/ai-ops/metrics.prom
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 10000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: ai-ops-metrics
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /data/ai-ops
+              subPath: ai-ops
+              readOnly: true
+            - name: ai-ops-metrics-app
+              mountPath: /app
+              readOnly: true
         - name: obsidian-sync
           image: ghcr.io/boxp/arch/hermes-agent:latest
           imagePullPolicy: IfNotPresent
@@ -491,6 +550,12 @@ spec:
         - name: kohako-g2-context-plugin
           configMap:
             name: hermes-agent-kohako-g2-context-plugin
+        - name: boxp-ai-ops-observer-plugin
+          configMap:
+            name: hermes-agent-boxp-ai-ops-observer-plugin
+        - name: ai-ops-metrics-app
+          configMap:
+            name: hermes-agent-ai-ops-metrics
         - name: tmp
           emptyDir:
             sizeLimit: 2Gi
