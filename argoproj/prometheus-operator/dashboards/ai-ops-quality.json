@@ -722,7 +722,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_correction_tasks{job=\"codex-workspace-ai-ops-metrics\",origin=\"agent-system\"} / ai_ops_reached_review_tasks{job=\"codex-workspace-ai-ops-metrics\"} and on() (ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\",sli=\"agent_system_correction_task_ratio\"} == 1)",
+      "expr" : "ai_ops_correction_tasks{job=\"codex-workspace-ai-ops-metrics\",origin=\"agent-system\"} / ignoring(origin) ai_ops_reached_review_tasks{job=\"codex-workspace-ai-ops-metrics\"} and on() (ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\",sli=\"agent_system_correction_task_ratio\"} == 1)",
       "legendFormat" : "ratio",
       "refId" : "A",
       "instant" : true,
@@ -850,7 +850,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_first_acceptance_tasks{job=\"codex-workspace-ai-ops-metrics\",result=\"pass\"} / ai_ops_first_acceptance_denominator_tasks{job=\"codex-workspace-ai-ops-metrics\"} and on() (ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\",sli=\"first_acceptance_conformance\"} == 1)",
+      "expr" : "ai_ops_first_acceptance_tasks{job=\"codex-workspace-ai-ops-metrics\",result=\"pass\"} / ignoring(result) ai_ops_first_acceptance_denominator_tasks{job=\"codex-workspace-ai-ops-metrics\"} and on() (ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\",sli=\"first_acceptance_conformance\"} == 1)",
       "legendFormat" : "strict",
       "refId" : "A",
       "instant" : true,
@@ -860,7 +860,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_first_acceptance_conservative_tasks{job=\"codex-workspace-ai-ops-metrics\",part=\"pass\"} / ai_ops_first_acceptance_conservative_tasks{job=\"codex-workspace-ai-ops-metrics\",part=\"denominator\"} and on() (ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\",sli=\"first_acceptance_conformance\"} == 1)",
+      "expr" : "ai_ops_first_acceptance_conservative_tasks{job=\"codex-workspace-ai-ops-metrics\",part=\"pass\"} / ignoring(part) ai_ops_first_acceptance_conservative_tasks{job=\"codex-workspace-ai-ops-metrics\",part=\"denominator\"} and on() (ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\",sli=\"first_acceptance_conformance\"} == 1)",
       "legendFormat" : "未評価を不合格扱い",
       "refId" : "B",
       "instant" : true,
