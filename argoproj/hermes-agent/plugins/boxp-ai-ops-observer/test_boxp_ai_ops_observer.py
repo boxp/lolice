@@ -315,7 +315,7 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(saved["api_request_errors"], 1)
         self.assertEqual(saved["queue_depth"], 0)
 
-    def _sigterm_child(self, prelude):
+    def _sigterm_child(self, prelude, main="time.sleep(30)\n"):
         """Run the plugin in a child process whose periodic worker never writes, so only the
         SIGTERM path can save the queued event and the late loss, then SIGTERM it."""
         d = tempfile.mkdtemp()
@@ -330,7 +330,7 @@ class ObserverTests(unittest.TestCase):
             "m._turn_started(session_id='s-term', turn_id='t1')\n"
             "m._count('api_request_errors')\n"
             "print('ready', flush=True)\n"
-            "time.sleep(30)\n")
+            + main)
         env = dict(os.environ, BOXP_AI_OPS_DIR=d)
         child = subprocess.Popen([sys.executable, "-c", code, str(Path(__file__).with_name("__init__.py"))],
                                  env=env, stdout=subprocess.PIPE, text=True)
@@ -357,6 +357,27 @@ class ObserverTests(unittest.TestCase):
         self.assertTrue(Path(d, "prev").exists())
         self.assertTrue(any(e["event_type"] == "run.started" for e in lines))
         self.assertEqual([s["api_request_errors"] for s in stats], [1])
+
+    def test_sigterm_while_main_thread_holds_stats_lock_does_not_deadlock(self):
+        # The handler runs on the main thread inside `with _lock`; it must not wait on the lock.
+        rc, _, lines, stats = self._sigterm_child("", "with m._lock:\n    time.sleep(2)\ntime.sleep(30)\n")
+        self.assertEqual(rc, -signal.SIGTERM)
+        self.assertTrue(any(e["event_type"] == "run.started" for e in lines))
+        self.assertEqual([s["api_request_errors"] for s in stats], [1])
+
+    def test_sigterm_previous_handler_that_returns_keeps_later_events(self):
+        # A graceful handler only requests shutdown; events and losses during the shutdown
+        # must still reach the ledger and the final snapshot at exit.
+        prelude = ("stop = threading.Event()\n"
+                   "signal.signal(signal.SIGTERM, lambda s, f: stop.set())\n")
+        main = ("while not stop.is_set():\n    time.sleep(0.05)\n"
+                "m._turn_started(session_id='s-late', turn_id='t2')\n"
+                "m._count('api_request_errors')\n"
+                "sys.exit(0)\n")
+        rc, _, lines, stats = self._sigterm_child(prelude, main)
+        self.assertEqual(rc, 0)
+        self.assertEqual(sum(e["event_type"] == "run.started" for e in lines), 2)
+        self.assertEqual([s["api_request_errors"] for s in stats], [2])
 
     def test_exit_flush_is_bounded_when_worker_holds_write_lock(self):
         plugin._turn_started(session_id="s-stuck", turn_id="t1")

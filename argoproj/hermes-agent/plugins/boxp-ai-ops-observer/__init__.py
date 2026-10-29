@@ -50,7 +50,10 @@ _save_lock = threading.Lock()  # serializes proc-stats saves (worker vs exit flu
 _exiting = False  # set by the exit flush: later worker saves must not replace its snapshot
 _inflight = 0  # events taken from the queue by the worker and not yet written or counted
 _abandoned = False  # the exit flush gave up on the worker and counted its in-flight events lost
-_exit_once = threading.Lock()  # SIGTERM handler and atexit both flush; only the first runs
+_exit_once = threading.Lock()  # SIGTERM flusher and atexit both flush; only the first runs
+_exit_done = threading.Event()  # set when that flush has finished
+_term_requested = threading.Event()  # set by the SIGTERM handler to wake the flusher thread
+_term_kill = False  # the flusher is done: the next SIGTERM terminates with the default action
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
 _wake = threading.Event()  # set on enqueue; the worker waits on it instead of blocking in get()
 _turns = OrderedDict()  # (session hash, turn hash) -> run_id
@@ -668,16 +671,25 @@ def _start_worker():
 
 
 def _flush_at_exit_once():
-    if _exit_once.acquire(blocking=False):  # never blocks, so safe inside a signal handler
-        _flush_at_exit()
+    if _exit_once.acquire(blocking=False):
+        try:
+            _flush_at_exit()
+        finally:
+            _exit_done.set()
+    else:
+        _exit_done.wait(4.0)  # the SIGTERM flusher is running it: let it finish before exit
 
 
 def _install_sigterm():
     """Kubernetes stops the pod with SIGTERM, and with the default disposition Python dies
-    without running atexit. Chain a handler that flushes first and then keeps the previous
-    behaviour: call the previous Python handler, or re-deliver SIGTERM with the default
-    disposition. Ignored or C-level handlers are left alone; if the agent installs its own
-    handler later and exits normally, atexit still flushes."""
+    without running atexit. The handler itself takes no locks: the main thread may be
+    interrupted while holding one, and waiting on it from the handler would never return.
+    - default disposition: wake a flusher thread and return; it flushes (bounded) and then
+      re-delivers SIGTERM, which the handler turns into the default termination.
+    - previous Python handler: call it directly. If it exits, atexit flushes; if it only
+      requests a graceful shutdown and returns, events and losses during that shutdown are
+      still flushed by atexit instead of being cut off by an early final snapshot.
+    Ignored or C-level handlers are left alone; atexit still flushes on normal exit."""
     if threading.current_thread() is not threading.main_thread():
         return
     try:
@@ -688,17 +700,30 @@ def _install_sigterm():
         return
 
     def _on_sigterm(signum, frame):
-        try:
-            _flush_at_exit_once()
-        except Exception:
-            _log.debug("ai ops sigterm flush failed", exc_info=True)
         if callable(prev):
             prev(signum, frame)
             return
-        signal.signal(signum, signal.SIG_DFL)
-        os.kill(os.getpid(), signum)
+        if _term_kill or _exit_done.is_set():
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+            return
+        _term_requested.set()
 
+    if not callable(prev):
+        threading.Thread(target=_sigterm_flusher, name="boxp-ai-ops-sigterm", daemon=True).start()
     try:
         signal.signal(signal.SIGTERM, _on_sigterm)
     except (ValueError, OSError):
         _log.debug("ai ops sigterm handler not installed", exc_info=True)
+
+
+def _sigterm_flusher():
+    global _term_kill
+    _term_requested.wait()
+    f = threading.Thread(target=_flush_at_exit_once, name="boxp-ai-ops-exit-once", daemon=True)
+    f.start()
+    f.join(4.0)
+    _term_kill = True
+    os.kill(os.getpid(), signal.SIGTERM)
+    time.sleep(5.0)  # the main thread could not run the handler (stuck in C): end like SIG_DFL
+    os._exit(128 + signal.SIGTERM)
