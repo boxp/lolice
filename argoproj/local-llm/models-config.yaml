@@ -73,3 +73,30 @@ data:
     ubatch-size = 512
     threads = 14
     threads-batch = 14
+
+    # BOXP-358: batch-1 candidates for the local LLM model search. Both are
+    # qwen35moe 35B-A3B MoE (~3B active params, 40 layers, 10 full-attention).
+    # Selectable only; the default model stays gemma4-26b and --models-max 1
+    # loads a candidate only when a request names it. Files live in the node
+    # model store under /var/lib/local-llm/models/boxp358/ and were checked
+    # against the publisher sha256 (HF lfs oid) at a pinned revision.
+    # ubatch 512 as for the other non-Gemma presets (prefill stall safety on
+    # the Arc 140T). ctx and the other router CLI args are overlaid as for
+    # every preset. No sampler here; the comparison passes it per request.
+    # HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive @ f12a584f,
+    # Q4_K_P 23.42 GB, sha256 8d344a43…
+    [qwen36-35b-a3b]
+    model = /models/boxp358/qwen36-a3b-hauhau/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    # ornith-ai/Ornith-1.5-35B-A3B-GGUF @ 12393612, Q4_K_M 21.71 GB,
+    # sha256 42739874…
+    [ornith15-35b]
+    model = /models/boxp358/ornith15-35b/Ornith-1.5-35B-Q4_K_M.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
