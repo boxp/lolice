@@ -141,21 +141,3 @@ data:
     ubatch-size = 512
     threads = 14
     threads-batch = 14
-
-    # BOXP-358 batch 5 (optional speed experiment): gemma4-26b plus the MTP draft
-    # head from HF HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP
-    # revision f9093662 (mtp-gemma-4-26B-A4B-it.gguf, 252 MB, sha256 62bd3af7…;
-    # the main Q4_K_M in that repo is byte-identical to the gemma4-26b weights,
-    # sha256 3c131334…). b11669 implements --spec-type draft-mtp for gemma4
-    # (shares the target KV). Speculative decoding verifies every drafted token,
-    # so output should match gemma4-26b; this preset only measures the speed-up.
-    # Selectable only; the default model stays gemma4-26b.
-    [gemma4-26b-mtp]
-    model = /models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
-    spec-draft-model = /models/boxp358/gemma4-26b-mtp/mtp-gemma-4-26B-A4B-it.gguf
-    spec-type = draft-mtp
-    spec-draft-ngl = 99
-    batch-size = 2048
-    ubatch-size = 2048
-    threads = 14
-    threads-batch = 14

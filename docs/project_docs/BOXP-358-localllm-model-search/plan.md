@@ -64,3 +64,5 @@ coding 軸の大型 MoE 候補として `qwen3-coder-next` を追加する。uns
 
 - 計測: load、F（temp 0 で `gemma4-26b` と出力が一致するか）、L32、B253（pp / tg）、A1。受理率（draft_n / draft_n_accepted）も記録する。
 - 起動に失敗した場合や速度が上がらない場合は、理由を記録して preset を外す。
+
+batch 5 の結果: 日本語散文では draft の受理率が 33〜40% にとどまり、decode が 15.2 → 10.8 t/s（約 -29%）、日本語回帰の平均 tg も 13.5 → 9.9 t/s に下がった。code / json は同等〜 +15%。創作が主用途のため不採用とし、`gemma4-26b-mtp` preset を外す。draft head は preset 撤去の反映後に model store から消す。
