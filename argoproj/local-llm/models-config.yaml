@@ -73,3 +73,45 @@ data:
     ubatch-size = 512
     threads = 14
     threads-batch = 14
+
+    # BOXP-358: candidate comparison, HF HauhauCS/Qwen3.6-35B-A3B-Uncensored-
+    # HauhauCS-Aggressive revision f12a584f, Q4_K_P 23.42 GB, sha256 8d344a43….
+    # Base Qwen/Qwen3.6-35B-A3B (MoE 35B total / ~3B active, apache-2.0).
+    # Selectable only; the default is unchanged and --models-max 1 loads it
+    # only when a request names it. Router overlays ctx 262144, --reasoning
+    # off, etc. as for every preset. ubatch 512 is conservative: BOXP-337 saw
+    # i915 fence stalls with ubatch 2048 on a dense model. Callers pass the sampler.
+    [qwen36-35b-a3b]
+    model = /models/boxp358/qwen36-a3b-hauhau/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    # BOXP-358: candidate, HF ornith-ai/Ornith-1.5-35B-A3B-GGUF revision
+    # 12393612, Q4_K_M 21.71 GB, sha256 42739874…. Base
+    # ornith-ai/Ornith-1.5-35B-A3B (qwen3_5_moe, mit). Selectable only;
+    # the default is unchanged and --models-max 1 loads it only when a request
+    # names it. Router overlays ctx 262144, --reasoning off, etc. as for every
+    # preset. ubatch 512 is conservative after the BOXP-337 i915 fence stalls
+    # with ubatch 2048 on a dense model. Callers pass the sampler.
+    [ornith15-35b-a3b]
+    model = /models/boxp358/ornith15-35b/Ornith-1.5-35B-Q4_K_M.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    # BOXP-358: largest-fit candidate, HF unsloth/Qwen3.5-122B-A10B-GGUF
+    # revision 51eab4d5, UD-Q2_K_XL 41.85 GB, sha256 be44a62a…. Base
+    # Qwen/Qwen3.5-122B-A10B (MoE 122B total / ~10B active, apache-2.0).
+    # Selectable only, same semantics as the presets above. Estimated
+    # weights + KV (12 full-attention layers, 262144 ctx) + buffers stay
+    # under the 55 GB per-candidate limit; memwatch unloads it below 12 GiB
+    # MemAvailable. Callers pass the sampler.
+    [qwen35-122b-a10b]
+    model = /models/boxp358/qwen35-122b-a10b/Qwen3.5-122B-A10B-UD-Q2_K_XL.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
