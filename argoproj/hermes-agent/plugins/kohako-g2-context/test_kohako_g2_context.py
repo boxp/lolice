@@ -566,6 +566,42 @@ class DecisionTests(unittest.TestCase):
         self.assertNotIn(('tg', 'n'), plugin._pending)
         self.assertIn('既に対応済み', self.last_context['context'])
 
+    def test_legacy_claim_beyond_summary_requires_earlier_session_turn(self):
+        now = time.time()
+        at = now - 30
+        message = '新しい不具合の修復依頼を登録して'
+        summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
+        cases = (
+            ('matching turn', {}, at - 5, True, True, True),
+            ('old turn', {}, at - 601, True, True, False),
+            ('claimed', {'state': 'claimed'}, at - 5, True, True, False),
+            ('no summary', {}, at - 5, False, True, False),
+            ('unanchored', {}, at - 5, True, False, False),
+            ('g2', {'via': 'g2'}, at - 5, True, True, False),
+            ('same operation', {'operationId': 'tg-n'}, at - 5, True, True, False),
+        )
+        for name, changes, earlier, compacted, anchored, released in cases:
+            with self.subTest(name=name):
+                plugin._pending.clear()
+                claim = {'state': 'done', 'via': 'telegram', 'operationId': 'tg-old', 'at': at} | changes
+                path = plugin._path('dec-event-1')
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, 'w') as f: json.dump(claim, f)
+                before = Path(path).read_bytes()
+                with open(plugin._turns_path('tg'), 'w') as f:
+                    json.dump({'since': now - 1000, 'seen': [repr(earlier)]}, f)
+                current = {'role': 'user', 'content': message}
+                if anchored: current['timestamp'] = now - 10
+                history = [self.mirror()] + ([summary] if compacted else []) + [current]
+                result = self.new_request(history, message=message)
+                if released:
+                    self.assertIsNone(result)
+                    self.assertNotIn(('tg', 'n'), plugin._pending)
+                    self.assertIn('既に対応済み', self.last_context['context'])
+                else:
+                    self.assertEqual(result['action'], 'block')
+                self.assertEqual(Path(path).read_bytes(), before)
+
     def test_earlier_owner_reply_without_compaction_is_not_bound(self):
         message = 'Ready にしてください'
         history = [self.mirror(), {'role': 'user', 'content': 'はい'},

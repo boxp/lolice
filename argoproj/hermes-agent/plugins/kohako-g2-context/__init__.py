@@ -18,13 +18,15 @@
   never drop or borrow each other's claim.
 - BOXP-362: Hermes context compaction replaces earlier turns (Owner messages included) with a
   summary row. A completed earlier Telegram reply in the same session allows a different turn
-  through with a soft warning; ambiguous and identical-message replies remain guarded.
+  through with a soft warning; legacy claims require matching earlier turn evidence, while
+  ambiguous and identical-message replies remain guarded.
 """
 import contextlib
 import fcntl
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -164,6 +166,7 @@ _TICKET = re.compile(r'【Task Board 通知】\s*[A-Z]+-[0-9]+\b')
 # summary, as its own user/assistant row or merged into a carried row (prepended, or the carried
 # content wrapped after a header); Owner messages inside are gone. A completed earlier reply in
 # the same session consumes the first-reply slot, so later messages receive a soft warning.
+# Legacy claims require a matching earlier Owner turn in the session record.
 _COMPACTION = ('[CONTEXT COMPACTION', '[PRIOR CONTEXT — for reference only')
 
 
@@ -233,6 +236,8 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         _pending.pop((sid, turn_id), None)
     event = operation = via = None
     beyond_summary = False
+    anchored = False
+    stamp = None
     if platform == 'api_server':
         if sid.startswith('kohako-g2-cand-') or not isinstance(user_message, str):
             return None
@@ -259,6 +264,8 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         elif history and _is_current(history[-1], user_message):
             try:
                 _anchor(sid, history[-1])
+                anchored = True
+                stamp = history[-1]['timestamp']
             except (OSError, ValueError) as exc:
                 ambiguous = exc  # fatal only when the walk finds a notification
             if _compaction(history.pop()):
@@ -296,7 +303,9 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
                     and data.get('session') == _session_key(sid)
                     and data.get('operationId') != operation
                     and isinstance(data.get('message'), str)
-                    and data['message'] != _message_hash(user_message)):
+                    and data['message'] != _message_hash(user_message)) or (
+                    data is not None and 'session' not in data and 'message' not in data
+                    and anchored and _legacy_earlier_turn(sid, data, stamp, operation)):
                 return (f'Kohako: Task Board 通知（event={event}）は、この会話の以前の Telegram 返答で既に対応済みです。'
                         '今回の発言がその通知への同じ操作の再依頼であれば再実行せず、対応済みである旨だけ答えてください。'
                         '新しい別件の指示であれば通常どおり対応して構いません。')
@@ -313,6 +322,29 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
     if lost:
         return f'Kohako: この Task Board 通知（event={event}）には {_label(lost)} で既に対応済み（または対応中・結果不明）です。同じ操作は再実行できません。必要なら状況だけ答えてください。'
     return None
+
+
+def _legacy_earlier_turn(sid, data, stamp, operation):
+    at = data.get('at')
+    old_operation = data.get('operationId')
+    if (data.get('via') != 'telegram' or data.get('state') != 'done'
+            or not isinstance(at, (int, float)) or isinstance(at, bool)
+            or not math.isfinite(at) or not 0 <= time.time() - at <= _DONE_TTL
+            or not isinstance(old_operation, str) or not old_operation.startswith('tg-')
+            or old_operation == operation or stamp <= at):
+        return False
+    try:
+        with _lock:
+            with open(_turns_path(sid)) as f:
+                record = json.load(f)
+        if (not isinstance(record, dict) or not isinstance(record.get('seen'), list)
+                or not isinstance(record.get('since'), (int, float))
+                or isinstance(record.get('since'), bool)):
+            return False
+        return any(record['since'] < s <= at and at - s <= _TURN_FRESH and s != stamp
+                   for s in map(_stamp_value, record['seen']))
+    except (OSError, ValueError, TypeError, OverflowError):
+        return False
 
 
 def _remember(key, pending):
