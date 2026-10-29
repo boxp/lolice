@@ -554,6 +554,48 @@ class DecisionTests(unittest.TestCase):
         self.claimed_elsewhere()
         # A notification after the summary is still answerable, and still guarded when handled.
         self.assertEqual(self.new_request([summaries[0], self.mirror(), self.cur('新しい不具合の修復依頼を登録して')])['action'], 'block')
+    def test_compaction_carried_owner_boundary(self):
+        header = '[PRIOR CONTEXT — for reference only; not a new message]'
+        delim = '[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]'
+        end = '--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'
+        summary = '[CONTEXT COMPACTION — REFERENCE ONLY] summary'
+        def wrap(old): return header + '\n' + old + '\n\n' + delim + '\n\n' + summary + '\n\n' + end
+        cases = (wrap('以前の Owner 指示'), summary + '\n\n' + end + '\n\n以前の Owner 指示',
+                 [{'type': 'text', 'text': header + '\n'}, {'type': 'image_url', 'image_url': 'image'},
+                  {'type': 'text', 'text': '\n\n' + delim + '\n\n' + summary + '\n\n' + end}],
+                 [{'type': 'text', 'text': summary + '\n\n' + end + '\n\n'}, {'type': 'text', 'text': '以前の Owner 指示'}],
+                 wrap(wrap('以前の Owner 指示')))
+        for content in cases:
+            with self.subTest(content=content):
+                plugin._pending.clear()
+                path = plugin._path('dec-event-1')
+                if os.path.exists(path): os.unlink(path)
+                row = {'role': 'user', 'content': content, '_compressed_summary': True}
+                result = self.new_request([self.mirror(), row, self.cur('新しい不具合の修復依頼を登録して')])
+                self.assertNotIn(('tg', 'n'), plugin._pending)
+                self.assertIsNone(result)
+                self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+
+        # A summary row of an unrecognised form (metadata only) carries nothing: the notice still binds.
+        for content in ('summary', [{'type': 'text', 'text': 'summary'}], '[CONTEXT SUMMARY]: summary'):
+            with self.subTest(unrecognised=content):
+                plugin._pending.clear()
+                path = plugin._path('dec-event-1')
+                if os.path.exists(path): os.unlink(path)
+                row = {'role': 'user', 'content': content, '_compressed_summary': True}
+                self.assertIsNone(self.new_request([self.mirror(), row, self.cur('はい')], message='はい'))
+                self.assertEqual(self.data()['via'], 'telegram')
+
+    def test_compaction_carried_notification_is_guarded(self):
+        header = '[PRIOR CONTEXT — for reference only; not a new message]'
+        delim = '[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]'
+        end = '--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'
+        content = header + '\n' + self.mirror()['content'] + '\n\n' + delim + '\n\nsummary\n\n' + end
+        self.claimed_elsewhere(via='g2')
+        result = self.new_request([{'role': 'user', 'content': content}, self.cur('新しい不具合の修復依頼を登録して')])
+        self.assertEqual(result['action'], 'block')
+        self.assertEqual(plugin._pending[('tg', 'n')]['eventId'], 'event-1')
+
     def test_rephrased_reply_beyond_summary_gets_soft_warning(self):
         plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message='Ready に移動',
                      turn_id='r', conversation_history=[self.mirror(), self.cur('Ready に移動')])

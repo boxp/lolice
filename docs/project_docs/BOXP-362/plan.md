@@ -18,7 +18,7 @@ summary は直前 head が user なら `assistant` 役、tail 先頭とも衝突
 その他の候補（assistant 文中の引用・Webhook 包み・別件 user 境界・turn 未指定 fallback・`_pending` lifecycle・引用返信）は
 既存実装/既存テストで誤接続しないことを確認（引用返信は `[Replying to: ...]` で始まり通知とは判定されず、user 境界になる）。
 
-## 修正（kohako-g2-context 1.3.18）
+## 修正（kohako-g2-context 1.3.19）
 1. compaction summary 行（user/assistant 役で `[CONTEXT COMPACTION` または `[PRIOR CONTEXT — for reference only` で始まる、または `_compressed_summary`）を検出しても走査は止めず「summary 越え」として記録する。
    summary が現在メッセージに merge された場合も同様。通知本文・tool 結果・assistant 文中のマーカー文字列は summary とみなさない。
 2. Telegram の claim に、claim した Owner 発言の正規化 hash（`message`）と会話（session）key（`session`）を記録する（G2 claim には付けない）。
@@ -32,10 +32,11 @@ summary は直前 head が user なら `assistant` 役、tail 先頭とも衝突
   旧版（1.3.15 以前）が作った claim（BOXP-360 の dec-... を含む）は session/message 記録が無い。これは「旧形式 claim」として次をすべて満たす場合だけ同会話の別ターンと判定し、soft 警告付きで hard bind を解除する（1.3.17）: Telegram・done・期限内・operationId が `tg-` で現在ターンと別・現在発言が turn anchor 済みで claim より新しい・この会話の turn 記録に claim 時刻の直前 600 秒以内（記録開始後）の Owner ターンがある。満たさない場合（対応中/結果不明・G2・圧縮なし・anchor 不可・turn 記録なし等）は従来どおり block（claim 削除はしない）。旧形式では発言 hash が無いため同文再送も soft 警告扱いになる（言い換え再返答と同じ水準）。
   1.3.18（codex-review 指摘: 並行ターン・別会話の旧 claim の誤帰属）: 新形式・旧形式とも、解除には現在発言が turn anchor 済みで、claim が done になった時刻より**後**であることを必須にする（claim 完了前に始まった並行ターンは block）。旧形式ではさらに、**他の会話の turn 記録**に claim done 時刻の直前 3600 秒以内の Owner ターンが一つも無いこと（全記録を読めること、記録が 64 件で満杯かつ最古が window 内なら押し出しの可能性があるので block）を必須にする。こうして claim を作れたのがこの会話だけと確定できる場合に限る。
   同会話で言い換えた再返答を圧縮越しに送った場合は hard block ではなく soft 警告になる（圧縮なし履歴の 2 通目と同じ扱い）。
+  1.3.19（codex-review P1: summary がマージされた carrier 行の元 Owner 発言）: Hermes は summary を tail 行へマージすることがある（`[PRIOR CONTEXT …]` ヘッダで元内容を包む形／summary＋END marker の後に元内容を置く形、文字列・multimodal list、入れ子）。carrier 行は summary より新しい元の行として先に判定し、Owner 発言（画像含む）なら走査終了＝古い通知へ bind しない、通知なら通常どおり検出・guard、元内容が無い／形式不明なら従来どおり summary 越し扱い。
 - claim 削除・guard 無効化・別 tool 回避はしない。G2/Telegram 同時返答の一回処理と結果不明時の再送抑止は維持（既存テスト + 新テスト）。
 
 ## 検証
-- `python3 test_kohako_g2_context.py` 56 件 OK（1.3.18）。新テスト 7 件（旧形式 claim の解除/維持 7 subcase を含む）のうち再現系は旧コードで失敗することを確認。
+- `python3 test_kohako_g2_context.py` 58 件 OK（1.3.19。carrier 境界 5 subcase は旧コードで失敗を確認）。56 件 OK（1.3.18）。新テスト 7 件（旧形式 claim の解除/維持 7 subcase を含む）のうち再現系は旧コードで失敗することを確認。
 - 独立 review、CI、通常 merge、ArgoCD 配備、plugin version readback。
 
 ## 配備と Hermes 再起動

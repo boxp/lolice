@@ -17,7 +17,7 @@
   Decision state is kept per turn (session id + turn id), so concurrent turns of one session
   never drop or borrow each other's claim.
 - BOXP-362: Hermes context compaction replaces earlier turns (Owner messages included) with a
-  summary row. A completed earlier Telegram reply in the same session allows a different turn
+  summary row or merges it into a carried row. A completed earlier Telegram reply in the same session allows a different turn
   through with a soft warning; legacy claims require matching earlier turn evidence, while
   ambiguous and identical-message replies remain guarded.
 """
@@ -163,12 +163,45 @@ _DELIVERY = re.compile(r'\s*\[Webhook delivery: task-board\]')
 _TICKET = re.compile(r'【Task Board 通知】\s*[A-Z]+-[0-9]+\b')
 
 
-# Hermes context compaction (agent/context_compressor.py) replaces a range of earlier turns with a
-# summary, as its own user/assistant row or merged into a carried row (prepended, or the carried
-# content wrapped after a header); Owner messages inside are gone. A completed earlier reply in
-# the same session consumes the first-reply slot, so later messages receive a soft warning.
-# Release requires an anchored turn after done; legacy also requires exclusive earlier turn evidence.
+# Hermes compaction can merge a summary into a carried row, whose content is newer.
+# A completed earlier reply consumes the first-reply slot; release requires anchored evidence.
 _COMPACTION = ('[CONTEXT COMPACTION', '[PRIOR CONTEXT — for reference only')
+_PRIOR_HEADER = '[PRIOR CONTEXT — for reference only; not a new message]'
+_SUMMARY_DELIMITER = '[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]'
+_SUMMARY_END = '--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'
+_MULTIMODAL = object()
+
+
+def _carried(content):
+    # Carried row content of a compaction row: '' when none (or the form is not recognised, which
+    # keeps it a plain summary), text, or _MULTIMODAL.
+    if isinstance(content, list):
+        parts, merged = [], False
+        for part in content:
+            if not isinstance(part, dict) or part.get('type') != 'text' or not isinstance(part.get('text'), str):
+                parts.append(part)
+            elif part['text'].lstrip().startswith(_COMPACTION + (_SUMMARY_DELIMITER,)):
+                merged = True
+            else:
+                parts.append(part['text'])
+        if not merged:
+            return ''
+        if not all(isinstance(part, str) for part in parts):
+            return _MULTIMODAL
+        return _carried(''.join(parts)) if ''.join(parts).strip().startswith(_COMPACTION) else ''.join(parts).strip()
+    if not isinstance(content, str):
+        return _MULTIMODAL if content is not None else ''
+    text = content.strip()
+    if not text.startswith(_COMPACTION):
+        return ''
+    while text.startswith(_COMPACTION):
+        if text.startswith(_PRIOR_HEADER) and _SUMMARY_DELIMITER in text:
+            text = text[len(_PRIOR_HEADER):].rsplit(_SUMMARY_DELIMITER, 1)[0].strip()
+        elif text.startswith(_COMPACTION[0]) and _SUMMARY_END in text:
+            text = text.split(_SUMMARY_END, 1)[1].strip()
+        else:
+            return ''
+    return text
 
 
 def _compaction(message):
@@ -274,13 +307,18 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         for message in reversed(history):
             if not isinstance(message, dict):
                 continue
-            if _compaction(message):
-                beyond_summary = True
-                continue
             role, content = message.get('role'), message.get('content')
+            compacted = _compaction(message)
+            if compacted:
+                content = _carried(content)
+                if content == '':
+                    beyond_summary = True
+                    continue
             if not isinstance(content, str):
                 if role == 'user':
                     break  # a multimodal Owner message (e.g. an image) ends the walk like any other
+                if compacted:
+                    beyond_summary = True
                 continue
             notice = _notice_event(content) if role in ('user', 'assistant') else None
             if notice:
@@ -293,6 +331,8 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
                     break
             if role == 'user' and not content.lstrip().startswith('[Webhook delivery:'):
                 break
+            if compacted:
+                beyond_summary = True
     if not event:
         return None
     decision = 'dec-' + event
