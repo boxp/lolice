@@ -833,7 +833,7 @@
       }
     }
   }, {
-    "description" : "式: 最初の受入までに agent-system/原因unknown の是正が無い task / 受入時刻を確認できる観測済み受入 task。未評価・前後不明は分母外で別掲 (合格にしない)",
+    "description" : "式: 最初の受入までに agent-system/原因unknown の是正が無い task / 受入時刻を確認できる観測済み受入 task。未評価・前後不明は分母外で別掲 (合格にしない)。保守的率は未評価を不合格として分母に含める (exporter が欠落で unknown と判定した場合は系列自体が出ない)",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
@@ -860,7 +860,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_first_acceptance_conservative_tasks{job=\"codex-workspace-ai-ops-metrics\",part=\"pass\"} / ignoring(part) ai_ops_first_acceptance_conservative_tasks{job=\"codex-workspace-ai-ops-metrics\",part=\"denominator\"} and on() (ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\",sli=\"first_acceptance_conformance\"} == 1)",
+      "expr" : "ai_ops_first_acceptance_conservative_tasks{job=\"codex-workspace-ai-ops-metrics\",part=\"pass\"} / ignoring(part) (ai_ops_first_acceptance_conservative_tasks{job=\"codex-workspace-ai-ops-metrics\",part=\"denominator\"} > 0)",
       "legendFormat" : "未評価を不合格扱い",
       "refId" : "B",
       "instant" : true,
@@ -1400,7 +1400,16 @@
         },
         "decimals" : 0
       },
-      "overrides" : [ ]
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "C"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "none"
+        } ]
+      } ]
     },
     "id" : 26,
     "options" : {
