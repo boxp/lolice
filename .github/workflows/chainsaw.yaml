@@ -39,12 +39,18 @@ jobs:
               'external-secrets-operator',
               'grafana-alloy',
               'kube-vip',
+              'codex-workspace',
           }
           components = set()
           for filepath in changed:
             parts = filepath.split('/')
             if len(parts) >= 2:
               if parts[0] == 'argoproj' and os.path.isdir(f'tests/chainsaw/{parts[1]}'):
+                  # codex-workspace は image updater の .argocd-source-*.yaml と文書だけの
+                  # 変更では kind を起動しない (static-policy の参照検査は常に走る)。
+                  name = os.path.basename(filepath)
+                  if parts[1] == 'codex-workspace' and (name.startswith('.argocd-source-') or name.endswith('.md')):
+                      continue
                   components.add(parts[1])
               elif len(parts) >= 3 and parts[0] == 'tests' and parts[1] == 'chainsaw':
                   components.add(parts[2])
@@ -121,6 +127,7 @@ jobs:
           set -euo pipefail
           conftest verify --no-color -p policy/kubernetes
           conftest verify --no-color -p policy/kustomize
+          conftest verify --no-color -p policy/references
 
       - name: Render manifests and run Rego policy (conftest test)
         run: scripts/static-manifest-check.sh
@@ -254,7 +261,7 @@ jobs:
               external-secrets-operator)
                 kustomize_build argoproj/external-secrets-operator/manifests/ > "$MANIFEST_DIR/external-secrets-operator.yaml"
                 ;;
-              kube-vip|grafana-alloy)
+              kube-vip|grafana-alloy|codex-workspace)
                 kustomize_build "argoproj/$COMPONENT/" > "$MANIFEST_DIR/$COMPONENT.yaml"
                 ;;
             esac
@@ -364,6 +371,9 @@ jobs:
               external-secrets-operator)
                 echo "ESO は上記で既にインストール済み。ClusterSecretStore overlay は ESO webhook 起動後に適用"
                 cp "$MANIFEST_DIR/external-secrets-operator.yaml" "$DEFERRED_DIR/external-secrets-operator-eso.yaml"
+                ;;
+              codex-workspace)
+                echo "codex-workspace suite が最小マニフェストを適用します"
                 ;;
               kube-vip)
                 kubectl apply --server-side --force-conflicts -f - < "$MANIFEST_DIR/kube-vip.yaml"

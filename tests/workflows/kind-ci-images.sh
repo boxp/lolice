@@ -83,7 +83,11 @@ cd "$REPO_ROOT"
   fi
 
   for component in $(python3 -c 'import json, sys; print("\n".join(json.loads(sys.argv[1])))' "$COMPONENTS_JSON"); do
-    component_manifests "$component" | split_by_daemonset
+    if [ "$component" = codex-workspace ]; then
+      component_manifests "$component" | yq -r 'select(.kind == "Deployment" and .metadata.name == "codex-workspace") | .spec.template.spec.containers[] | select(.name == "ai-ops-metrics") | .image' | while read -r image; do emit "$image" worker; done
+    else
+      component_manifests "$component" | split_by_daemonset
+    fi
     case "$component" in
       grafana-alloy)
         # Alloy 本体は suite (log-pipeline.sh) が Helm install する DaemonSet。

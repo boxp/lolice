@@ -83,5 +83,8 @@ policy_started=$SECONDS
 mapfile -t kustomizations < <(git ls-files 'argoproj/kustomization.yaml' 'argoproj/**/kustomization.yaml')
 conftest test --no-color -p policy/kubernetes "$OUT_DIR/applications.yaml" "$OUT_DIR"/rendered/*.yaml
 conftest test --no-color -p policy/kustomize "${kustomizations[@]}"
+for manifest in "$OUT_DIR"/rendered/*.yaml; do
+  conftest test --no-color --combine -p policy/references "$manifest"
+done
 echo "policy: ok ($((SECONDS - policy_started))s)"
 echo "static-manifest-check: ok (total $((SECONDS - started))s)"
