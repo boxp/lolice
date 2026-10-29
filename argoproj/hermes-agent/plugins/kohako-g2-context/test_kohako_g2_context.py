@@ -1,5 +1,7 @@
 import importlib.util
 import os
+import subprocess
+import sys
 from pathlib import Path
 import time
 import json
@@ -243,10 +245,12 @@ class DecisionTests(unittest.TestCase):
     def test_claim_transform_and_settle(self):
         self.tg(); self.assertIsNone(self.gate('tg')); self.assertIsNone(self.gate('tg'))
         self.assertEqual(self.data()['state'], 'claimed')
+        self.assertEqual(self.data()['message'], plugin._message_hash('はい'))
         self.assertIn('[kohako-decision] done decision=dec-event-1', plugin._transform(session_id='tg', response_text='ok'))
         plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')
     def test_denied_or_blocked_releases_claim(self):
         self.g2(); self.assertIsNone(self.gate('kohako-g2-main', status='blocked'))
+        self.assertNotIn('message', self.data())
         self.assertEqual(self.data()['state'], 'claimed')
         self.assertIsNone(plugin._transform(session_id='kohako-g2-main', response_text='ok'))
         plugin._post(session_id='kohako-g2-main'); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
@@ -337,7 +341,8 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(ignored=content):
                 self.assertIsNone(plugin._notice_event(content))
     def test_race(self):
-        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via}
+        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via,
+                               'message': plugin._message_hash('はい'), 'session': plugin._session_key('tg')}
         results = []
         threads = [threading.Thread(target=lambda v=v: results.append(plugin._claim(pending(v)))) for v in ('g2', 'telegram')]
         for thread in threads: thread.start()
@@ -346,7 +351,8 @@ class DecisionTests(unittest.TestCase):
     def test_gc_cannot_delete_a_fresh_claim(self):
         # GC reads an expired 'done' file; a concurrent caller must not slip a new claim in
         # before GC unlinks, or GC would delete it and both entry points could claim.
-        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via}
+        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via,
+                               'message': plugin._message_hash('はい'), 'session': plugin._session_key('tg')}
         path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path))
         with open(path, 'w') as f: json.dump({'state': 'done', 'via': 'telegram', 'at': time.time() - 8 * 86400}, f)
         real_unlink, results, threads = os.unlink, [], []
@@ -500,6 +506,280 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertFalse(plugin._read_only_command(command))
         self.g2(); self.assertIsNone(self.gate('kohako-g2-main'))
+    def mirror(self, event='event-1'):
+        # How Hermes really mirrors a delivery into the Telegram session (gateway/platforms/webhook.py).
+        return {'role': 'user', 'content': f'[Webhook delivery: task-board]\n【Task Board 通知】BOXP-1 event={event}'}
+    def claimed_elsewhere(self, via='telegram', **extra):
+        path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path), exist_ok=True)
+        data = {'state': 'done', 'via': via, 'operationId': 'tg-x', 'at': time.time() - 100,
+                'session': plugin._session_key('tg'), 'message': plugin._message_hash('以前の返答')} | extra
+        if data.get('session') is None: data.pop('session')
+        with open(path, 'w') as f: json.dump(data, f)
+    def new_request(self, history, turn='n', message='新しい不具合の修復依頼を登録して'):
+        self.last_context = plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message=message, turn_id=turn, conversation_history=history)
+        return plugin._gate(session_id='tg', tool_name='terminal', args={'command': GateTests.HELPER + ' create --title x'}, tool_call_id='call_' + 'f' * 32, turn_id=turn)
+    def test_mirrored_user_delivery_is_claimable(self):
+        self.tg([self.mirror(), self.cur()]); self.assertIsNone(self.gate('tg'))
+        plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')
+    def test_compaction_summary(self):
+        # BOXP-362: compaction folded the Owner's reply (and the turn it started) into a summary; the
+        # protected head still ends with the old notification. A new instruction is not its reply.
+        self.claimed_elsewhere(at=time.time() - 400)
+        summaries = (
+            {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted ...\n\n--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'},
+            {'role': 'assistant', 'content': '[PRIOR CONTEXT — for reference only; not a new message]\n対応しました\n\n[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]\n\nsummary\n\n--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'},
+            {'role': 'assistant', 'content': [{'type': 'text', 'text': 'summary'}], '_compressed_summary': True},
+        )
+        for summary in summaries:
+            with self.subTest(summary=str(summary)[:40]):
+                history = [{'role': 'user', 'content': 'hello'}, self.mirror(), summary, {'role': 'assistant', 'content': '反映しました'}, self.cur('新しい不具合の修復依頼を登録して')]
+                self.assertIsNone(self.new_request(history)); self.assertNotIn(('tg', 'n'), plugin._pending)
+                self.assertIn('既に対応済み', self.last_context['context'])
+        self.assertEqual(self.data()['via'], 'telegram')
+        # A summary merged into the current message follows the same rule.
+        merged = self.cur('[PRIOR CONTEXT — for reference only; not a new message]\n新しい不具合の修復依頼を登録して\n\nsummary')
+        self.assertIsNone(self.new_request([self.mirror(), merged])); self.assertNotIn(('tg', 'n'), plugin._pending)
+        path = plugin._path('dec-event-1')
+        for summary in (dict(summaries[0], role='user'), summaries[0]):
+            with self.subTest(unclaimed=summary['role']):
+                plugin._pending.clear(); os.unlink(path)
+                self.assertIsNone(self.new_request([self.mirror(), summary, self.cur('はい')], message='はい'))
+                self.assertEqual(self.data()['via'], 'telegram')
+        for claim in ({'session': None}, {'session': plugin._session_key('another')},
+                      {'operationId': 'tg-n'}, {'message': None}, {'via': 'g2'},
+                      {'state': 'claimed'}, {'message': plugin._message_hash('はい')}):
+            with self.subTest(claim=claim):
+                plugin._pending.clear(); os.unlink(path)
+                self.claimed_elsewhere(**claim)
+                self.assertEqual(self.new_request([self.mirror(), summaries[0], self.cur('はい')], message='はい')['action'], 'block')
+        plugin._pending.clear(); os.unlink(path)
+        self.claimed_elsewhere()
+        # A notification after the summary is still answerable, and still guarded when handled.
+        self.assertEqual(self.new_request([summaries[0], self.mirror(), self.cur('新しい不具合の修復依頼を登録して')])['action'], 'block')
+    def test_compaction_carried_owner_boundary(self):
+        header = '[PRIOR CONTEXT — for reference only; not a new message]'
+        delim = '[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]'
+        end = '--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'
+        summary = '[CONTEXT COMPACTION — REFERENCE ONLY] summary'
+        def wrap(old): return header + '\n' + old + '\n\n' + delim + '\n\n' + summary + '\n\n' + end
+        cases = (wrap('以前の Owner 指示'), summary + '\n\n' + end + '\n\n以前の Owner 指示',
+                 [{'type': 'text', 'text': wrap('以前の Owner 指示')}],
+                 [{'type': 'text', 'text': summary + '\n\n' + end + '\n\n以前の Owner 指示'}],
+                 [{'type': 'text', 'text': header + '\n'}, {'type': 'image_url', 'image_url': 'image'},
+                  {'type': 'text', 'text': '\n\n' + delim + '\n\n' + summary + '\n\n' + end}],
+                 [{'type': 'text', 'text': summary + '\n\n' + end + '\n\n'}, {'type': 'text', 'text': '以前の Owner 指示'}],
+                 wrap(wrap('以前の Owner 指示')))
+        for content in cases:
+            with self.subTest(content=content):
+                plugin._pending.clear()
+                path = plugin._path('dec-event-1')
+                if os.path.exists(path): os.unlink(path)
+                row = {'role': 'user', 'content': content, '_compressed_summary': True}
+                result = self.new_request([self.mirror(), row, self.cur('新しい不具合の修復依頼を登録して')])
+                self.assertNotIn(('tg', 'n'), plugin._pending)
+                self.assertIsNone(result)
+                self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+
+        # A summary row of an unrecognised form (metadata only) carries nothing: the notice still binds.
+        for content in ('summary', [{'type': 'text', 'text': 'summary'}], '[CONTEXT SUMMARY]: summary'):
+            with self.subTest(unrecognised=content):
+                plugin._pending.clear()
+                path = plugin._path('dec-event-1')
+                if os.path.exists(path): os.unlink(path)
+                row = {'role': 'user', 'content': content, '_compressed_summary': True}
+                self.assertIsNone(self.new_request([self.mirror(), row, self.cur('はい')], message='はい'))
+                self.assertEqual(self.data()['via'], 'telegram')
+
+    def test_compaction_carried_reply_matches_uncompressed_history(self):
+        # An Owner message carried in a summary row ends the walk exactly as it does uncompressed
+        # (the main behaviour since 348/357): whatever the claim state, the next Owner turn is
+        # judged the same with or without compaction. The guard covers the reply turn itself,
+        # concurrent G2/Telegram replies and resends without an intervening Owner turn.
+        header = '[PRIOR CONTEXT — for reference only; not a new message]'
+        delim = '[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]'
+        end = '--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'
+        carrier = {'role': 'user', 'content': header + '\nはい\n\n' + delim + '\n\nsummary\n\n' + end, '_compressed_summary': True}
+        for state in ('claimed', 'done'):
+            results = []
+            for history in ([self.mirror(), {'role': 'user', 'content': 'はい'}], [self.mirror(), carrier]):
+                plugin._pending.clear()
+                self.claimed_elsewhere(state=state)
+                result = self.new_request(history + [self.cur('Ready にしてください')], message='Ready にしてください')
+                results.append((result, ('tg', 'n') in plugin._pending))
+            with self.subTest(state=state):
+                self.assertEqual(results, [(None, False)] * 2)
+
+    def test_compaction_carried_notification_is_guarded(self):
+        header = '[PRIOR CONTEXT — for reference only; not a new message]'
+        delim = '[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]'
+        end = '--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'
+        content = header + '\n' + self.mirror()['content'] + '\n\n' + delim + '\n\nsummary\n\n' + end
+        for carried in (content, [{'type': 'text', 'text': content}]):
+            with self.subTest(content=carried):
+                plugin._pending.clear()
+                self.claimed_elsewhere(via='g2')
+                row = {'role': 'user', 'content': carried, '_compressed_summary': True}
+                result = self.new_request([row, self.cur('新しい不具合の修復依頼を登録して')])
+                self.assertEqual(result['action'], 'block')
+                self.assertEqual(plugin._pending[('tg', 'n')]['eventId'], 'event-1')
+
+    def test_rephrased_reply_beyond_summary_gets_soft_warning(self):
+        plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message='Ready に移動',
+                     turn_id='r', conversation_history=[self.mirror(), self.cur('Ready に移動')])
+        self.assertIsNone(self._turn_gate('r', 'a', 'ok', 'update BOXP-1 --lane Ready'))
+        plugin._post(session_id='tg', turn_id='r')
+        self.assertEqual(self.data()['session'], plugin._session_key('tg'))
+        summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
+        message = 'Ready にしてください'
+        self.stamp = time.time()
+        self.assertIsNone(self.new_request([self.mirror(), summary, self.cur(message)], message=message))
+        self.assertNotIn(('tg', 'n'), plugin._pending)
+        self.assertIn('既に対応済み', self.last_context['context'])
+
+    def test_new_claim_concurrent_turn_beyond_summary_stays_blocked(self):
+        now = time.time()
+        summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
+        message = '新しい不具合の修復依頼を登録して'
+        self.claimed_elsewhere(at=now - 10)
+        current = {'role': 'user', 'content': message, 'timestamp': now - 20}
+        self.assertEqual(self.new_request([self.mirror(), summary, current], message=message)['action'], 'block')
+
+    def test_legacy_claim_beyond_summary_stays_blocked(self):
+        now = time.time()
+        at = now - 30
+        message = '新しい不具合の修復依頼を登録して'
+        summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
+        path = plugin._path('dec-event-1')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        other = plugin._turns_path('other')
+        cases = (
+            ('matching earlier turn', at - 5, True),
+            ('other session without a turn record', at - 5, False),
+            ('no other sessions', None, False),
+            ('unrelated earlier Owner turn', at - 1, False),
+        )
+        for name, earlier, other_record in cases:
+            with self.subTest(name=name):
+                plugin._pending.clear()
+                with open(path, 'w') as f:
+                    json.dump({'state': 'done', 'via': 'telegram', 'operationId': 'tg-old', 'at': at}, f)
+                before = Path(path).read_bytes()
+                with open(plugin._turns_path('tg'), 'w') as f:
+                    json.dump({'since': now - 1000, 'seen': [repr(earlier)] if earlier else []}, f)
+                if os.path.exists(other):
+                    os.unlink(other)
+                if other_record:
+                    with open(other, 'w') as f:
+                        json.dump({'since': now - 5000, 'seen': [repr(at - 3601)]}, f)
+                current = {'role': 'user', 'content': message, 'timestamp': now - 10}
+                result = self.new_request([self.mirror(), summary, current], message=message)
+                self.assertEqual(result['action'], 'block')
+                self.assertEqual(Path(path).read_bytes(), before)
+
+    def test_attested_legacy_claim_beyond_summary(self):
+        decision = 'dec-event-1'
+        claim_path = Path(plugin._path(decision))
+        claim_path.parent.mkdir(exist_ok=True)
+        att_path = Path(plugin._attestation_path(decision))
+        att_path.parent.mkdir(exist_ok=True)
+        summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
+        base = {'decisionId': decision, 'session': plugin._session_key('tg'),
+                'message': plugin._message_hash('以前の返答')}
+        cases = [
+            ('valid', base, '新しい指示', False, True),
+            ('same reply', base, '以前の返答', False, False),
+            ('other session', base | {'session': plugin._session_key('other')}, '新しい指示', False, False),
+            ('wrong decision', base | {'decisionId': 'dec-other'}, '新しい指示', False, False),
+            ('malformed hash', base | {'message': 'A' * 32}, '新しい指示', False, False),
+            ('malformed shape', [], '新しい指示', False, False),
+            ('new claim ignores attestation', base, '新しい指示', True, False),
+        ]
+        for name, attestation, message, new_claim, released in cases:
+            with self.subTest(name=name):
+                plugin._pending.clear()
+                self.record('tg')
+                claim = {'state': 'done', 'via': 'telegram', 'operationId': 'old', 'at': time.time() - 100}
+                if new_claim:
+                    claim.update(session=plugin._session_key('other'), message=plugin._message_hash('以前の返答'))
+                claim_path.write_text(json.dumps(claim))
+                before = claim_path.read_bytes()
+                att_path.write_text(json.dumps(attestation))
+                self.stamp = time.time() - 1
+                result = self.new_request([self.mirror(), summary, self.cur(message)], message=message)
+                if released:
+                    self.assertIsNone(result)
+                    self.assertNotIn(('tg', 'n'), plugin._pending)
+                    self.assertIn('既に対応済み', self.last_context['context'])
+                else:
+                    self.assertEqual(result['action'], 'block')
+                self.assertEqual(claim_path.read_bytes(), before)
+
+    def test_attest_legacy_cli(self):
+        decision = 'dec-event-1'
+        claim = Path(plugin._path(decision))
+        claim.parent.mkdir(exist_ok=True)
+        command = [sys.executable, str(Path(__file__).with_name('__init__.py')),
+                   'attest-legacy-claim', decision, 'tg']
+        def run(reply):
+            return subprocess.run(command, input=reply, text=True, capture_output=True, env=os.environ.copy())
+        self.assertNotEqual(run('reply').returncode, 0)
+        claim.write_text(json.dumps({'state': 'done', 'via': 'telegram', 'at': time.time(),
+                                     'session': plugin._session_key('tg'), 'message': plugin._message_hash('reply')}))
+        self.assertNotEqual(run('reply').returncode, 0)
+        claim.write_text(json.dumps({'state': 'done', 'via': 'telegram', 'at': time.time()}))
+        before = claim.read_bytes()
+        self.assertNotEqual(run('  \n').returncode, 0)
+        result = run('original reply')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        path = Path(plugin._attestation_path(decision))
+        self.assertEqual(result.stdout.strip(), str(path))
+        self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+        data = json.loads(path.read_text())
+        self.assertEqual((data['version'], data['decisionId'], data['session'], data['message']),
+                         (1, decision, plugin._session_key('tg'), plugin._message_hash('original reply')))
+        self.assertIsInstance(data['at'], (int, float))
+        self.assertEqual(claim.read_bytes(), before)
+        invalid = subprocess.run([sys.executable, command[1], 'attest-legacy-claim',
+                                  'dec-../../escape', 'tg'], input='reply', text=True, capture_output=True)
+        self.assertNotEqual(invalid.returncode, 0)
+
+    def test_earlier_owner_reply_without_compaction_is_not_bound(self):
+        message = 'Ready にしてください'
+        history = [self.mirror(), {'role': 'user', 'content': 'はい'},
+                   {'role': 'assistant', 'content': '対応しました'}, self.cur(message)]
+        self.assertIsNone(self.new_request(history, message=message))
+        self.assertNotIn(('tg', 'n'), plugin._pending)
+        self.assertNotIn('既に対応済み', str(self.last_context))
+
+    def test_marker_text_elsewhere_is_not_compaction(self):
+        # Only a summary row (user/assistant, starting with the compaction header) marks compaction:
+        # marker text inside a notification or a tool result does not drop the guard.
+        end = '--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'
+        mirror = {'role': 'user', 'content': self.mirror()['content'] + ' ' + end}
+        tool = {'role': 'tool', 'tool_call_id': 'x', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] ' + end}
+        quoted = {'role': 'assistant', 'content': '要約の例: ' + end}
+        for history in ([mirror, self.cur()], [self.mirror(), tool, quoted, self.cur()]):
+            with self.subTest(history=str(history)[:60]):
+                plugin._pending.clear()
+                if os.path.exists(plugin._path('dec-event-1')): os.unlink(plugin._path('dec-event-1'))
+                self.tg(history); self.assertIsNone(self.gate('tg')); self.assertEqual(self.data()['via'], 'telegram')
+                self.assertIn('既に対応済み', self.g2()['context'])
+                self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
+    def test_unreadable_claim_shape_blocks(self):
+        path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path))
+        with open(path, 'w') as f: json.dump([1], f)
+        self.tg([self.mirror(), self.cur()]); self.assertEqual(self.gate('tg')['action'], 'block')
+    def test_resend_after_done_is_still_blocked(self):
+        self.tg([self.mirror(), self.cur()], turn='r')
+        self.assertIsNone(self._turn_gate('r', 'a', 'ok', 'update BOXP-1 --lane Ready'))
+        plugin._post(session_id='tg', turn_id='r'); self.assertEqual(self.data()['state'], 'done')
+        self.stamp = time.time()  # sent after the reply's turn finished
+        self.assertEqual(self.new_request([self.mirror(), self.cur('Ready に移動')], message='Ready に移動')['action'], 'block')
+        self.assertEqual(self.new_request([self.mirror(), {'role': 'assistant', 'content': '対応しました'}, self.cur('Ready に移動')], message='Ready に移動')['action'], 'block')
+    def test_result_unknown_still_blocks_other_routes(self):
+        self.tg([self.mirror(), self.cur()], turn='r'); self._turn_gate('r', 'a', 'error', 'update BOXP-1 --lane Ready')
+        plugin._post(session_id='tg', turn_id='r'); self.assertEqual(self.data()['state'], 'claimed')
+        self.assertIn('結果不明', self.g2()['context']); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
     def test_non_owner_and_group(self):
         self.tg(sender_id='other'); self.assertNotIn(('tg', '1'), plugin._pending)
         self.db.session['chat_type'] = 'group'; self.tg(); self.assertNotIn(('tg', '1'), plugin._pending)

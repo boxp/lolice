@@ -44,3 +44,7 @@ terraform.rc
 credentials.json
 service-account*.json
 *.kubeconfig
+
+# Python bytecode
+__pycache__/
+*.pyc
