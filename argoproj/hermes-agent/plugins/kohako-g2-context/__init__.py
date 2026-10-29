@@ -163,16 +163,18 @@ _TICKET = re.compile(r'【Task Board 通知】\s*[A-Z]+-[0-9]+\b')
 
 
 # Hermes context compaction (agent/context_compressor.py) replaces a range of earlier turns with a
-# summary, as its own row or merged into a carried row; Owner messages inside are gone.
+# summary, as its own user/assistant row or merged into a carried row (prepended, or the carried
+# content wrapped after a header); Owner messages inside are gone. A notification older than the
+# summary is not the one right before the current message, so it is never taken as answered, even
+# in the rare case that no Owner message was compacted (then the reply is simply not claimed).
 _COMPACTION = ('[CONTEXT COMPACTION', '[PRIOR CONTEXT — for reference only')
-_COMPACTION_END = '--- END OF CONTEXT SUMMARY'
 
 
 def _compaction(message):
-    if message.get('_compressed_summary'):
-        return True
+    if message.get('role') not in ('user', 'assistant'):
+        return False
     content = message.get('content')
-    return isinstance(content, str) and (content.lstrip().startswith(_COMPACTION) or _COMPACTION_END in content)
+    return bool(message.get('_compressed_summary')) or (isinstance(content, str) and content.lstrip().startswith(_COMPACTION))
 
 
 def _notice_event(content):
@@ -192,6 +194,8 @@ def _existing(decision_id):
     try:
         with open(_path(decision_id)) as f:
             data = json.load(f)
+        if not isinstance(data, dict):
+            return 'other'
         if data.get('state') == 'done' and data.get('at', 0) < time.time() - _DONE_TTL:
             return None  # expired: the next claim's GC removes it under the store lock
         return data.get('via') if isinstance(data, dict) and data.get('via') in ('g2', 'telegram') else 'other'
@@ -247,7 +251,8 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
                 stamp = history[-1]['timestamp']
             except (OSError, ValueError) as exc:
                 ambiguous = exc  # fatal only when the walk finds a notification
-            history.pop()
+            if _compaction(history.pop()):
+                history = []  # the summary was merged into the current message: nothing is right before it
         for message in reversed(history):
             if not isinstance(message, dict):
                 continue

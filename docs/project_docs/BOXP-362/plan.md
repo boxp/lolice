@@ -19,8 +19,10 @@ summary は直前 head が user なら `assistant` 役、tail 先頭とも衝突
 既存実装/既存テストで誤接続しないことを確認（引用返信は `[Replying to: ...]` で始まり通知とは判定されず、user 境界になる）。
 
 ## 修正（kohako-g2-context 1.3.15）
-1. compaction summary 行（`[CONTEXT COMPACTION`、`[PRIOR CONTEXT — for reference only`、`--- END OF CONTEXT SUMMARY` を含む、または `_compressed_summary`）で走査を終了。
-   summary の向こうにある通知は直前の通知ではない（Owner 発言が吸収されている可能性）。
+1. compaction summary 行（user/assistant 役で `[CONTEXT COMPACTION` または `[PRIOR CONTEXT — for reference only` で始まる、または `_compressed_summary`）で走査を終了。
+   summary が現在メッセージに merge された場合も走査しない。summary の向こうにある通知は直前の通知ではない（Owner 発言が吸収されている可能性）。
+   通知本文・tool 結果・assistant 文中にマーカー文字列があっても境界にしない（guard を外さない）。
+   トレードオフ: 圧縮範囲に Owner 発言が無く本当に返答だった稀なケースでは claim されない（従来の「返答扱いしない」側と同じ）。
 2. Telegram claim に会話 (`session` = sid の sha256 先頭 32 桁) と返答メッセージ時刻 (`stamp`) を記録。
    同じ会話で、その返答ターンが `done` になった後 (`at` < 今回 stamp) に送られたメッセージは返答ではないので bind しない
    （履歴から返答が消えても新規指示を古い claim で止めない）。
@@ -29,7 +31,7 @@ summary は直前 head が user なら `assistant` 役、tail 先頭とも衝突
 - claim 削除・guard 無効化・別 tool 回避はしない。G2/Telegram 同時返答の一回処理と結果不明時の再送抑止は維持（既存テスト + 新テスト）。
 
 ## 検証
-- `python3 test_kohako_g2_context.py` 50 件 OK。新テスト 5 件のうち再現系は旧コードで失敗することを確認。
+- `python3 test_kohako_g2_context.py` 52 件 OK。新テスト 7 件のうち再現系は旧コードで失敗することを確認。
 - 独立 review、CI、通常 merge、ArgoCD 配備、plugin version readback。
 
 ## 配備と Hermes 再起動
