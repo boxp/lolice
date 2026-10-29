@@ -6,7 +6,7 @@ lolice 上で実用最高性能の local LLM を継続的に比較する。品�
 
 ## 変更内容
 
-- この PR は `qwen36-35b-a3b` と `ornith15-35b-a3b` の選択可能な preset だけを追加する。
+- この PR は `qwen36-35b-a3b`、`ornith15-35b-a3b`、`qwen35-122b-a10b`（最大級の載せられる候補、UD-Q2_K_XL 41.85 GB）の選択可能な preset だけを追加する。
 - 既定モデルと Deployment は変更しない。router の `--models-max 1` により、候補は名前を指定した要求でのみロードされる。
 - モデルの取得先は `/var/lib/local-llm/models/boxp358/` とし、固定 revision と sha256 を照合する。
 - sampler は呼び出し側が指定する。context などは router の設定を使う。
