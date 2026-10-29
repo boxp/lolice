@@ -1,5 +1,7 @@
 import importlib.util
 import os
+import subprocess
+import sys
 from pathlib import Path
 import time
 import json
@@ -673,6 +675,73 @@ class DecisionTests(unittest.TestCase):
                 result = self.new_request([self.mirror(), summary, current], message=message)
                 self.assertEqual(result['action'], 'block')
                 self.assertEqual(Path(path).read_bytes(), before)
+
+    def test_attested_legacy_claim_beyond_summary(self):
+        decision = 'dec-event-1'
+        claim_path = Path(plugin._path(decision))
+        claim_path.parent.mkdir(exist_ok=True)
+        att_path = Path(plugin._attestation_path(decision))
+        att_path.parent.mkdir(exist_ok=True)
+        summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
+        base = {'decisionId': decision, 'session': plugin._session_key('tg'),
+                'message': plugin._message_hash('以前の返答')}
+        cases = [
+            ('valid', base, '新しい指示', False, True),
+            ('same reply', base, '以前の返答', False, False),
+            ('other session', base | {'session': plugin._session_key('other')}, '新しい指示', False, False),
+            ('wrong decision', base | {'decisionId': 'dec-other'}, '新しい指示', False, False),
+            ('malformed hash', base | {'message': 'A' * 32}, '新しい指示', False, False),
+            ('malformed shape', [], '新しい指示', False, False),
+            ('new claim ignores attestation', base, '新しい指示', True, False),
+        ]
+        for name, attestation, message, new_claim, released in cases:
+            with self.subTest(name=name):
+                plugin._pending.clear()
+                self.record('tg')
+                claim = {'state': 'done', 'via': 'telegram', 'operationId': 'old', 'at': time.time() - 100}
+                if new_claim:
+                    claim.update(session=plugin._session_key('other'), message=plugin._message_hash('以前の返答'))
+                claim_path.write_text(json.dumps(claim))
+                before = claim_path.read_bytes()
+                att_path.write_text(json.dumps(attestation))
+                self.stamp = time.time() - 1
+                result = self.new_request([self.mirror(), summary, self.cur(message)], message=message)
+                if released:
+                    self.assertIsNone(result)
+                    self.assertNotIn(('tg', 'n'), plugin._pending)
+                    self.assertIn('既に対応済み', self.last_context['context'])
+                else:
+                    self.assertEqual(result['action'], 'block')
+                self.assertEqual(claim_path.read_bytes(), before)
+
+    def test_attest_legacy_cli(self):
+        decision = 'dec-event-1'
+        claim = Path(plugin._path(decision))
+        claim.parent.mkdir(exist_ok=True)
+        command = [sys.executable, str(Path(__file__).with_name('__init__.py')),
+                   'attest-legacy-claim', decision, 'tg']
+        def run(reply):
+            return subprocess.run(command, input=reply, text=True, capture_output=True, env=os.environ.copy())
+        self.assertNotEqual(run('reply').returncode, 0)
+        claim.write_text(json.dumps({'state': 'done', 'via': 'telegram', 'at': time.time(),
+                                     'session': plugin._session_key('tg'), 'message': plugin._message_hash('reply')}))
+        self.assertNotEqual(run('reply').returncode, 0)
+        claim.write_text(json.dumps({'state': 'done', 'via': 'telegram', 'at': time.time()}))
+        before = claim.read_bytes()
+        self.assertNotEqual(run('  \n').returncode, 0)
+        result = run('original reply')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        path = Path(plugin._attestation_path(decision))
+        self.assertEqual(result.stdout.strip(), str(path))
+        self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+        data = json.loads(path.read_text())
+        self.assertEqual((data['version'], data['decisionId'], data['session'], data['message']),
+                         (1, decision, plugin._session_key('tg'), plugin._message_hash('original reply')))
+        self.assertIsInstance(data['at'], (int, float))
+        self.assertEqual(claim.read_bytes(), before)
+        invalid = subprocess.run([sys.executable, command[1], 'attest-legacy-claim',
+                                  'dec-../../escape', 'tg'], input='reply', text=True, capture_output=True)
+        self.assertNotEqual(invalid.returncode, 0)
 
     def test_earlier_owner_reply_without_compaction_is_not_bound(self):
         message = 'Ready にしてください'

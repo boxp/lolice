@@ -35,10 +35,11 @@ summary は直前 head が user なら `assistant` 役、tail 先頭とも衝突
   1.3.19（codex-review P1: summary がマージされた carrier 行の元 Owner 発言）: Hermes は summary を tail 行へマージすることがある（`[PRIOR CONTEXT …]` ヘッダで元内容を包む形／summary＋END marker の後に元内容を置く形、文字列・multimodal list、入れ子）。carrier 行は summary より新しい元の行として先に判定し、Owner 発言（画像含む）なら走査終了＝古い通知へ bind しない、通知なら通常どおり検出・guard、元内容が無い／形式不明なら従来どおり summary 越し扱い。
   1.3.20（codex-review P1: multimodal carrier 行の同一 text パート内の元発言）: list 形式で compaction ヘッダと元内容（PRIOR CONTEXT 包み／summary＋END marker 後）が同じ text パートに入る場合も、そのパートから元内容を取り出して境界・通知判定に使う（ヘッダのみのパート・delimiter パートは従来どおり何も運ばない）。
   1.3.21（codex-review P1: 旧形式 claim の誤帰属）: 旧版は anchor できない別会話の発言からも claim を作れたため、claim 元の会話は turn 記録から確定できない。1.3.17/1.3.18 の旧形式 claim 条件付き解除（`_legacy_earlier_turn`）を撤去し、session/message 記録の無い旧形式 claim は期限（done から 7 日）まで従来どおり hard block（fail closed、claim 削除なし）。圧縮をまたがない通常会話では Owner の前ターンで遡りが止まるため、block は圧縮直後の最初の発言に限られる。解除は新形式（同一 session・別文面・anchor 済みで done 後）のみ。
+  1.3.22（codex-review P1: 旧形式 claim のままでは今回の障害が7日間解消しない）: 推定による帰属はせず、運用者が明示的に証明する移行策を追加。`python3 __init__.py attest-legacy-claim <dec-id> <session-id>`（元の Owner 返答文を stdin）で、Telegram・done・期限内・session/message 無しの旧形式 claim に限り `<store>/attestations/<dec-id>.json` に session key と返答 hash だけを原子的に記録（claim ファイルは変更・削除しない、返答本文は保存・表示しない）。圧縮越しの検出時、旧形式 claim は attestation が decisionId 一致・hash 形式正当な場合だけその session/message を使い、新形式と完全に同じ条件（同一 session・anchor 済みで done 後・別 operation・別文面）で soft 警告付き解除。attestation 無し/不正/別会話/同文再送は従来どおり hard block。新形式 claim は attestation を無視。配備後、BOXP-360 の旧 claim を Owner 会話の session id と元返答で attest する（運用手順、配備時に実施）。
 - claim 削除・guard 無効化・別 tool 回避はしない。G2/Telegram 同時返答の一回処理と結果不明時の再送抑止は維持（既存テスト + 新テスト）。
 
 ## 検証
-- `python3 test_kohako_g2_context.py` 58 件 OK（1.3.21。旧形式 claim は他会話記録の有無・この会話の直前ターンの有無に関わらず block、claim 不変）。59 件 OK（1.3.20。単一 text パート carrier 3 subcase は旧コードで失敗を確認）。58 件 OK（1.3.19。carrier 境界 5 subcase は旧コードで失敗を確認）。56 件 OK（1.3.18）。新テスト 7 件（旧形式 claim の解除/維持 7 subcase を含む）のうち再現系は旧コードで失敗することを確認。
+- `python3 test_kohako_g2_context.py` 60 件 OK（1.3.22。attest 済み旧形式 claim の解除と、同文・別会話・decisionId 不一致・不正 hash・新形式 claim での block、CLI の拒否条件を確認）。58 件 OK（1.3.21。旧形式 claim は他会話記録の有無・この会話の直前ターンの有無に関わらず block、claim 不変）。59 件 OK（1.3.20。単一 text パート carrier 3 subcase は旧コードで失敗を確認）。58 件 OK（1.3.19。carrier 境界 5 subcase は旧コードで失敗を確認）。56 件 OK（1.3.18）。新テスト 7 件（旧形式 claim の解除/維持 7 subcase を含む）のうち再現系は旧コードで失敗することを確認。
 - 独立 review、CI、通常 merge、ArgoCD 配備、plugin version readback。
 
 ## 配備と Hermes 再起動

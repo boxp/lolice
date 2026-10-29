@@ -18,9 +18,11 @@
   never drop or borrow each other's claim.
 - BOXP-362: Hermes context compaction replaces earlier turns (Owner messages included) with a
   summary row or merges it into a carried row. A completed earlier Telegram reply in the same session allows a different turn
-  through with a soft warning; legacy claims without session/message records stay blocked until
-  they expire, while ambiguous and identical-message replies remain guarded.
+  through with a soft warning; legacy claims require an explicit operator attestation of the
+  original session and reply before the same release is possible. Ambiguous and identical-message
+  replies remain guarded.
 """
+import argparse
 import contextlib
 import fcntl
 import hashlib
@@ -31,6 +33,7 @@ import os
 import re
 import threading
 import tempfile
+import sys
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -229,8 +232,35 @@ def _notice_event(content):
     return events[-1] if _TICKET.match(body) and events else None
 
 
+def _decision_path(decision_id, directory):
+    if not isinstance(decision_id, str) or not re.fullmatch(r'dec-[A-Za-z0-9._:-]{1,160}', decision_id):
+        raise ValueError('invalid decision id')
+    return os.path.join(os.environ.get('KOHAKO_DECISION_STORE', _DECISION_STORE), directory, decision_id + '.json')
+
+
 def _path(decision_id):
-    return os.path.join(os.environ.get('KOHAKO_DECISION_STORE', _DECISION_STORE), 'claims', decision_id + '.json')
+    return _decision_path(decision_id, 'claims')
+
+
+def _attestation_path(decision_id):
+    return _decision_path(decision_id, 'attestations')
+
+
+def _legacy(data):
+    return 'session' not in data and 'message' not in data
+
+
+def _attestation(decision_id):
+    try:
+        with open(_attestation_path(decision_id)) as f:
+            data = json.load(f)
+        if (isinstance(data, dict) and data.get('decisionId') == decision_id
+                and all(isinstance(data.get(k), str) and re.fullmatch(r'[0-9a-f]{32}', data[k])
+                        for k in ('session', 'message'))):
+            return data
+    except (OSError, ValueError, TypeError):
+        pass
+    return {}
 
 
 def _message_hash(text):
@@ -348,14 +378,15 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
     if beyond_summary:
         data = _claim_data(decision)
         try:
+            identity = _attestation(decision) if data is not None and _legacy(data) else (data or {})
             if (data is not None and data.get('via') == 'telegram' and data.get('state') == 'done'
                     and isinstance(data.get('at'), (int, float)) and not isinstance(data['at'], bool)
                     and math.isfinite(data['at']) and data['at'] >= time.time() - _DONE_TTL
                     and anchored and stamp > data['at']
-                    and data.get('session') == _session_key(sid)
+                    and identity.get('session') == _session_key(sid)
                     and data.get('operationId') != operation
-                    and isinstance(data.get('message'), str)
-                    and data['message'] != _message_hash(user_message)):
+                    and isinstance(identity.get('message'), str)
+                    and identity['message'] != _message_hash(user_message)):
                 return (f'Kohako: Task Board 通知（event={event}）は、この会話の以前の Telegram 返答で既に対応済みです。'
                         '今回の発言がその通知への同じ操作の再依頼であれば再実行せず、対応済みである旨だけ答えてください。'
                         '新しい別件の指示であれば通常どおり対応して構いません。')
@@ -831,3 +862,48 @@ def _decide(tool_name, args, sid, tool_call_id):
         return {'action': 'block', 'message': _TOO_LONG}
     digest = hashlib.sha256(json.dumps([tool_name, args, tool_call_id], sort_keys=True, default=str).encode()).hexdigest()[:16]
     return {'action': 'approve', 'message': f'実行: {shown}', 'rule_key': f'kohako-g2:{tool_name}:{digest}'}
+
+
+def _attest_legacy_claim(decision_id, session_id, reply):
+    path = _attestation_path(decision_id)
+    if not reply.strip():
+        raise ValueError('empty reply')
+    with _store_lock():
+        data = _claim_data(decision_id)
+        at = data.get('at') if data is not None else None
+        if (data is None or not _legacy(data) or data.get('via') != 'telegram'
+                or data.get('state') != 'done' or not isinstance(at, (int, float))
+                or isinstance(at, bool) or not math.isfinite(at) or at < time.time() - _DONE_TTL):
+            raise ValueError('claim is missing or is not an eligible legacy claim')
+        directory = os.path.dirname(path)
+        os.makedirs(directory, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=directory)
+        try:
+            os.fchmod(fd, 0o640)
+            with os.fdopen(fd, 'w') as f:
+                json.dump({'version': 1, 'decisionId': decision_id, 'session': _session_key(session_id),
+                           'message': _message_hash(reply), 'at': time.time()}, f)
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    return path
+
+
+def _main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('command', choices=['attest-legacy-claim'])
+    parser.add_argument('decision_id')
+    parser.add_argument('session_id')
+    args = parser.parse_args()
+    try:
+        path = _attest_legacy_claim(args.decision_id, args.session_id, sys.stdin.read())
+    except (OSError, ValueError, TypeError, OverflowError):
+        print('Unable to attest legacy claim.', file=sys.stderr)
+        return 1
+    print(path)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(_main())
