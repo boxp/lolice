@@ -556,39 +556,17 @@ class DecisionTests(unittest.TestCase):
         path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path))
         with open(path, 'w') as f: json.dump([1], f)
         self.tg([self.mirror(), self.cur()]); self.assertEqual(self.gate('tg')['action'], 'block')
-    def test_later_message_of_the_answering_conversation_is_new(self):
-        # BOXP-362: this conversation's earlier message answered (claimed) the notification; the
-        # reply then fell out of the history. A later new instruction is not blocked by that claim.
-        self.tg([self.mirror(), self.cur()], turn='r'); self.assertIsNone(self._turn_gate('r', 'a', 'ok', 'update BOXP-1 --lane Ready'))
-        # A second tap sent before that turn finished is still the same reply: blocked.
-        self.tg([self.mirror(), self.cur()], turn='d'); self.assertEqual(self._turn_gate('d', 'b', 'ok', 'update BOXP-1 --lane Ready')['action'], 'block')
+    def test_resend_after_done_is_still_blocked(self):
+        self.tg([self.mirror(), self.cur()], turn='r')
+        self.assertIsNone(self._turn_gate('r', 'a', 'ok', 'update BOXP-1 --lane Ready'))
         plugin._post(session_id='tg', turn_id='r'); self.assertEqual(self.data()['state'], 'done')
-        plugin._post(session_id='tg', turn_id='d')
-        self.assertEqual(self.data()['session'], plugin._session_key('tg'))
-        self.assertEqual(self.new_request([self.mirror(), self.cur('新しい不具合の修復依頼を登録して')])['action'], 'block')  # sent before done
         self.stamp = time.time()  # sent after the reply's turn finished
-        self.assertIsNone(self.new_request([self.mirror(), {'role': 'assistant', 'content': '対応しました'}, self.cur('新しい不具合の修復依頼を登録して')]))
-        self.assertNotIn(('tg', 'n'), plugin._pending)
-        # The same notification answered again from G2, or from another Telegram conversation: blocked.
-        self.assertIn('既に対応済み', self.g2()['context']); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
-        plugin._post(session_id='kohako-g2-main')
-        self.record('tg-other')
-        self.assertIn('既に対応済み', self.tg([self.mirror(), self.cur()], sid='tg-other')['context'])
-        self.assertEqual(plugin._gate(session_id='tg-other', tool_name='terminal', args={'command': GateTests.HELPER + ' create --title x'}, tool_call_id='call_' + 'e' * 32, turn_id='1')['action'], 'block')
+        self.assertEqual(self.new_request([self.mirror(), self.cur('Ready に移動')], message='Ready に移動')['action'], 'block')
+        self.assertEqual(self.new_request([self.mirror(), {'role': 'assistant', 'content': '対応しました'}, self.cur('Ready に移動')], message='Ready に移動')['action'], 'block')
     def test_result_unknown_still_blocks_other_routes(self):
         self.tg([self.mirror(), self.cur()], turn='r'); self._turn_gate('r', 'a', 'error', 'update BOXP-1 --lane Ready')
         plugin._post(session_id='tg', turn_id='r'); self.assertEqual(self.data()['state'], 'claimed')
         self.assertIn('結果不明', self.g2()['context']); self.assertEqual(self.gate('kohako-g2-main')['action'], 'block')
-    def test_claims_without_conversation_still_block(self):
-        # G2 claims and claims made before BOXP-362 carry no conversation: the reply rule applies.
-        key = plugin._session_key('tg')
-        for extra in ({'via': 'g2', 'session': key, 'stamp': 1.0}, {}, {'session': 'x', 'stamp': 1.0}, {'session': key, 'stamp': time.time() + 60},
-                      {'session': key, 'stamp': True}, {'session': key, 'stamp': 1.0, 'state': 'claimed'}, {'session': key, 'stamp': 1.0, 'at': time.time() + 60}):
-            with self.subTest(extra=extra):
-                plugin._pending.clear(); self.claimed_elsewhere(**extra); self.stamp = time.time() - 10
-                self.assertEqual(self.new_request([self.mirror(), self.cur('新しい不具合の修復依頼を登録して')])['action'], 'block')
-        plugin._pending.clear(); self.claimed_elsewhere(session=key, stamp=1.0); self.stamp = time.time() - 5
-        self.assertIsNone(self.new_request([self.mirror(), self.cur('新しい不具合の修復依頼を登録して')]))  # the control: same conversation, finished
     def test_non_owner_and_group(self):
         self.tg(sender_id='other'); self.assertNotIn(('tg', '1'), plugin._pending)
         self.db.session['chat_type'] = 'group'; self.tg(); self.assertNotIn(('tg', '1'), plugin._pending)

@@ -17,10 +17,9 @@
   Decision state is kept per turn (session id + turn id), so concurrent turns of one session
   never drop or borrow each other's claim.
 - BOXP-362: Hermes context compaction replaces earlier turns (Owner messages included) with a
-  summary row, so the walk ends at a summary instead of reaching a notification older than it. A
-  Telegram claim records its conversation and message time; a message of that same conversation
-  sent after that reply's turn finished is not a reply to the notification, so a new instruction
-  is not blocked by the old claim even when the reply has fallen out of the history.
+  summary row, so the walk ends at a summary instead of reaching a notification older than it.
+  If a reply falls out of history for any other reason, the guard still fails closed (blocks),
+  so a reply resent right after the notification stays blocked after the turn is done.
 """
 import contextlib
 import fcntl
@@ -221,7 +220,7 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         return None
     with _lock:
         _pending.pop((sid, turn_id), None)
-    event = operation = via = stamp = None
+    event = operation = via = None
     if platform == 'api_server':
         if sid.startswith('kohako-g2-cand-') or not isinstance(user_message, str):
             return None
@@ -248,7 +247,6 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         elif history and _is_current(history[-1], user_message):
             try:
                 _anchor(sid, history[-1])
-                stamp = history[-1]['timestamp']
             except (OSError, ValueError) as exc:
                 ambiguous = exc  # fatal only when the walk finds a notification
             if _compaction(history.pop()):
@@ -277,13 +275,9 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
     if not event:
         return None
     decision = 'dec-' + event
-    if stamp is not None and _answered_earlier(decision, sid, stamp):
-        return None  # an earlier message of this conversation was the reply: this one is a new message
     lost = _existing(decision)
     pending = {'decisionId': decision, 'eventId': event, 'via': via, 'operationId': operation, 'claimed': False, 'lost': lost,
                'inflight': set(), 'ok': False, 'unknown': False}
-    if stamp is not None:
-        pending.update(session=_session_key(sid), stamp=stamp)
     with _lock:
         pending = _remember((sid, turn_id), pending)
     if pending['lost'] == 'error':
@@ -355,23 +349,6 @@ def _turns_path(sid):
     return os.path.join(os.environ.get('KOHAKO_DECISION_STORE', _DECISION_STORE), 'turns', _session_key(sid) + '.json')
 
 
-def _answered_earlier(decision_id, sid, stamp):
-    # An earlier Owner message of this same Telegram conversation answered the notification and
-    # its turn finished ('done') before this message was sent, so this one is a new message, not
-    # a second tap of the reply. A claim still open or with an unknown result, a G2 claim and a
-    # claim made before BOXP-362 (no conversation recorded) never match, so they still block.
-    try:
-        with open(_path(decision_id)) as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return False
-    if not isinstance(data, dict):
-        return False
-    number = lambda value: isinstance(value, (int, float)) and not isinstance(value, bool)
-    return data.get('via') == 'telegram' and data.get('session') == _session_key(sid) and data.get('state') == 'done' \
-        and number(data.get('stamp')) and number(data.get('at')) and data['stamp'] < stamp and data['at'] < stamp
-
-
 def _find(sid, turn_id):
     # Caller holds _lock. Exact (session, turn) first; a hook without a turn id (or a turn
     # recorded without one) only matches when it is the session's single decision turn.
@@ -434,10 +411,7 @@ def _claim(pending):
         except FileExistsError:
             return _existing(pending['decisionId']) or 'other'
         with os.fdopen(fd, 'w') as f:
-            record = {'version': 1, 'decisionId': pending['decisionId'], 'eventId': pending['eventId'], 'via': pending['via'], 'operationId': pending['operationId'], 'state': 'claimed', 'at': time.time()}
-            if 'session' in pending:
-                record.update(session=pending['session'], stamp=pending['stamp'])
-            json.dump(record, f)
+            json.dump({'version': 1, 'decisionId': pending['decisionId'], 'eventId': pending['eventId'], 'via': pending['via'], 'operationId': pending['operationId'], 'state': 'claimed', 'at': time.time()}, f)
     return None
 
 
