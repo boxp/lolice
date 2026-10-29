@@ -522,7 +522,7 @@ class DecisionTests(unittest.TestCase):
     def test_compaction_summary(self):
         # BOXP-362: compaction folded the Owner's reply (and the turn it started) into a summary; the
         # protected head still ends with the old notification. A new instruction is not its reply.
-        self.claimed_elsewhere()
+        self.claimed_elsewhere(at=time.time() - 400)
         summaries = (
             {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] Earlier turns were compacted ...\n\n--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'},
             {'role': 'assistant', 'content': '[PRIOR CONTEXT — for reference only; not a new message]\n対応しました\n\n[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]\n\nsummary\n\n--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'},
@@ -562,9 +562,45 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(self.data()['session'], plugin._session_key('tg'))
         summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
         message = 'Ready にしてください'
+        self.stamp = time.time()
         self.assertIsNone(self.new_request([self.mirror(), summary, self.cur(message)], message=message))
         self.assertNotIn(('tg', 'n'), plugin._pending)
         self.assertIn('既に対応済み', self.last_context['context'])
+
+    def test_new_claim_concurrent_turn_beyond_summary_stays_blocked(self):
+        now = time.time()
+        summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
+        message = '新しい不具合の修復依頼を登録して'
+        self.claimed_elsewhere(at=now - 10)
+        current = {'role': 'user', 'content': message, 'timestamp': now - 20}
+        self.assertEqual(self.new_request([self.mirror(), summary, current], message=message)['action'], 'block')
+
+    def test_legacy_claim_requires_exclusive_session_evidence(self):
+        now = time.time(); at = now - 30
+        message = '新しい不具合の修復依頼を登録して'
+        summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
+        path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path), exist_ok=True)
+        other = plugin._turns_path('other')
+        for name, seen, released in (('recent', [repr(at - 5)], False),
+                                     ('unreadable', None, False),
+                                     ('full', [repr(now - 1 - i / 10) for i in range(64)], False),
+                                     ('old', [repr(at - 3601)], True)):
+            with self.subTest(name=name):
+                plugin._pending.clear()
+                with open(path, 'w') as f:
+                    json.dump({'state': 'done', 'via': 'telegram', 'operationId': 'tg-old', 'at': at}, f)
+                with open(plugin._turns_path('tg'), 'w') as f:
+                    json.dump({'since': now - 1000, 'seen': [repr(at - 10)]}, f)
+                with open(other, 'w') as f:
+                    if seen is None: f.write('{')
+                    else: json.dump({'since': now - 5000, 'seen': seen}, f)
+                current = {'role': 'user', 'content': message, 'timestamp': now - 10}
+                result = self.new_request([self.mirror(), summary, current], message=message)
+                if released:
+                    self.assertIsNone(result)
+                    self.assertIn('既に対応済み', self.last_context['context'])
+                else:
+                    self.assertEqual(result['action'], 'block')
 
     def test_legacy_claim_beyond_summary_requires_earlier_session_turn(self):
         now = time.time()

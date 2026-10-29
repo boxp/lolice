@@ -42,6 +42,7 @@ _pending = OrderedDict()
 _DECISION_STORE = os.environ.get('KOHAKO_DECISION_STORE', '/opt/data/kohako-decisions')
 _DONE_TTL = 7 * 86400
 _TURN_FRESH = 600
+_LEGACY_EXCLUSIVE = 3600
 _PENDING_TTL = 86400  # far longer than any turn; only turns that never reached post_llm_call expire
 _PENDING_MAX = 256
 _HEADER = (
@@ -166,7 +167,7 @@ _TICKET = re.compile(r'【Task Board 通知】\s*[A-Z]+-[0-9]+\b')
 # summary, as its own user/assistant row or merged into a carried row (prepended, or the carried
 # content wrapped after a header); Owner messages inside are gone. A completed earlier reply in
 # the same session consumes the first-reply slot, so later messages receive a soft warning.
-# Legacy claims require a matching earlier Owner turn in the session record.
+# Release requires an anchored turn after done; legacy also requires exclusive earlier turn evidence.
 _COMPACTION = ('[CONTEXT COMPACTION', '[PRIOR CONTEXT — for reference only')
 
 
@@ -299,7 +300,9 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         data = _claim_data(decision)
         try:
             if (data is not None and data.get('via') == 'telegram' and data.get('state') == 'done'
-                    and data.get('at', 0) >= time.time() - _DONE_TTL
+                    and isinstance(data.get('at'), (int, float)) and not isinstance(data['at'], bool)
+                    and math.isfinite(data['at']) and data['at'] >= time.time() - _DONE_TTL
+                    and anchored and stamp > data['at']
                     and data.get('session') == _session_key(sid)
                     and data.get('operationId') != operation
                     and isinstance(data.get('message'), str)
@@ -335,8 +338,26 @@ def _legacy_earlier_turn(sid, data, stamp, operation):
         return False
     try:
         with _lock:
-            with open(_turns_path(sid)) as f:
+            path = _turns_path(sid)
+            with open(path) as f:
                 record = json.load(f)
+            for name in os.listdir(os.path.dirname(path)):
+                if not name.endswith('.json') or name == os.path.basename(path):
+                    continue
+                with open(os.path.join(os.path.dirname(path), name)) as f:
+                    other = json.load(f)
+                if (not isinstance(other, dict) or not isinstance(other.get('seen'), list)
+                        or not isinstance(other.get('since'), (int, float))
+                        or isinstance(other['since'], bool) or not math.isfinite(other['since'])):
+                    return False
+                if len(other['seen']) >= 64 and min(map(_stamp_value, other['seen'])) > at - _LEGACY_EXCLUSIVE:
+                    return False  # older turns in the window may have been pushed out of the record
+                for value in other['seen']:
+                    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+                        return False
+                    s = float(value)
+                    if not math.isfinite(s) or at - _LEGACY_EXCLUSIVE < s <= at:
+                        return False
         if (not isinstance(record, dict) or not isinstance(record.get('seen'), list)
                 or not isinstance(record.get('since'), (int, float))
                 or isinstance(record.get('since'), bool)):
