@@ -59,6 +59,8 @@ class ObserverTests(unittest.TestCase):
             plugin._stats[key] = 0
         plugin._turns.clear()
         plugin._exiting = False
+        plugin._inflight = 0
+        plugin._abandoned = False
         while not plugin._queue.empty():
             plugin._queue.get_nowait()
 
@@ -323,6 +325,34 @@ class ObserverTests(unittest.TestCase):
         saved = json.loads(Path(TMP, "proc-stats", f"{pid}-{plugin._start_ticks(pid)}.json").read_text())
         written = sum(1 for l in ledger_lines() if json.loads(l)["event_type"] == "run.started")
         self.assertEqual(saved["dropped_queue_full"] + written, 1)  # neither written twice nor lost
+
+    def test_exit_flush_counts_in_flight_write_that_fails_after_deadline(self):
+        plugin._turn_started(session_id="s-late", turn_id="t1")
+        started, release = threading.Event(), threading.Event()
+
+        def slow_fail(e):
+            started.set()
+            release.wait(5)
+            raise OSError("late write failure")
+
+        with patch.object(plugin, "_write_unlocked", side_effect=slow_fail):
+            worker = threading.Thread(target=plugin._drain, args=(1.0,))
+            worker.start()
+            self.assertTrue(started.wait(2))  # the worker holds the event and the write lock
+            plugin._flush_at_exit(0.3)
+            release.set()
+            worker.join(2)
+        pid = os.getpid()
+        saved = json.loads(Path(TMP, "proc-stats", f"{pid}-{plugin._start_ticks(pid)}.json").read_text())
+        self.assertEqual(saved["write_errors"], 1)  # the late failure is in the final snapshot
+        self.assertEqual(plugin._stats["write_errors"], 1)  # and not counted twice
+
+    def test_in_flight_write_error_is_counted_once_without_exit(self):
+        plugin._turn_started(session_id="s-err", turn_id="t1")
+        with patch.object(plugin, "_write_unlocked", side_effect=OSError("boom")):
+            plugin._drain(0.1)
+        self.assertEqual(plugin._stats["write_errors"], 1)
+        self.assertEqual(plugin._inflight, 0)
 
     def test_exit_flush_is_bounded_when_storage_io_hangs(self):
         plugin._turn_started(session_id="s-hang", turn_id="t1")

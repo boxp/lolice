@@ -47,6 +47,8 @@ _lock = threading.Lock()
 _write_lock = threading.Lock()  # worker and exit flush both append
 _save_lock = threading.Lock()  # serializes proc-stats saves (worker vs exit flush)
 _exiting = False  # set by the exit flush: later worker saves must not replace its snapshot
+_inflight = 0  # events taken from the queue by the worker and not yet written or counted
+_abandoned = False  # the exit flush gave up on the worker and counted its in-flight events lost
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
 _wake = threading.Event()  # set on enqueue; the worker waits on it instead of blocking in get()
 _turns = OrderedDict()  # (session hash, turn hash) -> run_id
@@ -538,15 +540,45 @@ def _drain(timeout):
             except queue.Empty:
                 e = None
             if e is not None:
+                _set_inflight(1)
+                failed = False
                 try:
                     _write_unlocked(e)
                 except Exception:
-                    _count("write_errors")
+                    failed = True
+                _finish_inflight(failed)
                 return True
         remaining = end - time.monotonic()
         if remaining <= 0:
             return False
         _wake.wait(remaining)
+
+
+def _set_inflight(n):
+    global _inflight
+    with _lock:
+        _inflight = n
+
+
+def _finish_inflight(failed):
+    """End the worker's in-flight write. If the exit flush already gave up on it, the event was
+    counted as a write error in the final snapshot, so it is not counted again."""
+    global _inflight
+    with _lock:
+        _inflight = 0
+        if failed and not _abandoned:
+            _stats["write_errors"] = _stats.get("write_errors", 0) + 1
+
+
+def _abandon_inflight():
+    """Called when the exit flush cannot get the write lock: the worker's in-flight event may
+    still fail after the final save, which nothing would record. Count it as a write error now
+    (conservative: if the late write succeeds, the loss counter over-counts by that event)."""
+    global _inflight, _abandoned
+    with _lock:
+        _abandoned = True
+        _stats["write_errors"] = _stats.get("write_errors", 0) + _inflight
+        _inflight = 0
 
 
 def _run():
@@ -578,7 +610,8 @@ def _flush_body(end):
     try:
         while time.monotonic() < end:
             if not _write_lock.acquire(timeout=max(0.0, end - time.monotonic())):
-                break  # the worker is stuck holding the lock: give up writing
+                _abandon_inflight()  # the worker is stuck holding the lock: give up writing
+                break
             try:
                 try:
                     e = _queue.get_nowait()
