@@ -139,3 +139,16 @@ data:
     ubatch-size = 512
     threads = 14
     threads-batch = 14
+
+    # BOXP-358 batch 3 (coding axis): HF unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF
+    # revision b17cb02d, Q4_K_M 18.56 GB, sha256 fadc3e5f…. Base
+    # Qwen/Qwen3-Coder-30B-A3B-Instruct (qwen3moe, 48 layers all full attention,
+    # 4 KV heads x 128, ~3B active, apache-2.0). KV at the router ctx 262144 is
+    # ~25.8 GB f16, so weights + KV + buffers is ~47 GB (within the 55 GB per-candidate
+    # budget). Selectable only, same semantics as the presets above. Callers pass the sampler.
+    [qwen3-coder-30b-a3b]
+    model = /models/boxp358/qwen3-coder-30b-a3b/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
