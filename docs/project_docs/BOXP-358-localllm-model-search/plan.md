@@ -48,3 +48,12 @@ Owner 補足（coding 用 local LLM は NSFW 用途に限らない）を受け�
 - `qwen-agentworld-35b-a3b` を退役する。日本語回帰が 12/18（英語混入）で全候補の最下位、同系統（qwen35moe）の qwen36-35b-a3b を上回る指標がない。本票で取得した weights（22.13 GB）は preset 削除の反映後に消す。revision を固定しているため再取得できる。
 
 既定 model は不変。退役後のダウンロード保持量は約 131 GB で、150 GB の上限内に収まる。
+
+## batch 4（大型 coding MoE の追加と退役）
+
+coding 軸の大型 MoE 候補として `qwen3-coder-next` を追加する。unsloth/Qwen3-Coder-Next-GGUF @ `ce09c67b`、Q4_K_S 45.53 GB、sha256 `95e490dd…`、apache-2.0。262144 ctx の f16 KV は約 6.4 GB、weights + KV + buffers は約 54.47 GB で候補ごとの上限 55 GB 以下。既定 model は不変。
+
+- `qwen36-35b-a3b` を退役する。同系統の `ornith15-35b-a3b` は coding 10/10 対 8/10、速度も同等以上で、上回る指標がない。
+- `nemotron35-lightning-30b-a3b` を退役する。coding 6/10、日本語回帰 14/16、8k needle 未回答 2 件で最下位。
+
+両者の weights は revision 固定で再取得できる。本票のダウンロード保持量は退役後に 150 GB の上限内に収める。
