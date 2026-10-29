@@ -64,3 +64,16 @@ coding 軸の大型 MoE 候補として `qwen3-coder-next` を追加する。uns
 
 - 計測: load、F（temp 0 で `gemma4-26b` と出力が一致するか）、L32、B253（pp / tg）、A1。受理率（draft_n / draft_n_accepted）も記録する。
 - 起動に失敗した場合や速度が上がらない場合は、理由を記録して preset を外す。
+
+batch 5 の結果: 日本語散文では draft の受理率が 33〜40% にとどまり、decode が 15.2 → 10.8 t/s（約 -29%）、日本語回帰の平均 tg も 13.5 → 9.9 t/s に下がった。code / json は同等〜 +15%。創作が主用途のため不採用とし、`gemma4-26b-mtp` preset を外す。draft head は preset 撤去の反映後に model store から消す。
+
+## batch 6（Ornith-1.5 uncensored 派生の追加と退役）
+
+Owner が実バース出力で ornith15 / q36 を g26 より読みやすいと評価し、ornith15 の uncensored 版の比較を求めたため、`ornith15-35b-a3b-uncensored` を追加する。junafinity/Ornith-1.5-35B-A3B-uncensored-GGUF-8bit @ `0cab5bc6`、Q8_0 37.80 GB、sha256 `d0cd5a65…`。第三者による abliteration 派生で Ornith 公式ではなく、card 表記は apache-2.0、base 表記は mit。KV は約 5.4 GB、合計見積は約 45 GB で候補ごとの上限 55 GB 以下。既定 model は不変。
+
+同じ派生の Q4_K_M は公開されていないため、ornith15（公式 Q4_K_M）との比較には量子化差（Q8_0 vs Q4_K_M）が交絡する。評価は一般的な非性的創作と指示追従で行い、NSFW 適性は評価しない。
+
+- `qwen3-coder-30b-a3b` を退役する。coding で qwen3-coder-next に劣後し、CH は 0/9 対 6/9。
+- `nemotron-nano-9b-v2-ja` を退役する。全軸で劣後する。
+
+両者の weights は削除済みで、revision 固定で再取得できる。本票の保持量は追加後も 150 GB の上限内に収まる。
