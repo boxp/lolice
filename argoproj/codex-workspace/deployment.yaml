@@ -533,6 +533,52 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+        # BOXP-360: read-only /metrics for the AI ops ledger exposition that the
+        # task-board runner writes (ai-ops/metrics.prom, enum labels only). Scraped
+        # by prometheus-k8s through the ai-ops-metrics ServiceMonitor.
+        - name: ai-ops-metrics
+          image: docker.io/python:3.15-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/server.py
+          ports:
+            - name: ai-ops-metrics
+              containerPort: 9464
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PORT
+              value: "9464"
+            - name: AI_OPS_METRICS_FILE
+              value: /home/boxp/.codex-task-board/ai-ops/metrics.prom
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: ai-ops-metrics
+            periodSeconds: 30
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+              readOnly: true
+            - name: ai-ops-metrics-app
+              mountPath: /app
+              readOnly: true
         - name: task-board-dashboard
           image: docker.io/python:3.15-alpine
           imagePullPolicy: IfNotPresent
@@ -620,3 +666,6 @@ spec:
         - name: dashboard-app
           configMap:
             name: codex-task-board-dashboard
+        - name: ai-ops-metrics-app
+          configMap:
+            name: codex-workspace-ai-ops-metrics

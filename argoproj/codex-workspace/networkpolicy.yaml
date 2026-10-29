@@ -69,6 +69,15 @@ spec:
       destination:
         ports:
           - 60001
+    # BOXP-360: prometheus-k8s scrapes the read-only AI ops ledger metrics sidecar.
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'monitoring'
+        selector: app.kubernetes.io/name == 'prometheus' && prometheus == 'k8s'
+      destination:
+        ports:
+          - 9464
   egress:
     - action: Allow
       protocol: UDP
