@@ -18,21 +18,23 @@ summary は直前 head が user なら `assistant` 役、tail 先頭とも衝突
 その他の候補（assistant 文中の引用・Webhook 包み・別件 user 境界・turn 未指定 fallback・`_pending` lifecycle・引用返信）は
 既存実装/既存テストで誤接続しないことを確認（引用返信は `[Replying to: ...]` で始まり通知とは判定されず、user 境界になる）。
 
-## 修正（kohako-g2-context 1.3.15）
+## 修正（kohako-g2-context 1.3.16）
 1. compaction summary 行（user/assistant 役で `[CONTEXT COMPACTION` または `[PRIOR CONTEXT — for reference only` で始まる、または `_compressed_summary`）を検出しても走査は止めず「summary 越え」として記録する。
    summary が現在メッセージに merge された場合も同様。通知本文・tool 結果・assistant 文中のマーカー文字列は summary とみなさない。
-2. Telegram の claim に、claim した Owner 発言の正規化 hash（`message`）を記録する（G2 claim には付けない）。
-3. summary 越えで通知に到達した場合、claim が「Telegram 経由・done・期限内・現在発言と異なる hash（hash 無しの旧 claim も異なる扱い）」のときだけ、
-   同経路の過去返答が圧縮で消えた後の新規指示とみなし bind しない。
-   それ以外（未 claim・G2/他経路 claim・claimed=対応中/結果不明・同一文の再送・読めない claim）は従来どおり bind → claim / block。
-   → G2 で処理済みの通知に summary 越しに Telegram で返答しても重複実行しない（codex-review 指摘への対応）。
+2. Telegram の claim に、claim した Owner 発言の正規化 hash（`message`）と会話（session）key（`session`）を記録する（G2 claim には付けない）。
+3. summary 越えで通知に到達した場合、claim が「Telegram 経由・done・期限内・**同じ会話（session）の別ターン**が claim・hash 記録あり・現在発言と異なる hash」のときだけ hard bind しない。
+   根拠: 圧縮なしの履歴では通知直後の最初の Owner 発言だけが返答として bind され、2 通目以降は新規指示扱い（walk が前の Owner 発言で止まる）。
+   同じ会話の別ターンが done claim を持つことは「最初の返答枠が消費済み」の永続的な証拠であり、圧縮前と同じ判定になる。
+   この場合も gate は外すが、LLM context に「この通知は以前の Telegram 返答で既に対応済み。同じ操作の再依頼なら再実行せず対応済みと答える／別件なら通常対応」の警告を注入する（言い換え再返答への soft guard）。
+   それ以外（未 claim・G2/他経路 claim・別会話の claim・session/hash 無しの旧形式 claim・同一ターン・claimed=対応中/結果不明・同一文の再送・読めない claim）は従来どおり bind → claim / block。
 4. 時刻による新規判定は取りやめた（再送と新規指示を区別できないため）。
-- 既知の制限（fail-closed 側）: G2 で対応済みの通知の後、圧縮を挟んで Telegram で出した新規指示は block される。
-  同経路で別文言の再返答を圧縮越しに送った場合は新規扱いになる（同一文の再送は block）。
+- 既知の制限: G2 で対応済みの通知の後、圧縮を挟んで Telegram で出した新規指示は block される（fail-closed）。
+  旧版（1.3.15 以前）が作った claim（BOXP-360 の dec-... を含む）は session 記録が無いため期限（7日）まで guard が残る（fail-closed。claim 削除はしない）。その間の回避は Telegram 側で新しい会話（session reset）を開始し、圧縮済み履歴に旧通知を残さないこと。
+  同会話で言い換えた再返答を圧縮越しに送った場合は hard block ではなく soft 警告になる（圧縮なし履歴の 2 通目と同じ扱い）。
 - claim 削除・guard 無効化・別 tool 回避はしない。G2/Telegram 同時返答の一回処理と結果不明時の再送抑止は維持（既存テスト + 新テスト）。
 
 ## 検証
-- `python3 test_kohako_g2_context.py` 51 件 OK。新テスト 6 件のうち再現系は旧コードで失敗することを確認。
+- `python3 test_kohako_g2_context.py` 53 件 OK。新テスト 6 件のうち再現系は旧コードで失敗することを確認。
 - 独立 review、CI、通常 merge、ArgoCD 配備、plugin version readback。
 
 ## 配備と Hermes 再起動

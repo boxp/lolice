@@ -339,7 +339,8 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(ignored=content):
                 self.assertIsNone(plugin._notice_event(content))
     def test_race(self):
-        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via}
+        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via,
+                               'message': plugin._message_hash('はい'), 'session': plugin._session_key('tg')}
         results = []
         threads = [threading.Thread(target=lambda v=v: results.append(plugin._claim(pending(v)))) for v in ('g2', 'telegram')]
         for thread in threads: thread.start()
@@ -348,7 +349,8 @@ class DecisionTests(unittest.TestCase):
     def test_gc_cannot_delete_a_fresh_claim(self):
         # GC reads an expired 'done' file; a concurrent caller must not slip a new claim in
         # before GC unlinks, or GC would delete it and both entry points could claim.
-        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via}
+        pending = lambda via: {'decisionId': 'dec-event-1', 'eventId': 'event-1', 'via': via, 'operationId': via,
+                               'message': plugin._message_hash('はい'), 'session': plugin._session_key('tg')}
         path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path))
         with open(path, 'w') as f: json.dump({'state': 'done', 'via': 'telegram', 'at': time.time() - 8 * 86400}, f)
         real_unlink, results, threads = os.unlink, [], []
@@ -507,9 +509,12 @@ class DecisionTests(unittest.TestCase):
         return {'role': 'user', 'content': f'[Webhook delivery: task-board]\n【Task Board 通知】BOXP-1 event={event}'}
     def claimed_elsewhere(self, via='telegram', **extra):
         path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'w') as f: json.dump({'state': 'done', 'via': via, 'operationId': 'tg-x', 'at': time.time() - 100} | extra, f)
+        data = {'state': 'done', 'via': via, 'operationId': 'tg-x', 'at': time.time() - 100,
+                'session': plugin._session_key('tg'), 'message': plugin._message_hash('以前の返答')} | extra
+        if data.get('session') is None: data.pop('session')
+        with open(path, 'w') as f: json.dump(data, f)
     def new_request(self, history, turn='n', message='新しい不具合の修復依頼を登録して'):
-        plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message=message, turn_id=turn, conversation_history=history)
+        self.last_context = plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message=message, turn_id=turn, conversation_history=history)
         return plugin._gate(session_id='tg', tool_name='terminal', args={'command': GateTests.HELPER + ' create --title x'}, tool_call_id='call_' + 'f' * 32, turn_id=turn)
     def test_mirrored_user_delivery_is_claimable(self):
         self.tg([self.mirror(), self.cur()]); self.assertIsNone(self.gate('tg'))
@@ -527,6 +532,7 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(summary=str(summary)[:40]):
                 history = [{'role': 'user', 'content': 'hello'}, self.mirror(), summary, {'role': 'assistant', 'content': '反映しました'}, self.cur('新しい不具合の修復依頼を登録して')]
                 self.assertIsNone(self.new_request(history)); self.assertNotIn(('tg', 'n'), plugin._pending)
+                self.assertIn('既に対応済み', self.last_context['context'])
         self.assertEqual(self.data()['via'], 'telegram')
         # A summary merged into the current message follows the same rule.
         merged = self.cur('[PRIOR CONTEXT — for reference only; not a new message]\n新しい不具合の修復依頼を登録して\n\nsummary')
@@ -537,7 +543,9 @@ class DecisionTests(unittest.TestCase):
                 plugin._pending.clear(); os.unlink(path)
                 self.assertIsNone(self.new_request([self.mirror(), summary, self.cur('はい')], message='はい'))
                 self.assertEqual(self.data()['via'], 'telegram')
-        for claim in ({'via': 'g2'}, {'state': 'claimed'}, {'message': plugin._message_hash('はい')}):
+        for claim in ({'session': None}, {'session': plugin._session_key('another')},
+                      {'operationId': 'tg-n'}, {'message': None}, {'via': 'g2'},
+                      {'state': 'claimed'}, {'message': plugin._message_hash('はい')}):
             with self.subTest(claim=claim):
                 plugin._pending.clear(); os.unlink(path)
                 self.claimed_elsewhere(**claim)
@@ -546,6 +554,26 @@ class DecisionTests(unittest.TestCase):
         self.claimed_elsewhere()
         # A notification after the summary is still answerable, and still guarded when handled.
         self.assertEqual(self.new_request([summaries[0], self.mirror(), self.cur('新しい不具合の修復依頼を登録して')])['action'], 'block')
+    def test_rephrased_reply_beyond_summary_gets_soft_warning(self):
+        plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message='Ready に移動',
+                     turn_id='r', conversation_history=[self.mirror(), self.cur('Ready に移動')])
+        self.assertIsNone(self._turn_gate('r', 'a', 'ok', 'update BOXP-1 --lane Ready'))
+        plugin._post(session_id='tg', turn_id='r')
+        self.assertEqual(self.data()['session'], plugin._session_key('tg'))
+        summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
+        message = 'Ready にしてください'
+        self.assertIsNone(self.new_request([self.mirror(), summary, self.cur(message)], message=message))
+        self.assertNotIn(('tg', 'n'), plugin._pending)
+        self.assertIn('既に対応済み', self.last_context['context'])
+
+    def test_earlier_owner_reply_without_compaction_is_not_bound(self):
+        message = 'Ready にしてください'
+        history = [self.mirror(), {'role': 'user', 'content': 'はい'},
+                   {'role': 'assistant', 'content': '対応しました'}, self.cur(message)]
+        self.assertIsNone(self.new_request(history, message=message))
+        self.assertNotIn(('tg', 'n'), plugin._pending)
+        self.assertNotIn('既に対応済み', str(self.last_context))
+
     def test_marker_text_elsewhere_is_not_compaction(self):
         # Only a summary row (user/assistant, starting with the compaction header) marks compaction:
         # marker text inside a notification or a tool result does not drop the guard.

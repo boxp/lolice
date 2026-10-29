@@ -17,8 +17,8 @@
   Decision state is kept per turn (session id + turn id), so concurrent turns of one session
   never drop or borrow each other's claim.
 - BOXP-362: Hermes context compaction replaces earlier turns (Owner messages included) with a
-  summary row. Beyond it, a completed Telegram claim for a different message identifies a new
-  instruction; unclaimed, other-route, unknown-result and identical-message replies remain guarded.
+  summary row. A completed earlier Telegram reply in the same session allows a different turn
+  through with a soft warning; ambiguous and identical-message replies remain guarded.
 """
 import contextlib
 import fcntl
@@ -162,8 +162,8 @@ _TICKET = re.compile(r'【Task Board 通知】\s*[A-Z]+-[0-9]+\b')
 
 # Hermes context compaction (agent/context_compressor.py) replaces a range of earlier turns with a
 # summary, as its own user/assistant row or merged into a carried row (prepended, or the carried
-# content wrapped after a header); Owner messages inside are gone. Beyond a summary, only a done
-# Telegram claim for a different message proves the current instruction is not the old reply.
+# content wrapped after a header); Owner messages inside are gone. A completed earlier reply in
+# the same session consumes the first-reply slot, so later messages receive a soft warning.
 _COMPACTION = ('[CONTEXT COMPACTION', '[PRIOR CONTEXT — for reference only')
 
 
@@ -293,13 +293,19 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
         try:
             if (data is not None and data.get('via') == 'telegram' and data.get('state') == 'done'
                     and data.get('at', 0) >= time.time() - _DONE_TTL
-                    and data.get('message') != _message_hash(user_message)):
-                return None
+                    and data.get('session') == _session_key(sid)
+                    and data.get('operationId') != operation
+                    and isinstance(data.get('message'), str)
+                    and data['message'] != _message_hash(user_message)):
+                return (f'Kohako: Task Board 通知（event={event}）は、この会話の以前の Telegram 返答で既に対応済みです。'
+                        '今回の発言がその通知への同じ操作の再依頼であれば再実行せず、対応済みである旨だけ答えてください。'
+                        '新しい別件の指示であれば通常どおり対応して構いません。')
         except TypeError:
             pass  # unreadable timestamp: keep the guard
     lost = _existing(decision)
     pending = {'decisionId': decision, 'eventId': event, 'via': via, 'operationId': operation, 'claimed': False, 'lost': lost,
-               'inflight': set(), 'ok': False, 'unknown': False, 'message': _message_hash(user_message) if via == 'telegram' else None}
+               'inflight': set(), 'ok': False, 'unknown': False, 'message': _message_hash(user_message) if via == 'telegram' else None,
+               'session': _session_key(sid) if via == 'telegram' else None}
     with _lock:
         pending = _remember((sid, turn_id), pending)
     if pending['lost'] == 'error':
@@ -434,8 +440,9 @@ def _claim(pending):
             return _existing(pending['decisionId']) or 'other'
         with os.fdopen(fd, 'w') as f:
             data = {'version': 1, 'decisionId': pending['decisionId'], 'eventId': pending['eventId'], 'via': pending['via'], 'operationId': pending['operationId'], 'state': 'claimed', 'at': time.time()}
-            if pending.get('message') is not None:
+            if pending['via'] == 'telegram':
                 data['message'] = pending['message']
+                data['session'] = pending['session']
             json.dump(data, f)
     return None
 
