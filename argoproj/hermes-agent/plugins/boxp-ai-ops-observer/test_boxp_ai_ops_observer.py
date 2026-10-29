@@ -4,6 +4,8 @@ import json
 import os
 import re
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -56,6 +58,7 @@ class ObserverTests(unittest.TestCase):
         for key in plugin._LOSS_KEYS:
             plugin._stats[key] = 0
         plugin._turns.clear()
+        plugin._exiting = False
         while not plugin._queue.empty():
             plugin._queue.get_nowait()
 
@@ -289,6 +292,54 @@ class ObserverTests(unittest.TestCase):
         saved = json.loads(Path(TMP, "proc-stats", f"{pid}-{plugin._start_ticks(pid)}.json").read_text())
         self.assertEqual(saved["api_request_errors"], 1)
         self.assertEqual(saved["queue_depth"], 0)
+
+    def test_exit_flush_is_bounded_when_worker_holds_write_lock(self):
+        plugin._turn_started(session_id="s-stuck", turn_id="t1")
+        plugin._write_lock.acquire()  # worker stuck in storage I/O while holding the lock
+        try:
+            began = time.monotonic()
+            plugin._flush_at_exit(0.3)
+            self.assertLess(time.monotonic() - began, 1.5)
+        finally:
+            plugin._write_lock.release()
+        pid = os.getpid()
+        saved = json.loads(Path(TMP, "proc-stats", f"{pid}-{plugin._start_ticks(pid)}.json").read_text())
+        self.assertEqual(saved["dropped_queue_full"], 1)  # unwritten event is counted
+
+    def test_exit_flush_is_bounded_when_storage_io_hangs(self):
+        plugin._turn_started(session_id="s-hang", turn_id="t1")
+        with patch.object(plugin, "_write_unlocked", side_effect=lambda e: time.sleep(5)):
+            began = time.monotonic()
+            plugin._flush_at_exit(0.3)
+            self.assertLess(time.monotonic() - began, 1.5)
+
+    def test_final_exit_snapshot_is_not_replaced_by_worker(self):
+        plugin._count("write_errors")
+        plugin._flush_at_exit()
+        pid = os.getpid()
+        path = Path(TMP, "proc-stats", f"{pid}-{plugin._start_ticks(pid)}.json")
+        before = path.read_text()
+        plugin._count("write_errors")
+        self.assertFalse(plugin._write_proc_stats())  # late worker save is skipped
+        self.assertEqual(path.read_text(), before)
+
+    def test_concurrent_stats_saves_do_not_collide(self):
+        errors = []
+
+        def save():
+            for _ in range(200):
+                try:
+                    plugin._write_proc_stats()
+                except Exception as exc:  # fixed tmp path: replace of a vanished tmp
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=save) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(list(Path(TMP, "proc-stats").glob("*.tmp")), [])
 
     def test_reused_pid_from_previous_pod_is_retired(self):
         # proc-stats/ lives on the PVC; after a pod restart a new process can get the same pid.

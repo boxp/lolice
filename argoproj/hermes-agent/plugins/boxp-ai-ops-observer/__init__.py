@@ -45,6 +45,8 @@ _TURNS_MAX = 512
 
 _lock = threading.Lock()
 _write_lock = threading.Lock()  # worker and exit flush both append
+_save_lock = threading.Lock()  # serializes proc-stats saves (worker vs exit flush)
+_exiting = False  # set by the exit flush: later worker saves must not replace its snapshot
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
 _turns = OrderedDict()  # (session hash, turn hash) -> run_id
 _stats = {"emitted": 0, "dropped_queue_full": 0, "dropped_file_full": 0, "write_errors": 0,
@@ -331,7 +333,7 @@ def _read_ledger():
 
 def _atomic_json(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
+    tmp = f"{path}.{os.getpid()}-{threading.get_ident()}.tmp"  # unique per writer thread
     with open(tmp, "w") as fh:
         json.dump(data, fh)
     os.replace(tmp, path)
@@ -348,13 +350,27 @@ def _start_ticks(pid):
         return 0
 
 
-def _write_proc_stats():
-    with _lock:
-        data = {key: _stats[key] for key in _LOSS_KEYS}
-    pid = os.getpid()
-    start = _start_ticks(pid)
-    data.update(pid=pid, start=start, queue_depth=_queue.qsize())
-    _atomic_json(os.path.join(_DIR, "proc-stats", f"{pid}-{start}.json"), data)
+def _write_proc_stats(final=False, timeout=None):
+    """Save this process's loss counters. Saves are serialized and the snapshot is taken under
+    the save lock, so a later save never holds smaller counts than an earlier one. Once the
+    exit flush has saved (final), worker saves are skipped so the final snapshot stays last."""
+    global _exiting
+    if not _save_lock.acquire(timeout=-1 if timeout is None else max(0.0, timeout)):
+        return False
+    try:
+        if _exiting and not final:
+            return False
+        if final:
+            _exiting = True
+        with _lock:
+            data = {key: _stats[key] for key in _LOSS_KEYS}
+        pid = os.getpid()
+        start = _start_ticks(pid)
+        data.update(pid=pid, start=start, queue_depth=_queue.qsize())
+        _atomic_json(os.path.join(_DIR, "proc-stats", f"{pid}-{start}.json"), data)
+        return True
+    finally:
+        _save_lock.release()
 
 
 def _pid_alive(pid, start):
@@ -537,27 +553,40 @@ def _run():
 
 
 def _flush_at_exit(deadline_seconds=2.0):
-    """On interpreter exit, write what is still queued (bounded time) and save this process's
-    loss counters, so losses after the last periodic save are retired instead of lost.
-    Remaining queued events are counted as queue_full losses."""
+    """On interpreter exit, write what is still queued and save this process's loss counters,
+    so losses after the last periodic save are retired instead of lost. The whole flush
+    (lock waits and storage I/O) runs in a daemon thread bounded by the deadline, so a stuck
+    worker or storage never blocks agent exit. Events not written in time count as
+    queue_full losses; if even the final save cannot finish, the last periodic save remains."""
     end = time.monotonic() + deadline_seconds
+    t = threading.Thread(target=_flush_body, args=(end,), name="boxp-ai-ops-exit", daemon=True)
+    t.start()
+    t.join(max(0.0, end - time.monotonic()) + 0.5)
+
+
+def _flush_body(end):
     try:
         while time.monotonic() < end:
+            if not _write_lock.acquire(timeout=max(0.0, end - time.monotonic())):
+                break  # the worker is stuck holding the lock: give up writing
             try:
-                e = _queue.get_nowait()
-            except queue.Empty:
-                break
-            try:
-                _write(e)
-            except Exception:
-                _count("write_errors")
+                try:
+                    e = _queue.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    _write_unlocked(e)
+                except Exception:
+                    _count("write_errors")
+            finally:
+                _write_lock.release()
         while True:
             try:
                 _queue.get_nowait()
             except queue.Empty:
                 break
             _count("dropped_queue_full")
-        _write_proc_stats()
+        _write_proc_stats(final=True, timeout=max(0.0, end - time.monotonic()))
     except Exception:
         _log.debug("ai ops exit flush failed", exc_info=True)
 
