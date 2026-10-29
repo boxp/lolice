@@ -48,6 +48,7 @@ _write_lock = threading.Lock()  # worker and exit flush both append
 _save_lock = threading.Lock()  # serializes proc-stats saves (worker vs exit flush)
 _exiting = False  # set by the exit flush: later worker saves must not replace its snapshot
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
+_wake = threading.Event()  # set on enqueue; the worker waits on it instead of blocking in get()
 _turns = OrderedDict()  # (session hash, turn hash) -> run_id
 _stats = {"emitted": 0, "dropped_queue_full": 0, "dropped_file_full": 0, "write_errors": 0,
           "api_request_errors": 0, "by_type": {}, "run_finished": {}, "last_emit": None}
@@ -222,15 +223,12 @@ def _enqueue(e):
         _queue.put_nowait(e)
     except queue.Full:
         _count("dropped_queue_full")
+        return
+    _wake.set()
 
 
 def _day_file(now):
     return os.path.join(_DIR, "ledger", f"events-{now.strftime('%Y-%m-%d')}.jsonl")
-
-
-def _write(e):
-    with _write_lock:
-        _write_unlocked(e)
 
 
 def _write_unlocked(e):
@@ -528,15 +526,27 @@ def _prune():
 
 
 def _drain(timeout):
-    try:
-        e = _queue.get(timeout=timeout)
-    except queue.Empty:
-        return False
-    try:
-        _write(e)
-    except Exception:
-        _count("write_errors")
-    return True
+    """Write one queued event. The event is taken from the queue only while holding the write
+    lock, so the exit flush never sees an empty queue while an event is held outside the lock
+    (it would save final stats and exit before that event is written or counted as lost)."""
+    end = time.monotonic() + timeout
+    while True:
+        _wake.clear()  # before checking: an enqueue after the check sets it again
+        with _write_lock:
+            try:
+                e = _queue.get_nowait()
+            except queue.Empty:
+                e = None
+            if e is not None:
+                try:
+                    _write_unlocked(e)
+                except Exception:
+                    _count("write_errors")
+                return True
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            return False
+        _wake.wait(remaining)
 
 
 def _run():

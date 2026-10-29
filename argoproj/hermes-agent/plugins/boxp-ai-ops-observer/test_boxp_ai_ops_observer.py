@@ -129,7 +129,7 @@ class ObserverTests(unittest.TestCase):
             drain()
         self.assertEqual(plugin._stats["dropped_file_full"], before + 1)
         before = plugin._stats["write_errors"]
-        with patch.object(plugin, "_write", side_effect=OSError("disk")):
+        with patch.object(plugin, "_write_unlocked", side_effect=OSError("disk")):
             plugin._turn_started(session_id="s", turn_id="c3")
             drain()
         self.assertEqual(plugin._stats["write_errors"], before + 1)
@@ -305,6 +305,24 @@ class ObserverTests(unittest.TestCase):
         pid = os.getpid()
         saved = json.loads(Path(TMP, "proc-stats", f"{pid}-{plugin._start_ticks(pid)}.json").read_text())
         self.assertEqual(saved["dropped_queue_full"], 1)  # unwritten event is counted
+
+    def test_exit_flush_counts_event_taken_by_worker_waiting_for_lock(self):
+        plugin._turn_started(session_id="s-race", turn_id="t1")
+        plugin._write_lock.acquire()  # the exit flush (or a slow write) holds the lock
+        worker = threading.Thread(target=plugin._drain, args=(1.0,))
+        try:
+            worker.start()
+            time.sleep(0.2)
+            # the worker must not hold the event outside the lock, where the exit flush cannot see it
+            self.assertEqual(plugin._queue.qsize(), 1)
+            plugin._flush_at_exit(0.3)
+        finally:
+            plugin._write_lock.release()
+            worker.join(2)
+        pid = os.getpid()
+        saved = json.loads(Path(TMP, "proc-stats", f"{pid}-{plugin._start_ticks(pid)}.json").read_text())
+        written = sum(1 for l in ledger_lines() if json.loads(l)["event_type"] == "run.started")
+        self.assertEqual(saved["dropped_queue_full"] + written, 1)  # neither written twice nor lost
 
     def test_exit_flush_is_bounded_when_storage_io_hangs(self):
         plugin._turn_started(session_id="s-hang", turn_id="t1")
