@@ -48,6 +48,8 @@ spec:
           kubectl exec -n codex-workspace deployment/codex-workspace -c ai-ops-metrics -- python -c 'import urllib.request as u; assert u.urlopen("http://127.0.0.1:9464/healthz").read().strip() == b"ok"; m=u.urlopen("http://127.0.0.1:9464/metrics").read(); assert b"ai_ops_stub_metric 1" in m and b"ai_ops_metrics_file_present 1" in m'
     finally:
     - script:
-        timeout: 120s
+        timeout: 30s
         content: |
-          kubectl delete namespace codex-workspace --ignore-not-found --wait=true --timeout=110s
+          # kind は job ごとに破棄するので削除完了は待たない (python の PID 1 は SIGTERM で
+          # 止まらず、待つと terminationGracePeriodSeconds の 30s がそのまま critical path に乗る)。
+          kubectl delete namespace codex-workspace --ignore-not-found --wait=false
