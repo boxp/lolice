@@ -642,67 +642,36 @@ class DecisionTests(unittest.TestCase):
         current = {'role': 'user', 'content': message, 'timestamp': now - 20}
         self.assertEqual(self.new_request([self.mirror(), summary, current], message=message)['action'], 'block')
 
-    def test_legacy_claim_requires_exclusive_session_evidence(self):
-        now = time.time(); at = now - 30
-        message = '新しい不具合の修復依頼を登録して'
-        summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
-        path = plugin._path('dec-event-1'); os.makedirs(os.path.dirname(path), exist_ok=True)
-        other = plugin._turns_path('other')
-        for name, seen, released in (('recent', [repr(at - 5)], False),
-                                     ('unreadable', None, False),
-                                     ('full', [repr(now - 1 - i / 10) for i in range(64)], False),
-                                     ('old', [repr(at - 3601)], True)):
-            with self.subTest(name=name):
-                plugin._pending.clear()
-                with open(path, 'w') as f:
-                    json.dump({'state': 'done', 'via': 'telegram', 'operationId': 'tg-old', 'at': at}, f)
-                with open(plugin._turns_path('tg'), 'w') as f:
-                    json.dump({'since': now - 1000, 'seen': [repr(at - 10)]}, f)
-                with open(other, 'w') as f:
-                    if seen is None: f.write('{')
-                    else: json.dump({'since': now - 5000, 'seen': seen}, f)
-                current = {'role': 'user', 'content': message, 'timestamp': now - 10}
-                result = self.new_request([self.mirror(), summary, current], message=message)
-                if released:
-                    self.assertIsNone(result)
-                    self.assertIn('既に対応済み', self.last_context['context'])
-                else:
-                    self.assertEqual(result['action'], 'block')
-
-    def test_legacy_claim_beyond_summary_requires_earlier_session_turn(self):
+    def test_legacy_claim_beyond_summary_stays_blocked(self):
         now = time.time()
         at = now - 30
         message = '新しい不具合の修復依頼を登録して'
         summary = {'role': 'assistant', 'content': '[CONTEXT COMPACTION — REFERENCE ONLY] summary'}
+        path = plugin._path('dec-event-1')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        other = plugin._turns_path('other')
         cases = (
-            ('matching turn', {}, at - 5, True, True, True),
-            ('old turn', {}, at - 601, True, True, False),
-            ('claimed', {'state': 'claimed'}, at - 5, True, True, False),
-            ('no summary', {}, at - 5, False, True, False),
-            ('unanchored', {}, at - 5, True, False, False),
-            ('g2', {'via': 'g2'}, at - 5, True, True, False),
-            ('same operation', {'operationId': 'tg-n'}, at - 5, True, True, False),
+            ('matching earlier turn', at - 5, True),
+            ('other session without a turn record', at - 5, False),
+            ('no other sessions', None, False),
+            ('unrelated earlier Owner turn', at - 1, False),
         )
-        for name, changes, earlier, compacted, anchored, released in cases:
+        for name, earlier, other_record in cases:
             with self.subTest(name=name):
                 plugin._pending.clear()
-                claim = {'state': 'done', 'via': 'telegram', 'operationId': 'tg-old', 'at': at} | changes
-                path = plugin._path('dec-event-1')
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-                with open(path, 'w') as f: json.dump(claim, f)
+                with open(path, 'w') as f:
+                    json.dump({'state': 'done', 'via': 'telegram', 'operationId': 'tg-old', 'at': at}, f)
                 before = Path(path).read_bytes()
                 with open(plugin._turns_path('tg'), 'w') as f:
-                    json.dump({'since': now - 1000, 'seen': [repr(earlier)]}, f)
-                current = {'role': 'user', 'content': message}
-                if anchored: current['timestamp'] = now - 10
-                history = [self.mirror()] + ([summary] if compacted else []) + [current]
-                result = self.new_request(history, message=message)
-                if released:
-                    self.assertIsNone(result)
-                    self.assertNotIn(('tg', 'n'), plugin._pending)
-                    self.assertIn('既に対応済み', self.last_context['context'])
-                else:
-                    self.assertEqual(result['action'], 'block')
+                    json.dump({'since': now - 1000, 'seen': [repr(earlier)] if earlier else []}, f)
+                if os.path.exists(other):
+                    os.unlink(other)
+                if other_record:
+                    with open(other, 'w') as f:
+                        json.dump({'since': now - 5000, 'seen': [repr(at - 3601)]}, f)
+                current = {'role': 'user', 'content': message, 'timestamp': now - 10}
+                result = self.new_request([self.mirror(), summary, current], message=message)
+                self.assertEqual(result['action'], 'block')
                 self.assertEqual(Path(path).read_bytes(), before)
 
     def test_earlier_owner_reply_without_compaction_is_not_bound(self):

@@ -18,8 +18,8 @@
   never drop or borrow each other's claim.
 - BOXP-362: Hermes context compaction replaces earlier turns (Owner messages included) with a
   summary row or merges it into a carried row. A completed earlier Telegram reply in the same session allows a different turn
-  through with a soft warning; legacy claims require matching earlier turn evidence, while
-  ambiguous and identical-message replies remain guarded.
+  through with a soft warning; legacy claims without session/message records stay blocked until
+  they expire, while ambiguous and identical-message replies remain guarded.
 """
 import contextlib
 import fcntl
@@ -42,7 +42,6 @@ _pending = OrderedDict()
 _DECISION_STORE = os.environ.get('KOHAKO_DECISION_STORE', '/opt/data/kohako-decisions')
 _DONE_TTL = 7 * 86400
 _TURN_FRESH = 600
-_LEGACY_EXCLUSIVE = 3600
 _PENDING_TTL = 86400  # far longer than any turn; only turns that never reached post_llm_call expire
 _PENDING_MAX = 256
 _HEADER = (
@@ -356,9 +355,7 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
                     and data.get('session') == _session_key(sid)
                     and data.get('operationId') != operation
                     and isinstance(data.get('message'), str)
-                    and data['message'] != _message_hash(user_message)) or (
-                    data is not None and 'session' not in data and 'message' not in data
-                    and anchored and _legacy_earlier_turn(sid, data, stamp, operation)):
+                    and data['message'] != _message_hash(user_message)):
                 return (f'Kohako: Task Board 通知（event={event}）は、この会話の以前の Telegram 返答で既に対応済みです。'
                         '今回の発言がその通知への同じ操作の再依頼であれば再実行せず、対応済みである旨だけ答えてください。'
                         '新しい別件の指示であれば通常どおり対応して構いません。')
@@ -375,47 +372,6 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
     if lost:
         return f'Kohako: この Task Board 通知（event={event}）には {_label(lost)} で既に対応済み（または対応中・結果不明）です。同じ操作は再実行できません。必要なら状況だけ答えてください。'
     return None
-
-
-def _legacy_earlier_turn(sid, data, stamp, operation):
-    at = data.get('at')
-    old_operation = data.get('operationId')
-    if (data.get('via') != 'telegram' or data.get('state') != 'done'
-            or not isinstance(at, (int, float)) or isinstance(at, bool)
-            or not math.isfinite(at) or not 0 <= time.time() - at <= _DONE_TTL
-            or not isinstance(old_operation, str) or not old_operation.startswith('tg-')
-            or old_operation == operation or stamp <= at):
-        return False
-    try:
-        with _lock:
-            path = _turns_path(sid)
-            with open(path) as f:
-                record = json.load(f)
-            for name in os.listdir(os.path.dirname(path)):
-                if not name.endswith('.json') or name == os.path.basename(path):
-                    continue
-                with open(os.path.join(os.path.dirname(path), name)) as f:
-                    other = json.load(f)
-                if (not isinstance(other, dict) or not isinstance(other.get('seen'), list)
-                        or not isinstance(other.get('since'), (int, float))
-                        or isinstance(other['since'], bool) or not math.isfinite(other['since'])):
-                    return False
-                if len(other['seen']) >= 64 and min(map(_stamp_value, other['seen'])) > at - _LEGACY_EXCLUSIVE:
-                    return False  # older turns in the window may have been pushed out of the record
-                for value in other['seen']:
-                    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
-                        return False
-                    s = float(value)
-                    if not math.isfinite(s) or at - _LEGACY_EXCLUSIVE < s <= at:
-                        return False
-        if (not isinstance(record, dict) or not isinstance(record.get('seen'), list)
-                or not isinstance(record.get('since'), (int, float))
-                or isinstance(record.get('since'), bool)):
-            return False
-        return any(record['since'] < s <= at and at - s <= _TURN_FRESH and s != stamp
-                   for s in map(_stamp_value, record['seen']))
-    except (OSError, ValueError, TypeError, OverflowError):
-        return False
 
 
 def _remember(key, pending):
