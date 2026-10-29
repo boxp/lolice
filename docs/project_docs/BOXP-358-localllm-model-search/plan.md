@@ -37,3 +37,14 @@ batch 1（gemma4-26b baseline、ornith-35b、qwen36-35b-a3b、ornith15-35b-a3b�
 - `nemotron35-lightning-30b-a3b`: ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF @ `8cd08217`、Q4_0 18.90 GB、openmdw-1.1。対応言語に日本語を明記。b11669 で `nemotron_h_moe` は登録済み。attention 層が 6 層のため、262144 ctx でも KV は約 1.6 GB。
 
 ダウンロード累計は約 123 GB で、150 GB の上限内に収まる。suite には coding phase（`C`: 合成 Clojure 5 課題 × 2）を追加した。
+
+## batch 3（coding 軸の追加 preset）
+
+Owner 補足（coding 用 local LLM は NSFW 用途に限らない）を受け、coding 軸の候補として追加する。
+
+- `qwen3-coder-30b-a3b`: unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF @ `b17cb02d`、Q4_K_M 18.56 GB、sha256 `fadc3e5f…`、apache-2.0。262144 ctx で KV は約 25.8 GB、weights + KV + buffers は約 47 GB で候補ごとの上限 55 GB 以下。
+
+- `nemotron-nano-9b-v2-ja`: mmnga-o/NVIDIA-Nemotron-Nano-9B-v2-Japanese-gguf @ `309f87c4`、Q4_K_M 6.53 GB、sha256 `2e4e0d47…`、nvidia-open-model-license。出版社が日本語最適化を明記している小型 dense の候補。
+- `qwen-agentworld-35b-a3b` を退役する。日本語回帰が 12/18（英語混入）で全候補の最下位、同系統（qwen35moe）の qwen36-35b-a3b を上回る指標がない。本票で取得した weights（22.13 GB）は preset 削除の反映後に消す。revision を固定しているため再取得できる。
+
+既定 model は不変。退役後のダウンロード保持量は約 131 GB で、150 GB の上限内に収まる。

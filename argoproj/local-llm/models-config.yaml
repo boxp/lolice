@@ -116,17 +116,6 @@ data:
     threads = 14
     threads-batch = 14
 
-    # BOXP-358 batch 2: HF unsloth/Qwen-AgentWorld-35B-A3B-GGUF revision
-    # 3a305abf, UD-Q4_K_M 22.13 GB, sha256 e7a8eafd…. Base
-    # Qwen/Qwen-AgentWorld-35B-A3B (qwen3_5_moe, ~3B active, apache-2.0).
-    # Selectable only, same semantics as the presets above. Callers pass the sampler.
-    [qwen-agentworld-35b-a3b]
-    model = /models/boxp358/qwen-agentworld-35b/Qwen-AgentWorld-35B-A3B-UD-Q4_K_M.gguf
-    batch-size = 2048
-    ubatch-size = 512
-    threads = 14
-    threads-batch = 14
-
     # BOXP-358 batch 2: HF ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF
     # revision 8cd08217, Q4_0 18.90 GB, sha256 61f87e75…. Base
     # nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B (nemotron_h_moe: 23 mamba +
@@ -135,6 +124,32 @@ data:
     # fetched. Selectable only, same semantics as the presets above.
     [nemotron35-lightning-30b-a3b]
     model = /models/boxp358/nemotron35-lightning-30b/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q4_0.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    # BOXP-358 batch 3 (coding axis): HF unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF
+    # revision b17cb02d, Q4_K_M 18.56 GB, sha256 fadc3e5f…. Base
+    # Qwen/Qwen3-Coder-30B-A3B-Instruct (qwen3moe, 48 layers all full attention,
+    # 4 KV heads x 128, ~3B active, apache-2.0). KV at the router ctx 262144 is
+    # ~25.8 GB f16, so weights + KV + buffers is ~47 GB (within the 55 GB per-candidate
+    # budget). Selectable only, same semantics as the presets above. Callers pass the sampler.
+    [qwen3-coder-30b-a3b]
+    model = /models/boxp358/qwen3-coder-30b-a3b/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    # BOXP-358 batch 3: HF mmnga-o/NVIDIA-Nemotron-Nano-9B-v2-Japanese-gguf
+    # revision 309f87c4, Q4_K_M 6.53 GB, sha256 2e4e0d47…. Base
+    # nvidia/NVIDIA-Nemotron-Nano-9B-v2-Japanese (nemotron_h hybrid, 9B dense,
+    # 4 attention layers, nvidia-open-model-license; publisher states Japanese
+    # optimization). KV at 262144 ctx is ~4.3 GB f16. Selectable only, same
+    # semantics as the presets above. Callers pass the sampler.
+    [nemotron-nano-9b-v2-ja]
+    model = /models/boxp358/nemotron-nano-9b-v2-ja/NVIDIA-Nemotron-Nano-9B-v2-Japanese-Q4_K_M.gguf
     batch-size = 2048
     ubatch-size = 512
     threads = 14
