@@ -412,13 +412,16 @@ def _process_totals():
             if name in absorbed:
                 os.unlink(path)  # already in retired totals; only the deletion was left
                 continue
+            pid, start = int(m.group(1)), int(m.group(2))
+            # Check liveness before reading: a process that saves its final snapshot and exits
+            # after the read would otherwise be retired with its older values.
+            alive = _pid_alive(pid, start)
             with open(path) as fh:
                 data = json.load(fh)
-            pid, start = int(m.group(1)), int(m.group(2))
             if pid <= 0 or data.get("pid") != pid or data.get("start") != start:
                 continue
             values = {key: max(0, int(data.get(key, 0))) for key in _LOSS_KEYS}
-            if _pid_alive(pid, start):
+            if alive:
                 processes += 1
                 depth += max(0, int(data.get("queue_depth", 0)))
             else:
@@ -535,18 +538,9 @@ def _drain(timeout):
     while True:
         _wake.clear()  # before checking: an enqueue after the check sets it again
         with _write_lock:
-            try:
-                e = _queue.get_nowait()
-            except queue.Empty:
-                e = None
+            e = _take()
             if e is not None:
-                _set_inflight(1)
-                failed = False
-                try:
-                    _write_unlocked(e)
-                except Exception:
-                    failed = True
-                _finish_inflight(failed)
+                _write_taken(e)
                 return True
         remaining = end - time.monotonic()
         if remaining <= 0:
@@ -554,10 +548,28 @@ def _drain(timeout):
         _wake.wait(remaining)
 
 
-def _set_inflight(n):
+def _take():
+    """Take one queued event as in-flight (caller holds the write lock). Once the exit flush has
+    abandoned writing, nothing is taken any more: what is left is counted as dropped instead."""
     global _inflight
     with _lock:
-        _inflight = n
+        if _abandoned:
+            return None
+        try:
+            e = _queue.get_nowait()
+        except queue.Empty:
+            return None
+        _inflight = 1
+        return e
+
+
+def _write_taken(e):
+    failed = False
+    try:
+        _write_unlocked(e)
+    except Exception:
+        failed = True
+    _finish_inflight(failed)
 
 
 def _finish_inflight(failed):
@@ -604,6 +616,24 @@ def _flush_at_exit(deadline_seconds=2.0):
     t = threading.Thread(target=_flush_body, args=(end,), name="boxp-ai-ops-exit", daemon=True)
     t.start()
     t.join(max(0.0, end - time.monotonic()) + 0.5)
+    if t.is_alive():
+        # The flush itself is stuck (e.g. in its own write): count its in-flight event and the
+        # rest of the queue as lost here and save once more, also bounded.
+        _abandon_inflight()
+        _drop_queued()
+        s = threading.Thread(target=_write_proc_stats, kwargs={"final": True, "timeout": 0.5},
+                             name="boxp-ai-ops-exit-save", daemon=True)
+        s.start()
+        s.join(1.0)
+
+
+def _drop_queued():
+    while True:
+        try:
+            _queue.get_nowait()
+        except queue.Empty:
+            return
+        _count("dropped_queue_full")
 
 
 def _flush_body(end):
@@ -613,22 +643,13 @@ def _flush_body(end):
                 _abandon_inflight()  # the worker is stuck holding the lock: give up writing
                 break
             try:
-                try:
-                    e = _queue.get_nowait()
-                except queue.Empty:
+                e = _take()
+                if e is None:
                     break
-                try:
-                    _write_unlocked(e)
-                except Exception:
-                    _count("write_errors")
+                _write_taken(e)  # in-flight, so the caller can count it if this write hangs
             finally:
                 _write_lock.release()
-        while True:
-            try:
-                _queue.get_nowait()
-            except queue.Empty:
-                break
-            _count("dropped_queue_full")
+        _drop_queued()
         _write_proc_stats(final=True, timeout=max(0.0, end - time.monotonic()))
     except Exception:
         _log.debug("ai ops exit flush failed", exc_info=True)

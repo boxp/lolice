@@ -189,6 +189,23 @@ class ObserverTests(unittest.TestCase):
         self.assertIn('ai_ops_hermes_processes 1', text)
         self.assertIn('ai_ops_hermes_queue_depth 0', text)
 
+    def test_final_snapshot_saved_during_aggregation_is_retired(self):
+        directory = Path(TMP, "proc-stats")
+        directory.mkdir(exist_ok=True)
+        dying = directory / "999998-7.json"
+        dying.write_text(json.dumps({"pid": 999998, "start": 7, "write_errors": 1}))
+
+        def exits_after_final_save(pid, start):
+            if pid == 999998:  # saves its final snapshot and exits while the owner aggregates
+                dying.write_text(json.dumps({"pid": 999998, "start": 7, "write_errors": 4}))
+                return False
+            return True
+
+        with patch.object(plugin, "_pid_alive", side_effect=exits_after_final_save):
+            totals, _, _ = plugin._process_totals()
+        self.assertEqual(totals["write_errors"], 4)
+        self.assertEqual(json.loads((directory / "retired.json").read_text())["write_errors"], 4)
+
     def test_owner_change_keeps_counters_monotonic(self):
         d = Path(TMP, "ledger")
         d.mkdir(exist_ok=True)
@@ -360,6 +377,20 @@ class ObserverTests(unittest.TestCase):
             began = time.monotonic()
             plugin._flush_at_exit(0.3)
             self.assertLess(time.monotonic() - began, 1.5)
+
+    def test_exit_flush_counts_losses_when_its_own_write_hangs(self):
+        plugin._turn_started(session_id="s-own", turn_id="t1")
+        plugin._turn_started(session_id="s-own", turn_id="t2")
+        release = threading.Event()
+        with patch.object(plugin, "_write_unlocked", side_effect=lambda e: release.wait(5)):
+            began = time.monotonic()
+            plugin._flush_at_exit(0.3)
+            self.assertLess(time.monotonic() - began, 2.5)
+            release.set()
+        pid = os.getpid()
+        saved = json.loads(Path(TMP, "proc-stats", f"{pid}-{plugin._start_ticks(pid)}.json").read_text())
+        # the stuck in-flight event and the one still queued are both in the final snapshot
+        self.assertEqual(saved["write_errors"] + saved["dropped_queue_full"], 2)
 
     def test_final_exit_snapshot_is_not_replaced_by_worker(self):
         plugin._count("write_errors")
