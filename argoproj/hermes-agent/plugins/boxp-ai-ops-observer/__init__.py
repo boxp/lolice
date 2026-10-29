@@ -20,6 +20,7 @@ Observation must never slow or stop the agent: callbacks only enqueue a small di
 day-file cap and write errors are counted and exported in metrics.prom. Ledger counts and
 per-process loss statistics are aggregated across processes without exporting identifiers.
 """
+import atexit
 import fcntl
 import hashlib
 import json
@@ -43,6 +44,7 @@ _QUEUE_MAX = 1000
 _TURNS_MAX = 512
 
 _lock = threading.Lock()
+_write_lock = threading.Lock()  # worker and exit flush both append
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
 _turns = OrderedDict()  # (session hash, turn hash) -> run_id
 _stats = {"emitted": 0, "dropped_queue_full": 0, "dropped_file_full": 0, "write_errors": 0,
@@ -225,6 +227,11 @@ def _day_file(now):
 
 
 def _write(e):
+    with _write_lock:
+        _write_unlocked(e)
+
+
+def _write_unlocked(e):
     path = _day_file(_now())
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
@@ -404,7 +411,10 @@ def _process_totals():
                 absorbed.add(name)
                 retired["absorbed"] = sorted(absorbed)
                 _atomic_json(retired_path, retired)
-                os.unlink(path)
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass  # absorbed: deleted on a later pass; still counted below (no dip)
             for key in _LOSS_KEYS:
                 totals[key] += values[key]
         except (OSError, ValueError, TypeError, AttributeError):
@@ -479,15 +489,24 @@ def _write_metrics():
     with open(tmp, "w") as fh:
         fh.write(_metrics_text())
     os.replace(tmp, path)
+    _prune()
 
 
 def _prune():
+    """Remove expired day files, only by the metrics owner and only once every complete line
+    is counted in the persisted ledger state (same inode, offset at end of file). A file that
+    was never counted (owner down, first start) is kept until a later pass has read it."""
     cutoff = (_now() - timedelta(days=_RETENTION_DAYS)).strftime("%Y-%m-%d")
     d = os.path.join(_DIR, "ledger")
     for name in os.listdir(d) if os.path.isdir(d) else []:
         if name.startswith("events-") and name.endswith(".jsonl") and name[7:17] < cutoff:
+            path = os.path.join(d, name)
             try:
-                os.remove(os.path.join(d, name))
+                stat = os.stat(path)
+                counted = _ledger_offsets.get(name)
+                if not counted or counted[0] != stat.st_ino or counted[1] != stat.st_size:
+                    continue
+                os.remove(path)
             except OSError:
                 pass
 
@@ -512,10 +531,35 @@ def _run():
             _write_proc_stats()
             if time.time() - last >= 60:
                 last = time.time()
-                _prune()
-                _write_metrics()
+                _write_metrics()  # the owner prunes after counting
         except Exception:
             _log.debug("ai ops metrics write failed", exc_info=True)
+
+
+def _flush_at_exit(deadline_seconds=2.0):
+    """On interpreter exit, write what is still queued (bounded time) and save this process's
+    loss counters, so losses after the last periodic save are retired instead of lost.
+    Remaining queued events are counted as queue_full losses."""
+    end = time.monotonic() + deadline_seconds
+    try:
+        while time.monotonic() < end:
+            try:
+                e = _queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                _write(e)
+            except Exception:
+                _count("write_errors")
+        while True:
+            try:
+                _queue.get_nowait()
+            except queue.Empty:
+                break
+            _count("dropped_queue_full")
+        _write_proc_stats()
+    except Exception:
+        _log.debug("ai ops exit flush failed", exc_info=True)
 
 
 def _start_worker():
@@ -524,3 +568,4 @@ def _start_worker():
         if _worker is None:
             _worker = threading.Thread(target=_run, name="boxp-ai-ops-observer", daemon=True)
             _worker.start()
+            atexit.register(_flush_at_exit)

@@ -194,7 +194,7 @@ class ObserverTests(unittest.TestCase):
         plugin._write_metrics()
         metrics = Path(TMP, "metrics.prom")
         self.assertIn('ai_ops_hermes_events_total{event_type="run.started"} 3', metrics.read_text())
-        old.unlink()  # pruned while owned by the first process
+        self.assertFalse(old.exists())  # counted, then pruned by the owner itself
         new_owner()
         with cur.open("a") as fh:
             fh.write('{"event_type":"run.started"}\n')
@@ -236,6 +236,9 @@ class ObserverTests(unittest.TestCase):
                 patch.object(plugin.os, "unlink", side_effect=failing_unlink):
             plugin._write_metrics()
         self.assertTrue(dead.exists())
+        # the absorbed value is exported right away, not only after the deletion succeeds
+        self.assertIn('ai_ops_hermes_lost_events_total{reason="write_error"} 4',
+                      Path(TMP, "metrics.prom").read_text())
         with patch.object(plugin, "_pid_alive", side_effect=alive):
             plugin._write_metrics()
             plugin._write_metrics()
@@ -245,6 +248,47 @@ class ObserverTests(unittest.TestCase):
         self.assertEqual(retired["absorbed"], [])
         self.assertIn('ai_ops_hermes_lost_events_total{reason="write_error"} 4',
                       Path(TMP, "metrics.prom").read_text())
+
+    def test_expired_ledger_is_counted_before_prune(self):
+        d = Path(TMP, "ledger")
+        d.mkdir(exist_ok=True)
+        old = d / "events-2000-01-02.jsonl"
+        old.write_text('{"event_type":"run.started"}\n' * 3)
+        plugin._prune()  # not yet counted (owner down / first start): kept
+        self.assertTrue(old.exists())
+        with patch.object(plugin, "_metrics_owner", return_value=False):
+            plugin._write_metrics()  # non-owner neither counts nor prunes
+        self.assertTrue(old.exists())
+        plugin._write_metrics()
+        self.assertFalse(old.exists())
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.started"} 3',
+                      Path(TMP, "metrics.prom").read_text())
+        new_owner()
+        plugin._write_metrics()
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.started"} 3',
+                      Path(TMP, "metrics.prom").read_text())
+
+    def test_partially_counted_expired_ledger_is_kept(self):
+        d = Path(TMP, "ledger")
+        d.mkdir(exist_ok=True)
+        old = d / "events-2000-01-03.jsonl"
+        old.write_text('{"event_type":"run.started"}\n')
+        plugin._read_ledger()
+        with old.open("a") as fh:
+            fh.write('{"event_type":"run.started"}\n')
+        plugin._prune()
+        self.assertTrue(old.exists())
+
+    def test_exit_flush_saves_late_losses_and_queued_events(self):
+        plugin._write_proc_stats()
+        plugin._turn_started(session_id="s-exit", turn_id="t1")
+        plugin._count("api_request_errors")  # after the last periodic save
+        plugin._flush_at_exit()
+        self.assertTrue(any(json.loads(l)["event_type"] == "run.started" for l in ledger_lines()))
+        pid = os.getpid()
+        saved = json.loads(Path(TMP, "proc-stats", f"{pid}-{plugin._start_ticks(pid)}.json").read_text())
+        self.assertEqual(saved["api_request_errors"], 1)
+        self.assertEqual(saved["queue_depth"], 0)
 
     def test_reused_pid_from_previous_pod_is_retired(self):
         # proc-stats/ lives on the PVC; after a pod restart a new process can get the same pid.
