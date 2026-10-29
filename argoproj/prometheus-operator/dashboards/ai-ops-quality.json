@@ -555,7 +555,7 @@
       }
     }
   }, {
-    "description" : "SLI ごとの source 接続。0=未接続。Novel runner は現在 emit 未接続",
+    "description" : "Board metadata 集計から見た SLI ごとの source 接続 (0=未接続→unknown)。Hermes 会話は別 job の counter (下段) で接続済み。Novel runner は emit 未接続",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
@@ -591,7 +591,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\"}",
+      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli!=\"hermes_conversation\"}",
       "legendFormat" : "",
       "refId" : "A",
       "format" : "table",
