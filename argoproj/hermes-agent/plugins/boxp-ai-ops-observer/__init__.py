@@ -17,7 +17,8 @@ ledger dir, never exported); model names, platform user IDs and text are not rec
 
 Observation must never slow or stop the agent: callbacks only enqueue a small dict
 (put_nowait on a bounded queue) and a daemon worker writes the JSONL ledger. Queue overflow,
-day-file cap and write errors are counted and exported in metrics.prom.
+day-file cap and write errors are counted and exported in metrics.prom. Ledger counts and
+per-process loss statistics are aggregated across processes without exporting identifiers.
 """
 import fcntl
 import hashlib
@@ -25,6 +26,7 @@ import json
 import logging
 import os
 import queue
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -48,6 +50,11 @@ _stats = {"emitted": 0, "dropped_queue_full": 0, "dropped_file_full": 0, "write_
 _worker = None
 _salt = None
 _metrics_lock = None  # open fd holding the metrics writer flock
+_ledger_offsets = {}  # path -> (device, inode, byte offset)
+_ledger_counts = {"by_type": {}, "run_finished": {}, "malformed": 0, "last_emit": 0}
+_EVENT_TYPES = ("run.started", "run.finished", "approval.requested", "approval.resolved")
+_STATUSES = ("succeeded", "failed", "interrupted", "unknown")
+_LOSS_KEYS = ("dropped_queue_full", "dropped_file_full", "write_errors", "api_request_errors")
 
 
 def register(ctx):
@@ -227,54 +234,170 @@ def _write(e):
         pass
     with open(path, "a") as fh:
         fh.write(json.dumps(e, separators=(",", ":")) + "\n")
-    with _lock:
-        _stats["emitted"] += 1
-        _stats["by_type"][e["event_type"]] = _stats["by_type"].get(e["event_type"], 0) + 1
-        if e["event_type"] == "run.finished":
-            st = e.get("status", "unknown")
-            _stats["run_finished"][st] = _stats["run_finished"].get(st, 0) + 1
-        _stats["last_emit"] = time.time()
 
+
+def _read_ledger():
+    """Count complete appended lines, retaining counts when old files are pruned."""
+    directory = os.path.join(_DIR, "ledger")
+    for name in sorted(os.listdir(directory) if os.path.isdir(directory) else []):
+        if not (name.startswith("events-") and name.endswith(".jsonl")
+                and len(name) == len("events-YYYY-MM-DD.jsonl")):
+            continue
+        path = os.path.join(directory, name)
+        try:
+            with open(path, "rb") as fh:
+                stat = os.fstat(fh.fileno())
+                identity = (stat.st_dev, stat.st_ino)
+                previous = _ledger_offsets.get(path)
+                offset = previous[2] if previous and previous[:2] == identity and stat.st_size >= previous[2] else 0
+                fh.seek(offset)
+                while True:
+                    line = fh.readline()
+                    if not line or not line.endswith(b"\n"):
+                        break
+                    offset = fh.tell()
+                    try:
+                        event = json.loads(line)
+                        if not isinstance(event, dict):
+                            raise ValueError("ledger entry is not an object")
+                    except (ValueError, UnicodeDecodeError):
+                        _ledger_counts["malformed"] += 1
+                        continue
+                    kind = event.get("event_type")
+                    if kind in _EVENT_TYPES:
+                        counts = _ledger_counts["by_type"]
+                        counts[kind] = counts.get(kind, 0) + 1
+                        if kind == "run.finished":
+                            status = event.get("status")
+                            if status not in _STATUSES:
+                                status = "unknown"
+                            counts = _ledger_counts["run_finished"]
+                            counts[status] = counts.get(status, 0) + 1
+                _ledger_offsets[path] = (*identity, offset)
+                _ledger_counts["last_emit"] = max(_ledger_counts["last_emit"], stat.st_mtime)
+        except FileNotFoundError:
+            continue  # retention may remove a file while it is being scanned
+
+
+def _atomic_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(data, fh)
+    os.replace(tmp, path)
+
+
+def _start_ticks(pid):
+    """Process start time (clock ticks since boot) from /proc, or 0 if unavailable.
+    Combined with the pid it identifies a process: pids are reused after a pod restart
+    while proc-stats/ lives on the PVC."""
+    try:
+        with open(f"/proc/{pid}/stat") as fh:
+            return int(fh.read().rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def _write_proc_stats():
+    with _lock:
+        data = {key: _stats[key] for key in _LOSS_KEYS}
+    pid = os.getpid()
+    start = _start_ticks(pid)
+    data.update(pid=pid, start=start, queue_depth=_queue.qsize())
+    _atomic_json(os.path.join(_DIR, "proc-stats", f"{pid}-{start}.json"), data)
+
+
+def _pid_alive(pid, start):
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        pass
+    except ProcessLookupError:
+        return False
+    return _start_ticks(pid) == start
+
+
+def _process_totals():
+    directory = os.path.join(_DIR, "proc-stats")
+    os.makedirs(directory, exist_ok=True)
+    retired_path = os.path.join(directory, "retired.json")
+    try:
+        with open(retired_path) as fh:
+            retired = json.load(fh)
+    except FileNotFoundError:
+        retired = {}
+    totals = {key: retired.get(key, 0) for key in _LOSS_KEYS}
+    depth = processes = 0
+    for name in os.listdir(directory):
+        m = re.fullmatch(r"(\d+)-(\d+)\.json", name)
+        if not m:
+            continue
+        path = os.path.join(directory, name)
+        try:
+            with open(path) as fh:
+                data = json.load(fh)
+            pid, start = int(m.group(1)), int(m.group(2))
+            if pid <= 0 or data.get("pid") != pid or data.get("start") != start:
+                continue
+            values = {key: max(0, int(data.get(key, 0))) for key in _LOSS_KEYS}
+            if _pid_alive(pid, start):
+                processes += 1
+                depth += max(0, int(data.get("queue_depth", 0)))
+            else:
+                for key in _LOSS_KEYS:
+                    retired[key] = retired.get(key, 0) + values[key]
+                _atomic_json(retired_path, retired)
+                os.unlink(path)
+            for key in _LOSS_KEYS:
+                totals[key] += values[key]
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    return totals, depth, processes
 
 def _metrics_text():
-    with _lock:
-        s = json.loads(json.dumps(_stats))
+    _read_ledger()
+    s, depth, processes = _process_totals()
+    ledger = _ledger_counts
     lines = [
         "# HELP ai_ops_hermes_info Hermes AI ops observer schema and definition versions.",
         "# TYPE ai_ops_hermes_info gauge",
         f'ai_ops_hermes_info{{schema_version="{SCHEMA}",definition_version="{DEFINITION}"}} 1',
-        "# HELP ai_ops_hermes_events_total Ledger events written by event type (since plugin start).",
+        "# HELP ai_ops_hermes_events_total Ledger events by event type (counted from retained ledger files, all processes).",
         "# TYPE ai_ops_hermes_events_total counter",
     ]
     for t in ("run.started", "run.finished", "approval.requested", "approval.resolved"):
-        lines.append(f'ai_ops_hermes_events_total{{event_type="{t}"}} {s["by_type"].get(t, 0)}')
-    lines += ["# HELP ai_ops_hermes_lost_events_total Events not written by reason (since plugin start).",
+        lines.append(f'ai_ops_hermes_events_total{{event_type="{t}"}} {ledger["by_type"].get(t, 0)}')
+    lines += ["# HELP ai_ops_hermes_lost_events_total Events not written by reason (all processes, including exited ones).",
               "# TYPE ai_ops_hermes_lost_events_total counter"]
     for reason, key in (("queue_full", "dropped_queue_full"), ("file_full", "dropped_file_full"),
                         ("write_error", "write_errors")):
         lines.append(f'ai_ops_hermes_lost_events_total{{reason="{reason}"}} {s[key]}')
-    lines += ["# HELP ai_ops_hermes_turns_finished_total Finished turns by status (since plugin start).",
+    lines += ["# HELP ai_ops_hermes_turns_finished_total Finished turns by status (counted from retained ledger files, all processes).",
               "# TYPE ai_ops_hermes_turns_finished_total counter"]
     for st in ("succeeded", "failed", "interrupted", "unknown"):
-        lines.append(f'ai_ops_hermes_turns_finished_total{{status="{st}"}} {s["run_finished"].get(st, 0)}')
-    lines += ["# HELP ai_ops_hermes_api_request_errors_total Provider API request errors (since plugin start).",
+        lines.append(f'ai_ops_hermes_turns_finished_total{{status="{st}"}} {ledger["run_finished"].get(st, 0)}')
+    lines += ["# HELP ai_ops_hermes_api_request_errors_total Provider API request errors (all processes, including exited ones).",
               "# TYPE ai_ops_hermes_api_request_errors_total counter",
               f"ai_ops_hermes_api_request_errors_total {s['api_request_errors']}",
               "# HELP ai_ops_hermes_queue_depth Events waiting in the bounded queue.",
               "# TYPE ai_ops_hermes_queue_depth gauge",
-              f"ai_ops_hermes_queue_depth {_queue.qsize()}"]
-    if s["last_emit"]:
+              f"ai_ops_hermes_queue_depth {depth}",
+              "# HELP ai_ops_hermes_processes Live processes reporting statistics.",
+              "# TYPE ai_ops_hermes_processes gauge",
+              f"ai_ops_hermes_processes {processes}",
+              "# HELP ai_ops_hermes_ledger_malformed_lines_total Malformed ledger lines.",
+              "# TYPE ai_ops_hermes_ledger_malformed_lines_total counter",
+              f"ai_ops_hermes_ledger_malformed_lines_total {ledger['malformed']}"]
+    if ledger["last_emit"]:
         lines += ["# TYPE ai_ops_hermes_last_emit_timestamp_seconds gauge",
-                  f"ai_ops_hermes_last_emit_timestamp_seconds {int(s['last_emit'])}"]
+                  f"ai_ops_hermes_last_emit_timestamp_seconds {int(ledger['last_emit'])}"]
     lines += ["# TYPE ai_ops_hermes_metrics_generated_timestamp_seconds gauge",
               f"ai_ops_hermes_metrics_generated_timestamp_seconds {int(time.time())}"]
     return "\n".join(lines) + "\n"
 
 
 def _metrics_owner():
-    """Only one process exports metrics.prom: the counters are per process, so several
-    Hermes processes loading the plugin would otherwise overwrite each other's values.
-    Every process still appends to the ledger."""
+    """Only one process aggregates and exports metrics.prom."""
     global _metrics_lock
     if _metrics_lock is None:
         os.makedirs(_DIR, exist_ok=True)
@@ -289,6 +412,7 @@ def _metrics_owner():
 
 
 def _write_metrics():
+    _write_proc_stats()
     if not _metrics_owner():
         return
     path = os.path.join(_DIR, "metrics.prom")
@@ -326,13 +450,14 @@ def _run():
     last = 0.0
     while True:
         _drain(5.0)
-        if time.time() - last >= 60:
-            last = time.time()
-            try:
+        try:
+            _write_proc_stats()
+            if time.time() - last >= 60:
+                last = time.time()
                 _prune()
                 _write_metrics()
-            except Exception:
-                _log.debug("ai ops metrics write failed", exc_info=True)
+        except Exception:
+            _log.debug("ai ops metrics write failed", exc_info=True)
 
 
 def _start_worker():

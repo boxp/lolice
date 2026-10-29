@@ -40,6 +40,12 @@ class ObserverTests(unittest.TestCase):
     def setUp(self):
         for f in Path(TMP).glob("ledger/*.jsonl"):
             f.unlink()
+        for f in Path(TMP).glob("proc-stats/*.json"):
+            f.unlink()
+        plugin._ledger_offsets.clear()
+        plugin._ledger_counts.update(by_type={}, run_finished={}, malformed=0, last_emit=0)
+        for key in plugin._LOSS_KEYS:
+            plugin._stats[key] = 0
         plugin._turns.clear()
         while not plugin._queue.empty():
             plugin._queue.get_nowait()
@@ -126,6 +132,65 @@ class ObserverTests(unittest.TestCase):
         self.assertIn('ai_ops_hermes_lost_events_total{reason="queue_full"}', text)
         self.assertIn('ai_ops_hermes_info{schema_version="ai-ops-event/v0"', text)
         self.assertNotRegex(text, r"conv-|secret")
+
+    def test_ledger_incremental_and_partial_lines(self):
+        path = Path(plugin._day_file(plugin._now()))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w") as fh:
+            fh.write(json.dumps({"event_type": "run.started", "event_id": "conv-private/run-private"}) + "\n")
+        plugin._write_metrics()
+        metrics = Path(TMP, "metrics.prom")
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.started"} 1', metrics.read_text())
+        plugin._write_metrics()
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.started"} 1', metrics.read_text())
+        with path.open("a") as fh:
+            fh.write('{"event_type":"run.finished","status":"unexpected"}')
+        plugin._write_metrics()
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.finished"} 0', metrics.read_text())
+        with path.open("a") as fh:
+            fh.write('\nnot json\n')
+        plugin._write_metrics()
+        text = metrics.read_text()
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.finished"} 1', text)
+        self.assertIn('ai_ops_hermes_turns_finished_total{status="unknown"} 1', text)
+        self.assertIn('ai_ops_hermes_ledger_malformed_lines_total 1', text)
+        self.assertNotIn('conv-', text)
+        self.assertNotIn('run-private', text)
+        path.unlink()
+        plugin._write_metrics()
+        self.assertIn('ai_ops_hermes_events_total{event_type="run.started"} 1', metrics.read_text())
+
+    def test_dead_process_stats_are_retired(self):
+        directory = Path(TMP, "proc-stats")
+        directory.mkdir(exist_ok=True)
+        dead = directory / "999999-5.json"
+        dead.write_text(json.dumps({"pid": 999999, "start": 5, "dropped_queue_full": 3, "queue_depth": 9}))
+        with patch.object(plugin, "_pid_alive", side_effect=lambda pid, start: pid != 999999):
+            plugin._write_metrics()
+            self.assertFalse(dead.exists())
+            self.assertEqual(json.loads((directory / "retired.json").read_text())["dropped_queue_full"], 3)
+            plugin._write_metrics()
+        text = Path(TMP, "metrics.prom").read_text()
+        self.assertIn('ai_ops_hermes_lost_events_total{reason="queue_full"} 3', text)
+        self.assertIn('ai_ops_hermes_processes 1', text)
+        self.assertIn('ai_ops_hermes_queue_depth 0', text)
+
+    def test_reused_pid_from_previous_pod_is_retired(self):
+        # proc-stats/ lives on the PVC; after a pod restart a new process can get the same pid.
+        directory = Path(TMP, "proc-stats")
+        directory.mkdir(exist_ok=True)
+        retired = directory / "retired.json"
+        if retired.exists():
+            retired.unlink()
+        pid = os.getpid()
+        stale = directory / f"{pid}-1.json"
+        stale.write_text(json.dumps({"pid": pid, "start": 1, "write_errors": 2}))
+        plugin._write_metrics()
+        self.assertFalse(stale.exists())
+        self.assertTrue((directory / f"{pid}-{plugin._start_ticks(pid)}.json").exists())
+        text = Path(TMP, "metrics.prom").read_text()
+        self.assertIn('ai_ops_hermes_lost_events_total{reason="write_error"} 2', text)
+        self.assertIn('ai_ops_hermes_processes 1', text)
 
     def test_only_lock_holder_writes_metrics(self):
         import fcntl
