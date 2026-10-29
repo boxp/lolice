@@ -57,3 +57,10 @@ coding 軸の大型 MoE 候補として `qwen3-coder-next` を追加する。uns
 - `nemotron35-lightning-30b-a3b` を退役する。coding 6/10、日本語回帰 14/16、8k needle 未回答 2 件で最下位。
 
 両者の weights は revision 固定で再取得できる。本票のダウンロード保持量は退役後に 150 GB の上限内に収める。
+
+## batch 5（g26 の MTP 投機的デコード、速度の独立実験）
+
+本線の比較が動いた後の optional な高速化実験として、`gemma4-26b-mtp` を追加する。本体は既定の `gemma4-26b` と同じ weights（HauhauCS の MTP 配布物の Q4_K_M と sha256 `3c131334…` で一致を確認）で、draft head `mtp-gemma-4-26B-A4B-it.gguf`（revision `f9093662`、252 MB、sha256 `62bd3af7…`、license gemma）だけを本票の model store に追加した。llama.cpp b11669 は gemma4 の `draft-mtp`（target の KV を共有）を実装している。投機的デコードは draft の token をすべて target で検証するため、出力は `gemma4-26b` と同じになる想定で、この preset では速度だけを比べる。既定 model と router 設定は変えない。
+
+- 計測: load、F（temp 0 で `gemma4-26b` と出力が一致するか）、L32、B253（pp / tg）、A1。受理率（draft_n / draft_n_accepted）も記録する。
+- 起動に失敗した場合や速度が上がらない場合は、理由を記録して preset を外す。
