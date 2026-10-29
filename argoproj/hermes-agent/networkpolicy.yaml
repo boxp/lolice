@@ -33,6 +33,15 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
         ports:
           - 8080
+    # BOXP-365: allow the Grafana MCP sidecar to reach Grafana.
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app.kubernetes.io/component == 'grafana' && app.kubernetes.io/name == 'grafana' && app.kubernetes.io/part-of == 'kube-prometheus'
+        namespaceSelector: kubernetes.io/metadata.name == 'monitoring'
+        ports:
+          - 3000
     - action: Allow
       protocol: TCP
       source: {}
