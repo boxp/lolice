@@ -19,6 +19,7 @@ Observation must never slow or stop the agent: callbacks only enqueue a small di
 (put_nowait on a bounded queue) and a daemon worker writes the JSONL ledger. Queue overflow,
 day-file cap and write errors are counted and exported in metrics.prom.
 """
+import fcntl
 import hashlib
 import json
 import logging
@@ -46,6 +47,7 @@ _stats = {"emitted": 0, "dropped_queue_full": 0, "dropped_file_full": 0, "write_
           "api_request_errors": 0, "by_type": {}, "run_finished": {}, "last_emit": None}
 _worker = None
 _salt = None
+_metrics_lock = None  # open fd holding the metrics writer flock
 
 
 def register(ctx):
@@ -269,7 +271,26 @@ def _metrics_text():
     return "\n".join(lines) + "\n"
 
 
+def _metrics_owner():
+    """Only one process exports metrics.prom: the counters are per process, so several
+    Hermes processes loading the plugin would otherwise overwrite each other's values.
+    Every process still appends to the ledger."""
+    global _metrics_lock
+    if _metrics_lock is None:
+        os.makedirs(_DIR, exist_ok=True)
+        fd = os.open(os.path.join(_DIR, "metrics.lock"), os.O_WRONLY | os.O_CREAT, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            return False
+        _metrics_lock = fd
+    return True
+
+
 def _write_metrics():
+    if not _metrics_owner():
+        return
     path = os.path.join(_DIR, "metrics.prom")
     os.makedirs(_DIR, exist_ok=True)
     tmp = path + ".tmp"

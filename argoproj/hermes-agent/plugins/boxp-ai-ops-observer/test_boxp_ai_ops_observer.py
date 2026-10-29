@@ -127,6 +127,17 @@ class ObserverTests(unittest.TestCase):
         self.assertIn('ai_ops_hermes_info{schema_version="ai-ops-event/v0"', text)
         self.assertNotRegex(text, r"conv-|secret")
 
+    def test_only_lock_holder_writes_metrics(self):
+        import fcntl
+        plugin._write_metrics()
+        self.assertIsNotNone(plugin._metrics_lock)
+        fd = os.open(os.path.join(TMP, "metrics.lock"), os.O_WRONLY)
+        try:
+            with self.assertRaises(OSError):  # another process cannot take the writer lock
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+
     def test_hashes_are_salted(self):
         a = plugin._conv("session", "x")
         with patch.object(plugin, "_salt", "other"):
