@@ -88,6 +88,21 @@ data:
     threads = 14
     threads-batch = 14
 
+    # BOXP-358 batch 6 (Owner preferred Ornith-1.5 prose): HF
+    # junafinity/Ornith-1.5-35B-A3B-uncensored-GGUF-8bit revision 0cab5bc6,
+    # Q8_0 37.80 GB, sha256 d0cd5a65…. Third-party abliterated derivative of
+    # ornith-ai/Ornith-1.5-35B-A3B (not an official Ornith release; card says
+    # apache-2.0, base card says mit). Text only (mmproj not fetched). KV at
+    # the router ctx 262144 is ~5.4 GB f16 (10 full-attention layers), so
+    # weights + KV + buffers is ~45 GB (within the 55 GB per-candidate budget).
+    # Selectable only, same semantics as the presets above. Callers pass the sampler.
+    [ornith15-35b-a3b-uncensored]
+    model = /models/boxp358/ornith15-35b-uncensored/Ornith-1.5-35B-A3B-uncensored-Q8_0.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
     # BOXP-358: largest-fit candidate, HF unsloth/Qwen3.5-122B-A10B-GGUF
     # revision 51eab4d5, UD-Q2_K_XL 41.85 GB, sha256 be44a62a…. Base
     # Qwen/Qwen3.5-122B-A10B (MoE 122B total / ~10B active, apache-2.0).
@@ -97,32 +112,6 @@ data:
     # MemAvailable. Callers pass the sampler.
     [qwen35-122b-a10b]
     model = /models/boxp358/qwen35-122b-a10b/Qwen3.5-122B-A10B-UD-Q2_K_XL.gguf
-    batch-size = 2048
-    ubatch-size = 512
-    threads = 14
-    threads-batch = 14
-
-    # BOXP-358 batch 3 (coding axis): HF unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF
-    # revision b17cb02d, Q4_K_M 18.56 GB, sha256 fadc3e5f…. Base
-    # Qwen/Qwen3-Coder-30B-A3B-Instruct (qwen3moe, 48 layers all full attention,
-    # 4 KV heads x 128, ~3B active, apache-2.0). KV at the router ctx 262144 is
-    # ~25.8 GB f16, so weights + KV + buffers is ~47 GB (within the 55 GB per-candidate
-    # budget). Selectable only, same semantics as the presets above. Callers pass the sampler.
-    [qwen3-coder-30b-a3b]
-    model = /models/boxp358/qwen3-coder-30b-a3b/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
-    batch-size = 2048
-    ubatch-size = 512
-    threads = 14
-    threads-batch = 14
-
-    # BOXP-358 batch 3: HF mmnga-o/NVIDIA-Nemotron-Nano-9B-v2-Japanese-gguf
-    # revision 309f87c4, Q4_K_M 6.53 GB, sha256 2e4e0d47…. Base
-    # nvidia/NVIDIA-Nemotron-Nano-9B-v2-Japanese (nemotron_h hybrid, 9B dense,
-    # 4 attention layers, nvidia-open-model-license; publisher states Japanese
-    # optimization). KV at 262144 ctx is ~4.3 GB f16. Selectable only, same
-    # semantics as the presets above. Callers pass the sampler.
-    [nemotron-nano-9b-v2-ja]
-    model = /models/boxp358/nemotron-nano-9b-v2-ja/NVIDIA-Nemotron-Nano-9B-v2-Japanese-Q4_K_M.gguf
     batch-size = 2048
     ubatch-size = 512
     threads = 14
