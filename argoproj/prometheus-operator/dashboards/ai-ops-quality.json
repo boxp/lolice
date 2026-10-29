@@ -1,0 +1,1711 @@
+{
+  "templating" : {
+    "list" : [ {
+      "current" : {
+        "selected" : true,
+        "text" : "default",
+        "value" : "default"
+      },
+      "hide" : 0,
+      "label" : "Data source",
+      "name" : "datasource",
+      "query" : "prometheus",
+      "regex" : "",
+      "type" : "datasource"
+    } ]
+  },
+  "tags" : [ "ai-ops", "boxp-360" ],
+  "timezone" : "UTC",
+  "refresh" : "1m",
+  "editable" : false,
+  "graphTooltip" : 1,
+  "uid" : "ai-ops-quality",
+  "time" : {
+    "from" : "now-7d",
+    "to" : "now"
+  },
+  "title" : "AI Ops Quality (BOXP-360)",
+  "version" : 1,
+  "panels" : [ {
+    "type" : "text",
+    "id" : 1,
+    "title" : "このdashboardの読み方 (definition: ai-ops-event/v0, sli/v1)",
+    "gridPos" : {
+      "x" : 0,
+      "y" : 0,
+      "w" : 24,
+      "h" : 6
+    },
+    "options" : {
+      "mode" : "markdown",
+      "content" : "**目的**: Board/Hermes の運用品質を本文なしの metadata だけで見る (BOXP-360)。暫定 baseline 観測期間: **2026-10-29 〜 2026-11-12 (最長 11-26)**。SLO は未確定で、ここの値は目標ではない。\n\n- **品質/進行の SLI** は runner が `ai_ops_sli.bb` で全履歴から再計算した **snapshot gauge** (既定15分毎)。`rate()`/`increase()`/合計をかけない。母数 (分母) と未評価件数を必ず並べて読む。\n- **unknown**: source 未接続・欠落 event がある SLI は値を出さず「判定不能/未接続」と表示する (0 や合格には数えない)。\n- **counter** (ledger/Hermes の `*_total`) は表示期間内の `increase()` で見る。runner ledger は 2026-10-29 14:33Z、Hermes ledger は同日配備以降のみ。\n- 是正分類は rule による **暫定分類** (correction-rules/v1 候補、原因 unknown を含む)。モデル別ランキングには使わない。lead time は frontmatter 日粒度。\n- 小母数: 率は必ず件数/分母と一緒に読む。p90 や % の過信禁止。"
+    }
+  }, {
+    "type" : "row",
+    "title" : "観測信頼性 (まずここを確認)",
+    "id" : 2,
+    "collapsed" : false,
+    "gridPos" : {
+      "x" : 0,
+      "y" : 6,
+      "w" : 24,
+      "h" : 1
+    },
+    "panels" : [ ]
+  }, {
+    "description" : "runner ledger metrics sidecar の up",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 7,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "up{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "codex-workspace",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "scrape: codex-workspace",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "target なし",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "0" : {
+              "text" : "Down",
+              "color" : "red"
+            },
+            "1" : {
+              "text" : "Up",
+              "color" : "green"
+            }
+          }
+        } ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 3,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "Hermes observer metrics sidecar の up",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 4,
+      "y" : 7,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "up{job=\"hermes-agent-ai-ops-metrics\"}",
+      "legendFormat" : "hermes",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "scrape: hermes-agent",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "target なし",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "0" : {
+              "text" : "Down",
+              "color" : "red"
+            },
+            "1" : {
+              "text" : "Up",
+              "color" : "green"
+            }
+          }
+        } ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 4,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "exposition file の最終更新からの秒数 (-1=file なし)。runner は60秒毎、Hermes は周期更新",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 8,
+      "y" : 7,
+      "w" : 5,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_metrics_file_age_seconds",
+      "legendFormat" : "{{job}}",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "metrics file 経過秒",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "s",
+        "noValue" : "未測定",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 5,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "最後に SLI snapshot を生成してからの時間。既定 interval 15分。No data は export 未配備",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 13,
+      "y" : 7,
+      "w" : 5,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "time() - ai_ops_sli_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "sli",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "SLI snapshot 経過時間",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "s",
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 6,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "runner の SLI export 失敗回数の増分",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 18,
+      "y" : 7,
+      "w" : 6,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "increase(ai_ops_sli_export_failures_total{job=\"codex-workspace-ai-ops-metrics\"}[$__range])",
+      "legendFormat" : "failures",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "SLI export 失敗 (期間内)",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 0
+      },
+      "overrides" : [ ]
+    },
+    "id" : 7,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "生成元で失った event。0 でない場合、zero-tolerance/是正 SLI は unknown になる",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 11,
+      "w" : 8,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(increase(ai_ops_ledger_lost_events_total{job=\"codex-workspace-ai-ops-metrics\"}[$__range]))",
+      "legendFormat" : "runner ledger",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(increase(ai_ops_hermes_lost_events_total{job=\"hermes-agent-ai-ops-metrics\"}[$__range]))",
+      "legendFormat" : "hermes",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "収集欠落 (期間内増分)",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "未測定",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 0
+      },
+      "overrides" : [ ]
+    },
+    "id" : 8,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "SLI 集計時点の全履歴での欠落・privacy 拒否・未紐付け event 件数",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 8,
+      "y" : 11,
+      "w" : 8,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(ai_ops_collection_lost_events_total{job=\"codex-workspace-ai-ops-metrics\"})",
+      "legendFormat" : "collection lost",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(ai_ops_privacy_rejected_events_total{job=\"codex-workspace-ai-ops-metrics\"})",
+      "legendFormat" : "privacy rejected",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_unlinked_task_events_total{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "unlinked",
+      "refId" : "C",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_input_malformed_lines_total{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "malformed",
+      "refId" : "D",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "集計入力の欠落/拒否 (snapshot)",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 0
+      },
+      "overrides" : [ ]
+    },
+    "id" : 9,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "observer の bounded queue 深さと書き込み process 数",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 16,
+      "y" : 11,
+      "w" : 8,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_hermes_queue_depth{job=\"hermes-agent-ai-ops-metrics\"}",
+      "legendFormat" : "queue depth",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_hermes_processes{job=\"hermes-agent-ai-ops-metrics\"}",
+      "legendFormat" : "processes",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Hermes queue / process",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "未測定",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 0
+      },
+      "overrides" : [ ]
+    },
+    "id" : 10,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "SLI ごとの source 接続。0=未接続。Novel runner は現在 emit 未接続",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 15,
+      "w" : 12,
+      "h" : 7
+    },
+    "transformations" : [ {
+      "id" : "merge",
+      "options" : { }
+    }, {
+      "id" : "organize",
+      "options" : {
+        "excludeByName" : {
+          "prometheus" : true,
+          "pod" : true,
+          "instance" : true,
+          "endpoint" : true,
+          "service" : true,
+          "namespace" : true,
+          "__name__" : true,
+          "Time" : true,
+          "container" : true
+        }
+      }
+    } ],
+    "type" : "table",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "",
+      "refId" : "A",
+      "format" : "table",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "source 接続状況 (未接続は unknown として扱う)",
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "0" : {
+              "text" : "未接続 (unknown)",
+              "color" : "orange"
+            },
+            "1" : {
+              "text" : "接続",
+              "color" : "green"
+            }
+          }
+        } ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 11,
+    "options" : {
+      "showHeader" : true,
+      "cellHeight" : "sm"
+    }
+  }, {
+    "description" : "unknown (欠落 event・source 未接続・分母0) の SLI は値を出さない",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 15,
+      "w" : 12,
+      "h" : 7
+    },
+    "transformations" : [ {
+      "id" : "merge",
+      "options" : { }
+    }, {
+      "id" : "organize",
+      "options" : {
+        "excludeByName" : {
+          "prometheus" : true,
+          "pod" : true,
+          "instance" : true,
+          "endpoint" : true,
+          "service" : true,
+          "namespace" : true,
+          "__name__" : true,
+          "Time" : true,
+          "container" : true
+        }
+      }
+    } ],
+    "type" : "table",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "",
+      "refId" : "A",
+      "format" : "table",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "SLI 判定可否",
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "0" : {
+              "text" : "判定不能 (unknown)",
+              "color" : "orange"
+            },
+            "1" : {
+              "text" : "確定",
+              "color" : "green"
+            }
+          }
+        } ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 12,
+    "options" : {
+      "showHeader" : true,
+      "cellHeight" : "sm"
+    }
+  }, {
+    "type" : "row",
+    "title" : "品質",
+    "id" : 13,
+    "collapsed" : false,
+    "gridPos" : {
+      "x" : 0,
+      "y" : 22,
+      "w" : 24,
+      "h" : 1
+    },
+    "panels" : [ ]
+  }, {
+    "description" : "式: agent-system 起因是正 event を1回以上含む task / Review 到達 task。原因 unknown の是正は分子に入れず別掲 (成功扱いもしない)",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 23,
+      "w" : 6,
+      "h" : 5
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_correction_tasks{job=\"codex-workspace-ai-ops-metrics\",origin=\"agent-system\"} / ai_ops_reached_review_tasks{job=\"codex-workspace-ai-ops-metrics\"} and on() (ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\",sli=\"agent_system_correction_task_ratio\"} == 1)",
+      "legendFormat" : "ratio",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "agent-system 是正を含む task 割合",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "percentunit",
+        "noValue" : "判定不能/未測定",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 1
+      },
+      "overrides" : [ ]
+    },
+    "id" : 14,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "分子・原因unknown・分母 (Review 到達 task)",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 6,
+      "y" : 23,
+      "w" : 6,
+      "h" : 5
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_correction_tasks{job=\"codex-workspace-ai-ops-metrics\",origin=\"agent-system\"}",
+      "legendFormat" : "agent-system",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_correction_tasks{job=\"codex-workspace-ai-ops-metrics\",origin=\"unknown\"}",
+      "legendFormat" : "原因unknown",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_reached_review_tasks{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "分母",
+      "refId" : "C",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "是正 task 件数 / 分母",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "判定不能/未測定",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 0
+      },
+      "overrides" : [ ]
+    },
+    "id" : 15,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "式: 最初の受入までに agent-system/原因unknown の是正が無い task / 受入時刻を確認できる観測済み受入 task。未評価・前後不明は分母外で別掲 (合格にしない)",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 23,
+      "w" : 6,
+      "h" : 5
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_first_acceptance_tasks{job=\"codex-workspace-ai-ops-metrics\",result=\"pass\"} / ai_ops_first_acceptance_denominator_tasks{job=\"codex-workspace-ai-ops-metrics\"} and on() (ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\",sli=\"first_acceptance_conformance\"} == 1)",
+      "legendFormat" : "strict",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_first_acceptance_conservative_tasks{job=\"codex-workspace-ai-ops-metrics\",part=\"pass\"} / ai_ops_first_acceptance_conservative_tasks{job=\"codex-workspace-ai-ops-metrics\",part=\"denominator\"} and on() (ai_ops_sli_determinable{job=\"codex-workspace-ai-ops-metrics\",sli=\"first_acceptance_conformance\"} == 1)",
+      "legendFormat" : "未評価を不合格扱い",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "first acceptance 適合率",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "percentunit",
+        "noValue" : "判定不能/未測定",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 1
+      },
+      "overrides" : [ ]
+    },
+    "id" : 16,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "合格・分母と、分母から除いた件数",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 18,
+      "y" : 23,
+      "w" : 6,
+      "h" : 5
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_first_acceptance_tasks{job=\"codex-workspace-ai-ops-metrics\",result=\"pass\"}",
+      "legendFormat" : "合格",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_first_acceptance_denominator_tasks{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "分母",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(ai_ops_first_acceptance_excluded_tasks{job=\"codex-workspace-ai-ops-metrics\"})",
+      "legendFormat" : "別掲(未評価/前後不明)",
+      "refId" : "C",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "first acceptance 件数 / 分母 / 別掲",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "判定不能/未測定",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 0
+      },
+      "overrides" : [ ]
+    },
+    "id" : 17,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "creative/dev/infra/research 等の層別件数。小母数に注意",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 28,
+      "w" : 12,
+      "h" : 7
+    },
+    "transformations" : [ {
+      "id" : "merge",
+      "options" : { }
+    }, {
+      "id" : "organize",
+      "options" : {
+        "excludeByName" : {
+          "prometheus" : true,
+          "pod" : true,
+          "instance" : true,
+          "endpoint" : true,
+          "service" : true,
+          "namespace" : true,
+          "__name__" : true,
+          "Time" : true,
+          "container" : true
+        }
+      }
+    } ],
+    "type" : "table",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_stratum_tasks{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "",
+      "refId" : "A",
+      "format" : "table",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "業務別 (stratum)",
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 18,
+    "options" : {
+      "showHeader" : true,
+      "cellHeight" : "sm"
+    }
+  }, {
+    "description" : "gate=all の fail/pass/skip。codex-review 指摘は agent-system 是正 (暫定)",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 28,
+      "w" : 12,
+      "h" : 7
+    },
+    "type" : "timeseries",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum by (gate, result) (increase(ai_ops_review_gate_total{job=\"codex-workspace-ai-ops-metrics\",gate=~\"all|codex-review|ci\"}[1h]))",
+      "legendFormat" : "{{gate}} {{result}}",
+      "refId" : "A"
+    } ],
+    "title" : "review gate 結果 (期間内増分, runner ledger)",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "未測定",
+        "custom" : {
+          "drawStyle" : "line",
+          "lineWidth" : 1,
+          "fillOpacity" : 10,
+          "showPoints" : "never",
+          "spanNulls" : false
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 19,
+    "options" : {
+      "legend" : {
+        "displayMode" : "table",
+        "placement" : "bottom",
+        "calcs" : [ "lastNotNull" ]
+      },
+      "tooltip" : {
+        "mode" : "multi",
+        "sort" : "none"
+      }
+    }
+  }, {
+    "type" : "row",
+    "title" : "負担 (Owner)",
+    "id" : 20,
+    "collapsed" : false,
+    "gridPos" : {
+      "x" : 0,
+      "y" : 35,
+      "w" : 24,
+      "h" : 1
+    },
+    "panels" : [ ]
+  }, {
+    "description" : "状況催促・同承認繰返し等の救援 event の source が未接続のため現在は unknown",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 36,
+      "w" : 8,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"owner_rescue\"}",
+      "legendFormat" : "owner rescue source",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Owner 救援発生率",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "0" : {
+              "text" : "未接続 (unknown)",
+              "color" : "orange"
+            },
+            "1" : {
+              "text" : "接続",
+              "color" : "green"
+            }
+          }
+        } ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 21,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "approval_key 付き承認 event の source が未接続のため unknown",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 8,
+      "y" : 36,
+      "w" : 8,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"duplicate_approval\"}",
+      "legendFormat" : "approval source",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "同scope 重複承認率",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "0" : {
+              "text" : "未接続 (unknown)",
+              "color" : "orange"
+            },
+            "1" : {
+              "text" : "接続",
+              "color" : "green"
+            }
+          }
+        } ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 22,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "Hermes observer の approval.requested/resolved hook 件数 (0 は hook 未発火で、承認なしの証明ではない)",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 16,
+      "y" : 36,
+      "w" : 8,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum by (event_type) (increase(ai_ops_hermes_events_total{job=\"hermes-agent-ai-ops-metrics\",event_type=~\"approval.*\"}[$__range]))",
+      "legendFormat" : "{{event_type}}",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Hermes 承認 event (期間内)",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "未測定",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 0
+      },
+      "overrides" : [ ]
+    },
+    "id" : 23,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "type" : "row",
+    "title" : "進行",
+    "id" : 24,
+    "collapsed" : false,
+    "gridPos" : {
+      "x" : 0,
+      "y" : 40,
+      "w" : 24,
+      "h" : 1
+    },
+    "panels" : [ ]
+  }, {
+    "description" : "現在の task 状態。未完了放置の guardrail を兼ねる",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 41,
+      "w" : 8,
+      "h" : 7
+    },
+    "transformations" : [ {
+      "id" : "merge",
+      "options" : { }
+    }, {
+      "id" : "organize",
+      "options" : {
+        "excludeByName" : {
+          "prometheus" : true,
+          "pod" : true,
+          "instance" : true,
+          "endpoint" : true,
+          "service" : true,
+          "namespace" : true,
+          "__name__" : true,
+          "Time" : true,
+          "container" : true
+        }
+      }
+    } ],
+    "type" : "table",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_tasks{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "",
+      "refId" : "A",
+      "format" : "table",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "task outcome (snapshot)",
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 25,
+    "options" : {
+      "showHeader" : true,
+      "cellHeight" : "sm"
+    }
+  }, {
+    "description" : "request.received→受入。frontmatter 日粒度。queue/active/approval/wait 分解は unknown",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 8,
+      "y" : 41,
+      "w" : 8,
+      "h" : 7
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_lead_time_hours{job=\"codex-workspace-ai-ops-metrics\",quantile=\"0.5\"}",
+      "legendFormat" : "p50",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_lead_time_hours{job=\"codex-workspace-ai-ops-metrics\",quantile=\"0.9\"}",
+      "legendFormat" : "p90",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_lead_time_tasks{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "n (件)",
+      "refId" : "C",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "lead time (受入 task)",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "h",
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 0
+      },
+      "overrides" : [ ]
+    },
+    "id" : 26,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "全 run・中断・idle timeout・retrying 件数",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 16,
+      "y" : 41,
+      "w" : 8,
+      "h" : 7
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_runs{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "{{status}}",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "run 信頼性 (snapshot, 全履歴)",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        },
+        "decimals" : 0
+      },
+      "overrides" : [ ]
+    },
+    "id" : 27,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "runner ledger の run 終了 status 別 (配備 2026-10-29 14:33Z 以降)",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 48,
+      "w" : 12,
+      "h" : 7
+    },
+    "type" : "timeseries",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum by (status) (increase(ai_ops_runs_finished_total{job=\"codex-workspace-ai-ops-metrics\"}[1h]))",
+      "legendFormat" : "{{status}}",
+      "refId" : "A"
+    } ],
+    "title" : "runner run 終了 (1h 増分)",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "未測定",
+        "custom" : {
+          "drawStyle" : "line",
+          "lineWidth" : 1,
+          "fillOpacity" : 10,
+          "showPoints" : "never",
+          "spanNulls" : false,
+          "stacking" : {
+            "mode" : "normal",
+            "group" : "A"
+          }
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 28,
+    "options" : {
+      "legend" : {
+        "displayMode" : "table",
+        "placement" : "bottom",
+        "calcs" : [ "lastNotNull" ]
+      },
+      "tooltip" : {
+        "mode" : "multi",
+        "sort" : "none"
+      }
+    }
+  }, {
+    "description" : "Hermes observer の turn 終了 status 別 (本文なし)",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 48,
+      "w" : 12,
+      "h" : 7
+    },
+    "type" : "timeseries",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum by (status) (increase(ai_ops_hermes_turns_finished_total{job=\"hermes-agent-ai-ops-metrics\"}[1h]))",
+      "legendFormat" : "{{status}}",
+      "refId" : "A"
+    } ],
+    "title" : "Hermes 会話 turn 終了 (1h 増分)",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "未測定",
+        "custom" : {
+          "drawStyle" : "line",
+          "lineWidth" : 1,
+          "fillOpacity" : 10,
+          "showPoints" : "never",
+          "spanNulls" : false,
+          "stacking" : {
+            "mode" : "normal",
+            "group" : "A"
+          }
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 29,
+    "options" : {
+      "legend" : {
+        "displayMode" : "table",
+        "placement" : "bottom",
+        "calcs" : [ "lastNotNull" ]
+      },
+      "tooltip" : {
+        "mode" : "multi",
+        "sort" : "none"
+      }
+    }
+  }, {
+    "description" : "Ready 遷移時刻 event が無いため unknown",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 55,
+      "w" : 12,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"ready_ack_latency\"}",
+      "legendFormat" : "ready→ack source",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Ready→ack 遅延",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "0" : {
+              "text" : "未接続 (unknown)",
+              "color" : "orange"
+            },
+            "1" : {
+              "text" : "接続",
+              "color" : "green"
+            }
+          }
+        } ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 30,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "description" : "subscription CLI は token/cost を返さないため unknown (API 単価換算はしない)",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 55,
+      "w" : 12,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"tokens_cost\"}",
+      "legendFormat" : "tokens/cost source",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "token / cost",
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "SLI export 未配備/停止 (unknown)",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "0" : {
+              "text" : "未接続 (unknown)",
+              "color" : "orange"
+            },
+            "1" : {
+              "text" : "接続",
+              "color" : "green"
+            }
+          }
+        } ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 31,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  } ],
+  "links" : [ ],
+  "schemaVersion" : 39
+}
