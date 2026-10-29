@@ -28,6 +28,7 @@ import logging
 import os
 import queue
 import re
+import signal
 import threading
 import time
 from collections import OrderedDict
@@ -49,6 +50,7 @@ _save_lock = threading.Lock()  # serializes proc-stats saves (worker vs exit flu
 _exiting = False  # set by the exit flush: later worker saves must not replace its snapshot
 _inflight = 0  # events taken from the queue by the worker and not yet written or counted
 _abandoned = False  # the exit flush gave up on the worker and counted its in-flight events lost
+_exit_once = threading.Lock()  # SIGTERM handler and atexit both flush; only the first runs
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
 _wake = threading.Event()  # set on enqueue; the worker waits on it instead of blocking in get()
 _turns = OrderedDict()  # (session hash, turn hash) -> run_id
@@ -661,4 +663,42 @@ def _start_worker():
         if _worker is None:
             _worker = threading.Thread(target=_run, name="boxp-ai-ops-observer", daemon=True)
             _worker.start()
-            atexit.register(_flush_at_exit)
+            atexit.register(_flush_at_exit_once)
+            _install_sigterm()
+
+
+def _flush_at_exit_once():
+    if _exit_once.acquire(blocking=False):  # never blocks, so safe inside a signal handler
+        _flush_at_exit()
+
+
+def _install_sigterm():
+    """Kubernetes stops the pod with SIGTERM, and with the default disposition Python dies
+    without running atexit. Chain a handler that flushes first and then keeps the previous
+    behaviour: call the previous Python handler, or re-deliver SIGTERM with the default
+    disposition. Ignored or C-level handlers are left alone; if the agent installs its own
+    handler later and exits normally, atexit still flushes."""
+    if threading.current_thread() is not threading.main_thread():
+        return
+    try:
+        prev = signal.getsignal(signal.SIGTERM)
+    except (ValueError, OSError):
+        return
+    if prev is None or prev is signal.SIG_IGN:
+        return
+
+    def _on_sigterm(signum, frame):
+        try:
+            _flush_at_exit_once()
+        except Exception:
+            _log.debug("ai ops sigterm flush failed", exc_info=True)
+        if callable(prev):
+            prev(signum, frame)
+            return
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    try:
+        signal.signal(signal.SIGTERM, _on_sigterm)
+    except (ValueError, OSError):
+        _log.debug("ai ops sigterm handler not installed", exc_info=True)

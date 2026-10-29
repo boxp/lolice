@@ -3,6 +3,9 @@ import inspect
 import json
 import os
 import re
+import signal
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -311,6 +314,49 @@ class ObserverTests(unittest.TestCase):
         saved = json.loads(Path(TMP, "proc-stats", f"{pid}-{plugin._start_ticks(pid)}.json").read_text())
         self.assertEqual(saved["api_request_errors"], 1)
         self.assertEqual(saved["queue_depth"], 0)
+
+    def _sigterm_child(self, prelude):
+        """Run the plugin in a child process whose periodic worker never writes, so only the
+        SIGTERM path can save the queued event and the late loss, then SIGTERM it."""
+        d = tempfile.mkdtemp()
+        code = (
+            "import importlib.util, signal, sys, threading, time\n"
+            + prelude
+            + "spec = importlib.util.spec_from_file_location('obs', sys.argv[1])\n"
+            "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+            "m._run = lambda: threading.Event().wait()\n"
+            "class C:\n    def register_hook(self, n, cb): pass\n"
+            "m.register(C())\n"
+            "m._turn_started(session_id='s-term', turn_id='t1')\n"
+            "m._count('api_request_errors')\n"
+            "print('ready', flush=True)\n"
+            "time.sleep(30)\n")
+        env = dict(os.environ, BOXP_AI_OPS_DIR=d)
+        child = subprocess.Popen([sys.executable, "-c", code, str(Path(__file__).with_name("__init__.py"))],
+                                 env=env, stdout=subprocess.PIPE, text=True)
+        self.assertEqual(child.stdout.readline().strip(), "ready")
+        child.send_signal(signal.SIGTERM)
+        rc = child.wait(15)
+        lines = [json.loads(l) for f in Path(d, "ledger").glob("events-*.jsonl")
+                 for l in f.read_text().splitlines() if l]
+        stats = [json.loads(f.read_text()) for f in Path(d, "proc-stats").glob("*-*.json")]
+        return rc, d, lines, stats
+
+    def test_sigterm_flushes_before_default_termination(self):
+        rc, _, lines, stats = self._sigterm_child("")
+        self.assertEqual(rc, -signal.SIGTERM)  # still terminated by SIGTERM
+        self.assertTrue(any(e["event_type"] == "run.started" for e in lines))
+        self.assertEqual([s["api_request_errors"] for s in stats], [1])
+
+    def test_sigterm_flush_chains_previous_handler(self):
+        prelude = ("def prev(s, f):\n"
+                   "    import os; open(os.environ['BOXP_AI_OPS_DIR'] + '/prev', 'w').close(); sys.exit(3)\n"
+                   "signal.signal(signal.SIGTERM, prev)\n")
+        rc, d, lines, stats = self._sigterm_child(prelude)
+        self.assertEqual(rc, 3)
+        self.assertTrue(Path(d, "prev").exists())
+        self.assertTrue(any(e["event_type"] == "run.started" for e in lines))
+        self.assertEqual([s["api_request_errors"] for s in stats], [1])
 
     def test_exit_flush_is_bounded_when_worker_holds_write_lock(self):
         plugin._turn_started(session_id="s-stuck", turn_id="t1")
