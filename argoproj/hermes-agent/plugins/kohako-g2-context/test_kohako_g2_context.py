@@ -243,10 +243,12 @@ class DecisionTests(unittest.TestCase):
     def test_claim_transform_and_settle(self):
         self.tg(); self.assertIsNone(self.gate('tg')); self.assertIsNone(self.gate('tg'))
         self.assertEqual(self.data()['state'], 'claimed')
+        self.assertEqual(self.data()['message'], plugin._message_hash('はい'))
         self.assertIn('[kohako-decision] done decision=dec-event-1', plugin._transform(session_id='tg', response_text='ok'))
         plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')
     def test_denied_or_blocked_releases_claim(self):
         self.g2(); self.assertIsNone(self.gate('kohako-g2-main', status='blocked'))
+        self.assertNotIn('message', self.data())
         self.assertEqual(self.data()['state'], 'claimed')
         self.assertIsNone(plugin._transform(session_id='kohako-g2-main', response_text='ok'))
         plugin._post(session_id='kohako-g2-main'); self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
@@ -512,7 +514,7 @@ class DecisionTests(unittest.TestCase):
     def test_mirrored_user_delivery_is_claimable(self):
         self.tg([self.mirror(), self.cur()]); self.assertIsNone(self.gate('tg'))
         plugin._post(session_id='tg'); self.assertEqual(self.data()['state'], 'done')
-    def test_compaction_summary_ends_the_walk(self):
+    def test_compaction_summary(self):
         # BOXP-362: compaction folded the Owner's reply (and the turn it started) into a summary; the
         # protected head still ends with the old notification. A new instruction is not its reply.
         self.claimed_elsewhere()
@@ -526,20 +528,26 @@ class DecisionTests(unittest.TestCase):
                 history = [{'role': 'user', 'content': 'hello'}, self.mirror(), summary, {'role': 'assistant', 'content': '反映しました'}, self.cur('新しい不具合の修復依頼を登録して')]
                 self.assertIsNone(self.new_request(history)); self.assertNotIn(('tg', 'n'), plugin._pending)
         self.assertEqual(self.data()['via'], 'telegram')
-        # Merged into the current message itself: nothing is right before it either.
+        # A summary merged into the current message follows the same rule.
         merged = self.cur('[PRIOR CONTEXT — for reference only; not a new message]\n新しい不具合の修復依頼を登録して\n\nsummary')
         self.assertIsNone(self.new_request([self.mirror(), merged])); self.assertNotIn(('tg', 'n'), plugin._pending)
-        # A user-role summary ends the walk as before; an unclaimed notification beyond a summary is
-        # not claimed either (the accepted trade-off), so nothing is written.
-        os.unlink(plugin._path('dec-event-1'))
+        path = plugin._path('dec-event-1')
         for summary in (dict(summaries[0], role='user'), summaries[0]):
-            self.assertIsNone(self.new_request([self.mirror(), summary, self.cur('はい')], message='はい'))
-            self.assertFalse(os.path.exists(plugin._path('dec-event-1')))
+            with self.subTest(unclaimed=summary['role']):
+                plugin._pending.clear(); os.unlink(path)
+                self.assertIsNone(self.new_request([self.mirror(), summary, self.cur('はい')], message='はい'))
+                self.assertEqual(self.data()['via'], 'telegram')
+        for claim in ({'via': 'g2'}, {'state': 'claimed'}, {'message': plugin._message_hash('はい')}):
+            with self.subTest(claim=claim):
+                plugin._pending.clear(); os.unlink(path)
+                self.claimed_elsewhere(**claim)
+                self.assertEqual(self.new_request([self.mirror(), summaries[0], self.cur('はい')], message='はい')['action'], 'block')
+        plugin._pending.clear(); os.unlink(path)
         self.claimed_elsewhere()
         # A notification after the summary is still answerable, and still guarded when handled.
         self.assertEqual(self.new_request([summaries[0], self.mirror(), self.cur('新しい不具合の修復依頼を登録して')])['action'], 'block')
     def test_marker_text_elsewhere_is_not_compaction(self):
-        # Only a summary row (user/assistant, starting with the compaction header) ends the walk:
+        # Only a summary row (user/assistant, starting with the compaction header) marks compaction:
         # marker text inside a notification or a tool result does not drop the guard.
         end = '--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'
         mirror = {'role': 'user', 'content': self.mirror()['content'] + ' ' + end}

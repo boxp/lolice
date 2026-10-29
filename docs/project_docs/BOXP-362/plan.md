@@ -13,17 +13,22 @@ summary は直前 head が user なら `assistant` 役、tail 先頭とも衝突
 保護された head の末尾がミラー通知（`[Webhook delivery: task-board]`, role=user）のとき、
 走査は tail の assistant 行と summary を読み飛ばし、Owner の返答（summary に吸収済み）を越えて古い通知へ到達する。
 → 新規指示が対応済み decision に bind され、`lost=telegram` で副作用 tool がすべて block される。
-修正前コードで新 fixture `test_compaction_summary_ends_the_walk` が同じ block を返すことを確認。
+修正前コードで新 fixture `test_compaction_summary` が同じ block を返すことを確認。
 
 その他の候補（assistant 文中の引用・Webhook 包み・別件 user 境界・turn 未指定 fallback・`_pending` lifecycle・引用返信）は
 既存実装/既存テストで誤接続しないことを確認（引用返信は `[Replying to: ...]` で始まり通知とは判定されず、user 境界になる）。
 
 ## 修正（kohako-g2-context 1.3.15）
-1. compaction summary 行（user/assistant 役で `[CONTEXT COMPACTION` または `[PRIOR CONTEXT — for reference only` で始まる、または `_compressed_summary`）で走査を終了。
-   summary が現在メッセージに merge された場合も走査しない。summary の向こうにある通知は直前の通知ではない（Owner 発言が吸収されている可能性）。
-   通知本文・tool 結果・assistant 文中にマーカー文字列があっても境界にしない（guard を外さない）。
-   トレードオフ: 圧縮範囲に Owner 発言が無く本当に返答だった稀なケースでは claim されない（従来の「返答扱いしない」側と同じ）。
-2. レビューの結果、会話と時刻による判定ルールは取りやめた。時刻だけでは再送と新規指示を区別できないため、summary 行がなく返答が履歴から消えた場合は引き続き fail-closed（block）とする。
+1. compaction summary 行（user/assistant 役で `[CONTEXT COMPACTION` または `[PRIOR CONTEXT — for reference only` で始まる、または `_compressed_summary`）を検出しても走査は止めず「summary 越え」として記録する。
+   summary が現在メッセージに merge された場合も同様。通知本文・tool 結果・assistant 文中のマーカー文字列は summary とみなさない。
+2. Telegram の claim に、claim した Owner 発言の正規化 hash（`message`）を記録する（G2 claim には付けない）。
+3. summary 越えで通知に到達した場合、claim が「Telegram 経由・done・期限内・現在発言と異なる hash（hash 無しの旧 claim も異なる扱い）」のときだけ、
+   同経路の過去返答が圧縮で消えた後の新規指示とみなし bind しない。
+   それ以外（未 claim・G2/他経路 claim・claimed=対応中/結果不明・同一文の再送・読めない claim）は従来どおり bind → claim / block。
+   → G2 で処理済みの通知に summary 越しに Telegram で返答しても重複実行しない（codex-review 指摘への対応）。
+4. 時刻による新規判定は取りやめた（再送と新規指示を区別できないため）。
+- 既知の制限（fail-closed 側）: G2 で対応済みの通知の後、圧縮を挟んで Telegram で出した新規指示は block される。
+  同経路で別文言の再返答を圧縮越しに送った場合は新規扱いになる（同一文の再送は block）。
 - claim 削除・guard 無効化・別 tool 回避はしない。G2/Telegram 同時返答の一回処理と結果不明時の再送抑止は維持（既存テスト + 新テスト）。
 
 ## 検証

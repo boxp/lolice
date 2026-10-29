@@ -17,9 +17,8 @@
   Decision state is kept per turn (session id + turn id), so concurrent turns of one session
   never drop or borrow each other's claim.
 - BOXP-362: Hermes context compaction replaces earlier turns (Owner messages included) with a
-  summary row, so the walk ends at a summary instead of reaching a notification older than it.
-  If a reply falls out of history for any other reason, the guard still fails closed (blocks),
-  so a reply resent right after the notification stays blocked after the turn is done.
+  summary row. Beyond it, a completed Telegram claim for a different message identifies a new
+  instruction; unclaimed, other-route, unknown-result and identical-message replies remain guarded.
 """
 import contextlib
 import fcntl
@@ -163,9 +162,8 @@ _TICKET = re.compile(r'【Task Board 通知】\s*[A-Z]+-[0-9]+\b')
 
 # Hermes context compaction (agent/context_compressor.py) replaces a range of earlier turns with a
 # summary, as its own user/assistant row or merged into a carried row (prepended, or the carried
-# content wrapped after a header); Owner messages inside are gone. A notification older than the
-# summary is not the one right before the current message, so it is never taken as answered, even
-# in the rare case that no Owner message was compacted (then the reply is simply not claimed).
+# content wrapped after a header); Owner messages inside are gone. Beyond a summary, only a done
+# Telegram claim for a different message proves the current instruction is not the old reply.
 _COMPACTION = ('[CONTEXT COMPACTION', '[PRIOR CONTEXT — for reference only')
 
 
@@ -187,6 +185,19 @@ def _notice_event(content):
 
 def _path(decision_id):
     return os.path.join(os.environ.get('KOHAKO_DECISION_STORE', _DECISION_STORE), 'claims', decision_id + '.json')
+
+
+def _message_hash(text):
+    return hashlib.sha256(' '.join(text.split()).encode()).hexdigest()[:32]
+
+
+def _claim_data(decision_id):
+    try:
+        with open(_path(decision_id)) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError, TypeError):
+        return None
 
 
 def _existing(decision_id):
@@ -221,6 +232,7 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
     with _lock:
         _pending.pop((sid, turn_id), None)
     event = operation = via = None
+    beyond_summary = False
     if platform == 'api_server':
         if sid.startswith('kohako-g2-cand-') or not isinstance(user_message, str):
             return None
@@ -250,12 +262,13 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
             except (OSError, ValueError) as exc:
                 ambiguous = exc  # fatal only when the walk finds a notification
             if _compaction(history.pop()):
-                history = []  # the summary was merged into the current message: nothing is right before it
+                beyond_summary = True  # the summary was merged into the current message
         for message in reversed(history):
             if not isinstance(message, dict):
                 continue
             if _compaction(message):
-                break  # earlier turns, Owner messages included, were compacted away: no reply beyond
+                beyond_summary = True
+                continue
             role, content = message.get('role'), message.get('content')
             if not isinstance(content, str):
                 if role == 'user':
@@ -275,9 +288,18 @@ def _detect(sid, platform, sender_id, user_message=None, conversation_history=No
     if not event:
         return None
     decision = 'dec-' + event
+    if beyond_summary:
+        data = _claim_data(decision)
+        try:
+            if (data is not None and data.get('via') == 'telegram' and data.get('state') == 'done'
+                    and data.get('at', 0) >= time.time() - _DONE_TTL
+                    and data.get('message') != _message_hash(user_message)):
+                return None
+        except TypeError:
+            pass  # unreadable timestamp: keep the guard
     lost = _existing(decision)
     pending = {'decisionId': decision, 'eventId': event, 'via': via, 'operationId': operation, 'claimed': False, 'lost': lost,
-               'inflight': set(), 'ok': False, 'unknown': False}
+               'inflight': set(), 'ok': False, 'unknown': False, 'message': _message_hash(user_message) if via == 'telegram' else None}
     with _lock:
         pending = _remember((sid, turn_id), pending)
     if pending['lost'] == 'error':
@@ -411,7 +433,10 @@ def _claim(pending):
         except FileExistsError:
             return _existing(pending['decisionId']) or 'other'
         with os.fdopen(fd, 'w') as f:
-            json.dump({'version': 1, 'decisionId': pending['decisionId'], 'eventId': pending['eventId'], 'via': pending['via'], 'operationId': pending['operationId'], 'state': 'claimed', 'at': time.time()}, f)
+            data = {'version': 1, 'decisionId': pending['decisionId'], 'eventId': pending['eventId'], 'via': pending['via'], 'operationId': pending['operationId'], 'state': 'claimed', 'at': time.time()}
+            if pending.get('message') is not None:
+                data['message'] = pending['message']
+            json.dump(data, f)
     return None
 
 
