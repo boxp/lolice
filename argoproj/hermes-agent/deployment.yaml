@@ -467,6 +467,39 @@ spec:
             - name: ai-ops-metrics-app
               mountPath: /app
               readOnly: true
+        # BOXP-365: inject the Viewer token only into this sidecar, never into
+        # the Hermes container env, so its terminal/LLM cannot read it. Write tools
+        # are disabled, and so are the anonymous usage stats sent to Grafana Labs
+        # by default. After rollout, connect through the official interface:
+        # hermes mcp add grafana --url http://127.0.0.1:8000/mcp
+        - name: grafana-mcp
+          image: docker.io/grafana/mcp-grafana:2.1.1@sha256:71a3f4e6f412d253611314233df709ec2571fb50e39742d23fa2940f670646dc
+          imagePullPolicy: IfNotPresent
+          command: ["/app/mcp-grafana"]
+          args: ["-t", "streamable-http", "--address", "127.0.0.1:8000", "--usage-stats=disabled", "--disable-write", "--enabled-tools", "search,datasource,prometheus,loki,dashboard,folder,alerting,annotations"]
+          env:
+            - name: GRAFANA_URL
+              value: http://grafana.monitoring.svc.cluster.local:3000
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-grafana
+                  key: service-account-token
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 10000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
         - name: obsidian-sync
           image: ghcr.io/boxp/arch/hermes-agent:latest
           imagePullPolicy: IfNotPresent
