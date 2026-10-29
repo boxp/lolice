@@ -1,0 +1,53 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: codex-workspace-metrics
+spec:
+  description: |
+    BOXP-364: 生成 ConfigMap 参照不整合 (MountVolume.SetUp failed: configmap
+    "codex-workspace-ai-ops-metrics" not found) の再発防止テスト。
+    本番の kustomize render から Namespace・生成 ConfigMap (codex-workspace-ai-ops-metrics-<hash>)・
+    Deployment の ai-ops-metrics container と ai-ops-metrics-app volume を render 後の名前のまま
+    取り出し (render-minimal.sh)、kind 上で volume が mount されて server.py が起動し
+    /healthz と /metrics に応答するまでを確認する。namespace 指定漏れで参照が hash 無しのまま
+    render されると、抽出時点か Pod の mount 失敗で Available にならず失敗する。
+    workspace 本体 / DIND / SSH / Secret / 本番 PVC は持ち込まず、home は emptyDir と stub ledger に置き換える。
+  steps:
+  - name: require-isolated-kind
+    try:
+    - script:
+        timeout: 15s
+        content: |
+          set -eu
+          case "${CHAINSAW_KIND_CONTEXT:-}" in
+            kind-*) ;;
+            *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
+          esac
+          : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
+          test -r "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          actual_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          test -n "$expected_server"
+          test "$actual_server" = "$expected_server"
+  - name: apply-and-check
+    try:
+    - script:
+        timeout: 210s
+        content: |
+          set -eu
+          manifest="$(mktemp)"
+          trap 'rm -f "$manifest"' EXIT
+          "${REPO_ROOT}/tests/chainsaw/codex-workspace/render-minimal.sh" > "$manifest"
+          kubectl apply --server-side -f "$manifest"
+          if ! kubectl wait --for=condition=Available deployment/codex-workspace -n codex-workspace --timeout=180s; then
+            kubectl describe pods -n codex-workspace || true
+            kubectl get events -n codex-workspace --sort-by=.lastTimestamp || true
+            exit 1
+          fi
+          kubectl exec -n codex-workspace deployment/codex-workspace -c ai-ops-metrics -- python -c 'import urllib.request as u; assert u.urlopen("http://127.0.0.1:9464/healthz").read().strip() == b"ok"; m=u.urlopen("http://127.0.0.1:9464/metrics").read(); assert b"ai_ops_stub_metric 1" in m and b"ai_ops_metrics_file_present 1" in m'
+    finally:
+    - script:
+        timeout: 120s
+        content: |
+          kubectl delete namespace codex-workspace --ignore-not-found --wait=true --timeout=110s
