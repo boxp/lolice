@@ -28,3 +28,12 @@ lolice 上で実用最高性能の local LLM を継続的に比較する。品�
 ## rollback
 
 この PR を revert して preset を削除する。取得済みの `/models/boxp358/<dir>` は Owner の判断後に削除する。
+
+## batch 2（追加 preset）
+
+batch 1（gemma4-26b baseline、ornith-35b、qwen36-35b-a3b、ornith15-35b-a3b、qwen35-122b-a10b）の結果を受けて、次の 2 候補を追加する。
+
+- `qwen-agentworld-35b-a3b`: unsloth/Qwen-AgentWorld-35B-A3B-GGUF @ `3a305abf`、UD-Q4_K_M 22.13 GB、apache-2.0。カードが環境シミュレーション（世界設定）用途を明記している。
+- `nemotron35-lightning-30b-a3b`: ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF @ `8cd08217`、Q4_0 18.90 GB、openmdw-1.1。対応言語に日本語を明記。b11669 で `nemotron_h_moe` は登録済み。attention 層が 6 層のため、262144 ctx でも KV は約 1.6 GB。
+
+ダウンロード累計は約 123 GB で、150 GB の上限内に収まる。suite には coding phase（`C`: 合成 Clojure 5 課題 × 2）を追加した。
