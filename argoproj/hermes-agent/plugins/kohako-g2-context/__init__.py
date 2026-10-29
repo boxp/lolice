@@ -182,6 +182,16 @@ def _carried(content):
                 parts.append(part)
             elif part['text'].lstrip().startswith(_COMPACTION + (_SUMMARY_DELIMITER,)):
                 merged = True
+                text = part['text'].lstrip()
+                carried = ''
+                if text.startswith(_PRIOR_HEADER):
+                    carried = text[len(_PRIOR_HEADER):]
+                    if _SUMMARY_DELIMITER in carried:
+                        carried = carried.rsplit(_SUMMARY_DELIMITER, 1)[0]
+                elif text.startswith(_COMPACTION[0]) and _SUMMARY_END in text:
+                    carried = text.split(_SUMMARY_END, 1)[1]
+                if carried.strip():
+                    parts.append(carried)
             else:
                 parts.append(part['text'])
         if not merged:

@@ -561,6 +561,8 @@ class DecisionTests(unittest.TestCase):
         summary = '[CONTEXT COMPACTION — REFERENCE ONLY] summary'
         def wrap(old): return header + '\n' + old + '\n\n' + delim + '\n\n' + summary + '\n\n' + end
         cases = (wrap('以前の Owner 指示'), summary + '\n\n' + end + '\n\n以前の Owner 指示',
+                 [{'type': 'text', 'text': wrap('以前の Owner 指示')}],
+                 [{'type': 'text', 'text': summary + '\n\n' + end + '\n\n以前の Owner 指示'}],
                  [{'type': 'text', 'text': header + '\n'}, {'type': 'image_url', 'image_url': 'image'},
                   {'type': 'text', 'text': '\n\n' + delim + '\n\n' + summary + '\n\n' + end}],
                  [{'type': 'text', 'text': summary + '\n\n' + end + '\n\n'}, {'type': 'text', 'text': '以前の Owner 指示'}],
@@ -610,10 +612,14 @@ class DecisionTests(unittest.TestCase):
         delim = '[END OF PRIOR CONTEXT — COMPACTION SUMMARY BELOW]'
         end = '--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---'
         content = header + '\n' + self.mirror()['content'] + '\n\n' + delim + '\n\nsummary\n\n' + end
-        self.claimed_elsewhere(via='g2')
-        result = self.new_request([{'role': 'user', 'content': content}, self.cur('新しい不具合の修復依頼を登録して')])
-        self.assertEqual(result['action'], 'block')
-        self.assertEqual(plugin._pending[('tg', 'n')]['eventId'], 'event-1')
+        for carried in (content, [{'type': 'text', 'text': content}]):
+            with self.subTest(content=carried):
+                plugin._pending.clear()
+                self.claimed_elsewhere(via='g2')
+                row = {'role': 'user', 'content': carried, '_compressed_summary': True}
+                result = self.new_request([row, self.cur('新しい不具合の修復依頼を登録して')])
+                self.assertEqual(result['action'], 'block')
+                self.assertEqual(plugin._pending[('tg', 'n')]['eventId'], 'event-1')
 
     def test_rephrased_reply_beyond_summary_gets_soft_warning(self):
         plugin._hook(session_id='tg', platform='telegram', sender_id='123', user_message='Ready に移動',
