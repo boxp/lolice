@@ -435,6 +435,11 @@ spec:
             - name: kubernetes-api-token
               mountPath: /var/run/secrets/codex-workspace/k8s
               readOnly: true
+            # BOXP-367: llama.cpp provider config for the localllm-coder route
+            # (pi). The runner copies only this file into a run-local HOME.
+            - name: pi-config
+              mountPath: /etc/pi-agent-config
+              readOnly: true
         - name: novel-board-runner
           # Novel Board runner (BOXP-246). The image entrypoint starts
           # /opt/codex-workspace/novel-board/novel_board_runner.bb loop for this
