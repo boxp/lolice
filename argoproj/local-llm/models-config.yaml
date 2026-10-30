@@ -142,8 +142,18 @@ data:
     # 262144 is ~6.4 GB and the resident total is ~46 GB (within the 55 GB
     # per-candidate budget). Selectable only, same semantics as the presets above.
     # Callers pass the sampler.
+    # BOXP-336 ran in a standalone pod with mmap on (llama.cpp default). The
+    # Deployment sets LLAMA_ARG_MMAP=0 / LLAMA_ARG_LOAD_MODE=none for every
+    # child, which would read the 28.8 GB PLE table into RAM as well (~75 GB in
+    # total). This preset therefore passes --load-mode mmap, which the child
+    # receives as a CLI arg and which wins over the inherited env. With mmap on,
+    # the default --lazy-mode auto reads tensors larger than 4 GiB (the PLE
+    # table) from disk on demand instead of keeping them resident. Other presets
+    # keep the no-mmap behaviour. The first router load is measured with
+    # memwatch and unloaded if MemAvailable falls below 12 GiB.
     [qwen38-flash-next]
     model = /models/boxp336-strata/flash-next-q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf
+    load-mode = mmap
     batch-size = 2048
     ubatch-size = 512
     threads = 14

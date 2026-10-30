@@ -84,6 +84,7 @@ Owner から「検証候補が古いのでは」と指摘があり、Qwen3.8-Fla
 
 - BOXP-336 では、ISTA-DASLab の GSQ-RCO Q2_0（revision `ed59f920`）を live と同じ image（llama.cpp SYCL b11669）で実際に推論している。2 shard の内訳は、shard 1（experts など）が 37.62 GB、shard 2（PLE / ngram の埋め込み表）が 28.80 GB。sha256 はどちらも一致した。全層を iGPU に載せた L2 構成（ctx 32768）の実測値は、decode 6.2 t/s、8.3k token の cold prefill 47.7 t/s、合成 fixture 24/27、JSON / tool 3/3。node の available は最小 47.2 GB だった。
 - PLE 表は CPU 側に mmap したまま参照される。そのため GPU / UMA に常駐する weights は約 37.5 GB。
+- ただし BOXP-336 は Deployment の env を持たない独立 Pod（mmap 既定有効）で動かしていた。live の Deployment は全子プロセスに `LLAMA_ARG_MMAP=0` / `LLAMA_ARG_LOAD_MODE=none` を渡しており、そのままでは PLE 表 28.8 GB も RAM に読み込まれる（合計 約 75 GB）。このため preset に `load-mode = mmap` を指定する。router は preset のキーを子プロセスの CLI 引数として渡し、b11669 の `common/arg.cpp` では CLI 引数が env より後に処理されて優先される。mmap が有効なら、既定の `--lazy-mode auto` によって 4 GiB を超える tensor（PLE 表）はディスクからオンデマンドで読まれ、常駐しない。他の preset は no-mmap のまま。
 - 公式 config（`Qwen/Qwen3.8-Flash-Next` @ `de4b8e4d`）によると、48 層のうち full attention は 12 層で、KV head は 2 × 256。router の ctx 262144 では f16 KV が約 6.44 GB になり、常駐の合計は約 46 GB と見積もる。候補ごとの上限 55 GB 以内に収まる。保持量の上限 150 GB や 1 候補 90 分の上限は変えない。
 - weights は BOXP-336 が取得したものを node 上でそのまま参照する。新規の download はしない。この GGUF をどう扱うか（残すか消すか）は BOXP-336 の Owner 判断として残っており、本票からは移動も削除もしない。
 - preset `qwen38-flash-next` は選択式として追加するだけで、既定 model は変えない。license は qwen-community-1.0（独自条件）。
@@ -91,9 +92,10 @@ Owner から「検証候補が古いのでは」と指摘があり、Qwen3.8-Fla
 計測手順:
 
 1. 他の run が GPU を使っていない時間帯に merge し、router を再起動する。BOXP-367 の実経路試験が進行中なら、その GPU 使用が終わるまで待つ。
-2. thinking off の同条件 suite を回す: load、F、C、CH、L32、B253、A1、A2。A2 が 90 分の上限を超える場合は、q122 と同じ扱いで省略または打ち切る。
-3. thinking on を別枠で試す: 実用時間 budget を固定し、router の `--reasoning off` の下で request ごとの `chat_template_kwargs` が効くかを最初に確認する。効かなければ未検証として記録する。
-4. 終わったら gemma4-26b に戻し、health、通常推論、MemAvailable、fence を確認する。
+2. 最初の load では memwatch で node の MemAvailable と router の RSS を記録し、子プロセスの引数に `--load-mode mmap` が付いていることを router のログで確認する。MemAvailable が 12 GiB を下回ったら即 unload して中止する。常駐が見積（約 46 GB）を大きく超えた場合は、suite に進まず原因を記録する。
+3. thinking off の同条件 suite を回す: load、F、C、CH、L32、B253、A1、A2。A2 が 90 分の上限を超える場合は、q122 と同じ扱いで省略または打ち切る。
+4. thinking on を別枠で試す: 実用時間 budget を固定し、router の `--reasoning off` の下で request ごとの `chat_template_kwargs` が効くかを最初に確認する。効かなければ未検証として記録する。
+5. 終わったら gemma4-26b に戻し、health、通常推論、MemAvailable、fence を確認する。
 
 batch 7 以降の queue（2026-10-30 に一次資料で棚卸し。HF API の revision・サイズと b11669 の `llama-arch.cpp` を照合済み）:
 
