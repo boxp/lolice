@@ -591,14 +591,14 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli!=\"hermes_conversation\"}",
+      "expr" : "(ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli!=\"hermes_conversation\"} + 2 * ai_ops_sli_source_partial{job=\"codex-workspace-ai-ops-metrics\",sli!=\"hermes_conversation\"}) or ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli!=\"hermes_conversation\"}",
       "legendFormat" : "",
       "refId" : "A",
       "format" : "table",
       "instant" : true,
       "range" : false
     } ],
-    "title" : "source 接続状況 (未接続は unknown として扱う)",
+    "title" : "source 接続状況 (未接続・部分観測は確定値として扱わない)",
     "fieldConfig" : {
       "defaults" : {
         "noValue" : "SLI export 未配備/停止 (unknown)",
@@ -608,6 +608,10 @@
             "0" : {
               "text" : "未接続 (unknown)",
               "color" : "orange"
+            },
+            "2" : {
+              "text" : "部分観測 (coverage 未宣言・件数は下限)",
+              "color" : "yellow"
             },
             "1" : {
               "text" : "接続",
@@ -1106,7 +1110,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"owner_rescue\"}",
+      "expr" : "(ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"owner_rescue\"} + 2 * ai_ops_sli_source_partial{job=\"codex-workspace-ai-ops-metrics\",sli=\"owner_rescue\"}) or ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"owner_rescue\"}",
       "legendFormat" : "owner rescue source",
       "refId" : "A",
       "instant" : true,
@@ -1123,6 +1127,10 @@
             "0" : {
               "text" : "未接続 (unknown)",
               "color" : "orange"
+            },
+            "2" : {
+              "text" : "部分観測 (coverage 未宣言・件数は下限)",
+              "color" : "yellow"
             },
             "1" : {
               "text" : "接続",
@@ -1171,7 +1179,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"duplicate_approval\"}",
+      "expr" : "(ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"duplicate_approval\"} + 2 * ai_ops_sli_source_partial{job=\"codex-workspace-ai-ops-metrics\",sli=\"duplicate_approval\"}) or ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"duplicate_approval\"}",
       "legendFormat" : "approval source",
       "refId" : "A",
       "instant" : true,
@@ -1188,6 +1196,10 @@
             "0" : {
               "text" : "未接続 (unknown)",
               "color" : "orange"
+            },
+            "2" : {
+              "text" : "部分観測 (coverage 未宣言・件数は下限)",
+              "color" : "yellow"
             },
             "1" : {
               "text" : "接続",
@@ -1602,7 +1614,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"ready_ack_latency\"}",
+      "expr" : "(ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"ready_ack_latency\"} + 2 * ai_ops_sli_source_partial{job=\"codex-workspace-ai-ops-metrics\",sli=\"ready_ack_latency\"}) or ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"ready_ack_latency\"}",
       "legendFormat" : "ready→ack source",
       "refId" : "A",
       "instant" : true,
@@ -1619,6 +1631,10 @@
             "0" : {
               "text" : "未接続 (unknown)",
               "color" : "orange"
+            },
+            "2" : {
+              "text" : "部分観測 (coverage 未宣言・件数は下限)",
+              "color" : "yellow"
             },
             "1" : {
               "text" : "接続",
@@ -1667,7 +1683,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"tokens_cost\"}",
+      "expr" : "(ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"tokens_cost\"} + 2 * ai_ops_sli_source_partial{job=\"codex-workspace-ai-ops-metrics\",sli=\"tokens_cost\"}) or ai_ops_sli_source_connected{job=\"codex-workspace-ai-ops-metrics\",sli=\"tokens_cost\"}",
       "legendFormat" : "tokens/cost source",
       "refId" : "A",
       "instant" : true,
@@ -1684,6 +1700,10 @@
             "0" : {
               "text" : "未接続 (unknown)",
               "color" : "orange"
+            },
+            "2" : {
+              "text" : "部分観測 (coverage 未宣言・件数は下限)",
+              "color" : "yellow"
             },
             "1" : {
               "text" : "接続",
