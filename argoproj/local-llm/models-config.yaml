@@ -130,3 +130,21 @@ data:
     ubatch-size = 512
     threads = 14
     threads-batch = 14
+
+    # BOXP-358 batch 7 (newest large MoE): Qwen/Qwen3.8-Flash-Next (base rev
+    # de4b8e4d, qwen4exp, 125B MoE / ~6B active + 51B ngram/PLE embedding,
+    # license qwen-community-1.0). Reuses the GGUF that BOXP-336 already fetched
+    # and sha256-verified (ISTA-DASLab GSQ-RCO Q2_0 rev ed59f920; shard 1 37.62 GB
+    # sha256 69820c02…, shard 2 = PLE table 28.80 GB sha256 316b46f3…); no new
+    # download. BOXP-336 ran it with this image (all layers on SYCL0): ~37.5 GB
+    # device weights, the PLE table stays mmap'd on the CPU side. 48 layers of
+    # which 12 full attention, 2 KV heads x 256, so f16 KV at the router ctx
+    # 262144 is ~6.4 GB and the resident total is ~46 GB (within the 55 GB
+    # per-candidate budget). Selectable only, same semantics as the presets above.
+    # Callers pass the sampler.
+    [qwen38-flash-next]
+    model = /models/boxp336-strata/flash-next-q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
