@@ -569,6 +569,8 @@ spec:
               value: "9464"
             - name: AI_OPS_METRICS_FILE
               value: /home/boxp/.codex-task-board/ai-ops/metrics.prom
+            - name: AI_SUBSCRIPTION_METRICS_FILE
+              value: /home/boxp/.codex-task-board/ai-ops/subscription-usage.prom
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
