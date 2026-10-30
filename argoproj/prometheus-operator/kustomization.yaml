@@ -51,3 +51,14 @@ configMapGenerator:
       app.kubernetes.io/name: grafana
       app.kubernetes.io/part-of: kube-prometheus
       app.kubernetes.io/version: 13.0.2
+- name: grafana-dashboard-ai-ops-quality
+  namespace: monitoring
+  files:
+  - ai-ops-quality.json=dashboards/ai-ops-quality.json
+  options:
+    disableNameSuffixHash: true
+    labels:
+      app.kubernetes.io/component: grafana
+      app.kubernetes.io/name: grafana
+      app.kubernetes.io/part-of: kube-prometheus
+      app.kubernetes.io/version: 13.0.2
