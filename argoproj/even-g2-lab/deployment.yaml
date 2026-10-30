@@ -93,11 +93,6 @@ spec:
             # plugin in hermes-agent); anything else fails closed.
             - name: KOHAKO_HERMES_TOOLSETS
               value: file,session_search,skills,terminal
-            # BOXP-348: Task Board 通知を G2 メッセージ窓へ同報し、返答を有効化する。
-            # 両経路(Telegram / G2)の原子的 claim は hermes-agent の kohako-g2-context
-            # plugin (>=1.3.14, Hermes PVC) が正本。未設定なら通知は表示のみ。
-            - name: KOHAKO_NOTIFICATION_CLAIM
-              value: hermes
             - name: KOHAKO_BFF_HOST
               value: 127.0.0.1
             - name: KOHAKO_BFF_PORT
