@@ -1,3 +1,5 @@
+> BOXP-366: G2 通知配信と通知 decision guard は撤去済み。以下は当時の記録。
+
 # BOXP-348: Task Board 通知への返答を Telegram / G2 で一回処理にする（Hermes 側 claim）
 
 ## 背景
