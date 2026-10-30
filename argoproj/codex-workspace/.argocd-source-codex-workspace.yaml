@@ -1,3 +1,3 @@
 kustomize:
   images:
-  - ghcr.io/boxp/arch/codex-workspace=ghcr.io/boxp/arch/codex-workspace:sha-57d484d
+  - ghcr.io/boxp/arch/codex-workspace=ghcr.io/boxp/arch/codex-workspace:sha-5c54552
