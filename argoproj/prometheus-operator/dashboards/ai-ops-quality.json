@@ -2660,7 +2660,7 @@
     "type" : "text",
     "options" : {
       "mode" : "markdown",
-      "content" : "**rate limit (利用枠)**: subscription の集計窓ごとの消費率 (%) とリセット時刻。token 量や金額ではない。API 単価への換算はしない (token / cost は BOXP-360 の別 panel)。\n\n- **取得元**: Claude Code は task-board runner の通常 run が出す公式 stream-json `rate_limit_event`、Codex は CLI が rollout に記録する `rate_limits`。追加の model 呼出しや非公式 endpoint は使わない。資格情報・会話本文は収集しない。\n- **鮮度**: 値は「最後に CLI を使った時点」の観測値。経過時間を必ず併読する。窓のリセット時刻を過ぎた値は表示しない (失効扱い)。\n- **予算 (追加利用)**: Claude は追加利用 (extra usage) の可否状態、Codex は credits の有無と残数。**追加利用の金額上限・消費額はどちらの公式出力にも無いため取得不能** (0 ではない)。\n- 未取得の値は 0% や残量 100% にせず「未取得」と表示する。\n\n共有枠 (5h / 週次) とモデル専用枠 (Fable: seven_day_overage_included) は別の枠であり、合算も相互推測もしない。Fable 専用枠が「未提供」の場合は、このアカウントの応答にその窓が含まれていないことを意味し、共有枠から推測した値ではない。"
+      "content" : "**rate limit (利用枠)**: subscription の集計窓ごとの消費率 (%) とリセット時刻。token 量や金額ではない。API 単価への換算はしない (token / cost は BOXP-360 の別 panel)。\n\n- **取得元**: Claude Code は task-board runner の通常 run が出す公式 stream-json `rate_limit_event`、Codex は CLI が rollout に記録する `rate_limits`。追加の model 呼出しや非公式 endpoint は使わない。資格情報・会話本文は収集しない。\n- **鮮度**: 値は「最後に CLI を使った時点」の観測値。経過時間を必ず併読する。窓のリセット時刻を過ぎた値は表示しない (失効扱い)。リセット時刻超過は Grafana 側の query でも除外し、生成側の更新を待たない。\n- **予算 (追加利用)**: Claude は追加利用 (extra usage) の可否状態、Codex は credits の有無と残数。**追加利用の金額上限・消費額はどちらの公式出力にも無いため取得不能** (0 ではない)。\n- 未取得の値は 0% や残量 100% にせず「未取得」と表示する。\n\n共有枠 (5h / 週次) とモデル専用枠 (Fable: seven_day_overage_included) は別の枠であり、合算も相互推測もしない。Fable 専用枠が「未提供」の場合は、このアカウントの応答にその窓が含まれていないことを意味し、共有枠から推測した値ではない。"
     }
   }, {
     "datasource" : {
@@ -2682,7 +2682,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"}",
+      "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"} and on(provider, limit, name, window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} > time())",
       "legendFormat" : "{{provider}} {{name}} ({{window}})",
       "refId" : "A",
       "instant" : true,
@@ -2884,7 +2884,7 @@
       "type" : "prometheus",
       "uid" : "${datasource}"
     },
-    "description" : "集計窓の長さ・リセット時刻・リセットまでの残り時間と、窓 (枠) ごとの観測時刻。Codex は limit_id バケットごとに最後に観測した時刻が異なりうるため、provider 全体の鮮度ではなくこの列で枠ごとの鮮度を確認する。expired=1 はリセット時刻を過ぎ、その後の観測がない窓 (消費率は表示しない)。",
+    "description" : "集計窓の長さ・リセット時刻・リセットまでの残り時間と、窓 (枠) ごとの観測時刻。Codex は limit_id バケットごとに最後に観測した時刻が異なりうるため、provider 全体の鮮度ではなくこの列で枠ごとの鮮度を確認する。expired=1 はリセット時刻を過ぎ、その後の観測がない窓 (消費率は表示しない)。失効はリセット時刻を Grafana 側でも判定するため、metrics file 生成が止まっていても古い消費率は表示しない。",
     "gridPos" : {
       "x" : 0,
       "y" : 72,
@@ -2899,7 +2899,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"}",
+      "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"} and on(provider, limit, name, window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} > time())",
       "format" : "table",
       "refId" : "A",
       "instant" : true,
@@ -2939,7 +2939,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_subscription_window_expired{job=\"codex-workspace-ai-ops-metrics\"}",
+      "expr" : "clamp_max(ai_subscription_window_expired{job=\"codex-workspace-ai-ops-metrics\"} + (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} <= bool time()), 1)",
       "format" : "table",
       "refId" : "E",
       "instant" : true,
@@ -3606,7 +3606,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"}",
+      "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"} and on(provider, limit, name, window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"} > time())",
       "legendFormat" : "Fable 専用枠 消費率",
       "refId" : "B",
       "instant" : true,
