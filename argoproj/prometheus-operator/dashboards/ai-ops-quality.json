@@ -2636,6 +2636,1092 @@
         "values" : false
       }
     }
+  }, {
+    "collapsed" : false,
+    "gridPos" : {
+      "x" : 0,
+      "y" : 59,
+      "w" : 24,
+      "h" : 1
+    },
+    "id" : 100,
+    "title" : "subscription 利用枠 (Claude Code / Codex, BOXP-372)",
+    "type" : "row",
+    "panels" : [ ]
+  }, {
+    "gridPos" : {
+      "x" : 0,
+      "y" : 60,
+      "w" : 24,
+      "h" : 5
+    },
+    "id" : 101,
+    "title" : "subscription 利用枠の読み方",
+    "type" : "text",
+    "options" : {
+      "mode" : "markdown",
+      "content" : "**rate limit (利用枠)**: subscription の集計窓ごとの消費率 (%) とリセット時刻。token 量や金額ではない。API 単価への換算はしない (token / cost は BOXP-360 の別 panel)。\n\n- **取得元**: Claude Code は task-board runner の通常 run が出す公式 stream-json `rate_limit_event`、Codex は CLI が rollout に記録する `rate_limits`。追加の model 呼出しや非公式 endpoint は使わない。資格情報・会話本文は収集しない。\n- **鮮度**: 値は「最後に CLI を使った時点」の観測値。経過時間を必ず併読する。窓のリセット時刻を過ぎた値は表示しない (失効扱い)。リセット時刻超過は Grafana 側の query でも除外し、生成側の更新を待たない。リセット時刻が未提供の窓は Grafana 側で失効判定せず消費率を表示し、リセット時刻列は空 (時刻不明)。\n- **予算 (追加利用)**: Claude は追加利用 (extra usage) の可否状態、Codex は credits の有無と残数。**追加利用の金額上限・消費額はどちらの公式出力にも無いため取得不能** (0 ではない)。\n- 未取得の値は 0% や残量 100% にせず「未取得」と表示する。\n\n共有枠 (5h / 週次) とモデル専用枠 (Fable: seven_day_overage_included) は別の枠であり、合算も相互推測もしない。Fable 専用枠が「未提供」の場合は、このアカウントの応答にその窓が含まれていないことを意味し、共有枠から推測した値ではない。"
+    }
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "description" : "集計窓ごとの消費率。リセット時刻を過ぎた窓は表示しない。リセット時刻が未提供の窓は失効判定せず消費率を表示する。",
+    "gridPos" : {
+      "x" : 0,
+      "y" : 65,
+      "w" : 12,
+      "h" : 7
+    },
+    "id" : 102,
+    "title" : "利用枠 消費率 (%)",
+    "type" : "bargauge",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"} unless on(provider, limit, name, window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} <= time())",
+      "legendFormat" : "{{provider}} {{name}} ({{window}})",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "percent",
+        "min" : 0,
+        "max" : 100,
+        "decimals" : 0,
+        "noValue" : "未取得 (snapshot なし / 窓リセット後に未観測)",
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "yellow",
+            "value" : 70
+          }, {
+            "color" : "red",
+            "value" : 90
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "displayMode" : "basic",
+      "orientation" : "horizontal",
+      "showUnfilled" : true,
+      "valueMode" : "color",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "description" : "provider ごとの最終観測からの経過時間と取得状態。no_snapshot は CLI の観測が未取得、parse_error は記録の読取失敗。",
+    "gridPos" : {
+      "x" : 12,
+      "y" : 65,
+      "w" : 12,
+      "h" : 7
+    },
+    "id" : 103,
+    "title" : "取得状態と鮮度",
+    "type" : "table",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_source_state{job=\"codex-workspace-ai-ops-metrics\"} == 1",
+      "format" : "table",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "time() - ai_subscription_observed_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+      "format" : "table",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_observed_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"} * 1000",
+      "format" : "table",
+      "refId" : "C",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "subscription metrics 未配備/停止"
+      },
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "Value #B"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "最終観測からの経過"
+        }, {
+          "id" : "unit",
+          "value" : "s"
+        }, {
+          "id" : "custom.cellOptions",
+          "value" : {
+            "type" : "color-text"
+          }
+        }, {
+          "id" : "thresholds",
+          "value" : {
+            "mode" : "absolute",
+            "steps" : [ {
+              "color" : "green",
+              "value" : null
+            }, {
+              "color" : "yellow",
+              "value" : 21600
+            }, {
+              "color" : "red",
+              "value" : 86400
+            } ]
+          }
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "Value #C"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "最終観測時刻"
+        }, {
+          "id" : "unit",
+          "value" : "dateTimeAsIso"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "state"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "取得状態"
+        }, {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "ok" : {
+                "text" : "取得中",
+                "color" : "green"
+              },
+              "no_snapshot" : {
+                "text" : "未取得 (CLI の観測なし)",
+                "color" : "orange"
+              },
+              "parse_error" : {
+                "text" : "読取失敗",
+                "color" : "red"
+              }
+            }
+          } ]
+        }, {
+          "id" : "custom.cellOptions",
+          "value" : {
+            "type" : "color-text"
+          }
+        } ]
+      } ]
+    },
+    "options" : {
+      "showHeader" : true,
+      "cellHeight" : "sm"
+    },
+    "transformations" : [ {
+      "id" : "merge",
+      "options" : { }
+    }, {
+      "id" : "organize",
+      "options" : {
+        "excludeByName" : {
+          "prometheus" : true,
+          "pod" : true,
+          "instance" : true,
+          "endpoint" : true,
+          "service" : true,
+          "namespace" : true,
+          "__name__" : true,
+          "Time" : true,
+          "container" : true,
+          "job" : true,
+          "Value #A" : true
+        },
+        "renameByName" : {
+          "provider" : "provider"
+        }
+      }
+    } ]
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "description" : "集計窓の長さ・リセット時刻・リセットまでの残り時間と、窓 (枠) ごとの観測時刻。Codex は limit_id バケットごとに最後に観測した時刻が異なりうるため、provider 全体の鮮度ではなくこの列で枠ごとの鮮度を確認する。expired=1 はリセット時刻を過ぎ、その後の観測がない窓 (消費率は表示しない)。失効はリセット時刻を Grafana 側でも判定するため、metrics file 生成が止まっていても古い消費率は表示しない。リセット時刻が未提供の窓は失効判定の対象外で、消費率はそのまま表示し、リセット時刻・残り時間・失効の列は空 (時刻不明) になる。",
+    "gridPos" : {
+      "x" : 0,
+      "y" : 72,
+      "w" : 24,
+      "h" : 6
+    },
+    "id" : 104,
+    "title" : "集計窓とリセット時刻",
+    "type" : "table",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"} unless on(provider, limit, name, window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} <= time())",
+      "format" : "table",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_duration_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+      "format" : "table",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} * 1000",
+      "format" : "table",
+      "refId" : "C",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "clamp_min(ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} - time(), 0)",
+      "format" : "table",
+      "refId" : "D",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "clamp_max(ai_subscription_window_expired{job=\"codex-workspace-ai-ops-metrics\"} + (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} <= bool time()), 1)",
+      "format" : "table",
+      "refId" : "E",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_observed_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"} * 1000",
+      "format" : "table",
+      "refId" : "F",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "time() - ai_subscription_window_observed_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+      "format" : "table",
+      "refId" : "G",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "未取得"
+      },
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "Value #A"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "消費率"
+        }, {
+          "id" : "unit",
+          "value" : "percent"
+        }, {
+          "id" : "decimals",
+          "value" : 0
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "Value #B"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "集計窓"
+        }, {
+          "id" : "unit",
+          "value" : "s"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "Value #C"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "リセット時刻"
+        }, {
+          "id" : "unit",
+          "value" : "dateTimeAsIso"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "Value #D"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "リセットまで"
+        }, {
+          "id" : "unit",
+          "value" : "s"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "Value #E"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "失効"
+        }, {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "0" : {
+                "text" : "有効"
+              },
+              "1" : {
+                "text" : "失効 (リセット後未観測)",
+                "color" : "orange"
+              }
+            }
+          } ]
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "Value #F"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "窓の観測時刻"
+        }, {
+          "id" : "unit",
+          "value" : "dateTimeAsIso"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "Value #G"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "窓の観測からの経過"
+        }, {
+          "id" : "unit",
+          "value" : "s"
+        }, {
+          "id" : "thresholds",
+          "value" : {
+            "mode" : "absolute",
+            "steps" : [ {
+              "color" : "green",
+              "value" : null
+            }, {
+              "color" : "orange",
+              "value" : 86400
+            }, {
+              "color" : "red",
+              "value" : 259200
+            } ]
+          }
+        }, {
+          "id" : "custom.cellOptions",
+          "value" : {
+            "type" : "color-text"
+          }
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "枠"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "shared_5h" : {
+                "text" : "共有 5h"
+              },
+              "shared_7d" : {
+                "text" : "共有 週次"
+              },
+              "fable_7d" : {
+                "text" : "Fable 専用 週次"
+              },
+              "opus_7d" : {
+                "text" : "Opus 専用 週次"
+              },
+              "sonnet_7d" : {
+                "text" : "Sonnet 専用 週次"
+              },
+              "primary" : {
+                "text" : "Codex primary"
+              },
+              "secondary" : {
+                "text" : "Codex secondary"
+              }
+            }
+          } ]
+        } ]
+      } ]
+    },
+    "options" : {
+      "showHeader" : true,
+      "cellHeight" : "sm"
+    },
+    "transformations" : [ {
+      "id" : "merge",
+      "options" : { }
+    }, {
+      "id" : "organize",
+      "options" : {
+        "excludeByName" : {
+          "prometheus" : true,
+          "pod" : true,
+          "instance" : true,
+          "endpoint" : true,
+          "service" : true,
+          "namespace" : true,
+          "__name__" : true,
+          "Time" : true,
+          "container" : true,
+          "job" : true
+        },
+        "renameByName" : {
+          "name" : "枠"
+        },
+        "indexByName" : {
+          "provider" : 0,
+          "name" : 1,
+          "limit" : 2,
+          "window" : 3,
+          "Value #A" : 4,
+          "Value #B" : 5,
+          "Value #C" : 6,
+          "Value #D" : 7,
+          "Value #E" : 8,
+          "Value #F" : 9,
+          "Value #G" : 10
+        }
+      }
+    } ]
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "description" : "Claude Code の追加利用 (extra usage / overage) の可否。rate_limit_event の overageStatus と無効理由。金額上限・消費額は公式出力に無く取得不能。",
+    "gridPos" : {
+      "x" : 0,
+      "y" : 78,
+      "w" : 12,
+      "h" : 5
+    },
+    "id" : 105,
+    "title" : "Claude 追加利用 (予算) の状態",
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_extra_usage_status{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\"} == 1",
+      "legendFormat" : "状態: {{status}} (理由: {{reason}})",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_extra_usage_in_use{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\"}",
+      "legendFormat" : "追加利用中",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "未取得 (Claude の rate_limit_event 未観測)",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        }
+      },
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "A"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "1" : {
+                "text" : "観測値"
+              }
+            }
+          } ]
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "B"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "0" : {
+                "text" : "いいえ",
+                "color" : "green"
+              },
+              "1" : {
+                "text" : "はい (subscription 枠超過分を利用中)",
+                "color" : "orange"
+              }
+            }
+          } ]
+        } ]
+      } ]
+    },
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "description" : "Codex の credits (subscription 枠外の追加利用分) と plan。balance は credits の件数で金額ではない。金額上限・消費額は公式出力に無く取得不能。",
+    "gridPos" : {
+      "x" : 12,
+      "y" : 78,
+      "w" : 12,
+      "h" : 5
+    },
+    "id" : 106,
+    "title" : "Codex credits (予算) の状態",
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_credits_available{job=\"codex-workspace-ai-ops-metrics\",provider=\"codex\"}",
+      "legendFormat" : "credits あり",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_credits_balance{job=\"codex-workspace-ai-ops-metrics\",provider=\"codex\"}",
+      "legendFormat" : "credits 残数",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_credits_unlimited{job=\"codex-workspace-ai-ops-metrics\",provider=\"codex\"}",
+      "legendFormat" : "無制限",
+      "refId" : "C",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_plan_info{job=\"codex-workspace-ai-ops-metrics\",provider=\"codex\"}",
+      "legendFormat" : "plan: {{plan}}",
+      "refId" : "D",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "none",
+        "noValue" : "未取得 (Codex の rate_limits 未観測)",
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          } ]
+        }
+      },
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "A"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "0" : {
+                "text" : "なし"
+              },
+              "1" : {
+                "text" : "あり"
+              }
+            }
+          } ]
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "C"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "0" : {
+                "text" : "いいえ"
+              },
+              "1" : {
+                "text" : "はい"
+              }
+            }
+          } ]
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "D"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "1" : {
+                "text" : "観測値"
+              }
+            }
+          } ]
+        } ]
+      } ]
+    },
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "description" : "利用枠の上限到達 (Codex rate_limit_reached_type / spend_control_reached) と、Claude の窓ごとの status (allowed / allowed_warning / rejected)。",
+    "gridPos" : {
+      "x" : 0,
+      "y" : 83,
+      "w" : 12,
+      "h" : 5
+    },
+    "id" : 107,
+    "title" : "上限到達・警告",
+    "type" : "table",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_status{job=\"codex-workspace-ai-ops-metrics\"} == 1",
+      "format" : "table",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "label_replace(ai_subscription_limit_reached{job=\"codex-workspace-ai-ops-metrics\"} == 1, \"status\", \"reached:$1\", \"type\", \"(.*)\")",
+      "format" : "table",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "label_replace(ai_subscription_spend_control_reached{job=\"codex-workspace-ai-ops-metrics\"} == 1, \"status\", \"spend_control_reached\", \"__name__\", \".*\")",
+      "format" : "table",
+      "refId" : "C",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "警告・上限到達なし (または未取得: 取得状態を参照)"
+      },
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "status"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "allowed" : {
+                "text" : "allowed",
+                "color" : "green"
+              },
+              "allowed_warning" : {
+                "text" : "allowed_warning (警告)",
+                "color" : "yellow"
+              },
+              "rejected" : {
+                "text" : "rejected (上限到達)",
+                "color" : "red"
+              }
+            }
+          } ]
+        }, {
+          "id" : "custom.cellOptions",
+          "value" : {
+            "type" : "color-text"
+          }
+        } ]
+      } ]
+    },
+    "options" : {
+      "showHeader" : true,
+      "cellHeight" : "sm"
+    },
+    "transformations" : [ {
+      "id" : "merge",
+      "options" : { }
+    }, {
+      "id" : "organize",
+      "options" : {
+        "excludeByName" : {
+          "prometheus" : true,
+          "pod" : true,
+          "instance" : true,
+          "endpoint" : true,
+          "service" : true,
+          "namespace" : true,
+          "__name__" : true,
+          "Time" : true,
+          "container" : true,
+          "job" : true,
+          "Value #A" : true,
+          "Value #B" : true,
+          "Value #C" : true,
+          "type" : true
+        }
+      }
+    } ]
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "description" : "subscription-usage.prom の出力が sidecar で読めているか。-1 は file なし。",
+    "gridPos" : {
+      "x" : 12,
+      "y" : 83,
+      "w" : 12,
+      "h" : 5
+    },
+    "id" : 108,
+    "title" : "subscription metrics file 経過秒",
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_metrics_file_age_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+      "legendFormat" : "file age",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "s",
+        "noValue" : "sidecar 未対応 (配備前)",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "-1" : {
+              "text" : "file なし",
+              "color" : "orange"
+            }
+          }
+        } ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "yellow",
+            "value" : 300
+          }, {
+            "color" : "red",
+            "value" : 1800
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 88,
+      "w" : 12,
+      "h" : 5
+    },
+    "id" : 109,
+    "title" : "Claude Fable 専用枠 (seven_day_overage_included)",
+    "description" : "Claude Code のモデル専用週次枠 (rate_limit_event の unifiedWindows.seven_day_overage_included、CLI 表示名 Fable limit)。共有 5h / 週次枠とは別の枠で合算しない。未提供 = このアカウントの応答にこの窓が含まれていない状態で、共有枠から推測した値ではない。",
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_present{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"}",
+      "legendFormat" : "提供状態",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"} unless on(provider, limit, name, window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"} <= time())",
+      "legendFormat" : "Fable 専用枠 消費率",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "未提供 / 未観測"
+      },
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "A"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "1" : {
+                "text" : "提供あり",
+                "color" : "green"
+              },
+              "0" : {
+                "text" : "未提供 (このaccountの応答にFable窓なし)",
+                "color" : "text"
+              }
+            }
+          } ]
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "B"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "percent"
+        }, {
+          "id" : "noValue",
+          "value" : "未提供 / 未観測"
+        }, {
+          "id" : "thresholds",
+          "value" : {
+            "mode" : "absolute",
+            "steps" : [ {
+              "color" : "green",
+              "value" : null
+            }, {
+              "color" : "orange",
+              "value" : 70
+            }, {
+              "color" : "red",
+              "value" : 90
+            } ]
+          }
+        } ]
+      } ]
+    },
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 88,
+      "w" : 12,
+      "h" : 5
+    },
+    "id" : 110,
+    "title" : "Claude 現在の制限中の窓 (rateLimitType)",
+    "description" : "Claude Code が直近の rate_limit_event で「現在制限の基準になっている窓」として通知した rateLimitType (five_hour / seven_day / seven_day_opus / seven_day_sonnet / seven_day_overage_included / overage)。利用率ではなく識別子のみ。",
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_limiting_window{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\"} == 1",
+      "legendFormat" : "{{limit}}",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "未観測"
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
   } ],
   "links" : [ ],
   "schemaVersion" : 39
