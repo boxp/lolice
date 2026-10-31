@@ -1982,7 +1982,7 @@
       "type" : "prometheus",
       "uid" : "${datasource}"
     },
-    "description" : "集計窓の長さ・リセット時刻・リセットまでの残り時間。expired=1 はリセット時刻を過ぎ、その後の観測がない窓 (消費率は表示しない)。",
+    "description" : "集計窓の長さ・リセット時刻・リセットまでの残り時間と、窓 (枠) ごとの観測時刻。Codex は limit_id バケットごとに最後に観測した時刻が異なりうるため、provider 全体の鮮度ではなくこの列で枠ごとの鮮度を確認する。expired=1 はリセット時刻を過ぎ、その後の観測がない窓 (消費率は表示しない)。",
     "gridPos" : {
       "x" : 0,
       "y" : 72,
@@ -2040,6 +2040,26 @@
       "expr" : "ai_subscription_window_expired{job=\"codex-workspace-ai-ops-metrics\"}",
       "format" : "table",
       "refId" : "E",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_observed_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"} * 1000",
+      "format" : "table",
+      "refId" : "F",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "time() - ai_subscription_window_observed_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+      "format" : "table",
+      "refId" : "G",
       "instant" : true,
       "range" : false
     } ],
@@ -2124,6 +2144,50 @@
       }, {
         "matcher" : {
           "id" : "byName",
+          "options" : "Value #F"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "窓の観測時刻"
+        }, {
+          "id" : "unit",
+          "value" : "dateTimeAsIso"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "Value #G"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "窓の観測からの経過"
+        }, {
+          "id" : "unit",
+          "value" : "s"
+        }, {
+          "id" : "thresholds",
+          "value" : {
+            "mode" : "absolute",
+            "steps" : [ {
+              "color" : "green",
+              "value" : null
+            }, {
+              "color" : "orange",
+              "value" : 86400
+            }, {
+              "color" : "red",
+              "value" : 259200
+            } ]
+          }
+        }, {
+          "id" : "custom.cellOptions",
+          "value" : {
+            "type" : "color-text"
+          }
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
           "options" : "枠"
         },
         "properties" : [ {
@@ -2191,7 +2255,9 @@
           "Value #B" : 5,
           "Value #C" : 6,
           "Value #D" : 7,
-          "Value #E" : 8
+          "Value #E" : 8,
+          "Value #F" : 9,
+          "Value #G" : 10
         }
       }
     } ]
