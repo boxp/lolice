@@ -25,11 +25,11 @@
     "to" : "now"
   },
   "title" : "AI Ops Quality (BOXP-360)",
-  "version" : 1,
+  "version" : 2,
   "panels" : [ {
     "type" : "text",
     "id" : 1,
-    "title" : "このdashboardの読み方 (definition: ai-ops-event/v0, sli/v1)",
+    "title" : "このdashboardの読み方 (definition: ai-ops-event/v0, sli/v1, correction-rules/v1 (v0 比較用))",
     "gridPos" : {
       "x" : 0,
       "y" : 0,
@@ -38,16 +38,16 @@
     },
     "options" : {
       "mode" : "markdown",
-      "content" : "**目的**: Board/Hermes の運用品質を本文なしの metadata だけで見る (BOXP-360)。暫定 baseline 観測期間: **2026-10-29 〜 2026-11-12 (最長 11-26)**。SLO は未確定で、ここの値は目標ではない。\n\n- **品質/進行の SLI** は runner が `ai_ops_sli.bb` で全履歴から再計算した **snapshot gauge** (既定15分毎)。`rate()`/`increase()`/合計をかけない。母数 (分母) と未評価件数を必ず並べて読む。\n- **unknown**: source 未接続・欠落 event がある SLI は値を出さず「判定不能/未接続」と表示する (0 や合格には数えない)。\n- **counter** (ledger/Hermes の `*_total`) は表示期間内の `increase()` で見る。runner ledger は 2026-10-29 14:33Z、Hermes ledger は同日配備以降のみ。\n- 是正分類は rule による **暫定分類** (correction-rules/v1 候補、原因 unknown を含む)。モデル別ランキングには使わない。lead time は frontmatter 日粒度。\n- 小母数: 率は必ず件数/分母と一緒に読む。p90 や % の過信禁止。"
+      "content" : "**目的**: Board/Hermes の運用品質を本文なしの metadata で見る。SLI と v1 は全履歴の snapshot gauge。率は件数と分母を併読する。counter は期間内増分。\n\n- **未接続**: source が無い / 配線されていない。 **履歴欠損**: 入力の欠落・拒否・読めない run により確定できない。\n- **分類不能**: metadata だけでは判別できない。 **対象外**: 取得しない方針。unknown は 0 や成功ではない。\n- v1 の **Owner に見える是正** は Owner 差戻し率ではない。本文を読まないため差戻し・承認後の継続・新 scope は区別しない。"
     }
   }, {
     "type" : "row",
-    "title" : "観測信頼性 (まずここを確認)",
+    "title" : "観測信頼性",
     "id" : 2,
     "collapsed" : false,
     "gridPos" : {
       "x" : 0,
-      "y" : 6,
+      "y" : 31,
       "w" : 24,
       "h" : 1
     },
@@ -60,9 +60,9 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 7,
+      "y" : 32,
       "w" : 4,
-      "h" : 4
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -125,9 +125,9 @@
     },
     "gridPos" : {
       "x" : 4,
-      "y" : 7,
+      "y" : 32,
       "w" : 4,
-      "h" : 4
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -190,9 +190,9 @@
     },
     "gridPos" : {
       "x" : 8,
-      "y" : 7,
-      "w" : 5,
-      "h" : 4
+      "y" : 32,
+      "w" : 4,
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -242,10 +242,10 @@
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 13,
-      "y" : 7,
-      "w" : 5,
-      "h" : 4
+      "x" : 12,
+      "y" : 32,
+      "w" : 4,
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -295,10 +295,10 @@
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 18,
-      "y" : 7,
-      "w" : 6,
-      "h" : 4
+      "x" : 16,
+      "y" : 32,
+      "w" : 4,
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -350,9 +350,9 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 11,
-      "w" : 8,
-      "h" : 4
+      "y" : 35,
+      "w" : 6,
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -413,10 +413,10 @@
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 8,
-      "y" : 11,
-      "w" : 8,
-      "h" : 4
+      "x" : 6,
+      "y" : 35,
+      "w" : 6,
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -497,10 +497,10 @@
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 16,
-      "y" : 11,
-      "w" : 8,
-      "h" : 4
+      "x" : 12,
+      "y" : 35,
+      "w" : 6,
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -562,9 +562,9 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 15,
+      "y" : 38,
       "w" : 12,
-      "h" : 7
+      "h" : 5
     },
     "transformations" : [ {
       "id" : "merge",
@@ -635,9 +635,9 @@
     },
     "gridPos" : {
       "x" : 12,
-      "y" : 15,
+      "y" : 38,
       "w" : 12,
-      "h" : 7
+      "h" : 5
     },
     "transformations" : [ {
       "id" : "merge",
@@ -698,12 +698,12 @@
     }
   }, {
     "type" : "row",
-    "title" : "品質",
+    "title" : "品質 (測れる指標)",
     "id" : 13,
     "collapsed" : false,
     "gridPos" : {
       "x" : 0,
-      "y" : 22,
+      "y" : 6,
       "w" : 24,
       "h" : 1
     },
@@ -715,10 +715,10 @@
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 0,
-      "y" : 23,
+      "x" : 12,
+      "y" : 10,
       "w" : 6,
-      "h" : 5
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -732,7 +732,7 @@
       "instant" : true,
       "range" : false
     } ],
-    "title" : "agent-system 是正を含む task 割合",
+    "title" : "agent-system 是正を含む task 割合 (v0 比較用)",
     "fieldConfig" : {
       "defaults" : {
         "unit" : "percentunit",
@@ -769,10 +769,10 @@
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 6,
-      "y" : 23,
+      "x" : 0,
+      "y" : 13,
       "w" : 6,
-      "h" : 5
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -806,7 +806,7 @@
       "instant" : true,
       "range" : false
     } ],
-    "title" : "是正 task 件数 / 分母",
+    "title" : "是正 task 件数 / 分母 (v0 比較用)",
     "fieldConfig" : {
       "defaults" : {
         "unit" : "short",
@@ -843,10 +843,10 @@
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 12,
-      "y" : 23,
+      "x" : 6,
+      "y" : 13,
       "w" : 6,
-      "h" : 5
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -907,10 +907,10 @@
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 18,
-      "y" : 23,
+      "x" : 12,
+      "y" : 13,
       "w" : 6,
-      "h" : 5
+      "h" : 3
     },
     "type" : "stat",
     "targets" : [ {
@@ -982,9 +982,9 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 28,
+      "y" : 16,
       "w" : 12,
-      "h" : 7
+      "h" : 6
     },
     "transformations" : [ {
       "id" : "merge",
@@ -1039,9 +1039,9 @@
     },
     "gridPos" : {
       "x" : 12,
-      "y" : 28,
+      "y" : 16,
       "w" : 12,
-      "h" : 7
+      "h" : 6
     },
     "type" : "timeseries",
     "targets" : [ {
@@ -1080,28 +1080,874 @@
         "sort" : "none"
       }
     }
-  }, {
+  },
+    {
+      "description" : "v1 の Owner 可視是正 (succeeded した review-fix run を持つ task、または Review 後に implement が再開した task) / Review 到達 task。差戻し率ではない。",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 0,
+        "y" : 7,
+        "w" : 6,
+        "h" : 3
+      },
+      "type" : "stat",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_correction_tasks{job=\"codex-workspace-ai-ops-metrics\",kind=\"owner_visible\"} / ignoring(kind) ai_ops_v1_reached_review_tasks{job=\"codex-workspace-ai-ops-metrics\"} and on() (ai_ops_v1_export_ok{job=\"codex-workspace-ai-ops-metrics\"} == 1)",
+          "legendFormat" : "割合",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false
+        }
+      ],
+      "title" : "Owner に見える是正 task 割合 (v1)",
+      "fieldConfig" : {
+        "defaults" : {
+          "unit" : "percentunit",
+          "noValue" : "v1 未出力",
+          "mappings" : [],
+          "thresholds" : {
+            "mode" : "absolute",
+            "steps" : [
+              {
+                "color" : "blue",
+                "value" : null
+              }
+            ]
+          }
+        },
+        "overrides" : []
+      },
+      "id" : 40,
+      "options" : {
+        "colorMode" : "value",
+        "graphMode" : "none",
+        "justifyMode" : "center",
+        "orientation" : "auto",
+        "textMode" : "value_and_name",
+        "reduceOptions" : {
+          "calcs" : [
+            "lastNotNull"
+          ],
+          "fields" : "",
+          "values" : false
+        }
+      }
+    },
+    {
+      "description" : "",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 6,
+        "y" : 7,
+        "w" : 6,
+        "h" : 3
+      },
+      "type" : "stat",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_correction_tasks{job=\"codex-workspace-ai-ops-metrics\",kind=\"owner_visible_agent_system\"}",
+          "legendFormat" : "agent 起因で Owner 可視",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false
+        },
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_correction_tasks{job=\"codex-workspace-ai-ops-metrics\",kind=\"agent_system\"}",
+          "legendFormat" : "agent 起因 全体、内部 gate 含む",
+          "refId" : "B",
+          "instant" : true,
+          "range" : false
+        },
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_correction_tasks{job=\"codex-workspace-ai-ops-metrics\",kind=\"owner_visible\"}",
+          "legendFormat" : "Owner 可視 全体",
+          "refId" : "C",
+          "instant" : true,
+          "range" : false
+        },
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_reached_review_tasks{job=\"codex-workspace-ai-ops-metrics\"}",
+          "legendFormat" : "分母: Review 到達 task",
+          "refId" : "D",
+          "instant" : true,
+          "range" : false
+        }
+      ],
+      "title" : "是正の内訳 (v1, task 数)",
+      "fieldConfig" : {
+        "defaults" : {
+          "unit" : "short",
+          "noValue" : "v1 未出力",
+          "mappings" : [],
+          "thresholds" : {
+            "mode" : "absolute",
+            "steps" : [
+              {
+                "color" : "blue",
+                "value" : null
+              }
+            ]
+          }
+        },
+        "overrides" : []
+      },
+      "id" : 41,
+      "options" : {
+        "colorMode" : "value",
+        "graphMode" : "none",
+        "justifyMode" : "center",
+        "orientation" : "auto",
+        "textMode" : "value_and_name",
+        "reduceOptions" : {
+          "calcs" : [
+            "lastNotNull"
+          ],
+          "fields" : "",
+          "values" : false
+        }
+      }
+    },
+    {
+      "description" : "",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 12,
+        "y" : 7,
+        "w" : 6,
+        "h" : 3
+      },
+      "type" : "stat",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_gate_rework_runs{job=\"codex-workspace-ai-ops-metrics\",part=\"total\"}",
+          "legendFormat" : "run 数",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false
+        },
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_gate_rework_tasks{job=\"codex-workspace-ai-ops-metrics\"}",
+          "legendFormat" : "task 数",
+          "refId" : "B",
+          "instant" : true,
+          "range" : false
+        },
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_gate_rework_runs{job=\"codex-workspace-ai-ops-metrics\",part=\"pending\"}",
+          "legendFormat" : "後続 run 未開始",
+          "refId" : "C",
+          "instant" : true,
+          "range" : false
+        }
+      ],
+      "title" : "内部 gate 再作業 (v1, Owner に届く前)",
+      "fieldConfig" : {
+        "defaults" : {
+          "unit" : "short",
+          "noValue" : "v1 未出力",
+          "mappings" : [],
+          "thresholds" : {
+            "mode" : "absolute",
+            "steps" : [
+              {
+                "color" : "blue",
+                "value" : null
+              }
+            ]
+          }
+        },
+        "overrides" : []
+      },
+      "id" : 42,
+      "options" : {
+        "colorMode" : "value",
+        "graphMode" : "none",
+        "justifyMode" : "center",
+        "orientation" : "auto",
+        "textMode" : "value_and_name",
+        "reduceOptions" : {
+          "calcs" : [
+            "lastNotNull"
+          ],
+          "fields" : "",
+          "values" : false
+        }
+      }
+    },
+    {
+      "description" : "gate 別の再作業 run 数。",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 18,
+        "y" : 7,
+        "w" : 6,
+        "h" : 6
+      },
+      "transformations" : [
+        {
+          "id" : "organize",
+          "options" : {
+            "excludeByName" : {
+              "__name__" : true,
+              "job" : true,
+              "instance" : true,
+              "pod" : true,
+              "service" : true,
+              "namespace" : true,
+              "endpoint" : true,
+              "container" : true,
+              "Time" : true,
+              "prometheus" : true
+            },
+            "renameByName" : {}
+          }
+        }
+      ],
+      "type" : "table",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_gate_rework_runs_by_gate{job=\"codex-workspace-ai-ops-metrics\"}",
+          "legendFormat" : "",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false,
+          "format" : "table"
+        }
+      ],
+      "title" : "gate 再作業の内訳 (gate 別, v1)",
+      "fieldConfig" : {
+        "defaults" : {
+          "noValue" : "未出力",
+          "mappings" : []
+        },
+        "overrides" : []
+      },
+      "id" : 43,
+      "options" : {
+        "showHeader" : true,
+        "cellHeight" : "sm"
+      }
+    },
+    {
+      "description" : "",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 0,
+        "y" : 10,
+        "w" : 6,
+        "h" : 3
+      },
+      "type" : "stat",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_review_loops{job=\"codex-workspace-ai-ops-metrics\",part=\"series\"}",
+          "legendFormat" : "系列",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false
+        },
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_review_loops{job=\"codex-workspace-ai-ops-metrics\",part=\"tasks\"}",
+          "legendFormat" : "task",
+          "refId" : "B",
+          "instant" : true,
+          "range" : false
+        },
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_review_loops{job=\"codex-workspace-ai-ops-metrics\",part=\"max_length\"}",
+          "legendFormat" : "最長",
+          "refId" : "C",
+          "instant" : true,
+          "range" : false
+        }
+      ],
+      "title" : "レビュー反復ループ (v1, 10 連続以上の gate 失敗)",
+      "fieldConfig" : {
+        "defaults" : {
+          "unit" : "short",
+          "noValue" : "v1 未出力",
+          "mappings" : [],
+          "thresholds" : {
+            "mode" : "absolute",
+            "steps" : [
+              {
+                "color" : "blue",
+                "value" : null
+              }
+            ]
+          }
+        },
+        "overrides" : []
+      },
+      "id" : 44,
+      "options" : {
+        "colorMode" : "value",
+        "graphMode" : "none",
+        "justifyMode" : "center",
+        "orientation" : "auto",
+        "textMode" : "value_and_name",
+        "reduceOptions" : {
+          "calcs" : [
+            "lastNotNull"
+          ],
+          "fields" : "",
+          "values" : false
+        }
+      }
+    },
+    {
+      "description" : "Review 後に run が再開した task。是正か継続か新 scope か本文を読まないため分類不能。v1 では groom→implement や中断再開を除外している。",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 6,
+        "y" : 10,
+        "w" : 6,
+        "h" : 3
+      },
+      "type" : "stat",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_correction_tasks{job=\"codex-workspace-ai-ops-metrics\",origin=\"unknown\"}",
+          "legendFormat" : "task 数",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false
+        }
+      ],
+      "title" : "分類不能の再開 (v0 unknown cause)",
+      "fieldConfig" : {
+        "defaults" : {
+          "unit" : "short",
+          "noValue" : "未出力",
+          "mappings" : [],
+          "thresholds" : {
+            "mode" : "absolute",
+            "steps" : [
+              {
+                "color" : "blue",
+                "value" : null
+              }
+            ]
+          }
+        },
+        "overrides" : []
+      },
+      "id" : 45,
+      "options" : {
+        "colorMode" : "value",
+        "graphMode" : "none",
+        "justifyMode" : "center",
+        "orientation" : "auto",
+        "textMode" : "value_and_name",
+        "reduceOptions" : {
+          "calcs" : [
+            "lastNotNull"
+          ],
+          "fields" : "",
+          "values" : false
+        }
+      }
+    },
+    {
+      "description" : "",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 18,
+        "y" : 23,
+        "w" : 6,
+        "h" : 4
+      },
+      "type" : "stat",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_review_wait_hours{job=\"codex-workspace-ai-ops-metrics\",quantile=\"0.5\"}",
+          "legendFormat" : "p50 h",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false
+        },
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_review_wait_hours{job=\"codex-workspace-ai-ops-metrics\",quantile=\"0.9\"}",
+          "legendFormat" : "p90 h",
+          "refId" : "B",
+          "instant" : true,
+          "range" : false
+        },
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_review_wait{job=\"codex-workspace-ai-ops-metrics\",part=\"over_24h\"}",
+          "legendFormat" : "24h 超",
+          "refId" : "C",
+          "instant" : true,
+          "range" : false
+        },
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_review_wait{job=\"codex-workspace-ai-ops-metrics\",part=\"not_followed\"}",
+          "legendFormat" : "再開なし",
+          "refId" : "D",
+          "instant" : true,
+          "range" : false
+        }
+      ],
+      "title" : "Review 停滞 (v1, review 終了→次 run 開始)",
+      "fieldConfig" : {
+        "defaults" : {
+          "unit" : "short",
+          "noValue" : "v1 未出力",
+          "mappings" : [],
+          "thresholds" : {
+            "mode" : "absolute",
+            "steps" : [
+              {
+                "color" : "blue",
+                "value" : null
+              }
+            ]
+          }
+        },
+        "overrides" : [
+          {
+            "matcher" : {
+              "id" : "byName",
+              "options" : "p50 h"
+            },
+            "properties" : [
+              {
+                "id" : "unit",
+                "value" : "h"
+              }
+            ]
+          },
+          {
+            "matcher" : {
+              "id" : "byName",
+              "options" : "p90 h"
+            },
+            "properties" : [
+              {
+                "id" : "unit",
+                "value" : "h"
+              }
+            ]
+          }
+        ]
+      },
+      "id" : 46,
+      "options" : {
+        "colorMode" : "value",
+        "graphMode" : "none",
+        "justifyMode" : "center",
+        "orientation" : "auto",
+        "textMode" : "value_and_name",
+        "reduceOptions" : {
+          "calcs" : [
+            "lastNotNull"
+          ],
+          "fields" : "",
+          "values" : false
+        }
+      }
+    },
+    {
+      "description" : "",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 20,
+        "y" : 32,
+        "w" : 4,
+        "h" : 3
+      },
+      "type" : "stat",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_v1_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+          "legendFormat" : "export",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false
+        }
+      ],
+      "title" : "v1 export 状態",
+      "fieldConfig" : {
+        "defaults" : {
+          "unit" : "short",
+          "noValue" : "未配備",
+          "mappings" : [
+            {
+              "type" : "value",
+              "options" : {
+                "1" : {
+                  "text" : "出力あり",
+                  "color" : "green"
+                },
+                "0" : {
+                  "text" : "失敗",
+                  "color" : "red"
+                }
+              }
+            }
+          ],
+          "thresholds" : {
+            "mode" : "absolute",
+            "steps" : [
+              {
+                "color" : "blue",
+                "value" : null
+              }
+            ]
+          }
+        },
+        "overrides" : []
+      },
+      "id" : 47,
+      "options" : {
+        "colorMode" : "value",
+        "graphMode" : "none",
+        "justifyMode" : "center",
+        "orientation" : "auto",
+        "textMode" : "value_and_name",
+        "reduceOptions" : {
+          "calcs" : [
+            "lastNotNull"
+          ],
+          "fields" : "",
+          "values" : false
+        }
+      }
+    },
+    {
+      "description" : "",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 18,
+        "y" : 35,
+        "w" : 6,
+        "h" : 3
+      },
+      "type" : "stat",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "time() - ai_ops_v1_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+          "legendFormat" : "経過時間",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false
+        }
+      ],
+      "title" : "v1 snapshot 経過時間",
+      "fieldConfig" : {
+        "defaults" : {
+          "unit" : "s",
+          "noValue" : "v1 未出力",
+          "mappings" : [],
+          "thresholds" : {
+            "mode" : "absolute",
+            "steps" : [
+              {
+                "color" : "blue",
+                "value" : null
+              }
+            ]
+          }
+        },
+        "overrides" : []
+      },
+      "id" : 48,
+      "options" : {
+        "colorMode" : "value",
+        "graphMode" : "none",
+        "justifyMode" : "center",
+        "orientation" : "auto",
+        "textMode" : "value_and_name",
+        "reduceOptions" : {
+          "calcs" : [
+            "lastNotNull"
+          ],
+          "fields" : "",
+          "values" : false
+        }
+      }
+    },
+    {
+      "description" : "SLI ごとの未計測理由。",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 0,
+        "y" : 44,
+        "w" : 12,
+        "h" : 6
+      },
+      "transformations" : [
+        {
+          "id" : "organize",
+          "options" : {
+            "excludeByName" : {
+              "__name__" : true,
+              "job" : true,
+              "instance" : true,
+              "pod" : true,
+              "service" : true,
+              "namespace" : true,
+              "endpoint" : true,
+              "container" : true,
+              "Time" : true,
+              "prometheus" : true,
+              "Value" : true
+            },
+            "renameByName" : {}
+          }
+        }
+      ],
+      "type" : "table",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_sli_unknown_info{job=\"codex-workspace-ai-ops-metrics\"}",
+          "legendFormat" : "",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false,
+          "format" : "table"
+        }
+      ],
+      "title" : "unknown の理由 (分類)",
+      "fieldConfig" : {
+        "defaults" : {
+          "noValue" : "未出力",
+          "mappings" : []
+        },
+        "overrides" : [
+          {
+            "matcher" : {
+              "id" : "byName",
+              "options" : "category"
+            },
+            "properties" : [
+              {
+                "id" : "mappings",
+                "value" : [
+                  {
+                    "type" : "value",
+                    "options" : {
+                      "not_connected" : {
+                        "text" : "未接続 (source が無い / 配線されていない)"
+                      },
+                      "history_missing" : {
+                        "text" : "履歴欠損 (入力の欠落・拒否・読めない run があり確定できない)"
+                      },
+                      "unclassifiable" : {
+                        "text" : "分類不能 (metadata だけでは判別できない)"
+                      },
+                      "out_of_scope" : {
+                        "text" : "対象外 (取得しない方針)"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "id" : 49,
+      "options" : {
+        "showHeader" : true,
+        "cellHeight" : "sm"
+      }
+    },
+    {
+      "description" : "欠落・拒否・読めない run などの件数。1 件でもあれば該当 SLI は確定値を出さない。",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "gridPos" : {
+        "x" : 12,
+        "y" : 44,
+        "w" : 12,
+        "h" : 6
+      },
+      "transformations" : [
+        {
+          "id" : "organize",
+          "options" : {
+            "excludeByName" : {
+              "__name__" : true,
+              "job" : true,
+              "instance" : true,
+              "pod" : true,
+              "service" : true,
+              "namespace" : true,
+              "endpoint" : true,
+              "container" : true,
+              "Time" : true,
+              "prometheus" : true
+            },
+            "renameByName" : {
+              "Value" : "件数"
+            }
+          }
+        }
+      ],
+      "type" : "table",
+      "targets" : [
+        {
+          "datasource" : {
+            "type" : "prometheus",
+            "uid" : "${datasource}"
+          },
+          "expr" : "ai_ops_sli_unknown_detail{job=\"codex-workspace-ai-ops-metrics\"}",
+          "legendFormat" : "",
+          "refId" : "A",
+          "instant" : true,
+          "range" : false,
+          "format" : "table"
+        }
+      ],
+      "title" : "unknown の件数 (詳細)",
+      "fieldConfig" : {
+        "defaults" : {
+          "noValue" : "未出力",
+          "mappings" : []
+        },
+        "overrides" : []
+      },
+      "id" : 50,
+      "options" : {
+        "showHeader" : true,
+        "cellHeight" : "sm"
+      }
+    }, {
     "type" : "row",
-    "title" : "負担 (Owner)",
+    "title" : "未計測の指標と理由 (unknown は 0 ではない)",
     "id" : 20,
     "collapsed" : false,
     "gridPos" : {
       "x" : 0,
-      "y" : 35,
+      "y" : 43,
       "w" : 24,
       "h" : 1
     },
     "panels" : [ ]
   }, {
-    "description" : "状況催促・同承認繰返し等の救援 event の source が未接続のため現在は unknown",
+    "description" : "状況催促・同承認繰返し等の救援 event の source が未接続のため現在は unknown 理由カテゴリ: 未接続。",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 36,
-      "w" : 8,
+      "y" : 50,
+      "w" : 6,
       "h" : 4
     },
     "type" : "stat",
@@ -1162,15 +2008,15 @@
       }
     }
   }, {
-    "description" : "approval_key 付き承認 event の source が未接続のため unknown",
+    "description" : "approval_key 付き承認 event の source が未接続のため unknown 理由カテゴリ: 未接続。",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 8,
-      "y" : 36,
-      "w" : 8,
+      "x" : 6,
+      "y" : 50,
+      "w" : 6,
       "h" : 4
     },
     "type" : "stat",
@@ -1231,15 +2077,15 @@
       }
     }
   }, {
-    "description" : "Hermes observer の approval.requested/resolved hook 件数 (0 は hook 未発火で、承認なしの証明ではない)",
+    "description" : "Hermes observer の approval.requested/resolved hook 件数 (0 は hook 未発火で、承認なしの証明ではない) Hermes 側の承認 event はこの Prom 系列で直接観測する (SLI 集計入力への join は会話 ID が opaque のため未実施、現在 0 件)。",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 16,
-      "y" : 36,
-      "w" : 8,
+      "x" : 12,
+      "y" : 50,
+      "w" : 6,
       "h" : 4
     },
     "type" : "stat",
@@ -1291,7 +2137,7 @@
     "collapsed" : false,
     "gridPos" : {
       "x" : 0,
-      "y" : 40,
+      "y" : 22,
       "w" : 24,
       "h" : 1
     },
@@ -1304,9 +2150,9 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 41,
-      "w" : 8,
-      "h" : 7
+      "y" : 23,
+      "w" : 6,
+      "h" : 4
     },
     "transformations" : [ {
       "id" : "merge",
@@ -1360,10 +2206,10 @@
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 8,
-      "y" : 41,
-      "w" : 8,
-      "h" : 7
+      "x" : 6,
+      "y" : 23,
+      "w" : 6,
+      "h" : 4
     },
     "type" : "stat",
     "targets" : [ {
@@ -1443,10 +2289,10 @@
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 16,
-      "y" : 41,
-      "w" : 8,
-      "h" : 7
+      "x" : 12,
+      "y" : 23,
+      "w" : 6,
+      "h" : 4
     },
     "type" : "stat",
     "targets" : [ {
@@ -1498,9 +2344,9 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 48,
+      "y" : 27,
       "w" : 12,
-      "h" : 7
+      "h" : 4
     },
     "type" : "timeseries",
     "targets" : [ {
@@ -1551,9 +2397,9 @@
     },
     "gridPos" : {
       "x" : 12,
-      "y" : 48,
+      "y" : 27,
       "w" : 12,
-      "h" : 7
+      "h" : 4
     },
     "type" : "timeseries",
     "targets" : [ {
@@ -1597,15 +2443,15 @@
       }
     }
   }, {
-    "description" : "Ready 遷移時刻 event が無いため unknown",
+    "description" : "Ready 遷移時刻 event が無いため unknown 理由カテゴリ: 未接続。",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 0,
-      "y" : 55,
-      "w" : 12,
+      "x" : 18,
+      "y" : 50,
+      "w" : 6,
       "h" : 4
     },
     "type" : "stat",
@@ -1666,14 +2512,14 @@
       }
     }
   }, {
-    "description" : "subscription CLI は token/cost を返さないため unknown (API 単価換算はしない)",
+    "description" : "subscription CLI は token/cost を返さないため unknown (API 単価換算はしない) 理由カテゴリ: 対象外。",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
     },
     "gridPos" : {
-      "x" : 12,
-      "y" : 55,
+      "x" : 0,
+      "y" : 54,
       "w" : 12,
       "h" : 4
     },
