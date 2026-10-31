@@ -1758,7 +1758,7 @@
     "type" : "text",
     "options" : {
       "mode" : "markdown",
-      "content" : "**rate limit (利用枠)**: subscription の集計窓ごとの消費率 (%) とリセット時刻。token 量や金額ではない。API 単価への換算はしない (token / cost は BOXP-360 の別 panel)。\n\n- **取得元**: Claude Code は task-board runner の通常 run が出す公式 stream-json `rate_limit_event`、Codex は CLI が rollout に記録する `rate_limits`。追加の model 呼出しや非公式 endpoint は使わない。資格情報・会話本文は収集しない。\n- **鮮度**: 値は「最後に CLI を使った時点」の観測値。経過時間を必ず併読する。窓のリセット時刻を過ぎた値は表示しない (失効扱い)。\n- **予算 (追加利用)**: Claude は追加利用 (extra usage) の可否状態、Codex は credits の有無と残数。**追加利用の金額上限・消費額はどちらの公式出力にも無いため取得不能** (0 ではない)。\n- 未取得の値は 0% や残量 100% にせず「未取得」と表示する。"
+      "content" : "**rate limit (利用枠)**: subscription の集計窓ごとの消費率 (%) とリセット時刻。token 量や金額ではない。API 単価への換算はしない (token / cost は BOXP-360 の別 panel)。\n\n- **取得元**: Claude Code は task-board runner の通常 run が出す公式 stream-json `rate_limit_event`、Codex は CLI が rollout に記録する `rate_limits`。追加の model 呼出しや非公式 endpoint は使わない。資格情報・会話本文は収集しない。\n- **鮮度**: 値は「最後に CLI を使った時点」の観測値。経過時間を必ず併読する。窓のリセット時刻を過ぎた値は表示しない (失効扱い)。\n- **予算 (追加利用)**: Claude は追加利用 (extra usage) の可否状態、Codex は credits の有無と残数。**追加利用の金額上限・消費額はどちらの公式出力にも無いため取得不能** (0 ではない)。\n- 未取得の値は 0% や残量 100% にせず「未取得」と表示する。\n\n共有枠 (5h / 週次) とモデル専用枠 (Fable: seven_day_overage_included) は別の枠であり、合算も相互推測もしない。Fable 専用枠が「未提供」の場合は、このアカウントの応答にその窓が含まれていないことを意味し、共有枠から推測した値ではない。"
     }
   }, {
     "datasource" : {
@@ -1781,7 +1781,7 @@
         "uid" : "${datasource}"
       },
       "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"}",
-      "legendFormat" : "{{provider}} {{limit}} ({{window}})",
+      "legendFormat" : "{{provider}} {{name}} ({{window}})",
       "refId" : "A",
       "instant" : true,
       "range" : false
@@ -2121,6 +2121,40 @@
             }
           } ]
         } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "枠"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "shared_5h" : {
+                "text" : "共有 5h"
+              },
+              "shared_7d" : {
+                "text" : "共有 週次"
+              },
+              "fable_7d" : {
+                "text" : "Fable 専用 週次"
+              },
+              "opus_7d" : {
+                "text" : "Opus 専用 週次"
+              },
+              "sonnet_7d" : {
+                "text" : "Sonnet 専用 週次"
+              },
+              "primary" : {
+                "text" : "Codex primary"
+              },
+              "secondary" : {
+                "text" : "Codex secondary"
+              }
+            }
+          } ]
+        } ]
       } ]
     },
     "options" : {
@@ -2144,6 +2178,20 @@
           "Time" : true,
           "container" : true,
           "job" : true
+        },
+        "renameByName" : {
+          "name" : "枠"
+        },
+        "indexByName" : {
+          "provider" : 0,
+          "name" : 1,
+          "limit" : 2,
+          "window" : 3,
+          "Value #A" : 4,
+          "Value #B" : 5,
+          "Value #C" : 6,
+          "Value #D" : 7,
+          "Value #E" : 8
         }
       }
     } ]
@@ -2554,6 +2602,150 @@
       "justifyMode" : "center",
       "orientation" : "auto",
       "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 88,
+      "w" : 12,
+      "h" : 5
+    },
+    "id" : 109,
+    "title" : "Claude Fable 専用枠 (seven_day_overage_included)",
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_present{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"}",
+      "legendFormat" : "提供状態",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"}",
+      "legendFormat" : "Fable 専用枠 消費率",
+      "refId" : "B",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "未提供 / 未観測"
+      },
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "A"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "1" : {
+                "text" : "提供あり",
+                "color" : "green"
+              },
+              "0" : {
+                "text" : "未提供 (このaccountの応答にFable窓なし)",
+                "color" : "text"
+              }
+            }
+          } ]
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "B"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "percent"
+        }, {
+          "id" : "noValue",
+          "value" : "未提供 / 未観測"
+        }, {
+          "id" : "thresholds",
+          "value" : {
+            "mode" : "absolute",
+            "steps" : [ {
+              "color" : "green",
+              "value" : null
+            }, {
+              "color" : "orange",
+              "value" : 70
+            }, {
+              "color" : "red",
+              "value" : 90
+            } ]
+          }
+        } ]
+      } ]
+    },
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 88,
+      "w" : 12,
+      "h" : 5
+    },
+    "id" : 110,
+    "title" : "Claude 現在の制限中の窓 (rateLimitType)",
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_subscription_limiting_window{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\"} == 1",
+      "legendFormat" : "{{limit}}",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "未観測"
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "name",
       "reduceOptions" : {
         "calcs" : [ "lastNotNull" ],
         "fields" : "",
