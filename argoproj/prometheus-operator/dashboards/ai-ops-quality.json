@@ -2621,6 +2621,7 @@
     },
     "id" : 109,
     "title" : "Claude Fable 専用枠 (seven_day_overage_included)",
+    "description" : "Claude Code のモデル専用週次枠 (rate_limit_event の unifiedWindows.seven_day_overage_included、CLI 表示名 Fable limit)。共有 5h / 週次枠とは別の枠で合算しない。未提供 = このアカウントの応答にこの窓が含まれていない状態で、共有枠から推測した値ではない。",
     "type" : "stat",
     "targets" : [ {
       "datasource" : {
@@ -2722,6 +2723,7 @@
     },
     "id" : 110,
     "title" : "Claude 現在の制限中の窓 (rateLimitType)",
+    "description" : "Claude Code が直近の rate_limit_event で「現在制限の基準になっている窓」として通知した rateLimitType (five_hour / seven_day / seven_day_opus / seven_day_sonnet / seven_day_overage_included / overage)。利用率ではなく識別子のみ。",
     "type" : "stat",
     "targets" : [ {
       "datasource" : {
