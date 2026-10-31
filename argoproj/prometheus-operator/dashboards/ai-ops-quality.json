@@ -1082,7 +1082,7 @@
     }
   },
     {
-      "description" : "v1 の Owner 可視是正 (succeeded した review-fix run を持つ task、または Review 後に implement が再開した task) / Review 到達 task。差戻し率ではない。",
+      "description" : "v1 の Owner 可視是正 (succeeded した review-fix run を持つ task、または Review 後に implement が再開した task) / Review 到達 task。差戻し率ではない。 読めない run を持つ task は除外し『未評価 task (v1)』に別掲。未評価が 1 件以上ならこの値は下限。",
       "datasource" : {
         "type" : "prometheus",
         "uid" : "${datasource}"
@@ -1142,7 +1142,7 @@
       }
     },
     {
-      "description" : "",
+      "description" : "Owner 可視是正の内訳 (task 数)。 読めない run を持つ task は除外し『未評価 task (v1)』に別掲。未評価が 1 件以上ならこの値は下限。",
       "datasource" : {
         "type" : "prometheus",
         "uid" : "${datasource}"
@@ -1235,7 +1235,7 @@
       }
     },
     {
-      "description" : "",
+      "description" : "gate 失敗 run (CI / codex-review 等) とその後の再作業。Owner に届く前の内部再作業で、v0 是正率には含まれない。 読めない run を持つ task は除外し『未評価 task (v1)』に別掲。未評価が 1 件以上ならこの値は下限。",
       "datasource" : {
         "type" : "prometheus",
         "uid" : "${datasource}"
@@ -1378,7 +1378,7 @@
       }
     },
     {
-      "description" : "",
+      "description" : "gate 情報のある retrying が 10 連続以上続いた系列。 読めない run を持つ task は除外し『未評価 task (v1)』に別掲。未評価が 1 件以上ならこの値は下限。",
       "datasource" : {
         "type" : "prometheus",
         "uid" : "${datasource}"
@@ -1520,7 +1520,7 @@
       }
     },
     {
-      "description" : "",
+      "description" : "review 終了から次 run 開始までの停滞。 読めない run を持つ task は除外し『未評価 task (v1)』に別掲。未評価が 1 件以上ならこの値は下限。",
       "datasource" : {
         "type" : "prometheus",
         "uid" : "${datasource}"
@@ -2568,6 +2568,62 @@
       "overrides" : [ ]
     },
     "id" : 31,
+    "options" : {
+      "colorMode" : "value",
+      "graphMode" : "none",
+      "justifyMode" : "center",
+      "orientation" : "auto",
+      "textMode" : "value_and_name",
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      }
+    }
+  }, {
+    "title" : "未評価 task (v1, 読めない run を持つ task)",
+    "description" : "summary.edn が欠落/破損している run を持つ task。どの v1 分類だったか分からないため、v1 の分母・分子・遷移・gate 再作業・反復ループ・Review 停滞のすべてから除外し、件数だけをここに出す。1 件以上なら他の v1 値は下限(確定値ではない)。v0 の unevaluated-input-missing と同じ扱い。",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 18,
+      "y" : 13,
+      "w" : 6,
+      "h" : 3
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "ai_ops_v1_snapshot{job=\"codex-workspace-ai-ops-metrics\",part=\"unevaluated_tasks\"} and on() (ai_ops_v1_export_ok{job=\"codex-workspace-ai-ops-metrics\"} == 1)",
+      "legendFormat" : "task",
+      "refId" : "A",
+      "instant" : true,
+      "range" : false
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "short",
+        "noValue" : "v1 未出力",
+        "mappings" : [ ],
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "blue",
+            "value" : null
+          }, {
+            "color" : "orange",
+            "value" : 1
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "id" : 51,
     "options" : {
       "colorMode" : "value",
       "graphMode" : "none",
