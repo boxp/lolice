@@ -352,6 +352,11 @@ spec:
               value: "30"
             - name: CODEX_TASK_BOARD_LOCK_STALE_SECONDS
               value: "180"
+            # BOXP-360: Hermes の metadata-only ledger (本文なし・opaque ID) を既存の SA 権限
+            # (hermes-agent namespace の Role codex-workspace-debug: pods/exec) で read-only に取り込み、
+            # runner の SLI 集計入力へ join する。上限付き (30s / 8MiB) で失敗時は前回 snapshot + stale 表示。
+            - name: CODEX_TASK_BOARD_AI_OPS_HERMES_LEDGER_COMMAND
+              value: "kubectl exec -n hermes-agent deploy/hermes-agent -c hermes-agent -- sh -c 'cat /opt/data/ai-ops/ledger/events-*.jsonl'"
             # BOXP-282 (owner approval 2026-10-24): the localllm docs route may read
             # every ordinary note of the vault. Hidden dirs, Tickets/Boards/Templates
             # and its own proposals folder stay excluded by the runner, secret-looking
