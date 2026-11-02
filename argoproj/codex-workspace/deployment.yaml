@@ -373,13 +373,17 @@ spec:
             # note / section, wrapped in unreviewed markers, backed up per run.
             - name: CODEX_TASK_BOARD_LOCALLLM_CANON_ROOTS
               value: "ひとはこさんバース"
-            # BOXP-367 (owner decision 2026-10-30 after the BOXP-358 comparison):
-            # the creative default of the localllm docs route is the official
-            # Ornith-1.5 (router preset ornith15-35b-a3b, not the uncensored
-            # derivative). Rollback: remove this env (code default gemma4-26b)
-            # or set gemma4-26b; a ticket can still pick a preset with docs-model.
+            # BOXP-379 (owner decision 2026-11-02): the creative default of the
+            # localllm docs route (groom / create / Review rewrite when a ticket
+            # sets no docs-model) is back to gemma4-26b, the router preset
+            # Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
+            # (ctx 262144, see argoproj/local-llm/models-config.yaml), which also
+            # equals the runner code default. BOXP-367 set ornith15-35b-a3b;
+            # that preset and the other BOXP-358 candidates stay served and
+            # selectable per ticket via docs-model. Kept explicit so the default
+            # is visible in GitOps.
             - name: CODEX_TASK_BOARD_LOCALLLM_MODEL
-              value: ornith15-35b-a3b
+              value: gemma4-26b
             # BOXP-367: limited local coding trial route (assignee localllm-coder,
             # pi + llama.cpp provider only, no cloud fallback). Other routes and
             # Board defaults are unchanged.
