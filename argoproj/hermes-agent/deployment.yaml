@@ -132,6 +132,14 @@ spec:
               chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py" /opt/data/ai-ops
               chmod 2775 "$plugin_dir" /opt/data/ai-ops
               chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              # BOXP-387: Kohako G2 realtime mint plugin (API server route; uses the
+              # openai-codex sign-in through Hermes core, never reads a token).
+              plugin_dir=/opt/data/plugins/kohako-g2-realtime
+              mkdir -p "$plugin_dir"
+              cp /bootstrap-plugins/kohako-g2-realtime/plugin.yaml /bootstrap-plugins/kohako-g2-realtime/__init__.py "$plugin_dir/"
+              chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              chmod 2775 "$plugin_dir"
+              chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
               # BOXP-332: enable the plugins without rewriting hand-edited YAML.
               python3 - <<'PYCONFIG'
               import os, re
@@ -144,7 +152,8 @@ spec:
               path = "/opt/data/config.yaml"
               # BOXP-360: the same idempotent edit also enables the metadata-only AI ops observer.
               for name, note in [("kohako-g2-context", "BOXP-332: owner-DM-only reference context from Kohako G2."),
-                                 ("boxp-ai-ops-observer", "BOXP-360: metadata-only AI ops ledger.")]:
+                                 ("boxp-ai-ops-observer", "BOXP-360: metadata-only AI ops ledger."),
+                                 ("kohako-g2-realtime", "BOXP-387: Kohako G2 realtime client-secret mint (openai-codex sign-in).")]:
                   with open(path) as fh:
                       text = fh.read()
                   cfg = safe_load(text) or {}
@@ -331,6 +340,9 @@ spec:
               readOnly: true
             - name: boxp-ai-ops-observer-plugin
               mountPath: /bootstrap-plugins/boxp-ai-ops-observer
+              readOnly: true
+            - name: kohako-g2-realtime-plugin
+              mountPath: /bootstrap-plugins/kohako-g2-realtime
               readOnly: true
       containers:
         - name: hermes-agent
@@ -586,6 +598,9 @@ spec:
         - name: boxp-ai-ops-observer-plugin
           configMap:
             name: hermes-agent-boxp-ai-ops-observer-plugin
+        - name: kohako-g2-realtime-plugin
+          configMap:
+            name: hermes-agent-kohako-g2-realtime-plugin
         - name: ai-ops-metrics-app
           configMap:
             name: hermes-agent-ai-ops-metrics

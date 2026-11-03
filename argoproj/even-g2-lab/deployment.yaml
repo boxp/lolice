@@ -93,6 +93,17 @@ spec:
             # plugin in hermes-agent); anything else fails closed.
             - name: KOHAKO_HERMES_TOOLSETS
               value: file,session_search,skills,terminal
+            # BOXP-387: opt-in realtime voice pilot. The BFF mints a short-lived OpenAI
+            # Realtime client secret through the Hermes kohako-g2-realtime plugin
+            # (openai-codex subscription sign-in, no API key) and relays G2 audio to
+            # api.openai.com over the existing public-443 egress. One session at a time,
+            # 120 s max, 6 per hour; nothing is stored.
+            - name: KOHAKO_REALTIME
+              value: "1"
+            - name: KOHAKO_REALTIME_ORIGIN
+              value: https://kohako-g2.b0xp.io
+            - name: KOHAKO_REALTIME_MAX_MS
+              value: "120000"
             - name: KOHAKO_BFF_HOST
               value: 127.0.0.1
             - name: KOHAKO_BFF_PORT
