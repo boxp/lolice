@@ -180,3 +180,18 @@ local-llm は gate `closed:BOXP-383-20261103T085957Z` → drain → scale 0 の�
   （batch3 の結論）と整合する。EAGER は既定 off なので通常経路には影響しない。
 - 採用判断は変わらず: 速度（4 vs 6 tok/s）・品質（非決定・簡体字・tool 誤答）とも llama.cpp に劣り、Q2_0 + 今回 backend では
   運用 project を作る根拠がない。高精度 pack（IQ3_XXS/IQ3_S）は未試験（容量目安は vault boxp383-retry.md 追補 3.）。
+
+## 2026-11-03 batch6: 原因識別の有限試験（Owner の深掘り要求、run 20261103T105446Z）
+
+不採用・通常復帰を完了扱いにせず、取得済み Q2_0 / source / ログで原因を識別する。追加 DL・driver 変更・node 再起動はしない。
+実 GPU は最大 40 分、識別条件は 3 種まで。stall は条件ごとに打ち切り、同じ停止を盲目的に再試行しない。
+
+- C1: engine 0.1.50 + v2、`STRATA_VERIFY_PROFILE=1`（EAGER なし）+ `STRATA_DECODE_TIMING=1` + `STRATA_FOLLOW`。
+  window の段階別 GPU 時間と、同一 token 列での logprob の再現性（同一 process 内 / process 間）。
+- C2: engine 0.1.56 + v2、`STRATA_KPROF=1` + `STRATA_VERIFY_EAGER=1`（PROFILE なし）。GPU clock の kernel 単位時間。
+- C3: engine 0.1.50 + v2、`STRATA_VERIFY_STEPPED=1` + `STRATA_DECODE_TIMING=1` + `STRATA_FOLLOW`。実行中の host 通信を外した時の速度と再現性。
+- 観測（node 側）: GPU 周波数、throttle reason、package power、温度。node の設定は変更しない。
+
+手順は #994 / #996 と同じ: gate `closed:<token>` → inflight 0 を read back → scale 0 → 本 PR merge → 試験 →
+strata process 0 を確認 → 復帰 PR → scale 1 → gate `open:<token>` → `/health` と gemma4-26b の実推論を read back。
+中止条件: MemAvailable < 12 GiB、node の他 workload 影響。
