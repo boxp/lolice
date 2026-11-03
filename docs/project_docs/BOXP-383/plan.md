@@ -255,3 +255,15 @@ Owner が承認した範囲は、取得済み IQ3_XXS と現行 QCN の実 repo 
 ### batch8 完了（16:02〜17:48 UTC、T0 15:57:38）
 
 全条件の詳細は vault の `boxp383-retry.md`。QCN、IQ3_XXS + Strata、IQ3_XXS + llama.cpp が受入条件を満たした。Strata の追加反復 1 回は 22 分の上限で打ち切り（patch は 55/55、完了報告なし）。SSD gate は `--mmap-experts` と `--resident-budget-gib 16` が i915 で起動し推論を返した。GPU reset なし。本 PR で通常構成へ戻す。試験 patch は本番へ適用しない。
+
+## 2026-11-03 batch9: 大型 model 実試験と律速の識別（run 20261103T190629Z）
+
+Owner が承認した範囲は、Flash-Next UD-Q4_K_XL 一候補（4 shard、約 111.3 GB）の取得と、追加 GPU 累計約 90 分 + 復帰約 20 分の有限試験。元 parameter 数が増えた別 model ではなく、同じ model の量子化を弱めた版。恒久採用、runtime 置換、driver / node / Hermes の再起動、clock / power 上限の変更、host 全体へのメモリ負荷、新権限・課金は含まない。
+
+- 試験前隔離: `pi` は container 内で user / pid / ipc / uts / net namespace、Landlock、seccomp の sandbox で動かし、vault の内容へ読み書きできないことを red→green で確認済み（AppArmor が mount を拒否するので bind mount は使わない）。許可外 path の chmod / utime / stat は止まらないので、vault の mode を試験前後で比較する。fixture は公開可能な合成 repo。
+- 順序: UD-Q4_K_XL（`--resident-budget-gib 24`、短文→長文→JSON→小 coding）→ budget 12 → llama.cpp 対照（同じ file、expert は CPU + mmap）→ IQ3_XXS の小 coding → IQ3_XXS の一変数識別（KV 形式、CPU pool 数、GRF / group 数、spec、expert cache）。
+- 上限: GPU 開始から 88 分で打切り、復帰に 20 分。各要求 450 秒まで。pod の memory limit は既存の 56 Gi のまま変えない。
+- 中止条件: MemAvailable < 12 GiB が 2 回連続、または GPU HANG / reset の増加で engine を停止する。同じ停止の再試行はしない。
+- 排他: engine は loopback、proxy だけ pod IP で token 必須。Service は作らない。
+
+手順は #1003 / #1005 と同じ: gate `closed:<token>` → inflight 0 を read back → scale 0 → 本 PR merge → 試験 → engine 0 を確認 → 復帰 PR → scale 1 → gemma4-26b の実推論を read back → gate `open:<token>`。
