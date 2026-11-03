@@ -251,3 +251,7 @@ Owner が承認した範囲は、取得済み IQ3_XXS と現行 QCN の実 repo 
 - 排他: 本 PR の `/qcn` は読み取り専用。engine は loopback、proxy だけ pod IP で待ち受け、token 必須。Service は作らない。
 
 手順は #1003 / #1004 と同じ: gate `closed:<token>` → inflight 0 を read back → scale 0 → 本 PR merge → 試験 → engine 0 を確認 → 復帰 PR → scale 1 → gemma4-26b の実推論を read back → gate `open:<token>`。
+
+### batch8 完了（16:02〜17:48 UTC、T0 15:57:38）
+
+全条件の詳細は vault の `boxp383-retry.md`。QCN、IQ3_XXS + Strata、IQ3_XXS + llama.cpp が受入条件を満たした。Strata の追加反復 1 回は 22 分の上限で打ち切り（patch は 55/55、完了報告なし）。SSD gate は `--mmap-experts` と `--resident-budget-gib 16` が i915 で起動し推論を返した。GPU reset なし。本 PR で通常構成へ戻す。試験 patch は本番へ適用しない。
