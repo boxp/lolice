@@ -267,3 +267,7 @@ Owner が承認した範囲は、Flash-Next UD-Q4_K_XL 一候補（4 shard、約
 - 排他: engine は loopback、proxy だけ pod IP で token 必須。Service は作らない。
 
 手順は #1003 / #1005 と同じ: gate `closed:<token>` → inflight 0 を read back → scale 0 → 本 PR merge → 試験 → engine 0 を確認 → 復帰 PR → scale 1 → gemma4-26b の実推論を read back → gate `open:<token>`。
+
+### batch9 試験完了（21:34〜UTC、復帰）
+
+試験を終えたので本 PR で通常構成へ戻す。試験結果の詳細は vault の `boxp383-retry.md`。恒久採用、既定 model の変更は含まない。
