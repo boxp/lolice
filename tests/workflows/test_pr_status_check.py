@@ -47,6 +47,15 @@ class StatusCheckWiringTest(unittest.TestCase):
         self.assertIn('permissions: {}', block)
         self.assertIn('.value.result == "success" or .value.result == "skipped"', block)
 
+    def test_adr_runs_on_every_pull_request_without_judge(self):
+        block = job_block(self.text, 'adr')
+        self.assertIn('uses: ./.github/workflows/adr.yaml', block)
+        self.assertNotIn('if:', block)
+        self.assertNotIn('secrets:', block)
+        adr = (WORKFLOW.parent / 'adr.yaml').read_text()
+        self.assertIn('run: .regomark/check.sh\n', adr)
+        self.assertNotIn('judge', adr)
+
     def test_static_policy_runs_without_path_condition(self):
         block = job_block(self.text, 'static-policy')
         self.assertNotIn('\n    if:', block)
