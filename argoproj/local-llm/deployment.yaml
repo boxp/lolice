@@ -5,8 +5,7 @@ metadata:
   annotations:
     configmap.reloader.stakater.com/reload: "llama-server-models"
 spec:
-  # BOXP-383: Strata 原因究明の隔離試験中（strata-eval が gpu.intel.com/i915 を使う）。試験後に 1 へ戻す。
-  replicas: 0
+  replicas: 1
   strategy:
     type: Recreate
   selector:
