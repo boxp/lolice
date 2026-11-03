@@ -234,3 +234,7 @@ Owner が承認した範囲は IQ3_XXS 一候補の取得と GPU 約 40 分の�
 
 手順は #998 / #999 と同じ: gate `closed:<token>` → inflight 0 を read back → scale 0 → 本 PR merge → 試験 →
 engine 0 を確認 → 復帰 PR → scale 1 → gemma4-26b の `/health` と実推論を read back → gate `open:<token>`。
+
+### batch7 完了（13:48〜14:15 UTC、実 GPU 27 分）
+
+15 + 15 要求すべて HTTP 200 で完走し、watchdog 停止、MemAvailable 中止、GPU reset はなし。本 PR で通常構成へ戻す。詳細は vault の `boxp383-retry.md`。
