@@ -64,6 +64,12 @@ kustomize build argoproj/<app-name>/
 kustomize build argoproj/<app-name>/overlays/<env>/
 ```
 
+### ADR の検査
+```bash
+# ADR の構造検査と ADR policy の Rego lint (形式は docs/adr/README.md)
+.regomark/check.sh
+```
+
 ## アーキテクチャとパターン
 
 ### GitOpsワークフロー

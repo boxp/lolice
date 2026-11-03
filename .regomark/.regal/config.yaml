@@ -1,0 +1,21 @@
+# ADR policy 専用の Regal 設定。既存の infra policy には適用しない。
+project:
+  rego-version: 1
+rules:
+  idiomatic:
+    # regomark は entrypoint の package を adr に固定し、複数ファイルへ分割する。
+    directory-package-mismatch:
+      level: ignore
+    # %03d の書式と揃えるため、message はすべて sprintf で組み立てる。
+    prefer-string-interpolation:
+      level: ignore
+  style:
+    # 日本語の message と質問文は 1 行にまとめた方が読める。
+    line-length:
+      level: ignore
+  performance:
+    # テストの補助関数の中でだけ with を使う。
+    with-outside-test-context:
+      ignore:
+        files:
+          - "*_test.rego"
