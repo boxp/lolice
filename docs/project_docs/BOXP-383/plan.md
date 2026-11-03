@@ -218,3 +218,19 @@ strata process 0 を確認 → 復帰 PR → scale 1 → gate `open:<token>` →
 - 実周波数は要求 2350 MHz に対し平均 1746 MHz で、PL4 reason が稼働サンプルの 90%。
 
 採否は Q2_0 では不採用のままだが、理由は品質ではなく速度（decode 4.1 vs 6.0 tok/s、短文 TTFT 9〜13 vs 3〜5 s）。高精度 pack は未試験。`argoproj/` の manifest は変更しない。
+
+## 2026-11-03 batch7: IQ3_XXS の実益比較（Owner 選択 B、run 20261103T122031Z）
+
+Owner が承認した範囲は IQ3_XXS 一候補の取得と GPU 約 40 分の有限比較だけ。恒久採用、runtime 置換、既定 model 変更、他候補の取得は含まない。
+
+- artifact: `ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF` rev `ed59f92082b1e93c0e96d60a8b11aab089b52f09`（Apache-2.0、Strata v0.2.6 の固定 rev と同じ）。
+  shard 1 は 47,039,860,096 byte、sha256 `219ea929…`。shard 2（PLE 表）は Q2_0 と同一 sha256 `316b46f3…` なので hardlink で再利用し、実 DL は約 47 GB。
+- 比較: 同一 GGUF を Strata（v0.2.6、engine 0.1.50、v2 adapter、`--kv int8`）と llama.cpp（b11669、`--load-mode mmap`、KV 既定）で、BOXP-336 の 9 fixture + 反復。
+  両者とも temperature 0、`presence_penalty: 0`、`frequency_penalty: 0`、`repeat_penalty: 1`、seed 固定、thinking off、context 32768。
+  有効 sampling は Strata の engine stdin の GEN 行と llama.cpp の `/slots` で read back する。
+- 実行: node 上の `boxp383/batch7/node7.sh`（Strata 最大 22 分 → llama.cpp 最大 15 分、全体の hard deadline 40 分）。
+  各 engine の前に対象 GGUF の page cache を落とす。観測は RSS、GPU 共有メモリ、SSD I/O、周波数、温度。
+- 中止条件: MemAvailable < 12 GiB が 2 回連続、または GPU HANG / reset の増加で engine を停止し、次へ進まない。同じ停止の再試行はしない。
+
+手順は #998 / #999 と同じ: gate `closed:<token>` → inflight 0 を read back → scale 0 → 本 PR merge → 試験 →
+engine 0 を確認 → 復帰 PR → scale 1 → gemma4-26b の `/health` と実推論を read back → gate `open:<token>`。
