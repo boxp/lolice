@@ -238,3 +238,16 @@ engine 0 を確認 → 復帰 PR → scale 1 → gemma4-26b の `/health` と実
 ### batch7 完了（13:48〜14:15 UTC、実 GPU 27 分）
 
 15 + 15 要求すべて HTTP 200 で完走し、watchdog 停止、MemAvailable 中止、GPU reset はなし。本 PR で通常構成へ戻す。詳細は vault の `boxp383-retry.md`。
+
+## 2026-11-03 batch8: coding 比較 + SSD 配置 gate（Owner 選択 1、run 20261103T153832Z）
+
+Owner が承認した範囲は、取得済み IQ3_XXS と現行 QCN の実 repo 比較、および SSD 配置 gate を、追加 DL なしの一停止枠（最大約 2 時間 20 分）で行うこと。恒久採用、runtime 置換、既定 model 変更、試験 patch の本番適用、driver / node / Hermes の再起動は含まない。
+
+- 課題: boxp/arch `c57217c4` の `.yaml` 対応（BOXP-382 と同じ prompt、52 → 55 test、既存 test を残す）。条件ごとに別 clone で実行する。patch は隔離して保存し、merge しない。
+- 実行: pi（localllm-coder と同じ引数と env 制限、cloud fallback なし）→ 記録 proxy（要 token、pod 内）→ engine。sampling は proxy が全条件同値へ上書きし、Strata は GEN 行、llama.cpp は `/slots` で read back する。
+- 条件と順序: QCN（上限 30 分）→ IQ3_XXS + Strata（上限 40 分）→ SSD gate（arena 対照、`--mmap-experts`、`--resident-budget-gib 16`、各 6 分以内）→ IQ3_XXS + llama.cpp（残り時間、上限 40 分）。
+- 枠: scale 0 から 118 分で試験を打ち切り、残りを復帰に充てる。
+- 中止条件: MemAvailable < 12 GiB が 2 回連続、または GPU HANG / reset の増加で engine を停止する。同じ停止の再試行はしない。
+- 排他: 本 PR の `/qcn` は読み取り専用。engine は loopback、proxy だけ pod IP で待ち受け、token 必須。Service は作らない。
+
+手順は #1003 / #1004 と同じ: gate `closed:<token>` → inflight 0 を read back → scale 0 → 本 PR merge → 試験 → engine 0 を確認 → 復帰 PR → scale 1 → gemma4-26b の実推論を read back → gate `open:<token>`。
