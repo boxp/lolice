@@ -1,5 +1,7 @@
 # BOXP-63: hermes-agent Google OAuth IPv4 preference
 
+> 2026-11-03 / BOXP-390: 以下は導入当時の記録。PostSync の `hermes-agent-oauth-egress-check` Job と resource 参照は撤去した。Job の再作成・完了・ログを求める手順は廃止し、現行の受け入れ条件には含めない。IPv4 優先設定と実 Pod 側の設定は維持する。撤去手順は [BOXP-390](../BOXP-390/plan.md) を参照。
+
 ## Goal
 
 hermes-agent sandbox の Google Workspace OAuth token exchange が `https://oauth2.googleapis.com/token` へ安定して到達できるようにする。

@@ -20,7 +20,6 @@ resources:
   - networkpolicy.yaml
   - service-ai-ops-metrics.yaml
   - servicemonitor-ai-ops-metrics.yaml
-  - oauth-egress-check-job.yaml
 
 configMapGenerator:
   - name: hermes-agent-kohako-g2-context-plugin
