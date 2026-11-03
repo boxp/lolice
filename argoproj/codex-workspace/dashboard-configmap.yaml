@@ -140,7 +140,7 @@ data:
         return "failed"
       if isinstance(exit_code, int) and exit_code != 0:
         return "failed"
-      if status in ("succeeded", "complete", "finished") or result in ("ready", "done", "review"):
+      if status in ("succeeded", "complete", "finished") or result in ("ready", "done", "review", "continue", "owner-acceptance"):
         return "finished"
       if (RUNS_ROOT / str(summary.get("ticket", ""))).exists() and exit_code == 0:
         return "finished"
