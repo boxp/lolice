@@ -5,7 +5,8 @@ metadata:
   annotations:
     configmap.reloader.stakater.com/reload: "llama-server-models"
 spec:
-  replicas: 1
+  # BOXP-383 batch9 の間だけ 0。実 scale/受付は BOXP-349 の runtime file queue で制御し、試験後に 1 へ戻す。
+  replicas: 0
   strategy:
     type: Recreate
   selector:
