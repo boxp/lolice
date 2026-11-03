@@ -205,3 +205,16 @@ strata process 0 を確認 → 復帰 PR → scale 1 → gate `open:<token>` →
 - 残る未確定: 同一 token 列の logprob が process 間で平均 0.16〜0.30 nat ずれる数値非決定性、簡体字語彙の少数混入、kernel 実行と launch の内訳
   （C2 は計測前に停止）、legacy adapter の停止機構。
 - `strata.json` の sampling は変更していない。詳細と訂正は vault `Projects/strata-localllm-evaluation/boxp383-retry.md`。
+
+### batch6 後の source 照合と訂正（run 20261103T115817Z、GPU なし）
+
+保存ログと engine source を照合した結果、本ファイルの過去の記述のうち次を訂正する。詳細は vault `Projects/strata-localllm-evaluation/boxp383-retry.md` の冒頭と batch6 節。
+
+- **停止の機構は未確定**。確定しているのは条件（legacy adapter + batched command list）と回避（`SYCL_UR_USE_LEVEL_ZERO_V2=1` または `UR_L0_USE_IMMEDIATE_COMMANDLISTS=1`）まで。
+  「compute / copy queue 間の event 依存が完了しない」は仮説に下げる。copied event への barrier は fused 経路の別分岐で、layer 0 の host grouping 前の wait までに queue 間の明示的な待ちは確認できない。最初の未完了 event は未観測。
+- **`GPU-reach wait` の 85〜88% は host の doorbell 待ちの比率**で、GPU 処理の比率ではない。GPU 側が大半というのは推定（flag 待ちを含む区間は 13〜18%、stepped でも改善 5〜10%、expert 全 CPU でも不変）。kernel 別の内訳は C2 が layer 11 で停止して未取得。
+- **「finished in 4 ms」は強制解放後の drain 時間**で、GPU 完了の証拠ではない。
+- **品質比較は不公平だった**。llama.cpp にも少数の簡体字と `whispered` があり、「英語混入なし」は誤り。tool_1 は token 14 の 灯火 と Tok の差が 0.69〜1.86 で揺れ、penalty 1.5 の閾値をまたぐと結果が割れる。
+- 実周波数は要求 2350 MHz に対し平均 1746 MHz で、PL4 reason が稼働サンプルの 90%。
+
+採否は Q2_0 では不採用のままだが、理由は品質ではなく速度（decode 4.1 vs 6.0 tok/s、短文 TTFT 9〜13 vs 3〜5 s）。高精度 pack は未試験。`argoproj/` の manifest は変更しない。
