@@ -134,3 +134,49 @@ hermes-agent 08:59 UTC の方針に従い、read-only 追補（run 084414Z）で
   更新 rollback は Argo の revision revert。
 - 採用条件（これを満たすまで運用 project は作らない）: 同一 fixtures で llama.cpp と同等以上の品質（tool 3/3、「，」0）、
   かつ速度または容量（IQ3_S 級が載る等）で実測の利点があること。Q2_0 の今回結果はどちらも未達。
+
+### batch5 結果（2026-11-03 09:13〜09:30 UTC、engine 0.1.50 + `SYCL_UR_USE_LEVEL_ZERO_V2=1`、Q2_0、temp 0、thinking off）
+
+local-llm は gate `closed:BOXP-383-20261103T085957Z` → drain → scale 0 の正規手順で停止（#994）。pod 内で実験ごとに engine を
+起動し直し、node observer（intel_gpu_top / Fence 件数 / thread 状態）を併走。watchdog 停止は a2 の 1 件のみ、i915 Fence 件数は
+3110 のまま増加なし、MemAvailable 最小 46 GB。全ログは vault `artifacts/boxp383/logs/batch5/`。
+
+| 実験 | 条件 | 反復 | 完走 | decode tok/s | prompt ms (rep0 / cached) | 「，」件数 | 英単語混入 | tool 引数 | 備考 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| a1 | 既定 + DECODE_TIMING, prose_1 | 3 | 3/3 | 3.9 / 4.7 / 4.1 | 18322 / 756 | 0 / 0 / 0 | 0 / 117 / 0 | — | rep1 は `<think>` を出力して max_tokens 800 到達（thinking off 指定なのに思考漏れ）。簡体字語彙（水洼・包裹・羁绊）は 3 本とも |
+| a2 | a1 + VERIFY_PROFILE + VERIFY_EAGER, prose_1 | 1 | 0/1 | — | — | — | — | — | **v2 adapter でも停止**: verify window 経路 token 0 で 60 s 無進捗 → exit -6。GPU 側は「released the verify window's GPU waits: the GPU finished in 4 ms」= 完了済み、host の待ちだけが戻らない |
+| b1 | `--expert-cache 1`（expert 全 CPU）, prose_1 | 3 | 3/3 | 3.9 / 4.2 / 4.0 | 18762 / 718 | 9 / 4 / 9 | 0 / 0 / 0 | — | rep0 と rep2 は同一本文、rep1 のみ別 |
+| b1 | `--expert-cache 1`, tool_1 | 2 | 2/2 | 2.2 / 5.2 | 26412 / 708 | 0 | 0 | Tokyo / Tokyo | prompt 282 tok（llama.cpp 291） |
+| b2 | `--kv fp16`, prose_1 | 3 | 3/3 | 4.1 / 4.2 / 4.2 | 19301 / 723 | 21 / 19 / 27 | 1 / 1 / 0 | — | rep1 は簡体字 11 字（们・问・给・过…） |
+| b2 | `--kv fp16`, tool_1 | 2 | 2/2 | 2.3 / 4.6 | 25742 / 741 | 0 | 0 | **灯火街** / Tokyo | 同一設定・temp 0 で反復が分かれる |
+
+参考（同一 GGUF、llama.cpp、BOXP-336 l2）: prose_1 は 3 反復とも完全同一本文（423 字、「，」0、簡体字 0、`<think>` 無し）、decode 6.2 tok/s、tool_1 は 3/3 で 灯火街。
+
+#### decode 内訳（STRATA_DECODE_TIMING、engine が出す per-window 集計）
+
+| 実験 | windows | tokens/window | ms/window | GPU-reach wait | per-layer host（CPU expert） | commit/emit | draft | expert cache hit |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| a1 rep0 / 1 / 2 | 292 / 608 / 321 | 1.00 / 1.32 / 1.00 | 255 / 280 / 243 | 222 / 245 / 219 | 11.0 / 15.4 / 9.1 | 0.4〜0.7 | 0.00 | 71% / 62% / 74% |
+| b1（expert 全 CPU） | 153 / 307 / 153 | 1.00 | 255 / 240 / 248 | 201 / 201 / 201 | 25.4 / 27.2 / 24.0 | 0.2 | 0.00 | 0.3% |
+| b2（KV fp16） | 274 / 332 / 338 | 1.00 | 247 / 237 / 238 | 210 / 211 / 211 | 11.7 / 11.0 / 11.4 | 0.7 | 0.00 | — |
+
+#### 解釈
+
+- **decode の遅さの主因は window ごとの GPU 処理（GPU-reach wait 200〜245 ms、1 window の 85〜88%）**。CPU expert 計算は
+  VRAM 常駐時 9〜15 ms、全 CPU 時でも 24〜27 ms（4〜11%）で、expert を全部 CPU に移しても ms/window はほぼ変わらない
+  （255 → 240〜255）。帯域・PCIe・disk も要因ではない（PCIe 0.3〜2.0 entries/window、state D 0）。
+  GPU 側の内訳（attention / dense / router / expert のどれが 200 ms か）は a2 の profile が停止したため未取得。
+- **推測 decode は実質無効**: `--spec 4` でも 1.00〜1.32 tokens/window、draft 0 ms。1 token ≒ 1 GPU pass ≒ 240 ms が
+  そのまま 4 tok/s になる。iGPU（Arc 140T、engine は "Unknown GPU" 分類で XMX / GDN variant 不使用）でこの 1 pass を短縮する
+  手段は engine 側にない（読み出し済み source に iGPU 向け分岐なし）。
+- **「，」と簡体字混入は量子化・GPU expert 経路・KV 精度のいずれにも帰属しない**: expert 全 CPU（b1）でも 4〜9 件、
+  KV fp16（b2）では 19〜27 件、既定（a1）では 0 件。同じ条件内でも反復で 0〜27 件まで振れる。同一 GGUF の llama.cpp は
+  3 反復とも同一本文で 0 件。差は Strata の dense/attention 数値経路または greedy 選択の非決定性にある（未切分け）。
+- **temp 0 で出力が非決定的**（a1 の 3 本が全て別本文、b2 tool_1 が 灯火街 / Tokyo に分かれる）。tool_1 の「Tokyo」は
+  この非決定性の中で優勢な側で、GPU expert / KV 精度を変えても安定しない。prompt token 282 vs 291 の差（template 本体は
+  GGUF 埋め込みと byte 一致）は tokenizer / 描画の段階にあり未切分け。
+- a2 は新しい観測: `STRATA_VERIFY_EAGER=1`（verify window を host 待ちで逐次実行）では **v2 adapter でも** host 側の待ちが
+  戻らず自己 abort した。GPU は 4 ms で完了していたので、停止は GPU 処理ではなく host の event 待ちの問題という解釈
+  （batch3 の結論）と整合する。EAGER は既定 off なので通常経路には影響しない。
+- 採用判断は変わらず: 速度（4 vs 6 tok/s）・品質（非決定・簡体字・tool 誤答）とも llama.cpp に劣り、Q2_0 + 今回 backend では
+  運用 project を作る根拠がない。高精度 pack（IQ3_XXS/IQ3_S）は未試験（容量目安は vault boxp383-retry.md 追補 3.）。
