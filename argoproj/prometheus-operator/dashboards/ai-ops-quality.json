@@ -3589,7 +3589,7 @@
     },
     "id" : 109,
     "title" : "Claude Fable 専用枠 (seven_day_overage_included)",
-    "description" : "Claude Code のモデル専用週次枠 (rate_limit_event の unifiedWindows.seven_day_overage_included、CLI 表示名 Fable limit)。共有 5h / 週次枠とは別の枠で合算しない。未提供 = このアカウントの応答にこの窓が含まれていない状態で、共有枠から推測した値ではない。",
+    "description" : "Claude Code のモデル専用週次枠 (rate_limit_event の unifiedWindows.seven_day_overage_included、CLI 表示名 Fable limit)。共有 5h / 週次枠とは別の枠で合算しない。消費率は窓の最終観測値で現在値ではない。この窓を含まない実行 (Opus など) では値が更新されず「観測からの経過」が伸びる。未観測 = このアカウントでこの窓をまだ観測していない状態で、共有枠から推測した値ではない。",
     "type" : "stat",
     "targets" : [ {
       "datasource" : {
@@ -3609,6 +3609,16 @@
       "expr" : "ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"} unless on(provider, limit, name, window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"} <= time())",
       "legendFormat" : "Fable 専用枠 消費率",
       "refId" : "B",
+      "instant" : true,
+      "range" : false
+    }, {
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "time() - ai_subscription_window_observed_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\",provider=\"claude\",limit=\"seven_day_overage_included\"}",
+      "legendFormat" : "観測からの経過",
+      "refId" : "C",
       "instant" : true,
       "range" : false
     } ],
@@ -3631,7 +3641,7 @@
                 "color" : "green"
               },
               "0" : {
-                "text" : "未提供 (このaccountの応答にFable窓なし)",
+                "text" : "未観測 (このaccountでFable窓の観測なし)",
                 "color" : "text"
               }
             }
@@ -3661,6 +3671,30 @@
             }, {
               "color" : "red",
               "value" : 90
+            } ]
+          }
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byFrameRefID",
+          "options" : "C"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "s"
+        }, {
+          "id" : "thresholds",
+          "value" : {
+            "mode" : "absolute",
+            "steps" : [ {
+              "color" : "green",
+              "value" : null
+            }, {
+              "color" : "orange",
+              "value" : 86400
+            }, {
+              "color" : "red",
+              "value" : 259200
             } ]
           }
         } ]
