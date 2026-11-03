@@ -34,6 +34,8 @@ data:
     plugins:
       enabled:
         - kohako-g2-context
+        # BOXP-387: Kohako G2 realtime client-secret mint (API server route).
+        - kohako-g2-realtime
 
     # BOXP-270: webhook sessions (Task Board event relay) get a toolset narrower
     # than Telegram: read tickets/runbook, run the task-board helper, recall sessions.

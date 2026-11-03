@@ -31,6 +31,10 @@ configMapGenerator:
     files:
       - plugins/boxp-ai-ops-observer/plugin.yaml
       - plugins/boxp-ai-ops-observer/__init__.py
+  - name: hermes-agent-kohako-g2-realtime-plugin
+    files:
+      - plugins/kohako-g2-realtime/plugin.yaml
+      - plugins/kohako-g2-realtime/__init__.py
   - name: hermes-agent-ai-ops-metrics
     files:
       - ai-ops-metrics/server.py
