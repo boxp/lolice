@@ -3,6 +3,9 @@ kind: ConfigMap
 metadata:
   name: strata-server
 data:
+  # BOXP-383: legacy Level Zero adapter の既定の非 immediate command list では compute/copy queue 間の
+  # event 同期が完了せず、prompt 読み layer 0 で 60 秒停止後 exit -6。v2 adapter で完走を確認。
+  # 代替は UR_L0_USE_IMMEDIATE_COMMANDLISTS=1。
   # BOXP-336: Strata v0.2.6（commit 4b9e05a2）/ engine 0.1.50 SYCL の server 設定。
   # /s は golyat-4 の /var/lib/local-llm/models/boxp336-strata（engine・pack・GGUF は
   # SHA256 照合済みで事前配置。install.sh / setup.sh は使わない）。
@@ -31,6 +34,7 @@ data:
         "--spec-min-p", "0.5"
       ],
       "env": {
+        "SYCL_UR_USE_LEVEL_ZERO_V2": "1",
         "STRATA_VERIFY_NO_HOST": "0",
         "STRATA_VERIFY_DEVICE_PLAN": "1",
         "STRATA_UMA_HEADROOM_GIB": "40",
