@@ -195,3 +195,13 @@ local-llm は gate `closed:BOXP-383-20261103T085957Z` → drain → scale 0 の�
 手順は #994 / #996 と同じ: gate `closed:<token>` → inflight 0 を read back → scale 0 → 本 PR merge → 試験 →
 strata process 0 を確認 → 復帰 PR → scale 1 → gate `open:<token>` → `/health` と gemma4-26b の実推論を read back。
 中止条件: MemAvailable < 12 GiB、node の他 workload 影響。
+
+### batch6 結果（11:14〜11:50 UTC、実 GPU 約 35 分）
+
+- **品質差の主因を特定**: `serve/server.py:8058` の model card 既定 `presence_penalty: 1.5` が temperature 0 の要求にも merge され（`:5084`）、
+  直近 64 token（prompt を含む）に出た token の logit が下がっていた。比較した llama.cpp にこの設定はない。logprobs の実測で出力 token ≠ head 1 位が
+  14〜16/120 件、`presence_penalty: 0` で 0/298 件。同じ fixtures で「，」0（4/4）、tool 灯火街 3/3、12/12 完走。
+- 速度は不変（4.2 tok/s、約 240 ms/window）。C3 stepped は約 10% 速いが品質の修復にはならない。
+- 残る未確定: 同一 token 列の logprob が process 間で平均 0.16〜0.30 nat ずれる数値非決定性、簡体字語彙の少数混入、kernel 実行と launch の内訳
+  （C2 は計測前に停止）、legacy adapter の停止機構。
+- `strata.json` の sampling は変更していない。詳細と訂正は vault `Projects/strata-localllm-evaluation/boxp383-retry.md`。
