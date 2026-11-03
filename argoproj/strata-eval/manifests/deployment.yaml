@@ -5,10 +5,9 @@ metadata:
   annotations:
     configmap.reloader.stakater.com/reload: "strata-server"
 spec:
-  # BOXP-383: 停止原因は SYCL Level Zero legacy adapter の command list 同期。
-  # SYCL_UR_USE_LEVEL_ZERO_V2=1 で解消（configmap 参照）。gpu.intel.com/i915 は node に 1 つしかなく、
-  # local-llm/llama-server と同時には動かせないため 0。再検証時は local-llm を止めてから 1 にする。
-  replicas: 0
+  # BOXP-383: 追加試験の診断モード（local-llm を止めた上で 1）。engine は kubectl exec から一変数ずつ起動する。
+  # 試験後は local-llm を 1 に戻し、ここを 0 に戻す。停止原因の回避 env は configmap の strata.json を参照。
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -40,22 +39,13 @@ spec:
           image: ghcr.io/boxp/arch/llama-sycl@sha256:f74b5341cc7702f1b1bb3b1286d148965dff40abfe6976425e3052f5b5c83f53
           imagePullPolicy: IfNotPresent
           workingDir: /s/src-4b9e05a2
+          # BOXP-383 診断モード: server を常駐させず、kubectl exec で engine/server を手動起動する
+          # （一変数ずつの試験のため）。通常モードの command は configmap の strata.json と
+          # `python3 -m serve.server --engine strata --config /config/strata.json --host 127.0.0.1
+          # --port 9137 --offline --no-api-key`（BOXP-336 と同じ。待受は Pod 内 loopback のみ）。
           command:
-            - python3
-            - -m
-            - serve.server
-            - --engine
-            - strata
-            - --config
-            - /config/strata.json
-            # Pod 内の loopback だけで待ち受ける。Service は作らず、
-            # 検証は kubectl port-forward からだけ行う（外部公開なし）。
-            - --host
-            - 127.0.0.1
-            - --port
-            - "9137"
-            - --offline
-            - --no-api-key
+            - sleep
+            - infinity
           env:
             - name: ZES_ENABLE_SYSMAN
               value: "1"

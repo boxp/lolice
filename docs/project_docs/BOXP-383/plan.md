@@ -92,3 +92,45 @@
 
 - strata-eval replicas 0 / 通常 command、local-llm replicas 1（本 PR）。
 - local-llm の実 scale と受付 gate は BOXP-349 の runtime file queue（条件付き PATCH）で scale 1 → open に戻す。
+
+## 2026-11-03 追加試験（Owner 方針の再明示を受けた有限 batch5）と運用 project の整理
+
+Owner「Strata の検証時は local-llm を停止する。最終的には cluster 上で新しく project を作って運用したい」。
+hermes-agent 08:59 UTC の方針に従い、read-only 追補（run 084414Z）で「未確定」とした 2 点だけを実 GPU で切分ける。
+追加の高精度 weights DL・pack 生成・driver 変更はしない。
+
+### 手順（前回 #988 / #993 と同じ正規手順）
+
+1. 本 PR: `local-llm` replicas 0（git 上の記録。実 scale は BOXP-349 の runtime file queue）、`strata-eval/strata-server`
+   replicas 1 + `sleep infinity`（診断モード）。AppProject / Namespace / ConfigMap は変更しない。
+2. merge 前に受付 gate を `closed:<run token>` にし、envoy の `cluster.llama_server.upstream_rq_active` と `pending_active` が 0
+   （inflight 自然完了）を read back してから llama-server を scale 0 → merge → strata-server Pod Running を確認。
+3. Pod 内で一変数ずつ（engine 0.1.50 + `SYCL_UR_USE_LEVEL_ZERO_V2=1`、Q2_0、temp 0、thinking off、fixtures prose_1 / tool_1）:
+   - A1: 既定設定 + `STRATA_DECODE_TIMING=1`（request 単位の decode 内訳: window 数、ms/window、speculative / rollback）× prose_1 3 本
+   - A2: A1 + `STRATA_VERIFY_PROFILE=1`（window 内の GPU stage の ms。profile 中は sh_stream の fork が無効になるため A1 と分ける）× prose_1 2 本
+   - B1: `--expert-cache 1`（expert を全て CPU で計算 = GPU/CPU の丸め差を消す）× prose_1 3 本 + tool_1 2 本
+   - B2: `--kv fp16`（KV int8 の影響）× prose_1 3 本 + tool_1 2 本
+   - B3: `STRATA_ROUTE_TAIL_SKIP` は engine 0.1.50 / 0.1.56 の source に存在しない（docs main の記述は後続 engine のもの）ため実施しない。
+   - template: pack の `chat_template.jinja` と GGUF 埋め込み template の差分、tool 定義の描画差を read-only で比較する。
+   各要求は「，」件数・英単語混入・tool 呼び出し引数・decode tok/s・TTFT を記録する。
+4. 終了: engine/server 停止 → node 上の strata process 0 を確認 → 復帰 PR（strata 0 / 通常 command、local-llm 1、結果を本 plan.md へ）
+   → scale 1 → gate `open:<token>` → router `/health` と gemma4-26b の実推論を read back。
+5. 中止条件: MemAvailable < 12 GiB、watchdog 停止の再発、node の他 workload 影響。即座に 4. へ。
+
+### 既存 strata-eval の役割と「運用 project」の整理（設計のみ、本 PR では作らない）
+
+- 既存（BOXP-336 で作成済み）: AppProject `strata-eval`（sourceRepos lolice、destination namespace `strata-eval` のみ、
+  cluster-scoped 不可、namespace 内は ConfigMap / Deployment のみ）、Application `strata-eval`（automated prune / selfHeal）、
+  Namespace は親 `argocd-apps` が作る。Deployment `strata-server` は replicas 0、hostPath `/var/lib/local-llm/models/boxp336-strata`
+  を read-only で mount、Service なし（Pod 内 loopback のみ）、`gpu.intel.com/i915: 1` を要求するため llama-server と同時に
+  schedule されない。**役割 = 隔離試験専用**（診断モードと通常 command を PR で切り替える）。
+- Owner の「新しい project」は Argo CD の AppProject を指す。`strata-eval` は既に専用 AppProject なので、運用用に
+  もう一つ作る価値があるのは「常時サービスとして入口・監視・停止復帰を持つ」段階に進む時だけ。
+- 運用 project 案（`strata`）: Namespace `strata`、AppProject `strata`（whitelist に Service / ServiceMonitor / NetworkPolicy を追加）、
+  Application `strata`（`argoproj/strata/`、base は strata-eval の manifests を kustomize で参照して重複を作らない）、
+  Deployment `strata-server`（ClusterIP Service 9137、readiness は `/health`、weights は `/var/lib/local-llm/models/strata/<pack>`
+  を read-only hostPath で保全、logs は emptyDir）、GPU 排他は local-llm の admission gate（closed → drain → scale 0）と
+  i915 resource 1 個の二重で担保、利用入口は LAN Service ではなく router 経由を検討、停止復帰は replicas の条件付き PATCH、
+  更新 rollback は Argo の revision revert。
+- 採用条件（これを満たすまで運用 project は作らない）: 同一 fixtures で llama.cpp と同等以上の品質（tool 3/3、「，」0）、
+  かつ速度または容量（IQ3_S 級が載る等）で実測の利点があること。Q2_0 の今回結果はどちらも未達。
