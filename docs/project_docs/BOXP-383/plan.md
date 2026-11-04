@@ -300,3 +300,5 @@ Owner 選択 1 の継続範囲（既存 model / pack と MTP、追加 DL なし�
 - 健康停止: MemAvailable < 12 GiB が 2 連続、GPU HANG / reset の増加。要求失敗はその条件を終了し再送しない。
 
 恒久採用、既定 model の変更は含まない。
+
+batch11 追記: `--expert-cache 4000` は起動中に pod の memory limit 56 GiB で cgroup OOM（node は影響なし）。感度を測るため診断 pod の limit だけ試験中 76 GiB にする。local-llm 停止中のみ。復帰 PR で 56 GiB へ戻す。

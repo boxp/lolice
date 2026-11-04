@@ -73,8 +73,8 @@ spec:
               memory: 40Gi
               gpu.intel.com/i915: "1"
             limits:
-              # node の MemAvailable 20GiB 以上を残す上限（RAM arena 31.6GiB + 作業領域）。
-              memory: 56Gi
+              # BOXP-383 batch11 の間だけ 76GiB（expert cache 感度。MemAvailable<12GiB で試験を止める）。復帰 PR で 56GiB へ戻す。
+              memory: 76Gi
               gpu.intel.com/i915: "1"
           volumeMounts:
             - name: strata
