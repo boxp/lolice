@@ -302,3 +302,7 @@ Owner 選択 1 の継続範囲（既存 model / pack と MTP、追加 DL なし�
 恒久採用、既定 model の変更は含まない。
 
 batch11 追記: `--expert-cache 4000` は起動中に pod の memory limit 56 GiB で cgroup OOM（node は影響なし）。感度を測るため診断 pod の limit だけ試験中 76 GiB にする。local-llm 停止中のみ。復帰 PR で 56 GiB へ戻す。
+
+### batch11 試験完了（復帰）
+
+試験を終えたので本 PR で通常構成へ戻す。strata-eval は replicas 0、通常 command、memory limit 56Gi、local-llm は replicas 1。結果の詳細は vault の `boxp383-retry.md`。恒久採用、既定 model の変更は含まない。
