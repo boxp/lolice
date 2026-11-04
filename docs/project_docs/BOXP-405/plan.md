@@ -27,3 +27,11 @@ PrometheusRule と dashboard ConfigMap は ArgoCD の同期だけで反映され
 argoproj/prometheus-operator/tests/run-promtool-tests.sh   # SUCCESS
 python3 -I -c 'import json; json.load(open("argoproj/prometheus-operator/dashboards/ai-ops-quality.json"))'
 ```
+
+## 成果の定義の改訂（`outcome/v2-draft`）と対照評価のアラート
+
+実データの readback で分かった欠陥を直す。集計側の変更は arch #14465 で、rule と同時に反映する。
+
+- burn rate を `(determined - reached_in_budget) / determined / 0.10` にする。以前は遅れて届いた作業を失敗に数えず、目標の「予算内の到達率」と合っていなかった。
+- `AiOpsHarnessEvalRegression` を追加する。`ai_ops_harness_eval_regression{status="suspected"}` が 1 で export が正常なときに発火する。
+- 主画面の「ハーネス劣化の疑い」を固定文から実測の表示に変える。未実施と劣化なしを区別する。

@@ -42,13 +42,13 @@
               "exp_labels": {
                 "severity": "warning",
                 "component": "ai-ops",
-                "definition_version": "outcome/v1-draft",
+                "definition_version": "outcome/v2-draft",
                 "window": "7d",
                 "job": "codex-workspace-ai-ops-metrics"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の劣化を検知",
-                "description": "7d 窓: not_reached / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
+                "description": "7d 窓: (determined - reached_in_budget) / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
                 "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
               }
             }
@@ -77,13 +77,13 @@
               "exp_labels": {
                 "severity": "warning",
                 "component": "ai-ops",
-                "definition_version": "outcome/v1-draft",
+                "definition_version": "outcome/v2-draft",
                 "window": "7d",
                 "job": "codex-workspace-ai-ops-metrics"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の劣化を検知",
-                "description": "7d 窓: not_reached / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
+                "description": "7d 窓: (determined - reached_in_budget) / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
                 "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
               }
             }
@@ -228,13 +228,13 @@
               "exp_labels": {
                 "severity": "warning",
                 "component": "ai-ops",
-                "definition_version": "outcome/v1-draft",
+                "definition_version": "outcome/v2-draft",
                 "window": "28d",
                 "job": "codex-workspace-ai-ops-metrics"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の劣化を検知",
-                "description": "28d 窓: not_reached / determined の burn rate が暫定閾値 1.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
+                "description": "28d 窓: (determined - reached_in_budget) / determined の burn rate が暫定閾値 1.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
                 "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
               }
             }
@@ -295,11 +295,11 @@
               "exp_labels": {
                 "severity": "warning",
                 "component": "ai-ops",
-                "definition_version": "outcome/v1-draft"
+                "definition_version": "outcome/v2-draft"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の計測に異常",
-                "description": "計測の鮮度または export に異常。7d/28d 窓の not_reached / determined と観測数は信頼できない可能性がある。burn の閾値は暫定。Grafana ai-ops-quality を参照。",
+                "description": "計測の鮮度または export に異常。7d/28d 窓の到達率と観測数は信頼できない可能性がある。burn の閾値は暫定。Grafana ai-ops-quality を参照。",
                 "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
               }
             }
@@ -330,11 +330,11 @@
               "exp_labels": {
                 "severity": "warning",
                 "component": "ai-ops",
-                "definition_version": "outcome/v1-draft"
+                "definition_version": "outcome/v2-draft"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の計測に異常",
-                "description": "計測の鮮度または export に異常。7d/28d 窓の not_reached / determined と観測数は信頼できない可能性がある。burn の閾値は暫定。Grafana ai-ops-quality を参照。",
+                "description": "計測の鮮度または export に異常。7d/28d 窓の到達率と観測数は信頼できない可能性がある。burn の閾値は暫定。Grafana ai-ops-quality を参照。",
                 "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
               }
             }
@@ -390,11 +390,11 @@
               "exp_labels": {
                 "severity": "warning",
                 "component": "ai-ops",
-                "definition_version": "outcome/v1-draft"
+                "definition_version": "outcome/v2-draft"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の計測に異常",
-                "description": "計測の鮮度または export に異常。7d/28d 窓の not_reached / determined と観測数は信頼できない可能性がある。burn の閾値は暫定。Grafana ai-ops-quality を参照。",
+                "description": "計測の鮮度または export に異常。7d/28d 窓の到達率と観測数は信頼できない可能性がある。burn の閾値は暫定。Grafana ai-ops-quality を参照。",
                 "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
               }
             }
@@ -452,13 +452,13 @@
               "exp_labels": {
                 "severity": "warning",
                 "component": "ai-ops",
-                "definition_version": "outcome/v1-draft",
+                "definition_version": "outcome/v2-draft",
                 "window": "7d",
                 "job": "codex-workspace-ai-ops-metrics"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の劣化を検知",
-                "description": "7d 窓: not_reached / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
+                "description": "7d 窓: (determined - reached_in_budget) / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
                 "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
               }
             }
@@ -507,6 +507,81 @@
           "exp_samples": []
         }
       ]
+    },
+    {
+      "name" : "遅延の到達も失敗に数える",
+      "interval" : "1m",
+      "input_series" : [ {
+        "series" : "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\"}",
+        "values" : "20+0x180"
+      }, {
+        "series" : "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"not_reached\"}",
+        "values" : "0+0x180"
+      }, {
+        "series" : "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_over_budget\"}",
+        "values" : "5+0x180"
+      }, {
+        "series" : "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\"}",
+        "values" : "15+0x180"
+      } ],
+      "promql_expr_test" : [ {
+        "expr" : "ai_ops:outcome_burn_rate{window=\"7d\"}",
+        "eval_time" : "1m",
+        "exp_samples" : [ {
+          "labels" : "ai_ops:outcome_burn_rate{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\"}",
+          "value" : 2.5
+        } ]
+      } ]
+    },
+    {
+      "name" : "対照評価の劣化の疑い",
+      "interval" : "1m",
+      "input_series" : [ {
+        "series" : "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h1\",status=\"suspected\"}",
+        "values" : "1+0x30"
+      }, {
+        "series" : "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h1\",status=\"no_regression\"}",
+        "values" : "0+0x30"
+      }, {
+        "series" : "ai_ops_harness_eval_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+        "values" : "1+0x30"
+      } ],
+      "alert_rule_test" : [ {
+        "eval_time" : "10m",
+        "alertname" : "AiOpsHarnessEvalRegression",
+        "exp_alerts" : [ {
+          "exp_labels" : {
+            "severity" : "warning",
+            "component" : "ai-ops",
+            "definition_version" : "harness-eval/v1-draft",
+            "job" : "codex-workspace-ai-ops-metrics",
+            "model_rev" : "m1",
+            "harness_version" : "h1",
+            "status" : "suspected"
+          },
+          "exp_annotations" : {
+            "summary" : "ハーネス劣化の疑い（固定課題の対照評価）",
+            "description" : "同じ model_rev で現行ハーネスの合格率または所要時間が最小構成より悪い。件数が少ないので断定しない。model_rev と harness_version の label を参照。",
+            "runbook_next_actions" : "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
+          }
+        } ]
+      } ]
+    },
+    {
+      "name" : "対照評価の劣化なし・未実施・読取り失敗では発火しない",
+      "interval" : "1m",
+      "input_series" : [ {
+        "series" : "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h1\",status=\"suspected\"}",
+        "values" : "0+0x10 1+0x20"
+      }, {
+        "series" : "ai_ops_harness_eval_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+        "values" : "1+0x10 0+0x20"
+      } ],
+      "alert_rule_test" : [ {
+        "eval_time" : "25m",
+        "alertname" : "AiOpsHarnessEvalRegression",
+        "exp_alerts" : [ ]
+      } ]
     }
   ]
 }
