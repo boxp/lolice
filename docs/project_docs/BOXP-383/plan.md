@@ -289,3 +289,14 @@ Owner は MTP 約 6 GB の取得と、IQ3_XXS での MTP 有無 × GR_LARGE_GRF 
 ### batch10 試験完了（02:10〜07:2x UTC、復帰）
 
 試験を終えたので本 PR で通常構成へ戻す。MTP と Alchemist 専用既定の kernel 選択（STRATA_PF_XMX=2、GR_LARGE_GRF、GR_MORE_GROUPS、MMVQ_LARGE_GRF）に pool4 を足した条件が最良だった。結果の詳細は vault の `boxp383-retry.md`。恒久採用、既定 model の変更は含まない。
+
+### batch11（expert cache 感度と UD-Q4 + MTP）
+
+Owner 選択 1 の継続範囲（既存 model / pack と MTP、追加 DL なし）。受付 close → drain → scale 0 の後に本 PR を merge する。
+
+- 目的: batch10 の最良構成で per-layer host CPU が窓の約 2 割を占めるので、`--expert-cache` を増やして減るかを見る。`--lookup-chain 4` と、UD-Q4_K_XL に MTP を足した場合も測る。
+- 棄却条件: decode tok/s が基準の両端の範囲から 10% 超改善しなければ効果なし。
+- 見積: 約 40 分 + coding 最大 45 分。
+- 健康停止: MemAvailable < 12 GiB が 2 連続、GPU HANG / reset の増加。要求失敗はその条件を終了し再送しない。
+
+恒久採用、既定 model の変更は含まない。
