@@ -42,13 +42,416 @@
       "h" : 7
     }
   }, {
+      "id": 230,
+      "type": "row",
+      "title": "0. 成果の状態・ハーネス劣化の疑い・判断可能性・次 action（outcome/v1-draft、暫定）",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    }, {
+      "id": 231,
+      "type": "stat",
+      "title": "成果の状態（使える成果への到達率）",
+      "description": "到達率 = 予算 168h 内の到達件数 / 判定済み件数。正当な待ちは分母外。閾値は暫定（80% 未満は赤、90% 未満は黄）。No data = 未計測（系列なし）。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 6,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          },
+          "noValue": "未計測"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".* (reached_in_budget|determined)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "ai_ops:outcome_reach_ratio{window=\"28d\"}",
+          "instant": true,
+          "legendFormat": "28d 到達率",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "ai_ops:outcome_reach_ratio{window=\"7d\"}",
+          "instant": true,
+          "legendFormat": "7d 到達率",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",part=~\"reached_in_budget|determined\"}",
+          "instant": true,
+          "legendFormat": "{{window}} {{part}}",
+          "refId": "C"
+        }
+      ]
+    }, {
+      "id": 232,
+      "type": "text",
+      "title": "ハーネス劣化の疑い（固定課題の対照評価）",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 8,
+        "w": 6,
+        "h": 6
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "未実施（段階 3 で `ai_ops_harness_eval_*` を導入してから表示）。実運用の成果指標から因果を断定しない。"
+      }
+    }, {
+      "id": 233,
+      "type": "stat",
+      "title": "判断可能性（計測の鮮度・export・観測数）",
+      "description": "No data = 未計測。鮮度は 7200 秒超で赤。観測不足と対象なしを別々に表示。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 6,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "未計測",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "export"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "正常"
+                      },
+                      "0": {
+                        "text": "失敗"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "鮮度"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 7200.000001
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".* measuring"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "観測充足"
+                      },
+                      "0": {
+                        "text": "観測不足/対象なし"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".* (insufficient|no_observations)"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "1": {
+                        "text": "該当"
+                      },
+                      "0": {
+                        "text": "非該当"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+          "instant": true,
+          "legendFormat": "export",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "time() - ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+          "instant": true,
+          "legendFormat": "鮮度",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "ai_ops_outcome_reach_status{job=\"codex-workspace-ai-ops-metrics\",status=\"measuring\"}",
+          "instant": true,
+          "legendFormat": "{{window}} measuring",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "ai_ops_outcome_reach_status{job=\"codex-workspace-ai-ops-metrics\",status=\"insufficient\"}",
+          "instant": true,
+          "legendFormat": "{{window}} insufficient",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "ai_ops_outcome_reach_status{job=\"codex-workspace-ai-ops-metrics\",status=\"no_observations\"}",
+          "instant": true,
+          "legendFormat": "{{window}} no_observations",
+          "refId": "E"
+        }
+      ]
+    }, {
+      "id": 234,
+      "type": "stat",
+      "title": "次 action（burn アラートの状態）",
+      "description": "No data = 発火なし（rule 未配備なら区別不能）。許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 8,
+        "w": 6,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "発火なし（rule 未配備なら区別不能）",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "count by (alertname) (ALERTS{component=\"ai-ops\",alertstate=\"firing\"})",
+          "instant": true,
+          "legendFormat": "{{alertname}}",
+          "refId": "A"
+        }
+      ]
+    }, {
     "id" : 222,
     "type" : "row",
     "title" : "1. いま止まっている作業・自分の判断が必要な作業",
     "collapsed" : false,
     "gridPos" : {
       "x" : 0,
-      "y" : 7,
+      "y" : 14,
       "w" : 24,
       "h" : 1
     },
@@ -61,7 +464,7 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 8,
+      "y" : 15,
       "w" : 12,
       "h" : 6
     },
@@ -165,7 +568,7 @@
     },
     "gridPos" : {
       "x" : 12,
-      "y" : 8,
+      "y" : 15,
       "w" : 12,
       "h" : 6
     },
@@ -259,7 +662,7 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 14,
+      "y" : 21,
       "w" : 8,
       "h" : 5
     },
@@ -337,7 +740,7 @@
     },
     "gridPos" : {
       "x" : 8,
-      "y" : 14,
+      "y" : 21,
       "w" : 8,
       "h" : 5
     },
@@ -401,7 +804,7 @@
     },
     "gridPos" : {
       "x" : 16,
-      "y" : 14,
+      "y" : 21,
       "w" : 8,
       "h" : 5
     },
@@ -454,7 +857,7 @@
     "collapsed" : false,
     "gridPos" : {
       "x" : 0,
-      "y" : 19,
+      "y" : 26,
       "w" : 24,
       "h" : 1
     },
@@ -467,7 +870,7 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 20,
+      "y" : 27,
       "w" : 8,
       "h" : 5
     },
@@ -541,7 +944,7 @@
     },
     "gridPos" : {
       "x" : 8,
-      "y" : 20,
+      "y" : 27,
       "w" : 8,
       "h" : 5
     },
@@ -615,7 +1018,7 @@
     },
     "gridPos" : {
       "x" : 16,
-      "y" : 20,
+      "y" : 27,
       "w" : 8,
       "h" : 5
     },
@@ -709,7 +1112,7 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 25,
+      "y" : 32,
       "w" : 8,
       "h" : 4
     },
@@ -783,7 +1186,7 @@
     },
     "gridPos" : {
       "x" : 8,
-      "y" : 25,
+      "y" : 32,
       "w" : 8,
       "h" : 4
     },
@@ -867,7 +1270,7 @@
     },
     "gridPos" : {
       "x" : 16,
-      "y" : 25,
+      "y" : 32,
       "w" : 8,
       "h" : 4
     },
@@ -951,7 +1354,7 @@
     "collapsed" : false,
     "gridPos" : {
       "x" : 0,
-      "y" : 29,
+      "y" : 36,
       "w" : 24,
       "h" : 1
     },
@@ -964,7 +1367,7 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 30,
+      "y" : 37,
       "w" : 6,
       "h" : 4
     },
@@ -1028,7 +1431,7 @@
     },
     "gridPos" : {
       "x" : 6,
-      "y" : 30,
+      "y" : 37,
       "w" : 6,
       "h" : 4
     },
@@ -1102,7 +1505,7 @@
     },
     "gridPos" : {
       "x" : 12,
-      "y" : 30,
+      "y" : 37,
       "w" : 6,
       "h" : 4
     },
@@ -1158,7 +1561,7 @@
     },
     "gridPos" : {
       "x" : 18,
-      "y" : 30,
+      "y" : 37,
       "w" : 6,
       "h" : 4
     },
@@ -1232,7 +1635,7 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 34,
+      "y" : 41,
       "w" : 4,
       "h" : 3
     },
@@ -1297,7 +1700,7 @@
     },
     "gridPos" : {
       "x" : 4,
-      "y" : 34,
+      "y" : 41,
       "w" : 4,
       "h" : 3
     },
@@ -1362,7 +1765,7 @@
     },
     "gridPos" : {
       "x" : 8,
-      "y" : 34,
+      "y" : 41,
       "w" : 4,
       "h" : 3
     },
@@ -1415,7 +1818,7 @@
     },
     "gridPos" : {
       "x" : 12,
-      "y" : 34,
+      "y" : 41,
       "w" : 6,
       "h" : 3
     },
@@ -1491,7 +1894,7 @@
     },
     "gridPos" : {
       "x" : 18,
-      "y" : 34,
+      "y" : 41,
       "w" : 6,
       "h" : 3
     },
@@ -1555,7 +1958,7 @@
     },
     "gridPos" : {
       "x" : 0,
-      "y" : 37,
+      "y" : 44,
       "w" : 12,
       "h" : 4
     },
@@ -1649,7 +2052,7 @@
     },
     "gridPos" : {
       "x" : 12,
-      "y" : 37,
+      "y" : 44,
       "w" : 6,
       "h" : 4
     },
@@ -1733,7 +2136,7 @@
     },
     "gridPos" : {
       "x" : 18,
-      "y" : 37,
+      "y" : 44,
       "w" : 6,
       "h" : 4
     },
@@ -1785,7 +2188,7 @@
     "collapsed" : true,
     "gridPos" : {
       "x" : 0,
-      "y" : 41,
+      "y" : 48,
       "w" : 24,
       "h" : 1
     },
@@ -3281,7 +3684,7 @@
     "collapsed" : true,
     "gridPos" : {
       "x" : 0,
-      "y" : 42,
+      "y" : 49,
       "w" : 24,
       "h" : 1
     },
@@ -4401,7 +4804,7 @@
     "collapsed" : true,
     "gridPos" : {
       "x" : 0,
-      "y" : 43,
+      "y" : 50,
       "w" : 24,
       "h" : 1
     },
