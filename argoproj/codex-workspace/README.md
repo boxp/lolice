@@ -144,7 +144,7 @@ Dashboard サイドカーは別 port `8090`（Service `codex-task-board-kohako`�
 
 - `GET /api/kohako/board`（schema `kohako-board/v1`）と `GET /healthz` のみ。他の path は 404、GET 以外は 405。既存 `:8080` の runs / log API はこの port から見えません。
 - 入力は vault（`KOHAKO_VAULT_ROOT`、既定 `/home/boxp/Documents/obsidian-headless/BOXP`）の `Boards/Task Board.md` と `Tickets/BOXP-N.md`。ID は `BOXP-数字` だけ、ファイルは 512KB まで読みます。
-- 返すのは In Progress → Review → Blocked → Ready → Done（48 時間以内に更新）の最大 30 件と、id・title・lane・status・担当（カード / 票）と不一致 flag・priority・更新時刻・最新 Notes の時刻 / source・進捗 / 阻害 / 要判断の 80 字抜粋・読取エラーだけです。抜粋は URL の path / query、メール、`token` / `key` / `secret` / `password` の値、32 字以上の英数字列を `…` に置き換えます。阻害・要判断はキーワードによる推定です。
+- 返すのは In Progress → Blocked → Ready → Done（48 時間以内に更新）の最大 30 件と、id・title・lane・status・担当（カード / 票）と不一致 flag・priority・更新時刻・最新 Notes の時刻 / source・進捗 / 阻害 / 要判断の 80 字抜粋・読取エラーだけです。抜粋は URL の path / query、メール、`token` / `key` / `secret` / `password` の値、32 字以上の英数字列を `…` に置き換えます。阻害・要判断はキーワードによる推定です。
 - NetworkPolicy で `8090` への ingress は `even-g2-lab` の `app == 'even-g2-main'`（Kohako BFF sidecar）だけに許可します。
 - 試験: `python3 -B -m unittest tests/workflows/test_kohako_board_projection.py`（yq v4 が必要）。
 - コードは ConfigMap の `kohako_board.py` / `server.py` なので、反映は Pod の次の再起動（image 自動更新など）時です。
