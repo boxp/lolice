@@ -285,3 +285,7 @@ Owner は MTP 約 6 GB の取得と、IQ3_XXS での MTP 有無 × GR_LARGE_GRF 
 - 排他: engine は loopback、proxy だけ pod IP で token 必須。Service は作らない。BOXP-358 の GPU 解放連絡後に開始する。
 
 手順は #1008 と同じ: gate `closed:<token>` → inflight 0 を read back → scale 0 → 本 PR merge → 試験 → engine 0 を確認 → 復帰 PR → scale 1 → gemma4-26b の実推論を read back → gate `open:<token>`。
+
+### batch10 試験完了（02:10〜07:2x UTC、復帰）
+
+試験を終えたので本 PR で通常構成へ戻す。MTP と Alchemist 専用既定の kernel 選択（STRATA_PF_XMX=2、GR_LARGE_GRF、GR_MORE_GROUPS、MMVQ_LARGE_GRF）に pool4 を足した条件が最良だった。結果の詳細は vault の `boxp383-retry.md`。恒久採用、既定 model の変更は含まない。
