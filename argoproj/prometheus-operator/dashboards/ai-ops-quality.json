@@ -709,7 +709,7 @@
     },
     "panels" : [ ]
   }, {
-    "description" : "式: agent-system 起因是正 event を1回以上含む task / Review 到達 task。原因 unknown の是正は分子に入れず別掲 (成功扱いもしない)",
+    "description" : "式: agent-system 起因是正 event を1回以上含む task / Review 到達 task。原因 unknown の是正は分子に入れず別掲 (成功扱いもしない)。 2026-11-03 21:16 UTC の Task Board Review レーン廃止以降、Review 到達は owner-acceptance と過去分の review を指す (BOXP-395)。",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
@@ -763,7 +763,7 @@
       }
     }
   }, {
-    "description" : "分子・原因unknown・分母 (Review 到達 task)",
+    "description" : "分子・原因unknown・分母 (Review 到達 task)。 2026-11-03 21:16 UTC の Task Board Review レーン廃止以降、Review 到達は owner-acceptance と過去分の review を指す (BOXP-395)。",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
@@ -1082,7 +1082,7 @@
     }
   },
     {
-      "description" : "v1 の Owner 可視是正 (succeeded した review-fix run を持つ task、または Review 後に implement が再開した task) / Review 到達 task。差戻し率ではない。 読めない run を持つ task は除外し『未評価 task (v1)』に別掲。未評価が 1 件以上ならこの値は下限。",
+      "description" : "v1 の Owner 可視是正 (succeeded した review-fix run を持つ task、または Review 後に implement が再開した task) / Review 到達 task。差戻し率ではない。 読めない run を持つ task は除外し『未評価 task (v1)』に別掲。未評価が 1 件以上ならこの値は下限。 2026-11-03 21:16 UTC の Task Board Review レーン廃止以降、Review 到達は owner-acceptance と過去分の review を指す (BOXP-395)。",
       "datasource" : {
         "type" : "prometheus",
         "uid" : "${datasource}"
@@ -1460,7 +1460,7 @@
       }
     },
     {
-      "description" : "Review 後に run が再開した task。是正か継続か新 scope か本文を読まないため分類不能。v1 では groom→implement や中断再開を除外している。",
+      "description" : "Review 後に run が再開した task。是正か継続か新 scope か本文を読まないため分類不能。v1 では groom→implement や中断再開を除外している。 2026-11-03 21:16 UTC の Task Board Review レーン廃止以降、Review 到達は owner-acceptance と過去分の review を指す (BOXP-395)。 continue で続く run はここに数えない。",
       "datasource" : {
         "type" : "prometheus",
         "uid" : "${datasource}"
@@ -1520,7 +1520,7 @@
       }
     },
     {
-      "description" : "review 終了から次 run 開始までの停滞。 読めない run を持つ task は除外し『未評価 task (v1)』に別掲。未評価が 1 件以上ならこの値は下限。",
+      "description" : "review 終了から次 run 開始までの停滞。Review レーン廃止 (2026-11-03 21:16 UTC, BOXP-395) 後は新規に発生しないので、値が無いのは 0 ではなく対象なし。 読めない run を持つ task は除外し『未評価 task (v1)』に別掲。未評価が 1 件以上ならこの値は下限。",
       "datasource" : {
         "type" : "prometheus",
         "uid" : "${datasource}"
