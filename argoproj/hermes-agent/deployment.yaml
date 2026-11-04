@@ -18,7 +18,7 @@ spec:
         # from the ConfigMap into the PVC only at Pod start. Bump this value
         # whenever task_board_webhook_route.json changes so Argo CD rolls
         # the Pod and the new route definition takes effect.
-        boxp.io/task-board-webhook-route-revision: "2026-11-04T19:10Z-BOXP-409-night-processing"
+        boxp.io/task-board-webhook-route-revision: "2026-11-04T19:15Z-BOXP-409-digest-dedupe"
     spec:
       automountServiceAccountToken: false
       nodeSelector:
