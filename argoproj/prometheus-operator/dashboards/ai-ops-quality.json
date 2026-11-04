@@ -739,8 +739,8 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "ai_ops_v2_approved_work_stall{job=\"codex-workspace-ai-ops-metrics\",part=\"numerator\"} / (ai_ops_v2_approved_work_stall{job=\"codex-workspace-ai-ops-metrics\",part=\"denominator\"} > 0)",
-      "legendFormat" : "停滞率（分母 0 なら対象なし）",
+      "expr" : "100 * ai_ops_v2_approved_work_stall{job=\"codex-workspace-ai-ops-metrics\",part=\"numerator\"} / ignoring(part) (ai_ops_v2_approved_work_stall{job=\"codex-workspace-ai-ops-metrics\",part=\"denominator\"} > 0)",
+      "legendFormat" : "停滞率（%。分母 0 なら対象なし）",
       "refId" : "Q2",
       "instant" : true,
       "range" : false
