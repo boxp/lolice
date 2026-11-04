@@ -34,6 +34,7 @@ spec:
             - -c
             - |
               set -eu
+              install -d -o 1000 -g 10000 -m 2775 /tmp/task-board-locks
               mkdir -p /opt/data/scripts /opt/data/Documents/obsidian-headless/BOXP
               skill_dir=/opt/data/skills/note-taking/obsidian-task-board
               if [ ! -f /opt/data/.shared-uid-gid-migrated ]; then
@@ -326,6 +327,8 @@ spec:
               drop: ["ALL"]
               add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
             - name: data
               mountPath: /opt/data
             - name: config
