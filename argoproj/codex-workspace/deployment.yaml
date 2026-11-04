@@ -406,6 +406,11 @@ spec:
               value: /var/run/secrets/codex-workspace/kubeconfig/config
             - name: GRAFANA_URL
               value: http://grafana.monitoring.svc.cluster.local:3000
+            # BOXP-405: run 開始時に AiOps* アラート (lolice ai-ops-outcome-rules) を Grafana の
+            # datasource proxy 経由で read-only に 1 回読み、prompt の判断支援節と summary.edn に
+            # allowlist 名だけを残す。値は monitoring の Prometheus datasource uid。未設定なら無効。
+            - name: CODEX_TASK_BOARD_AI_OPS_ALERTS_DATASOURCE_UID
+              value: P1809F7CD0C75ACF3
             - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
               valueFrom:
                 secretKeyRef:
