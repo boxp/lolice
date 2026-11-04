@@ -271,3 +271,17 @@ Owner が承認した範囲は、Flash-Next UD-Q4_K_XL 一候補（4 shard、約
 ### batch9 試験完了（21:34〜UTC、復帰）
 
 試験を終えたので本 PR で通常構成へ戻す。試験結果の詳細は vault の `boxp383-retry.md`。恒久採用、既定 model の変更は含まない。
+
+## 2026-11-04 batch10: MTP 比較と律速の識別（run 20261104T014351Z）
+
+Owner は MTP 約 6 GB の取得と、IQ3_XXS での MTP 有無 × GR_LARGE_GRF × pool4 の比較を承認した。従来の短い GPU 枠は一律の期限にしない。localLLM の停止は一連の試験中は維持してよく、受付 close → drain → 停止と、最終の Gemma 復帰 → 受付 open は必須。
+
+- 対象: `Qwen/Qwen3.8-Flash-Next` rev `de4b8e4d` の `mtp.*` 31 tensor（5.214 GB、使用版 source の SHA256 で検証）。別 MTP / 別 model へ代替しない。
+- 目的: draft 受理率が当機で上がるか、ms/window の増分を上回って decode が速くなるかを、単独と組合せで確かめる。
+- 期待と棄却: MTP の受理率が 50% 以上で tokens/window が 1.5 以上なら有効。tok/s が base を 10% 超えなければ、当機では効果なしと判定する。
+- 手順: 8 条件を 2 round、順序を反転して実行する（1 条件約 6 分、engine 再起動込みで計約 100 分）。その後、合成 fixture の coding を base と最良条件で反復する（sandbox の回帰を直前に実行）。
+- 中止条件: MemAvailable < 12 GiB が 2 回連続、GPU HANG / reset の増加。要求失敗はその条件を終了し、同じ操作を再送しない。MTP 条件が 2 回失敗したら MTP 条件を打ち切る。
+- 上限: 一連の GPU 試験は 3 時間を目安に区切り、結果を保存してから次の識別を判断する。
+- 排他: engine は loopback、proxy だけ pod IP で token 必須。Service は作らない。BOXP-358 の GPU 解放連絡後に開始する。
+
+手順は #1008 と同じ: gate `closed:<token>` → inflight 0 を read back → scale 0 → 本 PR merge → 試験 → engine 0 を確認 → 復帰 PR → scale 1 → gemma4-26b の実推論を read back → gate `open:<token>`。
