@@ -1,0 +1,512 @@
+{
+  "rule_files": [
+    "rules.yaml"
+  ],
+  "evaluation_interval": "1m",
+  "tests": [
+    {
+      "name": "7d 劣化",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\"}",
+          "values": "20+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"not_reached\"}",
+          "values": "5+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\"}",
+          "values": "15+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\"}",
+          "values": "10+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "1+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "100000+0x180"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnFast",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "component": "ai-ops",
+                "definition_version": "outcome/v1-draft",
+                "window": "7d",
+                "job": "codex-workspace-ai-ops-metrics"
+              },
+              "exp_annotations": {
+                "summary": "AI Ops 成果の劣化を検知",
+                "description": "7d 窓: not_reached / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
+                "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnSlow",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeMeasurementStale",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "1h59m",
+          "alertname": "AiOpsOutcomeBurnFast",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h",
+          "alertname": "AiOpsOutcomeBurnFast",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "component": "ai-ops",
+                "definition_version": "outcome/v1-draft",
+                "window": "7d",
+                "job": "codex-workspace-ai-ops-metrics"
+              },
+              "exp_annotations": {
+                "summary": "AI Ops 成果の劣化を検知",
+                "description": "7d 窓: not_reached / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
+                "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "劣化なし",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\"}",
+          "values": "40+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"not_reached\"}",
+          "values": "1+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\"}",
+          "values": "39+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\"}",
+          "values": "10+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "1+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "100000+0x180"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnFast",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnSlow",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeMeasurementStale",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "観測不足",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\"}",
+          "values": "5+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"not_reached\"}",
+          "values": "5+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\"}",
+          "values": "0+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\"}",
+          "values": "10+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "1+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "100000+0x180"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnFast",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnSlow",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeMeasurementStale",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "28d 継続悪化",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"28d\",part=\"determined\"}",
+          "values": "30+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"28d\",part=\"not_reached\"}",
+          "values": "4+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"28d\",part=\"reached_in_budget\"}",
+          "values": "26+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"28d\"}",
+          "values": "20+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "1+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "100000+0x180"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnFast",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnSlow",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "component": "ai-ops",
+                "definition_version": "outcome/v1-draft",
+                "window": "28d",
+                "job": "codex-workspace-ai-ops-metrics"
+              },
+              "exp_annotations": {
+                "summary": "AI Ops 成果の劣化を検知",
+                "description": "28d 窓: not_reached / determined の burn rate が暫定閾値 1.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
+                "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeMeasurementStale",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "export 失敗",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\"}",
+          "values": "20+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"not_reached\"}",
+          "values": "5+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\"}",
+          "values": "15+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\"}",
+          "values": "10+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "0+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "100000+0x180"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnFast",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnSlow",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeMeasurementStale",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "component": "ai-ops",
+                "definition_version": "outcome/v1-draft"
+              },
+              "exp_annotations": {
+                "summary": "AI Ops 成果の計測に異常",
+                "description": "計測の鮮度または export に異常。7d/28d 窓の not_reached / determined と観測数は信頼できない可能性がある。burn の閾値は暫定。Grafana ai-ops-quality を参照。",
+                "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "系列なし",
+      "interval": "1m",
+      "input_series": [],
+      "alert_rule_test": [
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnFast",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnSlow",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeMeasurementStale",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "component": "ai-ops",
+                "definition_version": "outcome/v1-draft"
+              },
+              "exp_annotations": {
+                "summary": "AI Ops 成果の計測に異常",
+                "description": "計測の鮮度または export に異常。7d/28d 窓の not_reached / determined と観測数は信頼できない可能性がある。burn の閾値は暫定。Grafana ai-ops-quality を参照。",
+                "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "鮮度 3 時間超",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\"}",
+          "values": "20+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"not_reached\"}",
+          "values": "5+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\"}",
+          "values": "15+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\"}",
+          "values": "10+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "1+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "-1800+0x180"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnFast",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnSlow",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeMeasurementStale",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "component": "ai-ops",
+                "definition_version": "outcome/v1-draft"
+              },
+              "exp_annotations": {
+                "summary": "AI Ops 成果の計測に異常",
+                "description": "計測の鮮度または export に異常。7d/28d 窓の not_reached / determined と観測数は信頼できない可能性がある。burn の閾値は暫定。Grafana ai-ops-quality を参照。",
+                "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "recording rules",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\"}",
+          "values": "20+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"not_reached\"}",
+          "values": "5+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\"}",
+          "values": "15+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\"}",
+          "values": "10+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "1+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"}",
+          "values": "100000+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"28d\",part=\"determined\"}",
+          "values": "0+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"28d\",part=\"not_reached\"}",
+          "values": "0+0x180"
+        },
+        {
+          "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"28d\",part=\"reached_in_budget\"}",
+          "values": "0+0x180"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnFast",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "component": "ai-ops",
+                "definition_version": "outcome/v1-draft",
+                "window": "7d",
+                "job": "codex-workspace-ai-ops-metrics"
+              },
+              "exp_annotations": {
+                "summary": "AI Ops 成果の劣化を検知",
+                "description": "7d 窓: not_reached / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
+                "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeBurnSlow",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "2h30m",
+          "alertname": "AiOpsOutcomeMeasurementStale",
+          "exp_alerts": []
+        }
+      ],
+      "promql_expr_test": [
+        {
+          "expr": "ai_ops:outcome_burn_rate{window=\"7d\"}",
+          "eval_time": "1m",
+          "exp_samples": [
+            {
+              "labels": "ai_ops:outcome_burn_rate{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\"}",
+              "value": 2.5
+            }
+          ]
+        },
+        {
+          "expr": "ai_ops:outcome_reach_ratio{window=\"7d\"}",
+          "eval_time": "1m",
+          "exp_samples": [
+            {
+              "labels": "ai_ops:outcome_reach_ratio{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\"}",
+              "value": 0.75
+            }
+          ]
+        },
+        {
+          "expr": "ai_ops:outcome_burn_rate{window=\"28d\"}",
+          "eval_time": "1m",
+          "exp_samples": []
+        },
+        {
+          "expr": "ai_ops:outcome_reach_ratio{window=\"28d\"}",
+          "eval_time": "1m",
+          "exp_samples": []
+        }
+      ]
+    }
+  ]
+}

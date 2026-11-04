@@ -11,6 +11,7 @@ resources:
 - control-plane-node-rules.yaml
 - longhorn-storage-rules.yaml
 - local-llm-gpu-observability-rules.yaml
+- ai-ops-outcome-rules.yaml
 - cloudflared-pod-monitor.yaml
 - etcd-service.yaml
 - etcd-servicemonitor.yaml
