@@ -1,0 +1,231 @@
+rule_files:
+  - rules.yaml
+evaluation_interval: 1m
+tests:
+  # 回帰例: Fable 専用枠の拒否。model として発火し、共有枠の不足とは言わない。
+  - name: モデル専用枠の不足
+    interval: 1m
+    input_series:
+      - series: 'ai_subscription_window_status{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day_overage_included",name="fable_7d",window="7d",status="rejected"}'
+        values: '1x120'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day_overage_included",name="fable_7d",window="7d"}'
+        values: '100000x120'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day_overage_included",name="fable_7d",window="7d"}'
+        values: '0x120'
+      - series: 'ai_subscription_window_status{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d",status="allowed"}'
+        values: '1x120'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d"}'
+        values: '100000x120'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d"}'
+        values: '0x120'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",provider="claude"}'
+        values: '1x120'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AiProviderQuotaExhausted
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota/v1-draft
+              scope: model
+              job: codex-workspace-ai-ops-metrics
+              provider: claude
+              limit: seven_day_overage_included
+              name: fable_7d
+              window: 7d
+              status: rejected
+            exp_annotations:
+              summary: Claude のモデル専用利用枠が不足
+              description: このモデルの経路だけが止まる。他の経路は候補だが、共有枠の状態を確かめるまで利用可能とは言えない。reset 時刻は ai_subscription_window_resets_at_seconds を参照。
+              runbook_next_actions: 許可された次 action = reset まで待つ・Owner または正規 helper の担当変更のために候補を示す・証拠の記録。禁止 = 担当の自動変更、reset 前の再試行、新しい課金や別 account、制限の迂回、gate/承認/排他の解除、retry budget の reset。
+      - eval_time: 90m
+        alertname: AiProviderQuotaObservationStale
+        exp_alerts: []
+  - name: 共有枠の不足
+    interval: 1m
+    input_series:
+      - series: 'ai_subscription_window_status{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d",status="rejected"}'
+        values: '1x60'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d"}'
+        values: '100000x60'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d"}'
+        values: '0x60'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",provider="claude"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AiProviderQuotaExhausted
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota/v1-draft
+              scope: shared
+              job: codex-workspace-ai-ops-metrics
+              provider: claude
+              limit: seven_day
+              name: shared_7d
+              window: 7d
+              status: rejected
+            exp_annotations:
+              summary: Claude の共有利用枠が不足
+              description: 共有枠はすべての Claude モデルに効く。Opus や Sonnet へ変えても回避できない。reset 時刻は ai_subscription_window_resets_at_seconds を参照。
+              runbook_next_actions: 許可された次 action = reset まで待つ・証拠の記録・状況の報告。禁止 = reset 前の再試行、新しい課金や別 account、制限の迂回、gate/承認/排他の解除、retry budget の reset。
+  # exporter が止まって status が残っても、reset を過ぎたら不足と言わない。
+  - name: reset 後は不足と言わない
+    interval: 1m
+    input_series:
+      - series: 'ai_subscription_window_status{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d",status="rejected"}'
+        values: '1x60'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d"}'
+        values: '300x60'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d"}'
+        values: '0x60'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",provider="claude"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: AiProviderQuotaExhausted
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota/v1-draft
+              scope: shared
+              job: codex-workspace-ai-ops-metrics
+              provider: claude
+              limit: seven_day
+              name: shared_7d
+              window: 7d
+              status: rejected
+            exp_annotations:
+              summary: Claude の共有利用枠が不足
+              description: 共有枠はすべての Claude モデルに効く。Opus や Sonnet へ変えても回避できない。reset 時刻は ai_subscription_window_resets_at_seconds を参照。
+              runbook_next_actions: 許可された次 action = reset まで待つ・証拠の記録・状況の報告。禁止 = reset 前の再試行、新しい課金や別 account、制限の迂回、gate/承認/排他の解除、retry budget の reset。
+      - eval_time: 10m
+        alertname: AiProviderQuotaExhausted
+        exp_alerts: []
+  - name: reset のない新しい拒否
+    interval: 1m
+    input_series:
+      - series: 'ai_subscription_window_status{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d",status="rejected"}'
+        values: '1x60'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d"}'
+        values: '0x60'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",provider="claude"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AiProviderQuotaExhausted
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota/v1-draft
+              scope: shared
+              job: codex-workspace-ai-ops-metrics
+              provider: claude
+              limit: seven_day
+              name: shared_7d
+              window: 7d
+              status: rejected
+            exp_annotations:
+              summary: Claude の共有利用枠が不足
+              description: 共有枠はすべての Claude モデルに効く。Opus や Sonnet へ変えても回避できない。reset 時刻は ai_subscription_window_resets_at_seconds を参照。
+              runbook_next_actions: 許可された次 action = reset まで待つ・証拠の記録・状況の報告。禁止 = reset 前の再試行、新しい課金や別 account、制限の迂回、gate/承認/排他の解除、retry budget の reset。
+  # reset のない古い拒否は不足と断定せず、観測が古いとも言わない（拒否の系列が残っている間）。
+  - name: reset のない古い拒否
+    interval: 1m
+    input_series:
+      - series: 'ai_subscription_window_status{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d",status="rejected"}'
+        values: '1x60'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d"}'
+        values: '-100000x60'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",provider="claude"}'
+        values: '1x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AiProviderQuotaExhausted
+        exp_alerts: []
+  # 枠が許可でも観測が古ければ不明。5h 窓が未観測なだけでは発火しない。
+  - name: 観測が古い
+    interval: 1m
+    input_series:
+      - series: 'ai_subscription_window_status{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d",status="allowed"}'
+        values: '1x120'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day",name="shared_7d",window="7d"}'
+        values: '-100000x120'
+      - series: 'ai_subscription_window_present{job="codex-workspace-ai-ops-metrics",provider="claude",limit="five_hour",name="shared_5h"}'
+        values: '0x120'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",provider="claude"}'
+        values: '1x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: AiProviderQuotaObservationStale
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota/v1-draft
+              reason: window_stale
+              job: codex-workspace-ai-ops-metrics
+              provider: claude
+              limit: seven_day
+              name: shared_7d
+              window: 7d
+            exp_annotations:
+              summary: 利用枠の観測が古い
+              description: 24 時間以上新しい観測がない。枠が使えるかは不明で、利用可能とは読まない。
+              runbook_next_actions: 許可された次 action = 不明として扱う・証拠の記録。禁止 = 観測のための再試行の連打、gate/承認/排他の解除。
+      - eval_time: 90m
+        alertname: AiProviderQuotaExhausted
+        exp_alerts: []
+  - name: reset 後に観測がない
+    interval: 1m
+    input_series:
+      - series: 'ai_subscription_window_expired{job="codex-workspace-ai-ops-metrics",provider="claude",limit="seven_day_overage_included",name="fable_7d",window="7d"}'
+        values: '1x120'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",provider="claude"}'
+        values: '1x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: AiProviderQuotaObservationStale
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota/v1-draft
+              reason: window_expired
+              job: codex-workspace-ai-ops-metrics
+              provider: claude
+              limit: seven_day_overage_included
+              name: fable_7d
+              window: 7d
+            exp_annotations:
+              summary: 利用枠の reset 後に新しい観測がない
+              description: reset を過ぎたが新しい観測がない。回復したかは不明で、次の run が観測するまで利用可能とは言えない。
+              runbook_next_actions: 許可された次 action = 不明として扱う・通常の run で観測する。禁止 = 観測のための再試行の連打、gate/承認/排他の解除。
+      - eval_time: 90m
+        alertname: AiProviderQuotaExhausted
+        exp_alerts: []
+  - name: 観測元がない
+    interval: 1m
+    input_series:
+      - series: 'unrelated_series{job="x"}'
+        values: '1x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: AiProviderQuotaObservationStale
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota/v1-draft
+              reason: source_unavailable
+              job: codex-workspace-ai-ops-metrics
+              provider: claude
+            exp_annotations:
+              summary: 利用枠の観測元を読めない
+              description: 観測元を読めないか系列がない。枠が使えるかは不明で、利用可能とは読まない。
+              runbook_next_actions: 許可された次 action = 不明として扱う・証拠の記録・切分け。禁止 = gate/承認/排他の解除、Pod/Hermes の再起動。

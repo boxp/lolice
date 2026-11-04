@@ -27,3 +27,14 @@ PrometheusRule と dashboard ConfigMap は ArgoCD の同期だけで反映され
 argoproj/prometheus-operator/tests/run-promtool-tests.sh   # SUCCESS
 python3 -I -c 'import json; json.load(open("argoproj/prometheus-operator/dashboards/ai-ops-quality.json"))'
 ```
+
+## provider 利用枠のアラート（AIOPS-QUOTA、`quota/v1-draft`）
+
+`argoproj/prometheus-operator/ai-provider-quota-rules.yaml` を追加する。既存の `ai_subscription_window_*` だけを使い、新しい収集はしない。配備は ArgoCD の同期だけで、Pod の再起動はない。
+
+- `AiProviderQuotaExhausted`: 拒否されて reset 前の窓。`scope=shared` は全 Claude 経路、`scope=model` はそのモデルだけ。
+- `AiProviderQuotaObservationStale`: 24 時間以上観測がない、reset 後に観測がない、観測元を読めない。5 時間窓が未観測なだけでは発火しない。
+- severity は `info`。Alertmanager の Warning 経路（メール）へ流さないので、枠の不足で通知は増えない。
+- runner の allowlist への追加は arch #14465。merge されるまで、prompt にこのアラートは出ない。
+
+検証: `argoproj/prometheus-operator/tests/run-promtool-tests.sh`。
