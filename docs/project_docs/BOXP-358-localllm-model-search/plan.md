@@ -107,3 +107,21 @@ batch 7 以降の queue（2026-10-30 に一次資料で棚卸し。HF API の re
 | 保留 | JetBrains/Qwen3.8-3.6-27B-blend Q4_K_M 16.8 GB | dense 27B。同系の qwen38-27b は BOXP-294 で ctx 262144 のとき 2.1 t/s しか出なかった | 約 36 GB | 速度が実用外になる見込みのため後回し |
 | 保留 | ISTA Flash-Next IQ3_XXS（shard 1 が 47.04 GB） | Q2_0 より高精度 | 約 55.5 GB で上限 55 GB をわずかに超える | Q2_0 の結果が良ければ、上限を 1 GB 緩めるかを Owner に一点確認する |
 | 対象外 | Flint（llama.cpp b11803 以降が必要）、Jais-3-MoVA-36B-A4B（full attention 48 層で KV が約 51.5 GB）、llm-jp-4.1-33b-thinking（upstream の chat parsing に未対応で、公式 ctx は 65536） | runtime の更新が必要、または上限を超える | — | 理由を記録して見送る |
+
+## batch 8（Nex-N2.5-mini の追加）
+
+- 候補: nex-agi/Nex-N2.5-mini（HF revision `87420286`、apache-2.0、arch は orn15 と同じ qwen35moe、公式 ctx 262144）。GGUF は bartowski/nex-agi_Nex-N2.5-mini-GGUF @ `0048da1a` の `nex-agi_Nex-N2.5-mini-Q4_K_M.gguf`（22.32 GB、sha256 `7f4b8e921dd000e7232c48f53a67a022da22914a52f9fdf972cbdab6f9c407ef`）。取得先は node の `/var/lib/local-llm/models/boxp358/nex-n25-mini/`。
+- 資源見積: weights 22.3 GB + KV（full attention 10 層、ctx 262144、f16）約 5.4 GB + buffer 約 2 GB ≈ 30 GB。
+- 保持量: 本票の boxp358/ は 139 GiB（orn15 21 / orn15u 36 / q122 39 / qcn 43 GiB）で、22.3 GB を足すと自主設定の 150 GB を超える。batch 7 までの計画では q122 を退役させる案だったが、2026-11-04 の監督指示で既存 weights の無断削除は不可となったため q122 は残す。node の空きは 668 GB（2026-11-04 00:13 UTC 実測）あるので、batch 8 に限り保持上限を 175 GB に一時拡大する。削除は BOXP-393 の cleanup 判断に委ねる。
+- thinking 制御: model card によると chat template は `reasoning_effort`（`none` / `medium` = 既定の adaptive / `high`）で thinking を制御し、`enable_thinking` は使わない。同条件 suite は `chat_template_kwargs: {"reasoning_effort": "none"}` で thinking off にし、thinking の別枠は `medium` / `high` で request 単位の効きを確認してから測る。推奨 sampler は temp 0.7 / top_p 0.95 / top_k 40（A1 / A2 で使用）。
+
+手順:
+
+1. sha256 を照合する。
+2. GPU が空いている窓で merge し、router を再起動する（限定停止）。
+3. 初回 load で memwatch を行い、MemAvailable < 12 GiB なら unload する。
+4. thinking off の suite（load / F / C / CH / L32 / B253 / A1 / A2）を実施する。1 候補 90 分を上限とし、超過分は記録する。
+5. thinking を別枠で測る。
+6. gemma4-26b へ復帰し、health / 通常推論 / MemAvailable / fence を確認する。既定（gemma4-26b 創作、qwen3-coder-next coding）は変えない。
+
+rollback: この PR を revert する。weights の削除は Owner / BOXP-393 の判断。

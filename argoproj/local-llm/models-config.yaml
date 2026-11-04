@@ -158,3 +158,10 @@ data:
     ubatch-size = 512
     threads = 14
     threads-batch = 14
+
+    [nex-n25-mini]
+    model = /models/boxp358/nex-n25-mini/nex-agi_Nex-N2.5-mini-Q4_K_M.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
