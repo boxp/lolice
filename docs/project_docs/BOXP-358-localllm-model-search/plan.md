@@ -125,3 +125,22 @@ batch 7 以降の queue（2026-10-30 に一次資料で棚卸し。HF API の re
 6. gemma4-26b へ復帰し、health / 通常推論 / MemAvailable / fence を確認する。既定（gemma4-26b 創作、qwen3-coder-next coding）は変えない。
 
 rollback: この PR を revert する。weights の削除は Owner / BOXP-393 の判断。
+
+## batch 9（Mellum2.1-12B-A2.5B-Thinking の追加）
+
+- 候補: JetBrains/Mellum2.1-12B-A2.5B-Thinking（HF revision `92ddae9f`、apache-2.0、arch `mellum`、12B total / 2.5B active、64 experts / 8 active、28 層のうち full attention 7・sliding window(1024) 21、KV heads 4 × head_dim 128、公式 ctx 131072）。coding 軸の補欠として計測する（batch 7 の棚卸しで 3 番目）。GGUF は配布元自身の JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF @ `4159d684` の `Mellum2.1-12B-A2.5B-Thinking-Q4_K_M.gguf`（8,071,295,264 B、sha256 `ecc4d5b8107fc219e23c494b2d107552137637b6c6002ee713e0ba8af7fa2755`、配布元の推奨 quant）。MTP draft file（1.8 GB）は取得しない（batch 5 の gemma4 MTP は不採用、本 batch は通常推論のみ）。取得先は node の `/var/lib/local-llm/models/boxp358/mellum21-12b-a25b-thinking/`。
+- b11669 対応: `src/llama-arch.cpp` に arch `mellum` と converter がある（batch 7 棚卸しで確認済み）。SYCL 上の動作・速度は未検証で、初回 load で確認する。
+- 資源見積: weights 8.07 GB + KV（full attention 7 層、ctx 262144、f16）約 3.8 GB + SWA cache・buffer 約 2 GB ≈ 14 GB。router の ctx 262144 は公式上限 131072 を超えるため、L32（32k）までは公式範囲内、A2（約 40k）も範囲内だが、超過領域の挙動は別途 short probe で記録する。
+- 保持量: 本票の boxp358/ は 157.6 GiB ≈ 169 GB（2026-11-04 02:08 UTC 実測、orn15 21 / orn15u 36 / q122 39 / qcn 43 / nx 21 GiB）で、8.07 GB を足すと約 177 GB となり batch 8 で一時拡大した 175 GB を 2 GB 超える。監督指示（2026-11-04 00:12 UTC）で既存 weights の無断削除は不可、かつ保持枠不足は非破壊で対応するため、node の空き 656 GB を根拠に batch 9 に限り保持上限を 180 GB に一時拡大する。削除は BOXP-393 の cleanup 判断に委ねる。
+- thinking 制御: chat template は Qwen3 系と同じ `enable_thinking`（`false` で空の `<think>` block を出力）で制御する。同条件 suite は `chat_template_kwargs: {"enable_thinking": false}` で thinking off、thinking の別枠は on で request 単位の効きを確認してから測る。推奨 sampler は temp 0.6 / top_p 0.95 / top_k 20（A1 / A2 で使用）。
+
+手順:
+
+1. sha256 を照合する。
+2. BOXP-383 の GPU 試験終了と Gemma 復帰の記録を確認し、router が idle の窓で merge し、router を再起動する（限定停止）。
+3. 初回 load で memwatch を行い、MemAvailable < 12 GiB なら unload する。
+4. thinking off の suite（load / F / C / CH / L32 / B253 / A1 / A2）を実施する。coding 補欠のため C / CH を先に回し、1 候補 90 分を上限として超過分は記録する。
+5. thinking を別枠で測る（coding の C / CH で on の差分も見る）。
+6. gemma4-26b へ復帰し、health / 通常推論 / MemAvailable / fence を確認する。既定（gemma4-26b 創作、qwen3-coder-next coding）は変えない。
+
+rollback: この PR を revert する。weights の削除は Owner / BOXP-393 の判断。
