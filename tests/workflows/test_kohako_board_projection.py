@@ -96,13 +96,22 @@ class KohakoBoardProjectionTest(unittest.TestCase):
         self.assertNotIn(str(self.vault), str(result))
 
     def test_flags_lane_status_and_assignee_mismatch(self):
-        self.write_board({'Review': [self.card(11, 'Mismatch', 'review', 'claude-opus')]})
+        self.write_board({'Blocked': [self.card(11, 'Mismatch', 'blocked', 'claude-opus')]})
         self.write_ticket('BOXP-11', ticket('done', 'boxp', ['- 2026-10-27: done?']))
         [item] = self.project()['items']
-        self.assertEqual((item['lane'], item['status']), ('Review', 'done'))
+        self.assertEqual((item['lane'], item['status']), ('Blocked', 'done'))
         self.assertTrue(item['laneStatusMismatch'])
         self.assertEqual((item['assignee'], item['ticketAssignee']), ('claude-opus', 'boxp'))
         self.assertTrue(item['assigneeMismatch'])
+
+    def test_retired_review_lane_is_not_projected(self):
+        self.write_board({
+            'Review': [self.card(16, 'Left behind', 'review')],
+            'Ready': [self.card(17, 'Current', 'ready')],
+        })
+        self.write_ticket('BOXP-16', ticket('review', 'codex', []))
+        self.write_ticket('BOXP-17', ticket('ready', 'codex', []))
+        self.assertEqual([item['id'] for item in self.project()['items']], ['BOXP-17'])
 
     def test_blocker_and_decision_come_from_recent_notes(self):
         self.write_board({'Blocked': [self.card(12, 'Blocked one', 'blocked')]})
@@ -117,8 +126,8 @@ class KohakoBoardProjectionTest(unittest.TestCase):
         self.assertEqual(item['progress'], 'progress update')
 
     def test_latest_note_time_source_and_excerpt_come_from_the_same_entry(self):
-        self.write_board({'Review': [self.card(15, 'Out of order', 'review')]})
-        self.write_ticket('BOXP-15', ticket('review', 'codex', [
+        self.write_board({'Blocked': [self.card(15, 'Out of order', 'blocked')]})
+        self.write_ticket('BOXP-15', ticket('blocked', 'codex', [
             '- 2026-10-27 09:00:00 UTC [hermes-agent]: newest by time',
             '- 2026-10-27 08:00:00 UTC [codex]: appended later but older',
         ]))

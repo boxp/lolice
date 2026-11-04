@@ -386,8 +386,8 @@ data:
     from pathlib import Path
 
     SCHEMA = "kohako-board/v1"
-    LANE_ORDER = ("In Progress", "Review", "Blocked", "Ready", "Done")
-    LANE_STATUS = {"Ready": "ready", "In Progress": "in-progress", "Review": "review", "Blocked": "blocked", "Done": "done"}
+    LANE_ORDER = ("In Progress", "Blocked", "Ready", "Done")
+    LANE_STATUS = {"Ready": "ready", "In Progress": "in-progress", "Blocked": "blocked", "Done": "done"}
     ITEM_LIMIT = 30
     EXCERPT_CHARS = 80
     TITLE_CHARS = 120
