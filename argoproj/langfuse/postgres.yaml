@@ -46,7 +46,7 @@ spec:
         fsGroup: 999
       containers:
         - name: postgres
-          image: docker.io/postgres:16.13
+          image: docker.io/postgres:16.15
           args:
             - -c
             - max_connections=50
