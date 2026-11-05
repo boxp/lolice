@@ -45,10 +45,13 @@ data:
       # changes (except delete) run, and sends other tool calls to the approval gate
       # answered on G2 (bootstrap falls back to [no_mcp]
       # when the gate is not installed).
+      # BOXP-420: `search` adds web_search only (no web_extract). It is not a configurable
+      # toolset, so /v1/toolsets and the BFF's exact-match KOHAKO_HERMES_TOOLSETS are unchanged.
       api_server:
         - no_mcp
         - file
         - session_search
+        - search
         - skills
         - terminal
       webhook:
