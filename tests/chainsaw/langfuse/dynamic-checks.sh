@@ -210,6 +210,8 @@ oidc() {
   echo "$result" | jq -e '.status == 404' >/dev/null || { echo "FAIL: gateway が POST を受けた: $result" >&2; exit 1; }
   result="$(oidc_client gateway-status GET /api/public/health)"
   echo "$result" | jq -e '.status == 404' >/dev/null || { echo "FAIL: gateway が他の path を中継した: $result" >&2; exit 1; }
+}
+
 # hermes-agent の本番 SecretStore/ExternalSecret で、実際に ESO Kubernetes provider から ingest key を取得する。
 producer_ingest_key() {
   local manifest key
