@@ -149,6 +149,8 @@ sql() { kubectl exec -n "$NS" statefulset/langfuse-postgres -- psql -U langfuse 
 
 # 陰性は「ログインできない」だけでなく、issuer まで到達してから拒否されたことも見る
 # (fixture に届く前の失敗や設定不足を拒否と取り違えない)。
+auth_log() { kubectl logs -n "$NS" deployment/langfuse-web --since=20s | grep -iE 'oauth|callback|signin|sign up|error' | tail -n 4 | cut -c1-400 || true; }
+
 expect_login_refused() {
   local mode="$1" result
   oidc_client mode "$mode" >/dev/null
@@ -156,6 +158,7 @@ expect_login_refused() {
   echo "$result" | jq -e '.email == null and (.final | contains("error="))' >/dev/null \
     || { echo "FAIL: $mode でログインが拒否されていない: $result" >&2; exit 1; }
   echo "ok refused: $mode"
+  auth_log
 }
 
 oidc() {
@@ -175,7 +178,7 @@ oidc() {
   oidc_client mode ok >/dev/null
   result="$(oidc_client direct)"
   echo "$result" | jq -e '.email == "owner@example.invalid"' >/dev/null \
-    || { echo "FAIL: Owner がログインできない: $result" >&2; exit 1; }
+    || { auth_log >&2; echo "FAIL: Owner がログインできない: $result" >&2; exit 1; }
   test "$(sql "select m.role from organization_memberships m join users u on u.id = m.user_id where u.email = 'owner@example.invalid' and m.org_id = 'boxp'")" = OWNER \
     || { echo 'FAIL: Owner の組織権限がない' >&2; exit 1; }
   test "$(sql "select count(*) from \"Account\" a join users u on u.id = a.user_id where u.email = 'owner@example.invalid' and a.provider = 'custom'")" = 1 \
