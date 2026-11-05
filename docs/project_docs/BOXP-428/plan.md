@@ -19,13 +19,14 @@
 
 ## Retention（OSS 境界）
 
-Data Retention は EE のため使わない。`langfuse-retention` CronJob が公開 API で 14 日超の trace を削除し、bucket lifecycle で raw event を 1 日、media を trace と同じ 14 日で失効させ、ClickHouse の system log は作らない。
+Data Retention は EE のため使わない。`langfuse-retention` CronJob が ClickHouse を走査して 14 日超と共有中の trace を公開 API で削除し、bucket lifecycle で raw event を 1 日で失効させ、media upload は無効のまま（S3 media bucket 未設定）とし、ClickHouse の system log は作らない。
 
 事前検証（dind 上の同設定スタック、v4.75.0）で判明した事実:
 
 - 既定の `events_only` モードでは `GET /api/public/traces` が 404。一覧は `/api/public/v2/observations` を使う。
 - `DELETE /api/public/traces` は ClickHouse の行を消すが **raw event オブジェクトは消さない**。lifecycle が唯一の失効経路。
-- `fields=core` は `public` を返さず filter 列にも使えない。共有 trace の検出は `fields=core,basic` と `isRootObservation=true` で行う。
+- 公開 API の一覧は `public` で絞り込めず、ページ上限を超えると後続の共有 trace を取りこぼす。検出は `events_core` への直接クエリで全件を走査し、1 回の上限を超えた分は削除後の次回実行で続きを処理する。
+- media upload は S3 media bucket 未設定で無効。media は同一内容を複数 trace が共有するため作成日基準の lifecycle は掛けない。有効化する場合も、参照が無くなった media は trace 削除時に Langfuse が消す。
 - 削除行は part の merge まで残るため、毎日 `OPTIMIZE FINAL` する。
 
 ## Producer
