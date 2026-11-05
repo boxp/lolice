@@ -1,0 +1,61 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: langfuse-self-host
+spec:
+  description: |
+    BOXP-428: 本番 render の Langfuse を隔離 kind で実際に起動し、ESO generator の Secret、
+    producer の最小権限、Calico で強制される通信制限、OTLP 取込から ClickHouse/MinIO まで、
+    retention job の削除を検査する。Secret はクラスタ内で生成された合成値だけを使う。
+    kind に無い依存 (Cloudflare tunnel/Access、Parameter Store、Longhorn) はここでは検査せず、
+    render-fixture.sh の置換範囲を境界として本番で別途確認する。
+  timeouts:
+    exec: 10m
+  steps:
+  - name: require-isolated-kind
+    try:
+    - script:
+        timeout: 15s
+        content: |
+          set -eu
+          case "${CHAINSAW_KIND_CONTEXT:-}" in
+            kind-*) ;;
+            *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
+          esac
+          : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
+          test -r "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          actual_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          test -n "$expected_server"
+          test "$actual_server" = "$expected_server"
+  - name: deploy-stack
+    try:
+    - script:
+        timeout: 840s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" deploy'
+  - name: secrets-and-rbac
+    try:
+    - script:
+        timeout: 60s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" secrets_and_rbac'
+  - name: network-policy
+    try:
+    - script:
+        timeout: 360s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" network_policy'
+  - name: ingest-and-auth
+    try:
+    - script:
+        timeout: 300s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" ingest'
+  - name: retention
+    try:
+    - script:
+        timeout: 900s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" retention'
+    finally:
+    - script:
+        timeout: 30s
+        content: |
+          kubectl delete namespace langfuse langfuse-outside hermes-agent --ignore-not-found --wait=false

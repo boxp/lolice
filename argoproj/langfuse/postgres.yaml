@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: langfuse-postgres
+spec:
+  selector:
+    app: langfuse-postgres
+  ports:
+    - port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: langfuse-postgres
+spec:
+  serviceName: langfuse-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langfuse-postgres
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Retain
+  template:
+    metadata:
+      labels:
+        app: langfuse-postgres
+    spec:
+      priorityClassName: langfuse-observability
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  # amd64 excludes the control plane; golyat-4 is the GPU research node.
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: ["golyat-4"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: docker.io/postgres:16.13
+          args:
+            - -c
+            - max_connections=50
+            - -c
+            - shared_buffers=64MB
+          env:
+            - name: POSTGRES_USER
+              value: langfuse
+            - name: POSTGRES_DB
+              value: langfuse
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: langfuse-secrets
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "langfuse", "-d", "langfuse"]
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: langfuse-longhorn
+        resources:
+          requests:
+            storage: 5Gi

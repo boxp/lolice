@@ -1,0 +1,29 @@
+# BOXP-428: lets the ESO SecretStores in the producer namespaces read exactly one Secret
+# (the Langfuse ingest key). No list/watch, no other Secret.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: langfuse-ingest-key-reader
+rules:
+  - apiGroups: [""]
+    resources:
+      - secrets
+    resourceNames:
+      - langfuse-ingest-key
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: langfuse-ingest-key-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: langfuse-ingest-key-reader
+subjects:
+  - kind: ServiceAccount
+    name: langfuse-ingest-key-reader
+    namespace: codex-workspace
+  - kind: ServiceAccount
+    name: langfuse-ingest-key-reader
+    namespace: hermes-agent
