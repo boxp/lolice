@@ -4,3 +4,11 @@
 - k8s namespace の既存 cloudflared tunnel を再利用し、専用 ClusterIP と Calico policy で到達元を限定する。
 - 保護されない公開期間を避けるため、Owner-only Access を設定する boxp/arch を先に反映し、その後 lolice を反映する。
 - 合成 fixture と実際の kustomize render を使う隔離 kind の Chainsaw で、応答、非公開パス、読み取り専用、ファイル欠損、通信制限を検証する。workflow の単体テストと kustomize build も実行する。
+
+## 撤去（方針変更後）
+
+Owner の判断で配信先を Cloudflare Workers Static Assets（boxp/arch の `apps/lolice-lineage`）へ移した。Worker が hostname の全リクエストを受けるので、この sidecar、Service、NetworkPolicy、専用 Chainsaw は使われなくなった。
+
+- #1056 を revert して二重運用をなくす。
+- 撤去の確認は既存の `tests/chainsaw/codex-workspace` と kustomize build で行う。専用の Chainsaw は対象が消えるので残さない。
+- Worker の公開動作を担当が実 URL で確認してから merge する。切替前の戻し先を残すため。公開は Owner が承認済みで、SSO 確認は不要になった（boxp/arch の `docs/project_docs/BOXP-430/plan.md`）。
