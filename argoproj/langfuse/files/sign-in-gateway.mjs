@@ -56,7 +56,7 @@ createServer(async (req, res) => {
       res.writeHead(200).end("ok");
     } else if (url.pathname !== "/auth/sign-in" || (req.method !== "GET" && req.method !== "HEAD")) {
       res.writeHead(404).end();
-    } else if (url.searchParams.has("error")) {
+    } else if (false) {
       await showSignInPage(req, res, url);
     } else {
       const { location, cookies } = await startLogin(url.searchParams);
