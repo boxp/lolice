@@ -55,6 +55,33 @@ deploy() {
     || { echo 'PriorityClass が適用されていません' >&2; exit 1; }
 }
 
+# 本番 PVC の postgres データ形式。pg_upgrade で本番データを上げたらここも更新する。
+PRODUCTION_DATA_POSTGRES=docker.io/postgres:16.15
+
+# 空 PVC からの起動だけでは major 更新の非互換を検出できない (lolice#1060)。
+# 本番 StatefulSet のコンテナ定義をそのまま使い、既存形式のデータで起動して読めることを確認する。
+postgres_existing_data() {
+  local pod=langfuse-postgres-existing-data
+  kubectl get statefulset langfuse-postgres -n "$NS" -o json | jq --arg seed "$PRODUCTION_DATA_POSTGRES" --arg pod "$pod" '
+    .spec.template.spec as $s | $s.containers[0] as $c
+    | {apiVersion: "v1", kind: "Pod", metadata: {name: $pod, namespace: "langfuse", labels: {"chainsaw-probe": "true"}},
+       spec: {restartPolicy: "Never", securityContext: $s.securityContext, containers: [$c],
+         volumes: [{name: "data", emptyDir: {}}],
+         initContainers: [{name: "seed", image: $seed, securityContext: $c.securityContext, volumeMounts: $c.volumeMounts,
+           env: [$c.env[] | select(.name == "PGDATA")], command: ["bash", "-ec",
+             "initdb -D \"$PGDATA\" -U langfuse -A trust >/dev/null; pg_ctl -D \"$PGDATA\" -w -o \"-c listen_addresses=\" start >/dev/null; createdb -U langfuse langfuse; psql -U langfuse -d langfuse -c \"create table chainsaw_marker as select 42 as v\" >/dev/null; pg_ctl -D \"$PGDATA\" -w -m fast stop >/dev/null"]}]}}' \
+    | kubectl apply -f - >/dev/null
+  if ! kubectl wait -n "$NS" --for=condition=Ready "pod/$pod" --timeout=120s; then
+    kubectl logs -n "$NS" "$pod" -c seed --tail=10 || true
+    kubectl logs -n "$NS" "$pod" -c postgres --tail=10 || true
+    echo 'FAIL: 本番 postgres image が既存データ形式で起動しない' >&2
+    exit 1
+  fi
+  test "$(kubectl exec -n "$NS" "$pod" -- psql -U langfuse -d langfuse -Atc 'select v from chainsaw_marker')" = 42 \
+    || { echo 'FAIL: 既存データを読めない' >&2; exit 1; }
+  kubectl delete pod -n "$NS" "$pod" --wait=false >/dev/null
+}
+
 secret_value() {
   kubectl get secret "$1" -n "$NS" -o json | jq -er --arg key "$2" '.data[$key] | @base64d'
 }
