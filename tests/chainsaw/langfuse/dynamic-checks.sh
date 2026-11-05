@@ -360,11 +360,12 @@ clickhouse_count() {
 }
 
 retention() {
-  otlp send "$TRACE_OLD" 15 0 chainsaw-old
+  otlp send "$TRACE_OLD" 15 0 BOXP428SYNTH
   otlp send "$TRACE_SHARED" 0 1 chainsaw-shared
   otlp send "$TRACE_FRESH" 0 0 chainsaw-fresh
   local trace
-  for trace in "$TRACE_OLD" "$TRACE_SHARED" "$TRACE_FRESH"; do otlp present "$trace" chainsaw 240; done
+  otlp present "$TRACE_OLD" BOXP428SYNTH 240
+  for trace in "$TRACE_SHARED" "$TRACE_FRESH"; do otlp present "$trace" chainsaw 240; done
 
   # 実 CronJob の spec のまま 1 回起動する。OPTIMIZE は UTC の特定時刻だけなので明示する。
   kubectl get cronjob langfuse-retention -n "$NS" -o json | jq '{apiVersion: "batch/v1", kind: "Job",
@@ -374,10 +375,13 @@ retention() {
     || { kubectl logs -n "$NS" job/retention-chainsaw || true; diagnose; exit 1; }
   local report
   report="$(kubectl logs -n "$NS" job/retention-chainsaw | tail -n 1)"
-  echo "retention report: $report"
   jq -e '.expired_traces_deleted >= 1 and .public_traces_deleted >= 1 and .optimized == true and .lifecycle == ["events/:1d"]
+    and .audit.traces > 0 and .audit.marker_rows_ch >= 1 and .audit.marker_objects_s3.matches >= 1 and .audit.marker_objects_s3.scanned >= 1
     and ([keys[] | select(endswith("_error"))] | length == 0)' <<<"$report" >/dev/null \
     || { echo 'retention report が想定と異なります' >&2; exit 1; }
+  for trace in "$TRACE_OLD" "$TRACE_SHARED" "$TRACE_FRESH" "$TRACE_INGEST" BOXP428SYNTH chainsaw-old chainsaw-shared chainsaw-fresh chainsaw-body-marker; do
+    [[ "$report" != *"$trace"* ]] || { echo 'retention report に本文または trace ID が含まれています' >&2; exit 1; }
+  done
 
   otlp gone "$TRACE_OLD" 300
   otlp gone "$TRACE_SHARED" 300
@@ -385,6 +389,16 @@ retention() {
   test "$(clickhouse_count "$TRACE_OLD")" = 0 || { echo '期限切れ trace の行が ClickHouse に残っています' >&2; exit 1; }
   test "$(clickhouse_count "$TRACE_SHARED")" = 0 || { echo '共有 trace の行が ClickHouse に残っています' >&2; exit 1; }
   test "$(clickhouse_count "$TRACE_FRESH")" -gt 0 || { echo 'fresh trace まで消えています' >&2; exit 1; }
+  kubectl get cronjob langfuse-retention -n "$NS" -o json | jq '{apiVersion: "batch/v1", kind: "Job",
+      metadata: {name: "retention-chainsaw-after", namespace: .metadata.namespace}, spec: .spec.jobTemplate.spec}
+    | .spec.template.spec.containers[0].env += [{name: "FORCE_OPTIMIZE", value: "true"}]' | kubectl apply -f - >/dev/null
+  kubectl wait -n "$NS" --for=condition=Complete job/retention-chainsaw-after --timeout=240s \
+    || { echo '削除後の retention Job が失敗しました' >&2; exit 1; }
+  report="$(kubectl logs -n "$NS" job/retention-chainsaw-after | tail -n 1)"
+  jq -e '.audit.marker_rows_ch == 0 and .optimized == true and ([keys[] | select(endswith("_error"))] | length == 0)' <<<"$report" >/dev/null
+  for trace in "$TRACE_OLD" "$TRACE_SHARED" "$TRACE_FRESH" "$TRACE_INGEST" BOXP428SYNTH chainsaw-shared chainsaw-fresh chainsaw-body-marker; do
+    [[ "$report" != *"$trace"* ]] || { echo '削除後の report に本文または trace ID が含まれています' >&2; exit 1; }
+  done
 }
 
 TRACE_INGEST=a1000000000000000000000000000001
