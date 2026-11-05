@@ -13,6 +13,7 @@ resources:
   - clickhouse.yaml
   - minio.yaml
   - web.yaml
+  - sign-in-gateway.yaml
   - worker.yaml
   - cloudflared.yaml
   - retention-cronjob.yaml
@@ -25,3 +26,6 @@ configMapGenerator:
   - name: langfuse-retention
     files:
       - files/retention.mjs
+  - name: langfuse-sign-in-gateway
+    files:
+      - files/sign-in-gateway.mjs
