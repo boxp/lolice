@@ -207,8 +207,9 @@ spec:
               # pre_tool_call gate is installed and enabled: the gate blocks every tool in
               # candidate and non-G2 API sessions and sends every non-read-only tool call in
               # G2 sessions to the human-approval gate answered on G2. Otherwise fall back to
-              # [no_mcp] (no tools). Only a missing value or one of these two managed values is
-              # rewritten; anything else is left alone with a warning.
+              # [no_mcp] (no tools). Only a missing value or one of the managed values is
+              # rewritten; anything else is left alone with a warning. BOXP-420 adds `search`
+              # (web_search only, gated by the plugin; not reported by /v1/toolsets).
               python3 - <<'PY'
               import os
               try:
@@ -218,7 +219,8 @@ spec:
                   from ruamel.yaml import YAML
                   safe_load = YAML(typ="safe", pure=True).load
               NO_TOOLS = ["no_mcp"]
-              G2_TOOLS = ["no_mcp", "file", "session_search", "skills", "terminal"]
+              G2_TOOLS = ["no_mcp", "file", "session_search", "search", "skills", "terminal"]
+              PREVIOUS_G2_TOOLS = ["no_mcp", "file", "session_search", "skills", "terminal"]
               path = "/opt/data/config.yaml"
               with open(path) as fh:
                   text = fh.read()
@@ -245,7 +247,7 @@ spec:
                   idx = next(i for i, l in enumerate(lines) if l.rstrip() == "platform_toolsets:")
                   lines.insert(idx + 1, block)
                   new = "".join(lines)
-              elif current in (NO_TOOLS, G2_TOOLS):
+              elif current in (NO_TOOLS, G2_TOOLS, PREVIOUS_G2_TOOLS):
                   idx = next((i for i, l in enumerate(lines) if l.rstrip() == "  api_server:"), None)
                   if idx is not None:
                       first = idx - 1 if idx and lines[idx - 1].lstrip().startswith("# BOXP-332") else idx
@@ -364,9 +366,9 @@ spec:
               value: "10000"
             # BOXP-332: API server for the Kohako G2 BFF only (Service hermes-agent-api,
             # NetworkPolicy hermes-agent-api-ingress = even-g2-main only). Toolsets are
-            # file/session_search/skills/terminal (no MCP) behind the kohako-g2-context
+            # file/session_search/search/skills/terminal (no MCP) behind the kohako-g2-context
             # pre_tool_call gate (set by bootstrap-config), and the BFF refuses to send
-            # unless /v1/toolsets reports exactly that set.
+            # unless /v1/toolsets reports exactly that set (`search` is not listed there).
             - name: API_SERVER_ENABLED
               value: "true"
             - name: API_SERVER_HOST
