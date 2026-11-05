@@ -6,10 +6,12 @@ was delegated (subagent_start, not the parent id, which session rotation also se
 ticket. Other conversation is dropped and only counted. Audio and images never
 reach this module: no transcription hook is registered and data URIs are removed.
 
-Secrets: arguments and output of tool calls on sensitive paths and commands are withheld, every string is masked, and the
-serialized batch is scanned again before sending. Any hit or error drops the observation and keeps
-a reason without body. Nothing is written to disk, so there is no spool to clean. Request history
-goes through an allow-list that never keeps tool results; those appear only in tool spans. After a
+Secrets: no list of formats can be complete, so tool bodies are not sent unless the tool carries the
+delegation itself (_BODY_TOOLS). Other tool spans keep name, status, duration, sizes, path and the
+first word of a command. Every string is masked, including the whole line around a secret word and
+the lines next to it, and the serialized batch is scanned again before sending. Any hit or error
+drops the observation and keeps a reason without body. Nothing is written to disk, so there is no
+spool to clean. Request history goes through an allow-list that never keeps tool results. After a
 sensitive tool ran, later bodies of that session and its delegating parent are withheld too, because
 the model has seen the output and can repeat a value no pattern recognises.
 
@@ -51,6 +53,10 @@ _G2_PREFIX = "kohako-g2-"
 _WEBHOOK_PLATFORMS = {"webhook"}
 _TICKET = re.compile(r"\bBOXP-\d{1,6}\b")
 _DELEGATING_TOOLS = {"delegate_task"}
+_BODY_TOOLS = _DELEGATING_TOOLS | {"todo", "clarify"}
+_PATH_ARGS = ("path", "file_path", "filepath", "filename")
+_COMMAND_ARGS = ("command", "cmd")
+_COMMAND_HEAD = re.compile(r"""(?:[A-Za-z_]\w*=\S*\s+)*(?:[^\s'"]*/)?([\w.+-]{1,64})(?=\s|$)""")
 _CHAT_ROLES = {"system", "developer", "user", "assistant"}
 _TEXT_BLOCKS = {"text", "input_text", "output_text"}
 _WITHHELD_TOOL = "[withheld: sensitive path or command]"
@@ -67,6 +73,19 @@ _SECRET_WORD = (
 # Bounded so that a long word without a secret name stays linear to scan.
 _SECRET_KEY = r"[\w.-]{0,64}" + _SECRET_WORD + r"[\w.-]{0,64}"
 _ENTRY_GAP = r"""(?:\s|\\+[nrt]|,)*"""
+# Any format: a word that names a secret takes its line and the lines next to it. Counts of tokens stay.
+_LOOSE_WORD = (
+    r"(?:password|passwd|passphrase|pwd|secret|token(?!s(?![a-z])|_?count)|api[_-]?key|access[_-]?key|private[_-]?key"
+    r"|credential|cookie|authorization|(?<![a-z])pass(?![a-z])|(?<![a-z])auth(?![a-z])"
+    r"|パスワード|暗証番号|秘密鍵|認証情報|認証トークン|トークン|シークレット|合言葉)")
+_LOOSE_SECRET = re.compile(r"(?i)" + _LOOSE_WORD)
+_SEGMENT_BREAK = re.compile(r"(\r?\n|\\+(?:r\\+)?n|[。！？])")
+_LT = r"(?:<|&lt;|&\#0*60;|&\#x0*3[cC];|\\+u003[cC])"
+_GT = r"(?:>|&gt;|&\#0*62;|&\#x0*3[eE];|\\+u003[eE])"
+# An element takes everything up to its closing tag, or the rest of the text when there is none.
+_SECRET_ELEMENT = re.compile(
+    r"(?is)" + _LT + r"(?P<tag>[\w:.-]{0,64}" + _LOOSE_WORD + r"[\w:.-]{0,64})(?=[\s/>&\\])"
+    + r".*?(?:" + _LT + r"\\*/(?P=tag)\s*" + _GT + r"|\Z)")
 
 
 def _value(group, limit="", bare=r"[^\s,;}\]]+"):
@@ -124,6 +143,7 @@ _ENTRY_NAME_AFTER = re.compile(
 _STRUCTURE_TOKEN = re.compile(_QUOTE + r"|[\[\]{}()]")
 _CLOSER = {"[": "]", "{": "}", "(": ")"}
 _LINE_BREAK = re.compile(r"\r?\n|\\+(?:r\\+)?n")
+_BLOCK_SCALAR = re.compile(r"[|>][-+]?\d?[ \t]*(?:\r?\n|\\+(?:r\\+)?n)")
 _GAP_AT_END = re.compile(_GAP + r"\Z")
 _MAX_REVERSED_ENTRIES = 1000
 _MAX_REVERSED_VALUE = 4096
@@ -282,7 +302,7 @@ def _structured_end(text, match):
         return _bracket_end(text, match.end())
     gap = _GAP_AT_END.search(text, match.start(), match.end())
     key_end = gap.start() if gap else match.end()
-    if not _LINE_BREAK.search(text, key_end, match.end()):
+    if not _LINE_BREAK.search(text, key_end, match.end()) and not _BLOCK_SCALAR.match(text, match.end()):
         return None
     end = _block_end(text, key_end)
     return end if end > key_end else None
@@ -325,6 +345,30 @@ def _mask_reversed_entries(text):
     return "".join(pieces)
 
 
+def _count_element(_match):
+    _count("redactions_element")
+    return "[REDACTED:element]"
+
+
+def _mask_secret_lines(text):
+    """The format-independent rule: nothing about a secret word's line and its neighbours is trusted."""
+    if not _LOOSE_SECRET.search(_PLACEHOLDER.sub("", text)):
+        return text
+    parts = _SEGMENT_BREAK.split(text)  # text, break, text, break, ...
+    segments = parts[::2]
+    hits = [i for i, part in enumerate(segments) if _LOOSE_SECRET.search(_PLACEHOLDER.sub("", part))]
+    filled = [i for i, part in enumerate(segments) if part.strip()]
+    position = {segment: at for at, segment in enumerate(filled)}
+    masked = set()
+    for hit in hits:  # the nearest line with content on each side: blank lines do not separate a value
+        at = position[hit]
+        masked.update(filled[max(at - 1, 0):at + 2])
+    _count("redactions_secret_line", len(masked))
+    for i in masked:
+        parts[i * 2] = "[REDACTED:secret_line]"
+    return "".join(parts)
+
+
 def redact(text):
     """Return text without secrets. Raises nothing: failure drops the whole field."""
     try:
@@ -333,7 +377,9 @@ def redact(text):
             if value in out:
                 out = out.replace(value, "[REDACTED:env]")
                 _count("redactions_env")
-        out = _mask_structured(out)
+        out = _SECRET_ELEMENT.sub(_count_element, out)
+        # Before the patterns, which would take the word with them and leave the rest of a value behind.
+        out = _mask_secret_lines(_mask_structured(out))
         for kind, pattern in _PATTERNS:
             def sub(m, kind=kind):
                 if kind == "entropy" and not _is_entropy(m.group(0)):
@@ -350,7 +396,7 @@ def redact(text):
 def _unsafe(serialized):
     """Final guard on the JSON text that is about to leave the process."""
     probe = _PLACEHOLDER.sub("", serialized)
-    if any(v in probe for v in _env_secrets()):
+    if any(v in probe for v in _env_secrets()) or _LOOSE_SECRET.search(probe):
         return True
     for kind, pattern in _PATTERNS:
         if kind in _FIELD_ONLY:
@@ -587,6 +633,26 @@ def _on_api_error(session_id=None, turn_id=None, api_request_id=None, status_cod
                 "metadata": {"status_code": status_code, "retry": retry_count, "retryable": retryable, "reason": reason}})
 
 
+def _size(value):
+    text = _text(value)
+    return {"chars": len(text), "lines": text.count("\n") + 1 if text else 0}
+
+
+def _tool_input_view(args):
+    """What was done without the content: argument names, a path, and the program a command runs."""
+    if not isinstance(args, dict):
+        return {"omitted": type(args).__name__, **_size(args)}
+    view = {"arg_names": sorted(str(k) for k in args)}
+    for name in _PATH_ARGS:
+        if isinstance(args.get(name), str):
+            view[name] = args[name]
+    for name in _COMMAND_ARGS:
+        found = _COMMAND_HEAD.match(args[name].strip()) if isinstance(args.get(name), str) else None
+        if found:
+            view["program"] = found.group(1)
+    return view
+
+
 @_guarded
 def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, args=None, result=None, duration_ms=None,
              status=None, error_type=None):
@@ -601,9 +667,10 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
     if withheld:
         _taint(turn["session"], turn["parent"])
     now = time.time()
+    body = tool_name in _BODY_TOOLS
     _add(turn, {"key": "tool:" + str(tool_call_id or now), "name": str(tool_name), "type": "tool",
-                "input": _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else args,
-                "output": _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else result,
+                "input": _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else args if body else _tool_input_view(args),
+                "output": _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else result if body else {"omitted": "tool_body_policy", **_size(result)},
                 "start": now - (duration_ms or 0) / 1000, "end": now,
                 "level": "ERROR" if error_type or status in ("error", "failed") else None,
                 "metadata": {"status": status, "error_type": error_type, "withheld": withheld or already}})
@@ -720,6 +787,7 @@ def build_spans(turn):
         _attr("langfuse.trace.metadata.coverage.reasoning", "not_collected"),
         _attr("langfuse.trace.metadata.coverage.provider_payload", "system prompt and last messages of each attempt"),
         _attr("langfuse.trace.metadata.coverage.g2_realtime", "delegated text only; realtime voice session not observed"),
+        _attr("langfuse.trace.metadata.coverage.tool_bodies", "delegate_task, todo and clarify only; other tools keep name, status, duration, sizes, path and program (tool_body_policy)"),
         _attr("langfuse.trace.metadata.coverage.truncated", str(turn["truncated"]).lower()),
         _attr("langfuse.trace.metadata.coverage.withheld_after_sensitive_tool", str(bool(turn.get("tainted"))).lower()),
     ]
