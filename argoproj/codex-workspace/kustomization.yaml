@@ -11,6 +11,7 @@ resources:
   - configmap.yaml
   - kubeconfig.yaml
   - dashboard-configmap.yaml
+  - external-secret-langfuse-ingest-key.yaml
   - external-secret.yaml
   - deployment.yaml
   - service.yaml

@@ -52,4 +52,5 @@ spec:
         content: |
           # kind は job ごとに破棄するので削除完了は待たない (python の PID 1 は SIGTERM で
           # 止まらず、待つと terminationGracePeriodSeconds の 30s がそのまま critical path に乗る)。
-          kubectl delete namespace codex-workspace --ignore-not-found --wait=false
+          # namespace は消さない。並列の langfuse suite が同じ namespace で ESO を確認している。
+          kubectl delete deployment codex-workspace -n codex-workspace --ignore-not-found --wait=false

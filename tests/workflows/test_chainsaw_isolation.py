@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class IsolationGuardTest(unittest.TestCase):
     def test_guard_on_every_mutating_suite(self):
-        for component in ['argocd', 'external-secrets-operator', 'grafana-alloy', 'kube-vip', 'codex-workspace', 'hermes-agent', 'langfuse']:
+        for component in ['argocd', 'external-secrets-operator', 'grafana-alloy', 'kube-vip', 'codex-workspace', 'codex-workspace/task-board-langfuse', 'hermes-agent', 'langfuse']:
             source = (ROOT / 'tests/chainsaw' / component / 'chainsaw-test.yaml').read_text()
             guard = textwrap.dedent(source.split('        content: |\n', 1)[1].split('\n  - name:', 1)[0])
             with tempfile.TemporaryDirectory() as directory:
@@ -36,6 +36,8 @@ esac
                          ('kind-test', 'kind-test', 'https://kind', 'https://prod', False, True),
                          ('kind-test', 'kind-test', '', '', False, True),
                          ('kind-test', 'kind-test', 'https://kind', 'https://kind', True, True)]
+                if component == 'codex-workspace/task-board-langfuse':
+                    cases[-1] = ('kind-test', 'kind-test', 'https://127.0.0.1:1234', 'https://127.0.0.1:1234', True, True)
                 for expected, actual, kind_server, active_server, success, called in cases:
                     with self.subTest(component=component, expected=expected, server=active_server):
                         log = root / 'calls'

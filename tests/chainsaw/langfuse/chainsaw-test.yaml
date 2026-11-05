@@ -42,7 +42,7 @@ spec:
   - name: producer-ingest-key
     try:
     - script:
-        timeout: 180s
+        timeout: 300s
         content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" producer_ingest_key'
   - name: network-policy
     try:

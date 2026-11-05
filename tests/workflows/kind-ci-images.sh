@@ -87,6 +87,11 @@ cd "$REPO_ROOT"
       : # suite は本体 image を使わず python fixture だけを起動する
     elif [ "$component" = codex-workspace ]; then
       component_manifests "$component" | yq -r 'select(.kind == "Deployment" and .metadata.name == "codex-workspace") | .spec.template.spec.containers[] | select(.name == "ai-ops-metrics") | .image' | while read -r image; do emit "$image" worker; done
+      # The Task Board exporter fixture substitutes the production image in jq.
+      emit "docker.io/babashka/babashka:1.13.219" worker
+      emit "python:3.13-alpine" worker
+      emit "busybox:1.37" worker
+      component_manifests "$component" | yq -r 'select(.kind == "Deployment" and .metadata.name == "codex-workspace") | .spec.template.spec.initContainers[] | select(.name == "prepare-task-board-langfuse-dirs") | .image' | while read -r image; do emit "$image" worker; done
     else
       component_manifests "$component" | split_by_daemonset
     fi
