@@ -34,6 +34,11 @@ spec:
     - script:
         timeout: 840s
         content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" deploy'
+  - name: postgres-existing-data
+    try:
+    - script:
+        timeout: 180s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" postgres_existing_data'
   - name: secrets-and-rbac
     try:
     - script:
