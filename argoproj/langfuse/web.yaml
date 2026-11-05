@@ -102,7 +102,7 @@ spec:
             - name: AUTH_DISABLE_SIGNUP
               value: "true"
             - name: AUTH_DISABLE_USERNAME_PASSWORD
-              value: "true"
+              value: "false"
             # Cloudflare Access for SaaS is the only way in. Signup stays off, so an email
             # with no existing account cannot get one. Linking is needed because the init
             # user has no provider row yet, and the issuer only admits the Owner policy.
