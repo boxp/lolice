@@ -45,6 +45,17 @@ def fire_env_dump(session, command, result):
     hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args={"command": command}, result=result)
     hooks["on_session_end"](**common, completed=True)
 
+def fire_resumed_env_dump(session):
+    # A resumed session: the only evidence is the output of an ordinary command in its history.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    history = [{"role": "tool", "content": "PATH=/usr/bin\nHOME=/root\nOPAQUE=plainresumevalue"}, {"role": "user", "content": "plainresumevalue"}]
+    hooks["pre_llm_call"](**common, user_message="plainresumevalue")
+    hooks["pre_api_request"](**common, api_request_id="api", request_messages=history)
+    hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "plainresumevalue"}})
+    hooks["post_llm_call"](**common, assistant_response="plainresumevalue")
+    hooks["on_session_end"](**common, completed=True)
+
 def fire_delegated_child(parent, child):
     # Neither the parent's scope nor a ticket reference reaches the child: only the delegation does.
     hooks = ctx.hooks
@@ -64,6 +75,7 @@ while True:
     fire_env_dump(f"kohako-g2-nested-{n}", "cat result.json", {"output": '{"password":"plainnestedvalue"}'})
     fire_env_dump(f"kohako-g2-flag-{n}", "cat result.json", {"output": "mytool --password plainflagvalue\n- name: DB_PASSWORD\n  value: plainentryvalue"})
     fire_env_dump(f"kohako-g2-array-{n}", "cat result.json", {"output": '{"password":["first","plainarrayvalue"]}'})
+    fire_resumed_env_dump(f"kohako-g2-resume-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
     print(f"round {n}", flush=True)
     time.sleep(1)

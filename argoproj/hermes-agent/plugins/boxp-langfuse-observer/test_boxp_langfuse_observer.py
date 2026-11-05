@@ -452,6 +452,44 @@ class ObserverTest(unittest.TestCase):
         run_turn(session="kohako-g2-q", body="what is .env for?", args={"command": "ls"})
         self.assertIn("reply what is .env for?", self._bodies())
 
+    def test_resumed_session_rebuilds_taint_from_environment_output(self):
+        dump = "PATH=/usr/bin\nHOME=/root\nOPAQUE=plainresumevalue"
+        shapes = {
+            "tool": {"role": "tool", "content": dump},
+            "tool_blocks": {"role": "tool", "content": [{"type": "text", "text": dump}]},
+            "wrapped": {"role": "tool", "content": json.dumps({"output": dump})},
+            "nul": {"role": "tool", "content": dump.replace("\n", "\0")},
+            "responses": {"type": "function_call_output", "output": dump},
+            "anthropic": {"role": "user", "content": [{"type": "tool_result", "content": dump}]},
+        }
+        for name, result in shapes.items():
+            with self.subTest(name):
+                session = "kohako-g2-resume-" + name
+                history = [{"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "terminal", "arguments": '{"command": "python3 show.py"}'}}]},
+                           result, {"role": "assistant", "content": "ECHOED plainresumevalue"}, {"role": "user", "content": "plainresumevalue again"}]
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="plainresumevalue again")
+                plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=history)
+                plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a", response={"assistant_message": {"role": "assistant", "content": "LATER plainresumevalue"}})
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="x", tool_name="terminal", args={"command": "echo plainresumevalue"}, result="plainresumevalue")
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="plainresumevalue")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                self.assertNotIn("plainresumevalue", self._bodies())
+
+    def test_ordinary_history_does_not_taint_a_resumed_session(self):
+        histories = {
+            "listing": [{"role": "tool", "content": "README.md\nsrc"}],
+            "one_variable": [{"role": "tool", "content": "PATH=/usr/bin"}],
+            "variables_in_separate_results": [{"role": "tool", "content": "PATH=/usr/bin"}, {"role": "tool", "content": "HOME=/root"}],
+            "instructions": [{"role": "system", "content": "Set PATH=/usr/bin and HOME=/root in the sandbox."}],
+        }
+        for name, history in histories.items():
+            with self.subTest(name):
+                session = "kohako-g2-plain-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="visible " + name)
+                plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=history)
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                self.assertIn("visible " + name, self._bodies())
+
     def test_final_guard_drops_span_when_masking_misses(self):
         run_turn()
         turn = drain()[0]
