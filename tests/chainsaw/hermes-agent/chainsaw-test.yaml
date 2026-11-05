@@ -1,0 +1,70 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: hermes-langfuse-observer
+spec:
+  steps:
+  - name: require-isolated-kind
+    try:
+    - script:
+        timeout: 15s
+        content: |
+          set -eu
+          case "${CHAINSAW_KIND_CONTEXT:-}" in
+            kind-*) ;;
+            *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
+          esac
+          : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
+          test -r "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          actual_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          test -n "$expected_server"
+          test "$actual_server" = "$expected_server"
+  - name: exercise-observer
+    try:
+    - script:
+        timeout: 600s
+        content: |
+          set -eu
+          ns=hermes-langfuse-fixture
+          manifest="$(mktemp)"
+          trap 'rm -f "$manifest"' EXIT
+          "${REPO_ROOT}/tests/chainsaw/hermes-agent/render-fixture.sh" > "$manifest"
+          kubectl apply --server-side -f "$manifest"
+          kubectl wait -n "$ns" --for=condition=Available deployment/sink deployment/driver --timeout=120s || { echo 'FAIL: Secret 無しで Pod が起動しない'; exit 1; }
+          pod="$(kubectl get pod -n "$ns" -l app=driver -o jsonpath='{.items[0].metadata.name}')"
+          identity() { kubectl get pod -n "$ns" "$pod" -o jsonpath='{.metadata.uid}:{.status.containerStatuses[0].restartCount}:{.status.phase}'; }
+          deadline=$(( $(date +%s) + 60 ))
+          until [ "$(kubectl logs -n "$ns" "$pod" | grep -c '^round ' || true)" -ge 3 ]; do
+            [ "$(date +%s)" -lt "$deadline" ] || { echo 'FAIL: driver が round を出さない'; exit 1; }
+            sleep 1
+          done
+          kubectl exec -n "$ns" deployment/sink -- python -c 'import os; p="/tmp/requests.jsonl"; assert not os.path.exists(p) or os.path.getsize(p) == 0' || { echo 'FAIL: 鍵なしで送信した'; exit 1; }
+          before="$(identity)"
+          case "$before" in *:Running) ;; *) exit 1 ;; esac
+          pk="pk-lf-chainsaw$(openssl rand -hex 16)"
+          sk="sk-lf-chainsaw$(openssl rand -hex 16)"
+          auth="Basic $(printf '%s:%s' "$pk" "$sk" | base64 | tr -d '\n')"
+          kubectl create secret generic langfuse-ingest-key -n "$ns" --from-literal=LANGFUSE_PUBLIC_KEY="$pk" --from-literal=LANGFUSE_SECRET_KEY="$sk"
+          deadline=$(( $(date +%s) + 180 ))
+          until kubectl exec -n "$ns" deployment/sink -- python -c 'import json,sys,os; p="/tmp/requests.jsonl"; rows=[json.loads(x) for x in open(p)] if os.path.exists(p) else []; sys.exit(not any(r["authorization"] == sys.argv[1] and "cleanbodymarker" in r["body"] for r in rows))' "$auth"; do
+            [ "$(date +%s)" -lt "$deadline" ] || { echo 'FAIL: 後発の鍵で送信が始まらない'; exit 1; }
+            sleep 2
+          done
+          test "$(identity)" = "$before" || { echo 'FAIL: 鍵の反映で Pod が再起動した'; exit 1; }
+          kubectl exec -n "$ns" deployment/sink -- python -c 'import json,sys; rows=[json.loads(x) for x in open("/tmp/requests.jsonl")]; assert any("cleanbodymarker" in r["body"] for r in rows); assert all(all(s not in r["body"] for s in ("plainwordvalue", sys.argv[1], sys.argv[2])) for r in rows)' "$pk" "$sk" || { echo 'FAIL: 機密値が sink に届いた'; exit 1; }
+          kubectl scale -n "$ns" deployment/sink --replicas=0
+          kubectl wait -n "$ns" --for=delete pod -l app=sink --timeout=60s
+          rounds="$(kubectl logs -n "$ns" "$pod" | grep -c '^round ' || true)"
+          deadline=$(( $(date +%s) + 30 ))
+          until [ "$(kubectl logs -n "$ns" "$pod" | grep -c '^round ' || true)" -ge $((rounds + 3)) ]; do
+            [ "$(date +%s)" -lt "$deadline" ] || { echo 'FAIL: sink 停止で producer が止まった'; exit 1; }
+            sleep 1
+          done
+          test "$(identity)" = "$before" || { echo 'FAIL: sink 停止で producer が再起動した'; exit 1; }
+    finally:
+    - script:
+        timeout: 30s
+        content: |
+          kubectl delete namespace hermes-langfuse-fixture --ignore-not-found --wait=false
