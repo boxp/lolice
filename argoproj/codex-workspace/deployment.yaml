@@ -449,6 +449,89 @@ spec:
             - name: pi-config
               mountPath: /etc/pi-agent-config
               readOnly: true
+        # BOXP-428: isolate exporter inputs and reload the optional ingest key on every tick.
+        - name: task-board-langfuse-exporter
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -c
+            - |
+              child=""
+              trap 'if [ -n "$child" ]; then kill "$child" 2>/dev/null || :; wait "$child" 2>/dev/null || :; fi; exit 0' TERM INT
+              script=/opt/codex-workspace/task-board/langfuse_exporter.bb
+              keys=/var/run/secrets/langfuse
+              while :; do
+                if [ -f "$script" ] && [ -s "$keys/LANGFUSE_PUBLIC_KEY" ] && [ -s "$keys/LANGFUSE_SECRET_KEY" ]; then
+                  public_key=$(cat "$keys/LANGFUSE_PUBLIC_KEY")
+                  secret_key=$(cat "$keys/LANGFUSE_SECRET_KEY")
+                  if [ -n "$public_key" ] && [ -n "$secret_key" ]; then
+                    LANGFUSE_PUBLIC_KEY="$public_key" LANGFUSE_SECRET_KEY="$secret_key" timeout 900 nice -n 19 bb "$script" once &
+                    child=$!
+                    wait "$child" || :
+                    child=""
+                  fi
+                fi
+                sleep "$LANGFUSE_POLL_SECONDS" &
+                child=$!
+                wait "$child" || :
+                child=""
+              done
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: CODEX_TASK_BOARD_ROOT
+              value: /home/boxp/.codex-task-board
+            - name: CLAUDE_HOME
+              value: /home/boxp/.claude
+            - name: CODEX_HOME
+              value: /home/boxp/.codex
+            - name: LANGFUSE_URL
+              value: http://langfuse-web.langfuse.svc.cluster.local:3000
+            - name: LANGFUSE_POLL_SECONDS
+              value: "60"
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-grafana
+                  key: service-account-token
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: home
+              subPath: .codex-task-board
+              mountPath: /home/boxp/.codex-task-board
+            - name: home
+              subPath: .claude/projects
+              mountPath: /home/boxp/.claude/projects
+              readOnly: true
+            - name: home
+              subPath: .codex/sessions
+              mountPath: /home/boxp/.codex/sessions
+              readOnly: true
+            - name: langfuse-ingest-key
+              mountPath: /var/run/secrets/langfuse
+              readOnly: true
+            - name: task-board-langfuse-tmp
+              mountPath: /tmp
         - name: novel-board-runner
           # Novel Board runner (BOXP-246). The image entrypoint starts
           # /opt/codex-workspace/novel-board/novel_board_runner.bb loop for this
@@ -733,4 +816,12 @@ spec:
           configMap:
             name: lolice-lineage-web
         - name: lolice-lineage-tmp
+          emptyDir: {}
+        # Readable by the non-root sidecar; the volume is mounted only there.
+        - name: langfuse-ingest-key
+          secret:
+            secretName: langfuse-ingest-key
+            optional: true
+            defaultMode: 0444
+        - name: task-board-langfuse-tmp
           emptyDir: {}

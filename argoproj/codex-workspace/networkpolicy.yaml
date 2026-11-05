@@ -126,6 +126,14 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
         ports:
           - 8644
+    # BOXP-428: Task Board exporter sends traces to the in-cluster Langfuse.
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'langfuse-web'
+        namespaceSelector: kubernetes.io/metadata.name == 'langfuse'
+        ports:
+          - 3000
     # Kubernetes API access for in-cluster kubectl.
     - action: Allow
       protocol: TCP

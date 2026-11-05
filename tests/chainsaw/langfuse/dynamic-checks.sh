@@ -83,22 +83,24 @@ secrets_and_rbac() {
   test "$answer" = no
 }
 
-# hermes-agent の本番 SecretStore/ExternalSecret で、実際に ESO Kubernetes provider から ingest key を取得する。
+# Both producers use their own ServiceAccount and the production ESO resources.
 producer_ingest_key() {
-  local manifest key
+  local manifest key producer
   manifest="$(mktemp)"
-  kubectl create namespace hermes-agent --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kustomize build "$REPO_ROOT/argoproj/hermes-agent/" \
-    | yq 'select((.kind == "SecretStore" or .kind == "ExternalSecret" or .kind == "ServiceAccount") and .metadata.name == "langfuse-ingest-key*")' > "$manifest"
-  test "$(yq -N '.kind' "$manifest" | sort | tr '\n' ' ')" = "ExternalSecret SecretStore ServiceAccount "
-  kubectl apply --server-side -f "$manifest" >/dev/null
-  rm -f "$manifest"
-  kubectl wait -n hermes-agent --for=condition=Ready secretstore/langfuse-ingest-key externalsecret/langfuse-ingest-key --timeout=120s \
-    || { kubectl describe -n hermes-agent secretstore,externalsecret || true; echo 'FAIL: producer の SecretStore が ingest key を取得できない' >&2; exit 1; }
-  for key in LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY; do
-    test "$(kubectl get secret langfuse-ingest-key -n hermes-agent -o json | jq -er --arg key "$key" '.data[$key] | @base64d')" = "$(secret_value langfuse-ingest-key "$key")" \
-      || { echo "FAIL: $key が langfuse 側と一致しない" >&2; exit 1; }
+  for producer in hermes-agent codex-workspace; do
+    kubectl create namespace "$producer" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kustomize build "$REPO_ROOT/argoproj/$producer/" \
+      | yq 'select((.kind == "SecretStore" or .kind == "ExternalSecret" or .kind == "ServiceAccount") and .metadata.name == "langfuse-ingest-key*")' > "$manifest"
+    test "$(yq -N '.kind' "$manifest" | sort | tr '\n' ' ')" = "ExternalSecret SecretStore ServiceAccount "
+    kubectl apply --server-side -f "$manifest" >/dev/null
+    kubectl wait -n "$producer" --for=condition=Ready secretstore/langfuse-ingest-key externalsecret/langfuse-ingest-key --timeout=120s \
+      || { kubectl describe -n "$producer" secretstore,externalsecret || true; echo "FAIL: $producer の SecretStore が ingest key を取得できない" >&2; exit 1; }
+    for key in LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY; do
+      test "$(kubectl get secret langfuse-ingest-key -n "$producer" -o json | jq -er --arg key "$key" '.data[$key] | @base64d')" = "$(secret_value langfuse-ingest-key "$key")" \
+        || { echo "FAIL: $producer の $key が langfuse 側と一致しない" >&2; exit 1; }
+    done
   done
+  rm -f "$manifest"
 }
 
 probe() {

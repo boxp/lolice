@@ -1,0 +1,29 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: task-board-langfuse
+spec:
+  steps:
+  - name: require-isolated-kind
+    try:
+    - script:
+        content: |
+          set -eu
+          case "${CHAINSAW_KIND_CONTEXT:-}" in kind-*) ;; *) exit 1 ;; esac
+          : "${CHAINSAW_KIND_KUBECONFIG:?}"
+          test -r "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          expected="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          actual="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          test -n "$expected" && test "$actual" = "$expected"
+          case "$expected" in https://127.0.0.1:*|https://localhost:*) ;; *) exit 1 ;; esac
+  - name: exercise-exporter
+    try:
+    - script:
+        timeout: 600s
+        content: |
+          bash "$REPO_ROOT/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh"
+    finally:
+    - script:
+        content: |
+          kubectl delete namespace task-board-langfuse-fixture --ignore-not-found --wait=false
