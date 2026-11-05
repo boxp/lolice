@@ -211,3 +211,7 @@ kubectl -n default exec deploy/some-target-outside-debug-scope -- id
 `task-board-dashboard` sidecar は `/app`（`dashboard-configmap.yaml`）を process 起動時にだけ読み込みます。ConfigMap volume は Pod 内で更新されますが、実行中の process には反映されません（BOXP-329 の Kohako Board projection `:8090` はこのため未稼働のままでした）。
 
 `dashboard-configmap.yaml` の `server.py` / `kohako_board.py` などを変更するときは、同じ PR で `deployment.yaml` の Pod template annotation `codex-workspace.boxp.tk/dashboard-config-revision` を更新し、上記の通常 Argo CD sync による計画 rollout で反映します。進行中の Task Board run は planned shutdown として `interrupted` 記録され、新 Pod が即時に再受付します。
+
+## Lolice lineage viewer (BOXP-430)
+
+`lolice-lineage` は home PVC 上の `Documents/obsidian-headless/BOXP/Projects/lolice-infrastructure-lineage/lolice-lineage.html` だけを読み取り専用で配信します。非公開データは PVC に残り、既存の k8s namespace の cloudflared からのみ到達できます。Owner-only Access の hostname `lolice-lineage.b0xp.io` は boxp/arch で管理します。ページの更新は vault 内のファイルを置き換えるだけで反映され、再起動は不要です。
