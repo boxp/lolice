@@ -12,14 +12,6 @@ spec:
     repoURL: https://github.com/boxp/lolice
     targetRevision: main
     path: argoproj/langfuse
-    # 一時的な復旧用 (BOXP-428): 18.6 のまま CrashLoop している langfuse-postgres-0 を
-    # StatefulSet の縮退で削除させる。OrderedReady の StatefulSet は Ready でない Pod があると
-    # ローリング更新を進めないため、テンプレートを 16.15 へ戻しても Pod が置き換わらない。
-    # whenScaled: Retain なので PVC とデータは残る。Pod 削除を確認したら次の PR で外して 1 に戻す。
-    kustomize:
-      replicas:
-        - name: langfuse-postgres
-          count: 0
   syncPolicy:
     automated:
       prune: true
