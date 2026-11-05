@@ -386,7 +386,7 @@ retention() {
 
   otlp gone "$TRACE_OLD" 300
   otlp gone "$TRACE_SHARED" 300
-  otlp present "$TRACE_FRESH" chainsaw-fresh 30
+  otlp present "$TRACE_FRESH" BOXP428CTRL 30
   test "$(clickhouse_count "$TRACE_OLD")" = 0 || { echo '期限切れ trace の行が ClickHouse に残っています' >&2; exit 1; }
   test "$(clickhouse_count "$TRACE_SHARED")" = 0 || { echo '共有 trace の行が ClickHouse に残っています' >&2; exit 1; }
   test "$(clickhouse_count "$TRACE_FRESH")" -gt 0 || { echo 'fresh trace まで消えています' >&2; exit 1; }
