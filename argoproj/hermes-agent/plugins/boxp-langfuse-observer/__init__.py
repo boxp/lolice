@@ -106,7 +106,13 @@ def _entry_key(name):
 
 
 _SECRET_NAME = re.compile(
-    r"(?i)(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth)")
+    r"(?i)(password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth(?!ors?(?![a-z]))|(?<![a-z])pass(?![a-z]))")
+_NOT_A_CREDENTIAL_NAME = re.compile(r"PWD|OLDPWD")
+_FLAG_VALUE = re.compile(r"(?i)true|false|yes|no|on|off|none|null|nil|enabled|disabled|0|1")
+# Whole words of the name, at its ends: MINIO_ROOT_PASSWORD holds "min" and SUPPORT_SECRET holds "port".
+_TOGGLE_LAST_WORD = re.compile(r"(?i)enabled?|disabled?|required?|parallelism|rotation")
+_TOGGLE_FIRST_WORD = re.compile(r"(?i)use|enable|disable|no|skip|require")
+_COUNTER_LAST_WORD = re.compile(r"(?i)tokens|count|limit|max|min|ttl|timeout|expiry|expires|interval|seconds|minutes|hours|days|age|size|port|bytes")
 _PATTERNS = [
     ("private_key", re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----.*?(?:-----END (?:[A-Z ]+ )?PRIVATE KEY-----|\Z)", re.S)),
     ("header", re.compile(r"(?im)\b(?:proxy-authorization|authorization|set-cookie|cookie)\s*:\s*[^\r\n]+")),
@@ -178,6 +184,9 @@ _stats = {}
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
 _worker = None
 _secret_values = None
+_CONTROL_ESCAPES = {"\n": "n", "\r": "r", "\t": "t", "\b": "b", "\f": "f"}
+_HTML_NAMES = {"&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "apos"}
+_env_pattern_cache = (None, None)
 _creds = None
 
 
@@ -227,13 +236,70 @@ def register(ctx):
 # ---------------------------------------------------------------------------
 # secret removal
 
+def _is_setting(name, value):
+    """The value and the name have to agree: PASSWORD=disabled is a password, AUTH_ENABLED=disabled is a setting."""
+    words = [word for word in re.split(r"[^A-Za-z0-9]+", name) if word]
+    if not words:
+        return False
+    if _FLAG_VALUE.fullmatch(value):
+        return bool(_TOGGLE_LAST_WORD.fullmatch(words[-1]) or _TOGGLE_FIRST_WORD.fullmatch(words[0]))
+    return bool(re.fullmatch(r"[0-9]+", value) and _COUNTER_LAST_WORD.fullmatch(words[-1]))
+
+
+def _is_secret_value(name, value):
+    """Short values count too. Only a setting is left alone, since masking it would blank ordinary words and numbers."""
+    return (isinstance(value, str) and value.strip() and _SECRET_NAME.search(name)
+            and not _NOT_A_CREDENTIAL_NAME.fullmatch(name) and not _is_setting(name, value))
+
+
 def _env_secrets():
     global _secret_values
     if _secret_values is None:
-        _secret_values = sorted(
-            {v for k, v in os.environ.items() if _SECRET_NAME.search(k) and isinstance(v, str) and len(v) >= 8},
-            key=len, reverse=True)
+        found = {v for k, v in os.environ.items() if _is_secret_value(k, v)}
+        # A value read from a file keeps its newline; the text shows it without.
+        _secret_values = sorted(found | {v.strip() for v in found}, key=len, reverse=True)
     return _secret_values
+
+
+def _encoded_char(ch):
+    """Every way serialized text can carry ch, letters and digits included. Escapes can repeat, since JSON can sit inside JSON
+    (bounded at 255 backslashes, depth 8, to keep the scan linear) and a URL can be encoded again (%2561, same depth)."""
+    code = ord(ch)
+    units = [code] if code < 0x10000 else [0xD800 + ((code - 0x10000) >> 10), 0xDC00 + ((code - 0x10000) & 0x3FF)]
+    hex_forms = ["".join(r"\\{1,255}u%04x" % unit for unit in units),
+                 "".join("%%(?:25){0,8}%02x" % byte for byte in ch.encode("utf-8", "surrogatepass")),
+                 f"&#0*{code};", f"&#x0*{code:x};"]
+    if code < 0x100:
+        hex_forms.append(r"\\{1,255}x%02x" % code)
+    if ch in _HTML_NAMES:
+        hex_forms.append(f"&{_HTML_NAMES[ch]};")
+    forms = ["(?i:" + "|".join(hex_forms) + ")"]
+    if ch.isascii() and ch.isalnum():
+        return "(?:" + "|".join(forms + [ch]) + ")"  # \\n is a newline, not an n
+    if ch in _CONTROL_ESCAPES:
+        forms.append(r"\\{1,255}" + _CONTROL_ESCAPES[ch])
+    if ch == " ":
+        forms.append(r"\+")
+    forms += [r"\\{1,255}" + re.escape(ch), re.escape(ch)]
+    return "(?:" + "|".join(forms) + ")"
+
+
+def _value_pattern(value):
+    """Every position can start a value, so its first character is only tried at the start of a run of backslashes: the scan stays linear."""
+    chars = [_encoded_char(ch) for ch in value]
+    chars[0] = chars[0].replace(r"\\{1,255}", r"(?<!\\)\\+")
+    return "".join(chars)
+
+
+def _env_pattern():
+    """One alternation, longest first, so a later value cannot rewrite the mark of an earlier one.
+    Any length matches inside a longer word: the value can be part of it, and a blanked word costs less than a leak."""
+    global _env_pattern_cache
+    values = _env_secrets()
+    if _env_pattern_cache[0] is not values:
+        pattern = re.compile("|".join(map(_value_pattern, values))) if values else None
+        _env_pattern_cache = (values, pattern)
+    return _env_pattern_cache[1]
 
 
 def _is_entropy(s):
@@ -378,9 +444,10 @@ def redact(text):
     """Return text without secrets. Raises nothing: failure drops the whole field."""
     try:
         out = str(text)
-        for value in _env_secrets():
-            if value in out:
-                out = out.replace(value, "[REDACTED:env]")
+        env_pattern = _env_pattern()
+        if env_pattern:
+            out, hits = env_pattern.subn("[REDACTED:env]", out)
+            if hits:
                 _count("redactions_env")
         out = _SECRET_ELEMENT.sub(_count_element, out)
         # Before the patterns, which would take the word with them and leave the rest of a value behind.
@@ -401,7 +468,8 @@ def redact(text):
 def _unsafe(serialized):
     """Final guard on the JSON text that is about to leave the process."""
     probe = _PLACEHOLDER.sub("", serialized)
-    if any(v in probe for v in _env_secrets()) or _LOOSE_SECRET.search(probe):
+    env_pattern = _env_pattern()
+    if (env_pattern and env_pattern.search(probe)) or _LOOSE_SECRET.search(probe):
         return True
     for kind, pattern in _PATTERNS:
         if kind in _FIELD_ONLY:

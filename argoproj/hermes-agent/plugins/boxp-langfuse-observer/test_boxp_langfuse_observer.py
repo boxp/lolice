@@ -1,3 +1,4 @@
+import html
 import importlib.util
 import inspect
 import json
@@ -6,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -290,6 +292,124 @@ class ObserverTest(unittest.TestCase):
                 plugin._sessions.clear()
                 run_turn(args={"command": command}, result="UNIQUEOUTPUT")
                 self.assertIn("tool_body_policy", self._bodies())  # not the withheld marker
+
+    def test_value_is_masked_in_every_serialized_form(self):
+        values = {"A_TOKEN": 'ab"1', "B_TOKEN": "q'z", "C_TOKEN": "l1\nl2", "D_TOKEN": "b\\s", "E_TOKEN": "é7",
+                  "F_TOKEN": "😀k", "G_TOKEN": "s p/c", "H_TOKEN": "t\tu&v<w>", "LONG_PASSWORD": 'long"value\nwith\\all'}
+        def nested(value, depth, ascii_only=False):
+            for _ in range(depth):
+                value = json.dumps(value, ensure_ascii=ascii_only)[1:-1]
+            return value
+        with patch.dict(os.environ, values):
+            plugin._secret_values = None
+            for value in values.values():
+                forms = [value, repr(value)[1:-1], html.escape(value), urllib.parse.quote(value, safe=""),
+                         urllib.parse.quote_plus(value), value.replace("/", "\\/")]
+                forms += [nested(value, depth, ascii_only) for depth in (1, 2, 3, 4) for ascii_only in (False, True)]
+                for form in forms:
+                    out = plugin.redact("answer " + form + " end")
+                    self.assertEqual("answer [REDACTED:env] end", out, form)
+                    self.assertTrue(plugin._unsafe("answer " + form + " end"), form)
+                # What the review found: a structure goes through JSON before it reaches the mask.
+                for structure in ({"k": [value]}, {"k": {"n": value + "x"}}):
+                    for fragment in (nested(value, 1), value):
+                        self.assertNotIn(fragment, plugin._field(structure))
+                    self.assertIn("[REDACTED:env]", plugin._field(structure))
+                    # The guard alone stops it even when the field pass is skipped.
+                    self.assertTrue(plugin._unsafe(json.dumps(structure)))
+                    self.assertTrue(plugin._unsafe(json.dumps(structure, ensure_ascii=False)))
+        # A value read from a file keeps its newline; the text shows it without.
+        with patch.dict(os.environ, {"FILE_TOKEN": "zq7mw\n"}):
+            plugin._secret_values = None
+            self.assertEqual("answer [REDACTED:env]", plugin.redact("answer zq7mw"))
+        # Neighbours of a mask survive, and an ordinary sentence is not touched.
+        with patch.dict(os.environ, {"A_TOKEN": 'ab"1'}):
+            plugin._secret_values = None
+            self.assertEqual('ab"2 ab 1', plugin.redact('ab"2 ab 1'))
+        plugin._secret_values = None
+
+    def test_alphanumerics_are_masked_when_encoded_by_code_point(self):
+        for value in ("abc", "aB7", 'x"9'):
+            codes = [ord(ch) for ch in value]
+            forms = ["".join("\\u%04x" % c for c in codes), "".join("\\u%04X" % c for c in codes),
+                     "".join("\\\\\\u%04x" % c for c in codes), "".join("\\x%02x" % c for c in codes),
+                     "".join("%%%02x" % c for c in codes), "".join("%%%02X" % c for c in codes),
+                     "".join("%%25%02x" % c for c in codes), "".join("%%2525%02x" % c for c in codes),
+                     "".join("&#%d;" % c for c in codes), "".join("&#x%x;" % c for c in codes),
+                     value[0] + "".join("%%%02x" % c for c in codes[1:]),
+                     "\\u%04x" % codes[0] + value[1:]]
+            with patch.dict(os.environ, {"API_TOKEN": value}):
+                plugin._secret_values = None
+                for form in forms:
+                    self.assertEqual("answer [REDACTED:env] end", plugin.redact("answer " + form + " end"), form)
+                    self.assertTrue(plugin._unsafe("answer " + form + " end"), form)
+        # A long run of backslashes neither hides a value nor slows the scan down.
+        with patch.dict(os.environ, {"API_TOKEN": "abc", "B_TOKEN": "x\"y"}):
+            plugin._secret_values = None
+            self.assertEqual("[REDACTED:env]", plugin.redact("\\" * 300 + "u0061\\u0062\\u0063"))
+            self.assertEqual("[REDACTED:env]", plugin.redact("\\" * 300 + "u0078\\\"y"))
+            started = time.monotonic()
+            self.assertIsNone(plugin._env_pattern().search("\\" * 100000))
+            self.assertLess(time.monotonic() - started, 5)
+        # Case stays exact for the literal form, and other code points are left alone.
+        with patch.dict(os.environ, {"API_TOKEN": "abc"}):
+            plugin._secret_values = None
+            self.assertEqual("ABC %61%62%64 \\u0061bd", plugin.redact("ABC %61%62%64 \\u0061bd"))
+        plugin._secret_values = None
+
+    def test_short_values_and_passphrase_are_masked_without_their_name(self):
+        short, phrase = "ab" + "1!", "horse" + "77"
+        env = {"DB_PASS": short, "GPG_PASSPHRASE": phrase, "API_TOKEN": "zq7", "PIN_PASSWORD": "4821",
+               "AUTH_ENABLED": "true", "TOKENIZERS_PARALLELISM": "false", "SECRET_ROTATION": "1",
+               "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000", "PWD": "/tmp", "OLDPWD": "/",
+               "GIT_AUTHOR_NAME": "boxp", "UNRELATED": "visible", "EMPTY_TOKEN": ""}
+        with patch.dict(os.environ, env):
+            plugin._secret_values = None
+            for text in ("answer: " + short, "答えは" + short + "です", "(" + phrase + ")", "user:" + short + "@host",
+                         "zq7", "pin 4821.", '{"a":"x\\nzq7"}', '{"a":"\\u3048zq7"}'):
+                out = plugin.redact(text)
+                self.assertIn("[REDACTED:env]", out, text)
+                for value in (short, phrase, "zq7", "4821"):
+                    self.assertNotIn(value, out, text)
+                self.assertTrue(plugin._unsafe(json.dumps({"v": text})), text)
+            # A value can be part of a longer word, so it is masked there too.
+            for text in ("zq77", "xzq7", "horse777", "abzq7cd"):
+                out = plugin.redact(text)
+                self.assertNotIn("zq7", out, text)
+                self.assertNotIn(phrase, out, text)
+                self.assertIn("[REDACTED:env]", out, text)
+                self.assertTrue(plugin._unsafe(json.dumps({"v": text})), text)
+            # Flags, counters, working directories and authors are not credentials.
+            kept = "true false 1 64000 /tmp boxp/lolice"
+            self.assertEqual(kept, plugin.redact(kept))
+            self.assertFalse(plugin._unsafe(json.dumps({"v": kept})))
+        # A later value does not rewrite the mark of an earlier one, and the guard skips marks.
+        with patch.dict(os.environ, {"A_TOKEN": "longsecretvalue", "B_TOKEN": "env"}):
+            plugin._secret_values = None
+            self.assertEqual("[REDACTED:env] [REDACTED:env]", plugin.redact("longsecretvalue env"))
+            self.assertFalse(plugin._unsafe(json.dumps({"v": "[REDACTED:env] done"})))
+        plugin._secret_values = None
+
+    def test_a_value_counts_as_a_setting_only_under_a_setting_name(self):
+        # Secret-looking values are written out of pieces so that the file itself holds none.
+        credentials = {"PASSWORD": "dis" + "abled", "DB_PASSWORD": "tr" + "ue", "AUTHORIZATION": "xy" + "z9",
+                       "HTTP_AUTHORIZATION": "qw" + "e8", "MINIO_ROOT_PASSWORD": "1234" + "5678",
+                       "ADMIN_TOKEN": "48" + "21", "SUPPORT_SECRET": "51" + "50", "EXPORT_KEY_TOKEN": "77" + "31",
+                       "AUTH_PORT": "hun" + "ter2", "API_TOKENS": "tr" + "ue2"}
+        settings = {"AUTH_ENABLED": "disabled", "PASSWORD_REQUIRED": "false", "NO_AUTH": "true", "USE_TOKEN": "yes",
+                    "AUTH_TIMEOUT": "30", "TOKEN_TTL": "3600", "SESSION_COOKIE_MAX_AGE": "86400",
+                    "MAX_OUTPUT_TOKENS": "64000", "GIT_AUTHOR_NAME": "boxp", "AUTHORS": "boxp"}
+        for name, value in credentials.items():
+            self.assertTrue(plugin._is_secret_value(name, value), name)
+        for name, value in settings.items():
+            self.assertFalse(plugin._is_secret_value(name, value), name)
+        with patch.dict(os.environ, credentials):
+            plugin._secret_values = None
+            for value in credentials.values():
+                text = "answer: " + value + " done"
+                self.assertEqual("answer: [REDACTED:env] done", plugin.redact(text))
+                self.assertTrue(plugin._unsafe(json.dumps({"v": text})), value)
+        plugin._secret_values = None
 
     def test_environment_dumps_are_withheld_with_any_arguments(self):
         for command in ("env LANG=C", "env LANG=C | grep FOO", "env A=1 B='x y' > /tmp/x", "env -i", "env -u HOME", "env --null",
