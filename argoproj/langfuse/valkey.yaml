@@ -43,7 +43,7 @@ spec:
         runAsGroup: 999
       containers:
         - name: valkey
-          image: docker.io/valkey/valkey:8.1.4
+          image: docker.io/valkey/valkey:8.1.11
           args:
             - sh
             - -c
