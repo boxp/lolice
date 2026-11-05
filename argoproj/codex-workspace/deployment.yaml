@@ -522,7 +522,6 @@ spec:
             - name: home
               subPath: .claude/projects
               mountPath: /home/boxp/.claude/projects
-              readOnly: true
             - name: home
               subPath: .codex/sessions
               mountPath: /home/boxp/.codex/sessions
