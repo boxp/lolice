@@ -4,9 +4,9 @@ set -euo pipefail
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 # Update this one revision after arch#14473 merges; the digest pins the fetched contents.
-arch_revision=439e0db5f816f811b8ffd14f8d9a027aadd44a3f
+arch_revision=c3e12067f5246fc16502263c4c177275edead469
 curl -fsSL "https://raw.githubusercontent.com/boxp/arch/${arch_revision}/docker/codex-workspace/task-board/langfuse_exporter.bb" > "$tmp/exporter.bb"
-echo "73f302b0a57270cbd046683f0498ea0af39e674464488aa40c5ee05cb12d2ede  $tmp/exporter.bb" | sha256sum -c >&2
+echo "5e1932d691120f0ac8779b9b52479992005b993cf5795e05e2296dc7cc1bfea6  $tmp/exporter.bb" | sha256sum -c >&2
 if [[ -n ${MANIFEST_DIR:-} && -f $MANIFEST_DIR/codex-workspace.yaml ]]; then
   cp "$MANIFEST_DIR/codex-workspace.yaml" "$tmp/render.yaml"
 else
