@@ -425,19 +425,6 @@ spec:
                 secretKeyRef:
                   name: hermes-agent-task-board-webhook
                   key: password
-            # BOXP-428: optional so that a missing ingest key leaves the plugin idle, not the Pod down.
-            - name: LANGFUSE_PUBLIC_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: langfuse-ingest-key
-                  key: LANGFUSE_PUBLIC_KEY
-                  optional: true
-            - name: LANGFUSE_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: langfuse-ingest-key
-                  key: LANGFUSE_SECRET_KEY
-                  optional: true
             - name: OPENWEATHERMAP_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -456,6 +443,10 @@ spec:
               mountPath: /opt/data
             - name: data
               mountPath: /home/boxp
+            # BOXP-428: a volume, not env, so that a key created or rotated later reaches the running plugin.
+            - name: langfuse-ingest-key
+              mountPath: /etc/langfuse-ingest
+              readOnly: true
             - name: tmp
               mountPath: /tmp
             - name: config
@@ -633,6 +624,12 @@ spec:
         - name: boxp-langfuse-observer-plugin
           configMap:
             name: hermes-agent-boxp-langfuse-observer-plugin
+        # BOXP-428: optional so that a missing ingest key leaves the plugin idle, not the Pod down.
+        - name: langfuse-ingest-key
+          secret:
+            secretName: langfuse-ingest-key
+            optional: true
+            defaultMode: 0440
         - name: ai-ops-metrics-app
           configMap:
             name: hermes-agent-ai-ops-metrics

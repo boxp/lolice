@@ -7,12 +7,19 @@ reach this module: no transcription hook is registered and data URIs are removed
 
 Secrets: tool output of sensitive paths and commands is withheld, every string is masked, and the
 serialized batch is scanned again before sending. Any hit or error drops the observation and keeps
-a reason without body. Nothing is written to disk, so there is no spool to clean.
+a reason without body. Nothing is written to disk, so there is no spool to clean. Request history
+goes through an allow-list that never keeps tool results; those appear only in tool spans. After a
+sensitive tool ran, later bodies of that session and its delegating parent are withheld too, because
+the model has seen the output and can repeat a value no pattern recognises.
+
+Key: read from an optional Secret volume, polled by the worker. It can appear or rotate while the
+Pod runs. Until then the hooks return at once and nothing is buffered.
 
 Failure: hooks only touch memory and never raise. A daemon worker sends with short timeouts, at
 most two attempts per batch, and counts every loss. Langfuse down means missing traces only.
 """
 import base64
+import collections
 import hashlib
 import json
 import logging
@@ -28,10 +35,13 @@ _log = logging.getLogger(__name__)
 
 VERSION = "0.1.0"
 _URL = os.environ.get("LANGFUSE_URL", "http://langfuse-web.langfuse.svc.cluster.local:3000")
+_KEY_DIR = os.environ.get("LANGFUSE_INGEST_KEY_DIR", "/etc/langfuse-ingest")
+_KEY_POLL_SECONDS = 30
 _MAX_FIELD = int(os.environ.get("LANGFUSE_MAX_FIELD_BYTES", str(32 * 1024)))
 _MAX_TURN_SPANS = 300
 _MAX_TURN_BYTES = 4 * 1024 * 1024
 _MAX_TURNS = 32
+_MAX_SESSIONS = 1024
 _QUEUE_MAX = 64
 _BATCH_BYTES = 2 * 1024 * 1024
 _TIMEOUT = 5
@@ -40,6 +50,10 @@ _G2_PREFIX = "kohako-g2-"
 _WEBHOOK_PLATFORMS = {"webhook"}
 _TICKET = re.compile(r"\bBOXP-\d{1,6}\b")
 _DELEGATING_TOOLS = {"delegate_task"}
+_CHAT_ROLES = {"system", "developer", "user", "assistant"}
+_TEXT_BLOCKS = {"text", "input_text", "output_text"}
+_WITHHELD_TOOL = "[withheld: sensitive path or command]"
+_WITHHELD_SESSION = "[withheld: session ran a sensitive tool]"
 
 _SECRET_NAME = re.compile(
     r"(?i)(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth)")
@@ -62,15 +76,17 @@ _PLACEHOLDER = re.compile(r"\[REDACTED:[a-z_]+\]")
 _SENSITIVE_PATH = re.compile(
     r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_rsa|id_ed25519|secrets?(?:[/\\])|[^/\s\"']*token[^/\s\"']*)")
 _SENSITIVE_COMMAND = re.compile(
-    r"(?i)(?:^|[;&|\s\"'])(?:env|printenv|set)(?:\s*$|\s*[|;&\"'])|\bkubectl\s+(?:get|describe)\s+secrets?\b|\baws\s+ssm\s+get-parameters?\b|/proc/[^/\s]+/environ\b|\bgh\s+auth\s+token\b|\bgit\s+credential\b")
+    r"(?i)(?:^|[;&|\s\"'])(?:env|printenv|set)(?:\s*$|\s*[|;&\"'])|\bkubectl\s+(?:get|describe)\s+secrets?\b|\baws\s+ssm\s+get-parameters?\b|/proc/[^/\s]+/environ\b|\bgh\s+auth\s+token\b|\bgit\s+credential\b|langfuse-ingest")
 
 _lock = threading.Lock()
 _turns = {}
+_sessions = collections.OrderedDict()  # session id -> ran a sensitive tool
 _seen_prompts = {}
 _stats = {}
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
 _worker = None
 _secret_values = None
+_creds = None
 
 
 def _count(key, n=1):
@@ -83,15 +99,26 @@ def stats():
         return dict(_stats)
 
 
-def _credentials():
-    pk, sk = os.environ.get("LANGFUSE_PUBLIC_KEY"), os.environ.get("LANGFUSE_SECRET_KEY")
-    return (pk, sk) if pk and sk else None
+def _read_credentials():
+    try:
+        values = []
+        for name in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"):
+            with open(os.path.join(_KEY_DIR, name), encoding="utf-8") as fh:
+                values.append(fh.read().strip())
+    except (OSError, ValueError):
+        return None
+    return tuple(values) if all(values) else None
+
+
+def _refresh_credentials():
+    global _creds
+    _creds = _read_credentials()
+    return _creds
 
 
 def register(ctx):
-    if not _credentials():
-        _log.info("boxp-langfuse-observer idle: no ingest key")
-        return
+    if not _refresh_credentials():
+        _log.info("boxp-langfuse-observer idle until the ingest key appears")
     ctx.register_hook("pre_llm_call", _on_turn_start)
     ctx.register_hook("pre_api_request", _on_api_request)
     ctx.register_hook("post_api_request", _on_api_response)
@@ -212,6 +239,67 @@ def _add(turn, span):
         turn["bytes"] += size
 
 
+def _tainted(session):
+    with _lock:
+        return _sessions.get(str(session or ""), False)
+
+
+def _taint(*sessions):
+    with _lock:
+        for session in sessions:
+            if session:
+                _sessions[str(session)] = True
+                _sessions.move_to_end(str(session))
+        while len(_sessions) > _MAX_SESSIONS:
+            _sessions.popitem(last=False)
+
+
+def _tool_args(message):
+    """Tool arguments in any provider shape, used to find sensitive calls in resumed history."""
+    if not isinstance(message, dict):
+        return
+    for call in message.get("tool_calls") or []:
+        if isinstance(call, dict):
+            yield (call.get("function") or {}).get("arguments") if isinstance(call.get("function"), dict) else call
+    if message.get("type") in ("function_call", "custom_tool_call"):
+        yield message.get("arguments") or message.get("input")
+    content = message.get("content")
+    for block in content if isinstance(content, list) else []:
+        if isinstance(block, dict) and block.get("type") == "tool_use":
+            yield block.get("input")
+
+
+def _note_session(session, messages):
+    """A session first seen here may be resumed, so the taint is rebuilt from its history once."""
+    with _lock:
+        if session in _sessions:
+            return
+        _sessions[session] = False
+        while len(_sessions) > _MAX_SESSIONS:
+            _sessions.popitem(last=False)
+    if any(_withhold(_text(a)) for m in messages for a in _tool_args(m)):
+        _taint(session)
+
+
+def _message_view(message):
+    """Allow-list: role, plain text and tool names. Tool results and any unknown shape stay out."""
+    if not isinstance(message, dict) or message.get("role") not in _CHAT_ROLES:
+        kind = (message.get("role") or message.get("type")) if isinstance(message, dict) else type(message).__name__
+        return {"omitted": str(kind)}
+    content = message.get("content")
+    if isinstance(content, list):
+        content = [b["text"] if isinstance(b, dict) and b.get("type") in _TEXT_BLOCKS and isinstance(b.get("text"), str)
+                   else {"omitted": str(b.get("type")) if isinstance(b, dict) else type(b).__name__} for b in content]
+    elif content is not None and not isinstance(content, str):
+        content = {"omitted": type(content).__name__}
+    view = {"role": message["role"], "content": content}
+    calls = [(c.get("function") or {}).get("name") if isinstance(c.get("function"), dict) else c.get("name")
+             for c in message.get("tool_calls") or [] if isinstance(c, dict)]
+    if calls:
+        view["tool_calls"] = calls
+    return view
+
+
 def _note_tickets(turn, value):
     if value:
         found = _TICKET.findall(_text(value)[:_MAX_TURN_BYTES])
@@ -222,6 +310,8 @@ def _note_tickets(turn, value):
 
 def _guarded(fn):
     def wrapper(*args, **kwargs):
+        if _creds is None:
+            return None
         try:
             fn(*args, **kwargs)
         except Exception:
@@ -235,15 +325,21 @@ def _guarded(fn):
 @_guarded
 def _on_turn_start(session_id=None, turn_id=None, user_message=None, model=None, platform=None, parent_session_id=None):
     turn = _turn(session_id, turn_id)
-    turn.update(user_message=user_message, model=model, platform=platform or "", parent=parent_session_id)
     _note_tickets(turn, user_message)
+    if _tainted(parent_session_id):  # the delegated goal may repeat what the parent saw
+        _taint(turn["session"])
+        user_message = _WITHHELD_SESSION
+    turn.update(user_message=user_message, model=model, platform=platform or "", parent=parent_session_id)
 
 
 @_guarded
 def _on_api_request(session_id=None, turn_id=None, api_request_id=None, system_prompt=None, request_messages=None,
                     message_count=None, retry_count=None, started_at=None):
     turn = _turn(session_id, turn_id)
-    tail = list(request_messages or [])[-_LAST_MESSAGES:]
+    messages = list(request_messages or [])
+    _note_session(turn["session"], messages)
+    tainted = _tainted(turn["session"])
+    tail = _WITHHELD_SESSION if tainted else [_message_view(m) for m in messages[-_LAST_MESSAGES:]]
     with _lock:
         turn.setdefault("requests", {})[str(api_request_id)] = {
             "input": tail, "message_count": message_count, "retry_count": retry_count, "started_at": started_at}
@@ -254,7 +350,7 @@ def _on_api_request(session_id=None, turn_id=None, api_request_id=None, system_p
                 return
             turn["system_digest"] = digest
         _add(turn, {"key": "system:" + digest[:16], "name": "system-prompt", "type": "span",
-                    "input": system_prompt, "start": started_at or time.time(), "end": started_at or time.time(),
+                    "input": _WITHHELD_SESSION if tainted else system_prompt, "start": started_at or time.time(), "end": started_at or time.time(),
                     "metadata": {"source": "hermes_assembled"}})
 
 
@@ -266,9 +362,10 @@ def _on_api_response(session_id=None, turn_id=None, api_request_id=None, respons
     with _lock:
         req = turn.get("requests", {}).pop(str(api_request_id), {})
     message = (response or {}).get("assistant_message") if isinstance(response, dict) else None
+    output = _WITHHELD_SESSION if _tainted(turn["session"]) else _message_view({"role": "assistant", **message}) if isinstance(message, dict) else None
     location = "local" if "local-llm" in str(base_url or "") or "llama" in str(base_url or "") else "cloud"
     _add(turn, {"key": "api:" + str(api_request_id), "name": "llm-call", "type": "generation",
-                "input": req.get("input"), "output": message, "model": response_model or model, "usage": usage,
+                "input": req.get("input"), "output": output, "model": response_model or model, "usage": usage,
                 "start": started_at or req.get("started_at"), "end": ended_at,
                 "metadata": {"input_scope": f"last {_LAST_MESSAGES} of {req.get('message_count')} messages",
                              "provider": provider, "location": location, "api_call": api_call_count,
@@ -295,13 +392,17 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
     _note_tickets(turn, args)
     _note_tickets(turn, result)
     args_text = _text(args)
+    already = _tainted(turn["session"])
     withheld = _withhold(args_text)
+    if withheld:
+        _taint(turn["session"], turn["parent"])
     now = time.time()
     _add(turn, {"key": "tool:" + str(tool_call_id or now), "name": str(tool_name), "type": "tool",
-                "input": args, "output": "[withheld: sensitive path or command]" if withheld else result,
+                "input": _WITHHELD_SESSION if already else args,
+                "output": _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else result,
                 "start": now - (duration_ms or 0) / 1000, "end": now,
                 "level": "ERROR" if error_type or status in ("error", "failed") else None,
-                "metadata": {"status": status, "error_type": error_type, "withheld": withheld}})
+                "metadata": {"status": status, "error_type": error_type, "withheld": withheld or already}})
 
 
 @_guarded
@@ -318,6 +419,10 @@ def _on_subagent(parent_session_id=None, parent_turn_id=None, child_session_id=N
     turn = _turn(parent_session_id, parent_turn_id)
     turn["delegated"] = True
     _note_tickets(turn, child_summary)
+    if _tainted(child_session_id):
+        _taint(turn["session"], turn["parent"])
+    if _tainted(turn["session"]):
+        child_summary = _WITHHELD_SESSION
     now = time.time()
     _add(turn, {"key": "subagent:" + str(child_session_id), "name": "subagent", "type": "agent",
                 "output": child_summary, "start": now - (duration_ms or 0) / 1000, "end": now,
@@ -327,8 +432,8 @@ def _on_subagent(parent_session_id=None, parent_turn_id=None, child_session_id=N
 @_guarded
 def _on_turn_end(session_id=None, turn_id=None, assistant_response=None):
     turn = _turn(session_id, turn_id)
-    turn["output"] = assistant_response
     _note_tickets(turn, assistant_response)
+    turn["output"] = _WITHHELD_SESSION if _tainted(turn["session"]) else assistant_response
 
 
 @_guarded
@@ -339,6 +444,7 @@ def _on_session_end(session_id=None, turn_id=None, completed=None, failed=None, 
         return
     turn["status"] = "interrupted" if interrupted else "failed" if failed else "succeeded" if completed else "unknown"
     turn["exit_reason"] = turn_exit_reason
+    turn["tainted"] = _tainted(turn["session"])
     if not in_scope(turn):
         _count("turns_out_of_scope")
         return
@@ -404,6 +510,7 @@ def build_spans(turn):
         _attr("langfuse.trace.metadata.coverage.provider_payload", "system prompt and last messages of each attempt"),
         _attr("langfuse.trace.metadata.coverage.g2_realtime", "delegated text only; realtime voice session not observed"),
         _attr("langfuse.trace.metadata.coverage.truncated", str(turn["truncated"]).lower()),
+        _attr("langfuse.trace.metadata.coverage.withheld_after_sensitive_tool", str(bool(turn.get("tainted"))).lower()),
     ]
     end = time.time()
     spans = [{
@@ -474,7 +581,9 @@ def guarded_payloads(spans):
 
 
 def _post(body):
-    pk, sk = _credentials()
+    if _creds is None:
+        return False
+    pk, sk = _creds
     auth = base64.b64encode(f"{pk}:{sk}".encode()).decode()
     request = urllib.request.Request(
         _URL + "/api/public/otel/v1/traces", data=body.encode("utf-8"), method="POST",
@@ -505,7 +614,11 @@ def export_turn(turn):
 
 def _work():
     while True:
-        turn = _queue.get()
+        _refresh_credentials()
+        try:
+            turn = _queue.get(timeout=_KEY_POLL_SECONDS)
+        except queue.Empty:
+            continue
         try:
             export_turn(turn)
         except Exception:

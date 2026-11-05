@@ -2,6 +2,7 @@ import importlib.util
 import inspect
 import json
 import os
+import tempfile
 import threading
 import time
 import unittest
@@ -29,8 +30,6 @@ MARKERS = ["abc.defghi12345", "a1B2a1B2", "Zz09Zz09", "Qw12Qw12", "ABCDEFGHIJKLM
            "hbGci", "hunter2pass", "notreallysecret9", "MIIabc", ENV_SECRET]
 
 os.environ["BOXP_TEST_API_TOKEN"] = ENV_SECRET
-os.environ["LANGFUSE_PUBLIC_KEY"] = "pk-lf-" + "test" * 4
-os.environ["LANGFUSE_SECRET_KEY"] = "sk-lf-" + "test" * 4
 spec = importlib.util.spec_from_file_location("langfuse_observer", Path(__file__).with_name("__init__.py"))
 plugin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plugin)
@@ -69,6 +68,8 @@ class ObserverTest(unittest.TestCase):
         drain()
         plugin._turns.clear()
         plugin._stats.clear()
+        plugin._sessions.clear()
+        plugin._creds = ("pk-lf-" + "test" * 4, "sk-lf-" + "test" * 4)
         plugin._secret_values = None
 
     def test_hook_callbacks_declare_no_kwargs_and_no_history(self):
@@ -81,11 +82,34 @@ class ObserverTest(unittest.TestCase):
             self.assertFalse(any(p.kind == p.VAR_KEYWORD for p in params.values()))
             self.assertNotIn("conversation_history", params)
 
-    def test_register_is_inert_without_key(self):
-        ctx = Ctx()
-        with patch.dict(os.environ, {"LANGFUSE_SECRET_KEY": ""}):
+    def test_hooks_idle_without_key_and_start_when_key_appears(self):
+        with tempfile.TemporaryDirectory() as key_dir, patch.object(plugin, "_KEY_DIR", key_dir), \
+                patch.object(plugin, "_start_worker") as start:
+            ctx = Ctx()
             plugin.register(ctx)
-        self.assertEqual(ctx.hooks, {})
+            start.assert_called_once()
+            self.assertIsNone(plugin._creds)
+            run_turn()
+            self.assertEqual(plugin._turns, {})
+            self.assertEqual(drain(), [])
+            Path(key_dir, "LANGFUSE_PUBLIC_KEY").write_text("pk-lf-later\n")
+            self.assertIsNone(plugin._refresh_credentials())  # half-written Secret stays idle
+            Path(key_dir, "LANGFUSE_SECRET_KEY").write_text("sk-lf-later\n")
+            self.assertEqual(plugin._refresh_credentials(), ("pk-lf-later", "sk-lf-later"))
+            run_turn()
+            self.assertEqual(len(drain()), 1)
+
+    def test_worker_picks_up_key_while_running(self):
+        with tempfile.TemporaryDirectory() as key_dir, patch.object(plugin, "_KEY_DIR", key_dir), \
+                patch.object(plugin, "_KEY_POLL_SECONDS", 0.01), patch.object(plugin, "_start_worker"):
+            plugin.register(Ctx())
+            threading.Thread(target=plugin._work, daemon=True).start()
+            Path(key_dir, "LANGFUSE_PUBLIC_KEY").write_text("pk-lf-later")
+            Path(key_dir, "LANGFUSE_SECRET_KEY").write_text("sk-lf-later")
+            deadline = time.time() + 2
+            while plugin._creds is None and time.time() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(plugin._creds, ("pk-lf-later", "sk-lf-later"))
 
     def test_redacts_every_synthetic_secret(self):
         for name, secret in SECRETS.items():
@@ -118,6 +142,84 @@ class ObserverTest(unittest.TestCase):
                 body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
                 self.assertNotIn("UNIQUEOUTPUT", body)
                 self.assertIn("withheld", body)
+
+    def _bodies(self):
+        return "".join(b for turn in drain() for b in plugin.guarded_payloads(plugin.build_spans(turn)))
+
+    def test_withheld_output_stays_out_of_later_requests_and_replies(self):
+        # The value matches no pattern, so only the withholding can keep it out.
+        unknown = "plainwordvalue"
+        histories = {
+            "chat": [{"role": "assistant", "tool_calls": [{"id": "c1", "function": {"name": "read_file", "arguments": "{}"}}]},
+                     {"role": "tool", "tool_call_id": "c1", "content": unknown}],
+            "anthropic": [{"role": "assistant", "content": [{"type": "text", "text": "reading"}]},
+                          {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c1", "content": unknown}]}],
+            "responses": [{"type": "function_call", "call_id": "c1", "name": "read_file", "arguments": "{}"},
+                          {"type": "function_call_output", "call_id": "c1", "output": unknown}],
+        }
+        for name, history in histories.items():
+            with self.subTest(name):
+                session = "kohako-g2-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="read it")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c1", tool_name="read_file",
+                                args={"path": "/a/.env"}, result=unknown)
+                plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a2", request_messages=history,
+                                       system_prompt="SYS", message_count=2)
+                plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a2",
+                                        response={"assistant_message": {"role": "assistant", "content": "it is " + unknown}})
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c2", tool_name="terminal",
+                                args={"command": "curl -u " + unknown}, result=unknown)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is " + unknown)
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._bodies()
+                self.assertNotIn(unknown, body)
+                self.assertIn("withheld_after_sensitive_tool", body)
+                # The following turn of the session still carries the value in its history.
+                run_turn(session=session, turn="t2", body="next", result=unknown)
+                body = self._bodies()
+                self.assertNotIn(unknown, body)
+                self.assertNotIn("reply next", body)
+
+    def test_tool_results_in_history_are_never_copied_even_without_sensitive_call(self):
+        view = [plugin._message_view(m) for m in (
+            {"role": "tool", "content": "TOOLBODY"},
+            {"type": "function_call_output", "output": "TOOLBODY"},
+            {"role": "user", "content": [{"type": "tool_result", "content": "TOOLBODY"}, {"type": "text", "text": "keep"}]},
+            {"role": "assistant", "content": "say", "reasoning": "THINK",
+             "tool_calls": [{"function": {"name": "terminal", "arguments": "ARGBODY"}}]})]
+        text = json.dumps(view)
+        for hidden in ("TOOLBODY", "ARGBODY", "THINK"):
+            self.assertNotIn(hidden, text)
+        for kept in ("keep", "say", "terminal"):
+            self.assertIn(kept, text)
+
+    def test_taint_reaches_parent_and_child(self):
+        plugin._on_turn_start(session_id="kohako-g2-p", turn_id="t", user_message="go")
+        plugin._on_turn_start(session_id="child", turn_id="c", user_message="goal", parent_session_id="kohako-g2-p")
+        plugin._on_tool(session_id="child", turn_id="c", tool_call_id="x", tool_name="read_file", args={"path": "/a/.env"}, result="V")
+        plugin._on_subagent(parent_session_id="kohako-g2-p", parent_turn_id="t", child_session_id="child", child_summary="CHILDSAYS")
+        plugin._on_turn_end(session_id="kohako-g2-p", turn_id="t", assistant_response="PARENTSAYS")
+        plugin._on_session_end(session_id="kohako-g2-p", turn_id="t", completed=True)
+        body = self._bodies()
+        self.assertNotIn("CHILDSAYS", body)
+        self.assertNotIn("PARENTSAYS", body)
+        plugin._on_turn_start(session_id="child2", turn_id="c", user_message="GOALTEXT BOXP-1", parent_session_id="kohako-g2-p")
+        plugin._on_session_end(session_id="child2", turn_id="c", completed=True)
+        self.assertNotIn("GOALTEXT", self._bodies())
+
+    def test_resumed_session_rebuilds_taint_from_history(self):
+        history = [{"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]},
+                   {"role": "tool", "content": "V"}, {"role": "assistant", "content": "ECHOED"}, {"role": "user", "content": "more"}]
+        plugin._on_turn_start(session_id="kohako-g2-r", turn_id="t", user_message="more")
+        plugin._on_api_request(session_id="kohako-g2-r", turn_id="t", api_request_id="a", request_messages=history)
+        plugin._on_api_response(session_id="kohako-g2-r", turn_id="t", api_request_id="a", response={"assistant_message": {"role": "assistant", "content": "LATER"}})
+        plugin._on_session_end(session_id="kohako-g2-r", turn_id="t", completed=True)
+        body = self._bodies()
+        self.assertNotIn("ECHOED", body)
+        self.assertNotIn("LATER", body)
+        # A question that only mentions a sensitive word does not taint a new session.
+        run_turn(session="kohako-g2-q", body="what is .env for?", args={"command": "ls"})
+        self.assertIn("reply what is .env for?", self._bodies())
 
     def test_final_guard_drops_span_when_masking_misses(self):
         run_turn()
