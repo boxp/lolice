@@ -76,11 +76,19 @@ _PATTERNS = [
 _PLACEHOLDER = re.compile(r"\[REDACTED:[a-z_]+\]")
 _SENSITIVE_PATH = re.compile(
     r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_rsa|id_ed25519|secrets?(?:[/\\])|[^/\s\"']*token[^/\s\"']*)")
+# Arguments are matched in their JSON form, where a newline is a backslash and an n.
+_WORD_START = r"""(?:^|[;&|\s"'(`/]|\\[nrt])"""
+_WORD_END = r"""[ \t]*(?:$|[|;&<>"')`#]|\d+[<>]|\\[nrt"])"""
+_ASSIGNMENT = r"""[ \t]+[A-Za-z_]\w*=(?:\\?"[^"]*"|'[^']*'|[^\s;&|)`"'\\]*)"""
+# `env NAME=value` with no command to run, or `env` with an option, prints the environment.
+_ENV_DUMP = _WORD_START + r"(?:env(?:[ \t]+-|(?:" + _ASSIGNMENT + r")*" + _WORD_END + r")|(?:set|export)" + _WORD_END + r")"
 _SENSITIVE_COMMAND = re.compile(
-    r"(?i)(?:^|[;&|\s\"'])(?:env|set)(?:\s*$|\s*[|;&>\"'])|\bprintenv\b|\bexport\s+-p\b|\bdeclare\s+-[a-z]*x|\bos\.environ\b|\bprocess\.env\b"
+    r"(?i)" + _ENV_DUMP + r"|\bprintenv\b|\bexport\s+-p\b|\b(?:declare|typeset)(?:\s+-[a-z]*[px]|" + _WORD_END + r")"
+    r"|\benviron\b|\bprocess\.env\b|\bgetenv\b|(?-i:[%$]ENV\b|\bENV(?:\.|\[))"
     r"|\baws\b[^|;&]*\b(?:ssm\s+get-parameter|secretsmanager\s+get-|configure\s+(?:get|export-credentials))"
-    r"|\bhelm\s+get\b|/proc/[^/\s]+/environ\b|\bgh\s+auth\s+token\b|\bgit\s+credential\b|langfuse-ingest")
+    r"|\bhelm\s+get\b|\bgh\s+auth\s+token\b|\bgit\s+credential\b|langfuse-ingest")
 _CLUSTER_CLI = re.compile(r"(?i)\b(?:kubectl|oc)\s")
+_ENV_OUTPUT = [re.compile(r"(?:^|[^A-Za-z0-9_]|\\[nrt]|\\u0000)" + name + "=") for name in ("PATH", "HOME")]
 
 _lock = threading.Lock()
 _turns = {}
@@ -195,6 +203,11 @@ def _withhold(args_text):
     if "secret" in args_text.lower() and _CLUSTER_CLI.search(args_text):
         return True
     return bool(_SENSITIVE_PATH.search(args_text) or _SENSITIVE_COMMAND.search(args_text))
+
+
+def _is_env_dump(result_text):
+    # The command list cannot name every way to print the environment, so the output is checked too.
+    return all(pattern.search(result_text) for pattern in _ENV_OUTPUT)
 
 
 def _text(value):
@@ -415,7 +428,7 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
     _note_tickets(turn, result)
     args_text = _text(args)
     already = _tainted(turn["session"])
-    withheld = _withhold(args_text)
+    withheld = _withhold(args_text) or _is_env_dump(_text(result))
     if withheld:
         _taint(turn["session"], turn["parent"])
     now = time.time()

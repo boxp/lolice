@@ -167,7 +167,7 @@ class ObserverTest(unittest.TestCase):
     def test_environment_dumps_are_withheld_with_any_arguments(self):
         for command in ("env LANG=C", "env LANG=C | grep FOO", "env A=1 B='x y' > /tmp/x", "env -i", "env -u HOME", "env --null",
                         "/usr/bin/env LANG=C", "sudo env LANG=C", "kubectl exec pod -- env A=1", "ls\nenv LANG=C\necho done",
-                        "echo $(env LANG=C)", "(env LANG=C)", "env A=1 2>&1", "set", "(set -o posix; set)", "export", "declare -p",
+                        "echo $(env LANG=C)", "(env LANG=C)", "env A=1 2>&1", "bash -c \"env A=1\"", "env A=1 # note", "python3 -c \"print(__import__('os').environ)\"", "set", "(set -o posix; set)", "export", "declare -p",
                         "typeset -x", "awk 'BEGIN{for(k in ENVIRON)print k}'", "perl -e 'print %ENV'", "ruby -e 'p ENV.to_h'"):
             with self.subTest(command):
                 plugin._sessions.clear()
