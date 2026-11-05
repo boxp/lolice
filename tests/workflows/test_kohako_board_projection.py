@@ -241,6 +241,24 @@ class KohakoResultsTest(KohakoBoardProjectionTest):
         item = self.kb.build_results(self.vault, self.runs, ['BOXP-1'])['items'][0]
         self.assertEqual(item['summary'], '本物の要約です')
 
+    def test_notes_after_the_done_run_finished_are_not_its_result(self):
+        self.write_board({'Done': [self.card(1, 'Result', 'done')]})
+        self.write_ticket('BOXP-1', ticket('done', 'codex', [
+            '- 2026-10-27 10:00:00 UTC [codex]: Owner向け要約: この実行の結果です',
+            '- 2026-10-27 11:00:00 UTC [codex]: Owner向け要約: 完了時刻ちょうどの結果です',
+            '- 2026-10-27 12:00:00 UTC [codex]: Owner向け要約: 完了後の別作業の要約です 未確認',
+            '- 2026-10-27 12:30:00 UTC [claude-opus]: 完了後の別作業のメモです']))
+        self.run_file('BOXP-1', '20261027T080000Z-new')
+        item = self.kb.build_results(self.vault, self.runs, ['BOXP-1'])['items'][0]
+        self.assertEqual(item['summary'], '完了時刻ちょうどの結果です')
+        self.assertIsNone(item['unverified'])
+
+        self.write_ticket('BOXP-1', ticket('done', 'codex', [
+            '- 2026-10-27 12:00:00 UTC [codex]: Owner向け要約: 完了後の別作業の要約です',
+            '- 2026-10-27 12:30:00 UTC [claude-opus]: 完了後の別作業のメモです']))
+        item = self.kb.build_results(self.vault, self.runs, ['BOXP-1'])['items'][0]
+        self.assertIsNone(item['summary'])
+
     def test_summary_reads_past_a_pointer_paragraph_and_stops_at_a_heading(self):
         self.write_board({'Done': [self.card(1, 'Result', 'done')]})
         self.write_ticket('BOXP-1', ticket('done', 'codex', []))

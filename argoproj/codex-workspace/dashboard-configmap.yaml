@@ -714,7 +714,7 @@ data:
               start = datetime.strptime(run_id[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
             except ValueError:
               start = finished
-          notes = [n for n in by_time(parse_notes(text)) if n[0] and n[0] >= start]
+          notes = [n for n in by_time(parse_notes(text)) if n[0] and start <= n[0] <= finished]
           owner = [m.group(1) for m in (re.match(r"Owner向け要約\s*[:：]\s*(\S.*)", n[2], re.S) for n in notes) if m]
           try:
             last = read_limited(safe_result_path(run_dir, "last-message.md"))
