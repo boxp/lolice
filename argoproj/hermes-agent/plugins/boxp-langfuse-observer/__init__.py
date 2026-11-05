@@ -262,19 +262,20 @@ def _env_secrets():
 
 
 def _encoded_char(ch):
-    """Every way serialized text can carry ch. Escapes can repeat, since JSON can sit inside JSON (bounded at 255 backslashes, depth 8, to keep the scan linear)."""
-    if ch.isascii() and ch.isalnum():
-        return ch
+    """Every way serialized text can carry ch, letters and digits included. Escapes can repeat, since JSON can sit inside JSON
+    (bounded at 255 backslashes, depth 8, to keep the scan linear) and a URL can be encoded again (%2561, same depth)."""
     code = ord(ch)
     units = [code] if code < 0x10000 else [0xD800 + ((code - 0x10000) >> 10), 0xDC00 + ((code - 0x10000) & 0x3FF)]
     hex_forms = ["".join(r"\\{1,255}u%04x" % unit for unit in units),
-                 "".join("%%%02x" % byte for byte in ch.encode("utf-8", "surrogatepass")),
+                 "".join("%%(?:25){0,8}%02x" % byte for byte in ch.encode("utf-8", "surrogatepass")),
                  f"&#0*{code};", f"&#x0*{code:x};"]
     if code < 0x100:
         hex_forms.append(r"\\{1,255}x%02x" % code)
     if ch in _HTML_NAMES:
         hex_forms.append(f"&{_HTML_NAMES[ch]};")
     forms = ["(?i:" + "|".join(hex_forms) + ")"]
+    if ch.isascii() and ch.isalnum():
+        return "(?:" + "|".join(forms + [ch]) + ")"  # \\n is a newline, not an n
     if ch in _CONTROL_ESCAPES:
         forms.append(r"\\{1,255}" + _CONTROL_ESCAPES[ch])
     if ch == " ":
@@ -283,13 +284,20 @@ def _encoded_char(ch):
     return "(?:" + "|".join(forms) + ")"
 
 
+def _value_pattern(value):
+    """Every position can start a value, so its first character is only tried at the start of a run of backslashes: the scan stays linear."""
+    chars = [_encoded_char(ch) for ch in value]
+    chars[0] = chars[0].replace(r"\\{1,255}", r"(?<!\\)\\+")
+    return "".join(chars)
+
+
 def _env_pattern():
     """One alternation, longest first, so a later value cannot rewrite the mark of an earlier one.
     Any length matches inside a longer word: the value can be part of it, and a blanked word costs less than a leak."""
     global _env_pattern_cache
     values = _env_secrets()
     if _env_pattern_cache[0] is not values:
-        pattern = re.compile("|".join("".join(map(_encoded_char, v)) for v in values)) if values else None
+        pattern = re.compile("|".join(map(_value_pattern, values))) if values else None
         _env_pattern_cache = (values, pattern)
     return _env_pattern_cache[1]
 

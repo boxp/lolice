@@ -328,6 +328,35 @@ class ObserverTest(unittest.TestCase):
             self.assertEqual('ab"2 ab 1', plugin.redact('ab"2 ab 1'))
         plugin._secret_values = None
 
+    def test_alphanumerics_are_masked_when_encoded_by_code_point(self):
+        for value in ("abc", "aB7", 'x"9'):
+            codes = [ord(ch) for ch in value]
+            forms = ["".join("\\u%04x" % c for c in codes), "".join("\\u%04X" % c for c in codes),
+                     "".join("\\\\\\u%04x" % c for c in codes), "".join("\\x%02x" % c for c in codes),
+                     "".join("%%%02x" % c for c in codes), "".join("%%%02X" % c for c in codes),
+                     "".join("%%25%02x" % c for c in codes), "".join("%%2525%02x" % c for c in codes),
+                     "".join("&#%d;" % c for c in codes), "".join("&#x%x;" % c for c in codes),
+                     value[0] + "".join("%%%02x" % c for c in codes[1:]),
+                     "\\u%04x" % codes[0] + value[1:]]
+            with patch.dict(os.environ, {"API_TOKEN": value}):
+                plugin._secret_values = None
+                for form in forms:
+                    self.assertEqual("answer [REDACTED:env] end", plugin.redact("answer " + form + " end"), form)
+                    self.assertTrue(plugin._unsafe("answer " + form + " end"), form)
+        # A long run of backslashes neither hides a value nor slows the scan down.
+        with patch.dict(os.environ, {"API_TOKEN": "abc", "B_TOKEN": "x\"y"}):
+            plugin._secret_values = None
+            self.assertEqual("[REDACTED:env]", plugin.redact("\\" * 300 + "u0061\\u0062\\u0063"))
+            self.assertEqual("[REDACTED:env]", plugin.redact("\\" * 300 + "u0078\\\"y"))
+            started = time.monotonic()
+            self.assertIsNone(plugin._env_pattern().search("\\" * 100000))
+            self.assertLess(time.monotonic() - started, 5)
+        # Case stays exact for the literal form, and other code points are left alone.
+        with patch.dict(os.environ, {"API_TOKEN": "abc"}):
+            plugin._secret_values = None
+            self.assertEqual("ABC %61%62%64 \\u0061bd", plugin.redact("ABC %61%62%64 \\u0061bd"))
+        plugin._secret_values = None
+
     def test_short_values_and_passphrase_are_masked_without_their_name(self):
         short, phrase = "ab" + "1!", "horse" + "77"
         env = {"DB_PASS": short, "GPG_PASSPHRASE": phrase, "API_TOKEN": "zq7", "PIN_PASSWORD": "4821",
