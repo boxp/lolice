@@ -462,6 +462,7 @@ spec:
               script=/opt/codex-workspace/task-board/langfuse_exporter.bb
               keys=/var/run/secrets/langfuse
               while :; do
+                [ -s "$keys/LANGFUSE_PUBLIC_KEY" ] || exit 1
                 if [ -f "$script" ] && [ -s "$keys/LANGFUSE_PUBLIC_KEY" ] && [ -s "$keys/LANGFUSE_SECRET_KEY" ]; then
                   public_key=$(cat "$keys/LANGFUSE_PUBLIC_KEY")
                   secret_key=$(cat "$keys/LANGFUSE_SECRET_KEY")
