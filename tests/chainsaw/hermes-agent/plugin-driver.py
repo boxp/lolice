@@ -56,6 +56,21 @@ def fire_resumed_env_dump(session):
     hooks["post_llm_call"](**common, assistant_response="plainresumevalue")
     hooks["on_session_end"](**common, completed=True)
 
+def fire_free_text(session, text):
+    # The same value through what the model and the user say, where no tool policy applies.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message=text)
+    hooks["post_llm_call"](**common, assistant_response=text)
+    hooks["on_session_end"](**common, completed=True)
+
+def fire_delegation(session):
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="hello")
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="delegate_task", args={"goal": "delegatedgoalmarker"}, result="ok")
+    hooks["on_session_end"](**common, completed=True)
+
 def fire_delegated_child(parent, child):
     # Neither the parent's scope nor a ticket reference reaches the child: only the delegation does.
     hooks = ctx.hooks
@@ -76,6 +91,11 @@ while True:
     fire_env_dump(f"kohako-g2-flag-{n}", "cat result.json", {"output": "mytool --password plainflagvalue\n- name: DB_PASSWORD\n  value: plainentryvalue"})
     fire_env_dump(f"kohako-g2-array-{n}", "cat result.json", {"output": '{"password":["first","plainarrayvalue"]}'})
     fire_resumed_env_dump(f"kohako-g2-resume-{n}")
+    fire_env_dump(f"kohako-g2-xml-{n}", "cat config.xml", "<password>plainxmlvalue</password>")
+    fire_env_dump(f"kohako-g2-file-{n}", "cat notes.txt", "plainfilevalue")
+    fire_free_text(f"kohako-g2-xmltext-{n}", "<password>\n\n\nplainxmlvalue\n\n\n</password>")
+    fire_free_text(f"kohako-g2-prose-{n}", "the password is plainprosevalue")
+    fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
     print(f"round {n}", flush=True)
     time.sleep(1)

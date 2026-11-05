@@ -499,6 +499,69 @@ class ObserverTest(unittest.TestCase):
         self.assertNotIn("a1B2a1B2", "".join(bodies))
         self.assertEqual(plugin.stats().get("spans_dropped_secret_guard"), 1)
 
+    def test_xml_elements_with_a_secret_name_are_masked(self):
+        for text in ("<password>plainwordvalue</password>", "<db-password attr=\"x\">plainwordvalue</db-password>",
+                     "<ns:apiKey>plainwordvalue</ns:apiKey>", "<password>\n  plainwordvalue\n\n\n</password>",
+                     "<password>plainwordvalue", "&lt;password&gt;plainwordvalue&lt;/password&gt;",
+                     "\\u003cpassword\\u003eplainwordvalue\\u003c/password\\u003e",
+                     json.dumps({"output": "<password>\n\n\nplainwordvalue\n\n\n</password>"})):
+            with self.subTest(text):
+                self.assertNotIn("plainwordvalue", plugin.redact(text))
+
+    def test_a_secret_word_masks_its_line_whatever_the_format(self):
+        for text in ("the password is plainwordvalue", "plainwordvalue is the password", "パスワードは plainwordvalue です",
+                     "Password:\nplainwordvalue", "plainwordvalue\n<key>password</key>", "secret plainwordvalue",
+                     "[db]\npassword plainwordvalue", "username,password\nadmin,plainwordvalue",
+                     "認証情報。plainwordvalue", '{"key":"password","data":"plainwordvalue"}'):
+            with self.subTest(text):
+                self.assertNotIn("plainwordvalue", plugin.redact(text))
+
+    def test_a_secret_word_leaves_distant_lines_and_ordinary_words(self):
+        out = plugin.redact("keptfirst\nkeptsecond\npassword plainwordvalue\nmasked neighbour\nkeptlast")
+        self.assertIn("keptfirst", out)
+        self.assertIn("keptlast", out)
+        self.assertNotIn("plainwordvalue", out)
+        for text in ("input_tokens 12", "max_tokens: 100", "token_count: 3", "Cloudflare Access の設定", "author: keptvalue", "tests passed"):
+            with self.subTest(text):
+                self.assertEqual(plugin.redact(text), text)
+
+    def test_tool_bodies_are_not_sent_by_default(self):
+        for tool, args, result in (
+                ("read_file", {"path": "/a/notes.txt"}, "plainwordvalue"),
+                ("terminal", {"command": "mycli login plainwordvalue"}, "ok"),
+                ("write_file", {"path": "/a/b", "content": "plainwordvalue"}, "ok"),
+                ("execute_code", {"code": "x = 'plainwordvalue'"}, "plainwordvalue"),
+                ("unknown_tool", {"anything": "plainwordvalue"}, {"nested": "plainwordvalue"})):
+            with self.subTest(tool):
+                run_turn(tool=tool, args=args, result=result)
+                self.assertNotIn("plainwordvalue", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+
+    def test_tool_spans_keep_what_can_be_followed_without_the_body(self):
+        run_turn(tool="read_file", args={"path": "/a/notes.txt", "offset": 3}, result="line1\nline2")
+        body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
+        self.assertIn("/a/notes.txt", body)
+        self.assertIn("offset", body)
+        self.assertIn("tool_body_policy", body)
+        run_turn(tool="terminal", args={"command": "LANG=C /usr/bin/kubectl get pods"})
+        body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
+        self.assertIn("kubectl", body)
+        self.assertNotIn("get pods", body)
+
+    def test_delegation_tool_bodies_are_sent_masked(self):
+        run_turn(tool="delegate_task", args={"goal": "delegatedgoalmarker"}, result="delegatedresultmarker")
+        body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
+        self.assertIn("delegatedgoalmarker", body)
+        self.assertIn("delegatedresultmarker", body)
+        run_turn(tool="delegate_task", args={"goal": "<password>plainwordvalue</password>"}, result="the password is plainwordvalue")
+        self.assertNotIn("plainwordvalue", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+
+    def test_final_guard_drops_span_with_a_secret_word(self):
+        run_turn()
+        spans = plugin.build_spans(drain()[0])
+        spans[1]["name"] = "<password>plainwordvalue</password>"  # bypasses field masking
+        self.assertNotIn("plainwordvalue", "".join(plugin.guarded_payloads(spans)))
+        self.assertEqual(plugin.stats().get("spans_dropped_secret_guard"), 1)
+
     def test_scope(self):
         run_turn(session="kohako-g2-1")
         self.assertEqual(len(drain()), 1)
