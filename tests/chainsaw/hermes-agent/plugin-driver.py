@@ -61,6 +61,7 @@ while True:
     fire_flagged_secret_read(f"kohako-g2-kube-{n}")
     fire_env_dump(f"kohako-g2-env-{n}", "env LANG=C", "OPAQUE=plainenvvalue")
     fire_env_dump(f"kohako-g2-envout-{n}", "python3 show.py", "PATH=/usr/bin\nHOME=/root\nOPAQUE=plainenvvalue")
+    fire_env_dump(f"kohako-g2-nested-{n}", "cat result.json", {"output": '{"password":"plainnestedvalue"}'})
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
     print(f"round {n}", flush=True)
     time.sleep(1)

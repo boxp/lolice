@@ -53,7 +53,7 @@ spec:
             sleep 2
           done
           test "$(identity)" = "$before" || { echo 'FAIL: 鍵の反映で Pod が再起動した'; exit 1; }
-          kubectl exec -n "$ns" deployment/sink -- python -c 'import json,sys; rows=[json.loads(x) for x in open("/tmp/requests.jsonl")]; assert any("cleanbodymarker" in r["body"] for r in rows); assert all(all(s not in r["body"] for s in ("plainwordvalue", "plainkubevalue", "plainenvvalue", sys.argv[1], sys.argv[2])) for r in rows)' "$pk" "$sk" || { echo 'FAIL: 機密値が sink に届いた'; exit 1; }
+          kubectl exec -n "$ns" deployment/sink -- python -c 'import json,sys; rows=[json.loads(x) for x in open("/tmp/requests.jsonl")]; assert any("cleanbodymarker" in r["body"] for r in rows); assert all(all(s not in r["body"] for s in ("plainwordvalue", "plainkubevalue", "plainenvvalue", "plainnestedvalue", sys.argv[1], sys.argv[2])) for r in rows)' "$pk" "$sk" || { echo 'FAIL: 機密値が sink に届いた'; exit 1; }
           kubectl exec -n "$ns" deployment/sink -- python -c 'import json; rows=[json.loads(x) for x in open("/tmp/requests.jsonl")]; assert any("childbodymarker" in r["body"] for r in rows)' || { echo 'FAIL: 委譲先セッションの trace が届かない'; exit 1; }
           kubectl scale -n "$ns" deployment/sink --replicas=0
           kubectl wait -n "$ns" --for=delete pod -l app=sink --timeout=60s

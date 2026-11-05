@@ -119,6 +119,36 @@ class ObserverTest(unittest.TestCase):
                 for marker in MARKERS:
                     self.assertNotIn(marker, out)
 
+    def test_assignment_inside_nested_serialization_is_masked(self):
+        value = "plainwordvalue"
+        for name, text in (
+            ("json in json", json.dumps({"output": json.dumps({"password": value})})),
+            ("compact json in json", '{"output":"{\\"password\\":\\"' + value + '\\"}"}'),
+            ("three levels", json.dumps({"a": json.dumps({"b": json.dumps({"api_key": value})})})),
+            ("pretty printed", json.dumps({"output": json.dumps({"token": value}, indent=2)})),
+            ("spaces in value", json.dumps({"output": json.dumps({"secret": "x " + value})})),
+            ("quote in value", json.dumps({"output": json.dumps({"password": 'x" ' + value})})),
+            ("quote in plain json", json.dumps({"password": 'x" ' + value})),
+            ("unicode escaped quotes", '{\\u0022password\\u0022:\\u0022x ' + value + '\\u0022}'),
+            ("html quotes", '{&quot;password&quot;:&quot;x ' + value + '&quot;}'),
+            ("cut off value", '{\\"password\\":\\"x ' + value),
+        ):
+            with self.subTest(name):
+                self.assertNotIn(value, plugin.redact(text))
+
+    def test_nested_masking_stops_at_the_end_of_the_value(self):
+        out = plugin.redact(json.dumps({"output": json.dumps({"password": "plainwordvalue", "name": "keptvalue"})}))
+        self.assertNotIn("plainwordvalue", out)
+        self.assertIn("keptvalue", out)
+        text = json.dumps({"output": json.dumps({"name": "keptvalue"})})
+        self.assertEqual(plugin.redact(text), text)
+
+    def test_nested_secret_in_tool_result_never_reaches_payload(self):
+        for result in ({"output": '{"password":"plainwordvalue"}'}, '{"output":"{\\"password\\":\\"plainwordvalue\\"}"}'):
+            with self.subTest(result):
+                run_turn(result=result)
+                self.assertNotIn("plainwordvalue", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+
     def test_keeps_ordinary_text_and_git_sha(self):
         text = "git rev 0123456789abcdef0123456789abcdef01234567 path /a/b/c.txt 日本語"
         self.assertEqual(plugin.redact(text), text)
