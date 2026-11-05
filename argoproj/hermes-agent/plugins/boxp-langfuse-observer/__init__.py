@@ -56,6 +56,11 @@ _TEXT_BLOCKS = {"text", "input_text", "output_text"}
 _WITHHELD_TOOL = "[withheld: sensitive path or command]"
 _WITHHELD_SESSION = "[withheld: session ran a sensitive tool]"
 
+# A value can sit inside serialized text at any depth, so a quote can carry escapes. A value ends at
+# a quote of its own depth, and one that never closes runs to the end of the line.
+_QUOTE = r"""(?:\\*["']|\\+u00(?:22|27)|&quot;|&\#0*(?:34|39);|&\#x0*(?:22|27);)"""
+_GAP = r"""(?:\s|\\+[nrt])*"""
+
 _SECRET_NAME = re.compile(
     r"(?i)(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth)")
 _PATTERNS = [
@@ -69,7 +74,9 @@ _PATTERNS = [
     ("telegram", re.compile(r"\b[0-9]{8,12}:[A-Za-z0-9_-]{30,}\b")),
     ("bearer", re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{8,}=*")),
     ("assignment", re.compile(
-        r"""(?i)["']?[\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie)[\w.-]*["']?\s*[:=]\s*(?:"[^"\n]*"|'[^'\n]*'|[^\s,;}\]]+)""")),
+        r"""(?i)["']?[\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie)[\w.-]*"""
+        + _QUOTE + r"""?""" + _GAP + r"""[:=]""" + _GAP
+        + r"""(?:(?P<quote>""" + _QUOTE + r""")(?:[^\n]*?(?<!\\)(?P=quote)|[^\n]*)|[^\s,;}\]]+)""")),
     ("data_uri", re.compile(r"data:[a-z]+/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+", re.I)),
     ("entropy", re.compile(r"(?<![A-Za-z0-9_/+=-])[A-Za-z0-9_/+=-]{40,}(?![A-Za-z0-9_/+=-])")),
 ]
