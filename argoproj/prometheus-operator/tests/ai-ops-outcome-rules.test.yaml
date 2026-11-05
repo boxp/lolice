@@ -601,6 +601,99 @@
                 "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
               } } ] }
       ]
+    },
+    {
+      "name": "rollout 後の新 Pod の export 失敗で burn を抑止する（旧 Pod の 1 を残さない）",
+      "interval": "1m",
+      "input_series": [
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\",pod=\"a\"}", "values": "20+0x120 stale" },
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\",pod=\"a\"}", "values": "15+0x120 stale" },
+        { "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",pod=\"a\"}", "values": "10+0x120 stale" },
+        { "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"a\"}", "values": "1+0x120 stale" },
+        { "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\",pod=\"a\"}", "values": "100000+0x120 stale" },
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\",pod=\"b\"}", "values": "_x123 20+0x60" },
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\",pod=\"b\"}", "values": "_x123 15+0x60" },
+        { "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",pod=\"b\"}", "values": "_x123 10+0x60" },
+        { "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"b\"}", "values": "_x123 0+0x60" },
+        { "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\",pod=\"b\"}", "values": "_x123 100000+0x60" }
+      ],
+      "alert_rule_test": [
+        { "eval_time": "2h5m", "alertname": "AiOpsOutcomeBurnFast", "exp_alerts": [] }
+      ]
+    },
+    {
+      "name": "rollout 後に新 Pod で burn が回復したら解除する（旧 Pod の高い値を残さない）",
+      "interval": "1m",
+      "input_series": [
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\",pod=\"a\"}", "values": "20+0x120 stale" },
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\",pod=\"a\"}", "values": "15+0x120 stale" },
+        { "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",pod=\"a\"}", "values": "10+0x120 stale" },
+        { "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"a\"}", "values": "1+0x120 stale" },
+        { "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\",pod=\"a\"}", "values": "100000+0x120 stale" },
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\",pod=\"b\"}", "values": "_x123 20+0x60" },
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\",pod=\"b\"}", "values": "_x123 20+0x60" },
+        { "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",pod=\"b\"}", "values": "_x123 10+0x60" },
+        { "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"b\"}", "values": "_x123 1+0x60" },
+        { "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\",pod=\"b\"}", "values": "_x123 100000+0x60" }
+      ],
+      "alert_rule_test": [
+        { "eval_time": "2h5m", "alertname": "AiOpsOutcomeBurnFast", "exp_alerts": [] }
+      ]
+    },
+    {
+      "name": "rollout 後に新 Pod で回帰が 0 なら、旧 Pod の短い 1 では発火しない",
+      "interval": "1m",
+      "input_series": [
+        { "series": "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h1\",status=\"suspected\",pod=\"a\"}", "values": "1+0x3 stale" },
+        { "series": "ai_ops_harness_eval_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"a\"}", "values": "1+0x3 stale" },
+        { "series": "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h1\",status=\"suspected\",pod=\"b\"}", "values": "_x6 0+0x30" },
+        { "series": "ai_ops_harness_eval_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"b\"}", "values": "_x6 1+0x30" }
+      ],
+      "alert_rule_test": [
+        { "eval_time": "8m", "alertname": "AiOpsHarnessEvalRegression", "exp_alerts": [] },
+        { "eval_time": "12m", "alertname": "AiOpsHarnessEvalRegression", "exp_alerts": [] }
+      ]
+    },
+    {
+      "name": "新しい評価で harness_version が変わったら、旧版の短い 1 では発火しない",
+      "interval": "1m",
+      "input_series": [
+        { "series": "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h1\",status=\"suspected\",pod=\"a\"}", "values": "1+0x3 stale" },
+        { "series": "ai_ops_harness_eval_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"a\"}", "values": "1+0x30" },
+        { "series": "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h2\",status=\"suspected\",pod=\"a\"}", "values": "_x4 0+0x26" }
+      ],
+      "alert_rule_test": [
+        { "eval_time": "8m", "alertname": "AiOpsHarnessEvalRegression", "exp_alerts": [] }
+      ]
+    },
+    {
+      "name": "rollout 後の新 Pod の export 失敗では対照評価のアラートを新たに発火させない",
+      "interval": "1m",
+      "input_series": [
+        { "series": "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h1\",status=\"suspected\",pod=\"a\"}", "values": "1+0x3 stale" },
+        { "series": "ai_ops_harness_eval_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"a\"}", "values": "1+0x3 stale" },
+        { "series": "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h1\",status=\"suspected\",pod=\"b\"}", "values": "_x6 1+0x30" },
+        { "series": "ai_ops_harness_eval_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"b\"}", "values": "_x6 0+0x30" }
+      ],
+      "alert_rule_test": [
+        { "eval_time": "12m", "alertname": "AiOpsHarnessEvalRegression", "exp_alerts": [] }
+      ]
+    },
+    {
+      "name": "発火中の対照評価アラートは rollout の空白で解除せず、回復後に解除する",
+      "interval": "1m",
+      "input_series": [
+        { "series": "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h1\",status=\"suspected\",pod=\"a\"}", "values": "1+0x20 stale" },
+        { "series": "ai_ops_harness_eval_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"a\"}", "values": "1+0x20 stale" },
+        { "series": "ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",model_rev=\"m1\",harness_version=\"h1\",status=\"suspected\",pod=\"b\"}", "values": "_x23 1+0x10 0+0x30" },
+        { "series": "ai_ops_harness_eval_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"b\"}", "values": "_x23 1+0x50" }
+      ],
+      "alert_rule_test": [
+        { "eval_time": "22m", "alertname": "AiOpsHarnessEvalRegression", "exp_alerts": [ { "exp_labels": { "severity": "warning", "component": "ai-ops", "definition_version": "harness-eval/v1-draft", "model_rev": "m1", "harness_version": "h1", "status": "suspected" }, "exp_annotations": { "summary": "ハーネス劣化の疑い（固定課題の対照評価）", "description": "同じ model_rev で現行ハーネスの合格率または所要時間が最小構成より悪い。件数が少ないので断定しない。model_rev と harness_version の label を参照。", "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。" } } ] },
+        { "eval_time": "30m", "alertname": "AiOpsHarnessEvalRegression", "exp_alerts": [ { "exp_labels": { "severity": "warning", "component": "ai-ops", "definition_version": "harness-eval/v1-draft", "model_rev": "m1", "harness_version": "h1", "status": "suspected" }, "exp_annotations": { "summary": "ハーネス劣化の疑い（固定課題の対照評価）", "description": "同じ model_rev で現行ハーネスの合格率または所要時間が最小構成より悪い。件数が少ないので断定しない。model_rev と harness_version の label を参照。", "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。" } } ] },
+        { "eval_time": "40m", "alertname": "AiOpsHarnessEvalRegression", "exp_alerts": [ { "exp_labels": { "severity": "warning", "component": "ai-ops", "definition_version": "harness-eval/v1-draft", "model_rev": "m1", "harness_version": "h1", "status": "suspected" }, "exp_annotations": { "summary": "ハーネス劣化の疑い（固定課題の対照評価）", "description": "同じ model_rev で現行ハーネスの合格率または所要時間が最小構成より悪い。件数が少ないので断定しない。model_rev と harness_version の label を参照。", "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。" } } ] },
+        { "eval_time": "46m", "alertname": "AiOpsHarnessEvalRegression", "exp_alerts": [] }
+      ]
     }
   ]
 }

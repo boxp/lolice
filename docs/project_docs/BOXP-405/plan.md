@@ -51,6 +51,10 @@ python3 -I -c 'import json; json.load(open("argoproj/prometheus-operator/dashboa
 
 burn と対照評価のアラートは `pod` / `instance` label を引き継いでいた。codex-workspace の rollout で label が変わると、発火中のアラートが解除され、`for` を数え直して別のアラートとして再度発火する。2 時間より短い間隔で rollout が続くと burn は発火できず、発火後は rollout のたびに warning メールが届く。実 Prometheus で BurnSlow の `activeAt` が rollout で 02:18 から 02:22 UTC へ戻ったことを確認した。
 
-修正: アラートの式を `max by` で集計して揮発する label を落とし、`last_over_time(...[10m])` で rollout の空白（実測 3〜4 分）をまたぐ。計測不調のアラートは `max()` と `absent()` で既に label がなく、空白の間は `for: 30m` に収まるので変えない。
+修正: 揮発する label を落とした recording rule（`ai_ops:outcome_*:stable`）を作り、burn のアラートはそれを `last_over_time(...[10m])` で読んで rollout の空白（実測 3〜4 分）をまたぐ。label を落としてから保持するので、新 Pod の最初の値が旧 Pod の値をすぐ置き換える。各 Pod の系列を保持してから `max` を取る形では、旧 Pod の値が最大 10 分残り、新 Pod の export 失敗や回復が隠れる。
+
+対照評価のアラートは、新しい結果で `harness_version` などの label が変わる。保持した旧版の値で発火しないよう、現在の値だけを読み、発火中の維持は `keep_firing_for: 10m` に任せる。解除は回復から最大 10 分遅れる。発火前の `for: 5m` は rollout で数え直すが、遅れるだけで誤発火はしない。
+
+計測不調のアラートは `max()` と `absent()` で既に label がなく、空白の間は `for: 30m` に収まるので変えない。
 
 利用枠のアラートも同じ label を持つが、severity は info でメールにならないので今回は変えない。
