@@ -6,7 +6,7 @@ trap 'rm -rf "$tmp"' EXIT
 # Update this one revision after arch#14473 merges; the digest pins the fetched contents.
 arch_revision=d23854d60afe6df285926d18fc150a61cb40e2a3
 curl -fsSL "https://raw.githubusercontent.com/boxp/arch/${arch_revision}/docker/codex-workspace/task-board/langfuse_exporter.bb" > "$tmp/exporter.bb"
-echo "5e1932d691120f0ac8779b9b52479992005b993cf5795e05e2296dc7cc1bfea6  $tmp/exporter.bb" | sha256sum -c >&2
+echo "bca0f7632567a7542804ee58cc2c85a61bf5c02a3b17a79997946e3f555c9d4e  $tmp/exporter.bb" | sha256sum -c >&2
 if [[ -n ${MANIFEST_DIR:-} && -f $MANIFEST_DIR/codex-workspace.yaml ]]; then
   cp "$MANIFEST_DIR/codex-workspace.yaml" "$tmp/render.yaml"
 else
