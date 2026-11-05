@@ -3,10 +3,10 @@ set -euo pipefail
 : "${REPO_ROOT:?}"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-# The digest pins the fetched contents of this merged revision (arch#14473, arch#14489).
-arch_revision=11ef75d6cc15347046ece8105447064cfe6f525f
+# The digest pins the fetched contents of this merged revision (arch#14473, arch#14489, arch#14495).
+arch_revision=a7f1954cba2bbb71c0ddb0d609f37cf29dfb0114
 curl -fsSL "https://raw.githubusercontent.com/boxp/arch/${arch_revision}/docker/codex-workspace/task-board/langfuse_exporter.bb" > "$tmp/exporter.bb"
-echo "261e0bd59759753bb5e4c833db02ad7703d7ade1466699beb0f72a9c22b05be4  $tmp/exporter.bb" | sha256sum -c >&2
+echo "d262315bd75b9c72f2a7ef4b8f2ec21e951c2ff0341bff8a1f66c1c8018f8c4f  $tmp/exporter.bb" | sha256sum -c >&2
 if [[ -n ${MANIFEST_DIR:-} && -f $MANIFEST_DIR/codex-workspace.yaml ]]; then
   cp "$MANIFEST_DIR/codex-workspace.yaml" "$tmp/render.yaml"
 else
