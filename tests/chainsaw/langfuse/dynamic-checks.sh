@@ -359,7 +359,22 @@ clickhouse_count() {
     --query "SELECT count() FROM events_core FINAL WHERE trace_id = '$1'"
 }
 
+seed_s3_objects() {
+  # 実 CronJob と同じ env/NetPol で、一覧 20 ページ (2 万件) を超える object を置く。
+  kubectl get cronjob langfuse-retention -n "$NS" -o json | jq --rawfile script "$SUITE/seed-s3-objects.js" --arg count "$S3_SEED_COUNT" '{apiVersion: "batch/v1", kind: "Job",
+      metadata: {name: "retention-seed", namespace: .metadata.namespace}, spec: .spec.jobTemplate.spec}
+    | .spec.template.spec.containers[0].command = ["node", "-e", $script]
+    | .spec.template.spec.containers[0].resources.limits = {cpu: "2", memory: "512Mi"}
+    | .spec.template.spec.containers[0].env += [{name: "SEED_COUNT", value: $count}]' | kubectl apply -f - >/dev/null
+  kubectl wait -n "$NS" --for=condition=Complete job/retention-seed --timeout=300s \
+    || { kubectl logs -n "$NS" job/retention-seed || true; diagnose; exit 1; }
+}
+
 retention() {
+  # ingest step の raw event は seed より古く、対象マーカーの raw event は seed より新しい。
+  local seed_started
+  seed_started="$(date +%s)"
+  seed_s3_objects
   otlp send "$TRACE_OLD" 15 0 BOXP428SYNTH
   otlp send "$TRACE_SHARED" 0 1 chainsaw-shared
   otlp send "$TRACE_FRESH" 0 0 BOXP428CTRL
@@ -380,6 +395,11 @@ retention() {
     and .audit.traces > 0 and .audit.control_rows_ch >= 1 and .audit.marker_rows_ch >= 1 and .audit.marker_objects_s3.matches >= 1 and .audit.marker_objects_s3.scanned >= 1
     and ([keys[] | select(endswith("_error"))] | length == 0)' <<<"$report" >/dev/null \
     || { echo 'retention report が想定と異なります' >&2; exit 1; }
+  # キー順で後ろにある実 raw event まで一覧できている (最古は seed より前の ingest、新しい順の先頭はマーカー)。
+  jq -e --argjson count "$S3_SEED_COUNT" --argjson min_age "$(( $(date +%s) - seed_started ))" '.audit.s3.truncated == false and .audit.s3.objects > $count
+    and .audit.s3.oldest_age_hours * 3600 >= $min_age
+    and .audit.marker_objects_s3.unscanned == (.audit.s3.objects - .audit.marker_objects_s3.scanned)' <<<"$report" >/dev/null \
+    || { echo 'retention report の S3 走査が 2 万件を超える object を扱えていません' >&2; exit 1; }
   for trace in "$TRACE_OLD" "$TRACE_SHARED" "$TRACE_FRESH" "$TRACE_INGEST" BOXP428SYNTH BOXP428CTRL chainsaw-old chainsaw-shared chainsaw-body-marker; do
     [[ "$report" != *"$trace"* ]] || { echo 'retention report に本文または trace ID が含まれています' >&2; exit 1; }
   done
@@ -402,6 +422,7 @@ retention() {
   done
 }
 
+S3_SEED_COUNT=20001
 TRACE_INGEST=a1000000000000000000000000000001
 TRACE_OLD=a2000000000000000000000000000002
 TRACE_SHARED=a3000000000000000000000000000003
