@@ -11,4 +11,4 @@ Owner の判断で配信先を Cloudflare Workers Static Assets（boxp/arch の 
 
 - #1056 を revert して二重運用をなくす。
 - 撤去の確認は既存の `tests/chainsaw/codex-workspace` と kustomize build で行う。専用の Chainsaw は対象が消えるので残さない。
-- Owner が SSO 後の表示を確認してから merge する。切替前の戻し先を残すため。
+- Worker の公開動作を担当が実 URL で確認してから merge する。切替前の戻し先を残すため。公開は Owner が承認済みで、SSO 確認は不要になった（boxp/arch の `docs/project_docs/BOXP-430/plan.md`）。
