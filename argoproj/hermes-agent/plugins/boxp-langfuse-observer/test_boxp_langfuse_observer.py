@@ -136,6 +136,43 @@ class ObserverTest(unittest.TestCase):
             with self.subTest(name):
                 self.assertNotIn(value, plugin.redact(text))
 
+    def test_secret_forms_without_a_plain_assignment_are_masked(self):
+        value = "plainwordvalue"
+        for name, text in (
+            ("cli flag", "mytool --password " + value + " run"),
+            ("cli flag with quotes", 'mytool --api-key "x ' + value + '" run'),
+            ("cli flag in json", json.dumps({"cmd": "mytool --token " + value})),
+            ("curl user", "curl -u admin:" + value + " https://x"),
+            ("curl long user", "curl --user admin:" + value + " https://x"),
+            ("mysql", "mysql -h db -p" + value + " app"),
+            ("sshpass", "sshpass -p " + value + " ssh host"),
+            ("quoted authorization", json.dumps({"authorization": value})),
+            ("docker auth", json.dumps({"auths": {"r": {"auth": value}}})),
+            ("short pass", "DB_PASS=" + value),
+            ("quoted pass", json.dumps({"pass": value})),
+            ("passphrase", "passphrase: " + value),
+            ("env entry yaml", "- name: DB_PASSWORD\n  value: " + value),
+            ("env entry json", json.dumps({"name": "DB_PASSWORD", "value": value})),
+            ("env entry reversed", json.dumps({"value": value, "name": "DB_PASSWORD"})),
+            ("env entry nested", json.dumps({"o": json.dumps({"name": "API_TOKEN", "value": value})})),
+            ("block scalar", "password: |\n  x\n  " + value + "\n"),
+            ("block scalar nested", json.dumps({"o": "token: >-\n  " + value + "\n"})),
+            ("unicode escaped separator", "password\\u003d" + value),
+        ):
+            with self.subTest(name):
+                self.assertNotIn(value, plugin.redact(text))
+
+    def test_ordinary_words_near_secret_forms_are_kept(self):
+        for text in ("bypass=keptvalue", "compass: keptvalue", "tests passed: keptvalue", "author: keptvalue",
+                     '{"name": "DB_HOST", "value": "keptvalue"}', "mytool --name keptvalue", "mysql -h keptvalue",
+                     "curl -u keptvalue https://x", "grep -p keptvalue"):
+            with self.subTest(text):
+                self.assertEqual(plugin.redact(text), text)
+
+    def test_masked_flag_does_not_trip_the_final_guard(self):
+        run_turn(result={"output": "mytool --password plainwordvalue cleanbodymarker"})
+        self.assertIn("cleanbodymarker", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+
     def test_nested_masking_stops_at_the_end_of_the_value(self):
         out = plugin.redact(json.dumps({"output": json.dumps({"password": "plainwordvalue", "name": "keptvalue"})}))
         self.assertNotIn("plainwordvalue", out)

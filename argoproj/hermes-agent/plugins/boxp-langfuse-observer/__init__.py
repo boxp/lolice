@@ -60,6 +60,26 @@ _WITHHELD_SESSION = "[withheld: session ran a sensitive tool]"
 # a quote of its own depth, and one that never closes runs to the end of the line.
 _QUOTE = r"""(?:\\*["']|\\+u00(?:22|27)|&quot;|&\#0*(?:34|39);|&\#x0*(?:22|27);)"""
 _GAP = r"""(?:\s|\\+[nrt])*"""
+_SEPARATOR = r"""(?:[:=]|\\+u00(?:3[aA]|3[dD]))"""
+_SECRET_WORD = (
+    r"(?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret"
+    r"|credential|cookie|authorization|(?<![a-z])pass(?![a-z])|(?<![a-z])auth(?![a-z]))")
+# Bounded so that a long word without a secret name stays linear to scan.
+_SECRET_KEY = r"[\w.-]{0,64}" + _SECRET_WORD + r"[\w.-]{0,64}"
+_ENTRY_GAP = r"""(?:\s|\\+[nrt]|,)*"""
+
+
+def _value(group, limit="", bare=r"[^\s,;}\]]+"):
+    # limit bounds a value that has to be followed by more of the pattern.
+    scan = limit or "*?"
+    return (r"(?:(?P<" + group + ">" + _QUOTE + r")(?:[^\n]" + scan + r"(?<!\\)(?P=" + group + r")"
+            + ("" if limit else r"|[^\n]*") + r")|" + bare + ")")
+
+
+def _entry_key(name):
+    return r"(?<![\w-])" + name + _QUOTE + r"?" + _GAP + r"[:=]" + _GAP
+
+
 
 _SECRET_NAME = re.compile(
     r"(?i)(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth)")
@@ -73,13 +93,26 @@ _PATTERNS = [
     ("google_key", re.compile(r"\bAIza[A-Za-z0-9_-]{30,}\b")),
     ("telegram", re.compile(r"\b[0-9]{8,12}:[A-Za-z0-9_-]{30,}\b")),
     ("bearer", re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{8,}=*")),
+    # {"name": "DB_PASSWORD", "value": "..."} and its YAML form, as a pod spec prints an env entry.
+    ("env_entry", re.compile(
+        r"(?i)" + _entry_key("name") + _QUOTE + r"?" + _SECRET_KEY + _QUOTE + r"?" + _ENTRY_GAP + _QUOTE + r"?"
+        + _entry_key("value") + _value("quote"))),
+    ("env_entry", re.compile(
+        r"(?i)" + _entry_key("value") + _value("quote", r"{0,4096}?") + _ENTRY_GAP + _QUOTE + r"?"
+        + _entry_key("name") + _QUOTE + r"?" + _SECRET_KEY)),
+    ("flag", re.compile(r"(?i)(?<![\w-])--?" + _SECRET_KEY + r"[ \t]+(?!-)" + _value("quote", bare=r"\S+"))),
+    ("cli_password", re.compile(
+        r"(?<![\w-])(?:-u|--user)[ \t=]*(?!\d+:\d+\b)[^\s:]+:\S+"
+        r"|\b(?:mysql\w*|mariadb\w*)\b[^\n|;&]{0,512}?\s-p\S+"
+        r"|\bsshpass\b[^\n|;&]{0,512}?\s-p[ \t]*\S+")),
     ("assignment", re.compile(
-        r"""(?i)["']?[\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie)[\w.-]*"""
-        + _QUOTE + r"""?""" + _GAP + r"""[:=]""" + _GAP
-        + r"""(?:(?P<quote>""" + _QUOTE + r""")(?:[^\n]*?(?<!\\)(?P=quote)|[^\n]*)|[^\s,;}\]]+)""")),
+        r"(?i)[\"']?" + _SECRET_KEY + _QUOTE + r"?" + _GAP + _SEPARATOR + _GAP
+        # A YAML block scalar carries its value on the indented lines below the key.
+        + r"(?:[|>][-+]?\d?(?:(?:\n|\\+n)[ \t]+(?:(?!\\+n)[^\n])*)+|" + _value("quote") + r")")),
     ("data_uri", re.compile(r"data:[a-z]+/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+", re.I)),
     ("entropy", re.compile(r"(?<![A-Za-z0-9_/+=-])[A-Za-z0-9_/+=-]{40,}(?![A-Za-z0-9_/+=-])")),
 ]
+_FIELD_ONLY = {"assignment", "entropy", "data_uri", "env_entry", "flag", "cli_password"}
 _PLACEHOLDER = re.compile(r"\[REDACTED:[a-z_]+\]")
 _SENSITIVE_PATH = re.compile(
     r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_rsa|id_ed25519|secrets?(?:[/\\])|[^/\s\"']*token[^/\s\"']*)")
@@ -198,7 +231,7 @@ def _unsafe(serialized):
     if any(v in probe for v in _env_secrets()):
         return True
     for kind, pattern in _PATTERNS:
-        if kind in ("assignment", "entropy", "data_uri"):
+        if kind in _FIELD_ONLY:
             continue  # JSON-escaped forms; these were applied per field
         if pattern.search(probe):
             return True
