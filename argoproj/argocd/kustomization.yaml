@@ -1,17 +1,15 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: argocd
 resources:
-- github.com/argoproj/argo-cd/manifests/base?ref=v3.5.0
+- github.com/argoproj/argo-cd/manifests/base?ref=v3.6.1
 - cloudflared-deployment.yaml
 - external-secret.yaml
 - base/external-secrets.yaml
-- base/external-secret-repo.yaml
+- base/external-secret-repo-github-app.yaml
 - base/cloudflared-api.yaml
 - base/helm-repo-arc.yaml
 patchesStrategicMerge:
-- overlays/argocd-redis-network-policy.yaml
-- overlays/argocd-repo-server-network-policy.yaml
-- overlays/argocd-server-network-policy.yaml
 - overlays/argocd-cmd-params-cm.yaml
 - overlays/argocd-cm.yaml
 - overlays/argocd-rbac-cm.yaml

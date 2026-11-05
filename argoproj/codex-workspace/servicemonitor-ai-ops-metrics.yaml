@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: codex-workspace-ai-ops-metrics
+  namespace: codex-workspace
+  labels:
+    app: codex-workspace-ai-ops-metrics
+    # prometheus-k8s は opt-in された ServiceMonitor だけを収集する。
+    app.kubernetes.io/part-of: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: codex-workspace-ai-ops-metrics
+  namespaceSelector:
+    matchNames:
+      - codex-workspace
+  endpoints:
+    - port: ai-ops-metrics
+      interval: 60s
+      path: /metrics

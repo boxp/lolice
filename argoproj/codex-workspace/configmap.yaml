@@ -64,6 +64,34 @@ data:
               }
             },
             {
+              "id": "ornith15-35b-a3b",
+              "name": "Ornith 1.5 35B-A3B local",
+              "reasoning": false,
+              "input": ["text"],
+              "contextWindow": 262144,
+              "maxTokens": 4096,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0
+              }
+            },
+            {
+              "id": "qwen3-coder-next",
+              "name": "Qwen3-Coder-Next 80B-A3B local",
+              "reasoning": false,
+              "input": ["text"],
+              "contextWindow": 262144,
+              "maxTokens": 8192,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0
+              }
+            },
+            {
               "id": "ornith-35b",
               "name": "Ornith 35B local",
               "reasoning": false,

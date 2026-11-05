@@ -1,0 +1,97 @@
+# Throwaway single-binary Loki used only by the isolated kind suite.
+# It is exposed as Service monitoring/loki-gateway on port 80 so that the
+# production ConfigMap (argoproj/grafana-alloy/configmap.yaml) can be tested
+# unmodified: loki.write pushes to
+# http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push.
+# The image tag follows the Loki version deployed by argoproj/loki (chart 6.29.0
+# -> Loki 3.4.2). No persistence, no retention, no auth.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chainsaw-loki-config
+  namespace: monitoring
+data:
+  loki.yaml: |
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+      log_level: warn
+    common:
+      path_prefix: /tmp/loki
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+      storage:
+        filesystem:
+          chunks_directory: /tmp/loki/chunks
+          rules_directory: /tmp/loki/rules
+    schema_config:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    limits_config:
+      allow_structured_metadata: true
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chainsaw-loki
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: chainsaw-loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chainsaw-loki
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chainsaw-loki
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:3.4.2
+          args:
+            - -config.file=/etc/loki/loki.yaml
+            - -target=all
+          ports:
+            - name: http
+              containerPort: 3100
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki
+            - name: data
+              mountPath: /tmp/loki
+      volumes:
+        - name: config
+          configMap:
+            name: chainsaw-loki-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-gateway
+  namespace: monitoring
+spec:
+  selector:
+    app.kubernetes.io/name: chainsaw-loki
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,0 +1,16 @@
+# BOXP-360: AI ops ledger metrics (read-only sidecar, low-cardinality labels only).
+apiVersion: v1
+kind: Service
+metadata:
+  name: codex-workspace-ai-ops-metrics
+  namespace: codex-workspace
+  labels:
+    app: codex-workspace-ai-ops-metrics
+spec:
+  type: ClusterIP
+  selector:
+    app: codex-workspace
+  ports:
+    - name: ai-ops-metrics
+      port: 9464
+      targetPort: ai-ops-metrics

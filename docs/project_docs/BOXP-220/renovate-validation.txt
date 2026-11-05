@@ -1,0 +1,23 @@
+ INFO: Config validated successfully against 1 file(s)
+argoproj/argocd/base/cloudflared-api.yaml:19 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/argocd/cloudflared-deployment.yaml:17 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/bastion/deployment.yaml:90 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/boxp-home/cloudflared-deployment.yaml:18 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/even-g2-lab/deployment-cloudflared.yaml:18 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/hermes-agent/deployment.yaml:196 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/hitohub/overlays/prod/deployment-cloudflared.yaml:17 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/hitohub/overlays/stage/deployment-cloudflared.yaml:17 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/k8s/cloudflared-deployment.yaml:17 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/kubernetes-dashboard/manifests/cloudflared-deployment.yaml:18 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/longhorn/cloudflare-deployment.yaml:17 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/minecraft/base/cloudflared-deployment.yaml:18 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/prometheus-operator/cloudflared-deployment.yaml:17 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+argoproj/stable-diffusion/cloudflared-deployment.yaml:17 package=docker.io/cloudflare/cloudflared currentValue=2026.10.0 currentDigest=sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+actual_renovate_extract_count=14
+custom_regex_skip_records_on_cloudflared_named_files=40
+fixture_renovate_extract_count=14
+fixture_current_value_2026.7.3_count=14
+fixture_new_value_2026.10.0_records=14
+fixture_new_digest_records=14
+fixture_flattened_updates=1
+fixture_update_branches=['renovate/cloudflared-image-updates']

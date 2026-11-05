@@ -1,0 +1,97 @@
+---
+name: adr-judge
+# LLM の意味検査。手動実行だけで、必須 check には関係しない。結果は warning だけになる。
+# LLM を動かす job は checkout も repo の権限も持たない。構造検査は別の checkout で評価する。
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  questions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: .regomark/check.sh --questions "$RUNNER_TEMP/questions.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: adr-questions
+          path: ${{runner.temp}}/questions.json
+          if-no-files-found: error
+          retention-days: 1
+
+  judge:
+    needs: questions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions: {}
+    env:
+      # renovate: datasource=npm depName=@anthropic-ai/claude-code
+      CLAUDE_CODE_VERSION: 2.1.318
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: adr-questions
+          path: ${{runner.temp}}
+      - name: Ask the judge
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{secrets.CLAUDE_CODE_OAUTH_TOKEN}}
+        run: |
+          set -euo pipefail
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "::warning::CLAUDE_CODE_OAUTH_TOKEN がないため意味検査は未接続です"
+            exit 1
+          fi
+          cd "$RUNNER_TEMP"
+          npm install --no-audit --no-fund --prefix claude "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+          schema=$(jq -c .answer_schema questions.json)
+          : >answers.jsonl
+          while IFS= read -r question; do
+            key=$(jq -r .key <<<"$question")
+            # 回答できなかった質問は書かない。regomark が provider_failed として warning にする。
+            status=0
+            jq -r .prompt <<<"$question" |
+              timeout 90 claude/node_modules/.bin/claude -p --output-format json --model sonnet --tools "" --json-schema "$schema" >answer.json || status=$?
+            # 本文は出さず、失敗の種類だけを記録する。
+            jq -r --arg status "$status" '"判定結果: exit=\($status) subtype=\(.subtype // "-") is_error=\(.is_error // "-") api_status=\(.api_error_status // "-")"' answer.json || echo "判定結果: exit=$status (JSON なし)"
+            if [ "$status" -eq 0 ]; then
+              jq -c --arg key "$key" '.structured_output | select(. != null) | {key: $key, verdict, reason, evidence_line}' answer.json >>answers.jsonl || true
+            fi
+          done < <(jq -c '.questions[]' questions.json)
+          jq -s '{answers: .}' answers.jsonl >answers.json
+          echo "質問 $(jq '.questions | length' questions.json) 件、回答 $(jq '.answers | length' answers.json) 件"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: adr-answers
+          path: ${{runner.temp}}/answers.json
+          if-no-files-found: error
+          retention-days: 1
+
+  report:
+    needs: judge
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{github.sha}}
+          persist-credentials: false
+      - if: needs.judge.result == 'success'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: adr-answers
+          path: ${{runner.temp}}
+      - name: Check with the answers
+        run: |
+          if [ -f "$RUNNER_TEMP/answers.json" ]; then
+            .regomark/check.sh --judgments "$RUNNER_TEMP/answers.json"
+          else
+            echo "::warning::判定が得られなかったため意味検査は未実行です"
+            .regomark/check.sh --docs
+          fi

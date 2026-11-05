@@ -1,0 +1,24 @@
+# ServiceMonitor for Grafana Alloy. Managed here instead of via the Helm chart
+# so that it carries app.kubernetes.io/part-of=kube-prometheus, which the
+# kube-prometheus Prometheus (monitoring/k8s) requires in its
+# serviceMonitorSelector. This makes loki_source_file_* / loki_write_* metrics
+# visible in Prometheus so that "no logs reaching Loki" can be detected.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: grafana-alloy
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: alloy
+    app.kubernetes.io/instance: grafana-alloy
+    app.kubernetes.io/component: metrics
+    app.kubernetes.io/part-of: kube-prometheus
+spec:
+  endpoints:
+    - port: http-metrics
+      scheme: http
+      honorLabels: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alloy
+      app.kubernetes.io/instance: grafana-alloy

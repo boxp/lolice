@@ -1,0 +1,10 @@
+name: boxp-ai-ops-observer
+version: 0.1.0
+description: Metadata-only AI ops ledger (BOXP-360). Records turn / approval lifecycle IDs, status and timing; never bodies, prompts, tool args or results.
+author: boxp
+provides_hooks:
+  - pre_llm_call
+  - on_session_end
+  - pre_approval_request
+  - post_approval_response
+  - api_request_error

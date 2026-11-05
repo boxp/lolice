@@ -1,0 +1,110 @@
+# BOXP-428: bodies stay inside this namespace. Default deny through selection of all
+# Pods; only the three named clients reach web:3000, and only cloudflared has egress
+# beyond the namespace. Langfuse's server-side telemetry and update checks have no route out.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: langfuse-default
+  namespace: langfuse
+spec:
+  selector: all()
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'langfuse'
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        selector: app == 'codex-workspace'
+      destination:
+        selector: app == 'langfuse-web'
+        ports:
+          - 3000
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
+        selector: app == 'hermes-agent'
+      destination:
+        selector: app == 'langfuse-web'
+        ports:
+          - 3000
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        selector: k8s-app == 'kube-dns'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        selector: k8s-app == 'kube-dns'
+        ports:
+          - 53
+    - action: Allow
+      destination:
+        namespaceSelector: kubernetes.io/metadata.name == 'langfuse'
+---
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: langfuse-cloudflared-egress
+  namespace: langfuse
+spec:
+  selector: app == 'langfuse-cloudflared'
+  types:
+    - Egress
+  egress:
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports:
+          - 443
+          - 7844
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports:
+          - 7844
+---
+# The Access OIDC endpoints (discovery, token, keys) are reached from the server side of the login.
+# Calico without Enterprise cannot match a hostname, so this admits Cloudflare's published ranges
+# (https://www.cloudflare.com/ips-v4) on 443 from web alone. The worker has no such route.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: langfuse-web-oidc-egress
+  namespace: langfuse
+spec:
+  selector: app == 'langfuse-web'
+  types:
+    - Egress
+  egress:
+    - action: Allow
+      protocol: TCP
+      destination:
+        nets:
+          - 173.245.48.0/20
+          - 103.21.244.0/22
+          - 103.22.200.0/22
+          - 103.31.4.0/22
+          - 141.101.64.0/18
+          - 108.162.192.0/18
+          - 190.93.240.0/20
+          - 188.114.96.0/20
+          - 197.234.240.0/22
+          - 198.41.128.0/17
+          - 162.158.0.0/15
+          - 104.16.0.0/13
+          - 104.24.0.0/14
+          - 172.64.0.0/13
+          - 131.0.72.0/22
+        ports:
+          - 443

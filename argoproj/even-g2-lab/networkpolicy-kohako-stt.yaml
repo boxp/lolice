@@ -1,0 +1,50 @@
+# BOXP-332 (M5): only the even-g2-main pod (kohako-bff sidecar) may reach whisper-server.
+# Egress is DNS + public HTTPS for the init container's pinned, sha256-checked model
+# download (Calico cannot scope egress per container; whisper-server itself makes no
+# outbound calls). Nothing in the cluster's private ranges is reachable.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: kohako-stt-network-policy
+  namespace: even-g2-lab
+spec:
+  selector: app == 'kohako-stt'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: app == 'even-g2-main'
+      destination:
+        ports:
+          - 8080
+  egress:
+    - action: Allow
+      protocol: UDP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        notNets:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+          - 192.178.0.0/16
+        ports:
+          - 443

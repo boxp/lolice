@@ -12,9 +12,21 @@ spec:
     path: argoproj/local-llm
     repoURL: https://github.com/boxp/lolice
     targetRevision: main
+  ignoreDifferences:
+    - group: "apps"
+      kind: Deployment
+      namespace: local-llm
+      name: llama-server
+      jsonPointers: [/spec/replicas]
+    - group: ""
+      kind: ConfigMap
+      namespace: local-llm
+      name: llama-server-admission
+      jsonPointers: [/data/state]
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - RespectIgnoreDifferences=true

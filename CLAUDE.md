@@ -26,7 +26,6 @@ loliceは、ArgoCDを使用して個人用オンプレミスKubernetesクラス�
   /prometheus-operator/  # モニタリング
   /external-secrets-operator/  # シークレット管理
   /tidb-operator/   # 分散SQLデータベース
-  /hitohub/         # アプリケーション
   # ... その他のアプリケーション
 
 /k8s/               # 基本的なKubernetesセットアップ
@@ -63,6 +62,12 @@ kustomize build argoproj/<app-name>/
 
 # 特定のオーバーレイでビルド
 kustomize build argoproj/<app-name>/overlays/<env>/
+```
+
+### ADR の検査
+```bash
+# ADR の構造検査と ADR policy の Rego lint (形式は docs/adr/README.md)
+.regomark/check.sh
 ```
 
 ## アーキテクチャとパターン
@@ -114,9 +119,12 @@ Pod間通信を制限するNetworkPolicyリソースを通じてセキュリテ�
 ## CI/CDパイプライン
 
 リポジトリはCI/CDにGitHub Actionsを使用：
-- **argocd-diff.yaml**: `/argoproj/`に影響するPRで実行され、ArgoCD diffを表示
+- **chainsaw.yaml（Manifest Validation）**: 全PRで実行。`static-policy`（kustomize render + `policy/` のRego）は常に走り、`chainsaw`（kind統合）は `tests/chainsaw/<component>` を持つcomponentの変更時だけ走る。`status-check` jobが結果を集約し、mainのruleset（509073）のrequired status checkになっている（gitleaksも必須）。新しいjobを足したら `status-check.needs` にも足すこと
+- **argocd-diff.yaml**: `/argoproj/`に影響するPRで実行され、ArgoCD diffを表示（情報用、必須チェックではない）
 - ArgoCDへの安全なAPIアクセスにCloudflare Accessを使用
 - diff出力を自動的にPRにコメント
+- 手元で静的ゲートを再現: `scripts/static-manifest-check.sh`（kustomize / yq / conftest が必要）
+- Renovate: minor/patchは自動merge（`renovate.json`）。GitHubのauto-mergeがrequired status check通過後にmergeする。major、tailscale-operator、external-secretsは手動
 
 ## 重要なガイドライン
 

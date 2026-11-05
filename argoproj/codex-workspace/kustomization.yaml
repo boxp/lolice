@@ -1,5 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: codex-workspace
 
 resources:
   - namespace.yaml
@@ -10,8 +11,17 @@ resources:
   - configmap.yaml
   - kubeconfig.yaml
   - dashboard-configmap.yaml
+  - external-secret-langfuse-ingest-key.yaml
   - external-secret.yaml
   - deployment.yaml
   - service.yaml
   - dashboard-service.yaml
+  - service-kohako-board.yaml
   - networkpolicy.yaml
+  - service-ai-ops-metrics.yaml
+  - servicemonitor-ai-ops-metrics.yaml
+
+configMapGenerator:
+  - name: codex-workspace-ai-ops-metrics
+    files:
+      - ai-ops-metrics/server.py

@@ -20,6 +20,13 @@ spec:
           podSelector:
             matchLabels:
               app: codex-workspace
+        # BOXP-365: allow the Hermes Grafana MCP sidecar.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hermes-agent
+          podSelector:
+            matchLabels:
+              app: hermes-agent
         - ipBlock:
             cidr: 192.168.10.0/24
         # kube-vip Service LoadBalancer traffic is SNATed by kube-proxy on the

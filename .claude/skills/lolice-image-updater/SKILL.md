@@ -14,9 +14,9 @@ For `boxp/lolice`, do not hand-edit workload image tags or digests as the rollou
    - `argoproj/argocd-image-updater/imageupdaters/kustomization.yaml`
 2. Keep the workload manifest image at the logical registry/tag, usually `ghcr.io/boxp/arch/<image>:latest` or the ECR `...amazonaws.com/<image>:latest`.
 3. Add or update an `ImageUpdater` resource for the Argo CD Application.
-4. Use `writeBackConfig.method: git:secret:argocd/repo-lolice` and target `branch: main`.
+4. Use `writeBackConfig.method: git:secret:argocd/repo-lolice-github-app`（GitHub App 認証、BOXP-265） and target `branch: main`.
 5. Choose registry-specific settings:
-   - GHCR `boxp/arch` images: follow `local-llm.yaml`; use `updateStrategy: digest`, set `platforms: ["linux/amd64"]`, and set `gitConfig.repository: git@github.com:boxp/lolice.git`.
+   - GHCR `boxp/arch` images: follow `local-llm.yaml`; use `updateStrategy: digest`, set `platforms: ["linux/amd64"]`, and set `gitConfig.repository: https://github.com/boxp/lolice.git`（HTTPS。SSH URL だと App 認証経路に入らない）.
    - ECR images: follow `ark-discord-bot.yaml` / `palserver.yaml`; use `updateStrategy: newest-build` and `pullSecret: pullsecret:argocd/regcred`.
 6. Set `manifestTargets.kustomize.name` to the image name without tag.
 7. Validate with:

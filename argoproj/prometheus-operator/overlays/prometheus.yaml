@@ -37,3 +37,9 @@ spec:
   podMonitorSelector:
     matchLabels:
       release: prometheus
+  # ServiceMonitor は kube-prometheus の共通ラベルを opt-in とする。同梱の基盤
+  # Monitor と GitOps 管理 Monitor の双方にこのラベルを付け、namespace に残った
+  # Helm 管理外の Monitor が所有者不明の TargetDown を発火させないようにする。
+  serviceMonitorSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: kube-prometheus

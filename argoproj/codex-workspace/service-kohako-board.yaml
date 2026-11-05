@@ -1,0 +1,16 @@
+# BOXP-329: read-only Task Board projection for Kohako G2 (Dashboard sidecar port 8090).
+# Only GET /api/kohako/board and /healthz are served on this port; the Dashboard
+# runs/log API stays on 8080 and is not reachable from even-g2-lab.
+apiVersion: v1
+kind: Service
+metadata:
+  name: codex-task-board-kohako
+  namespace: codex-workspace
+spec:
+  type: ClusterIP
+  selector:
+    app: codex-workspace
+  ports:
+    - name: kohako-board
+      port: 8090
+      targetPort: 8090

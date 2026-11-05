@@ -1,0 +1,6 @@
+# BOXP-336: strata-eval namespace は親 argocd-apps（project: default）で作る。
+# AppProject strata-eval には cluster-scoped resource を一切許可しないため。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: strata-eval

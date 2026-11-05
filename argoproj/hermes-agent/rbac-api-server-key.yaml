@@ -1,0 +1,28 @@
+# BOXP-332: lets the ESO SecretStore in even-g2-lab read exactly one Secret
+# (the Hermes API server key) from this namespace. No list/watch, no other Secret.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kohako-api-server-key-reader
+  namespace: hermes-agent
+rules:
+  - apiGroups: [""]
+    resources:
+      - secrets
+    resourceNames:
+      - hermes-agent-api-server-key
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kohako-api-server-key-reader
+  namespace: hermes-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kohako-api-server-key-reader
+subjects:
+  - kind: ServiceAccount
+    name: kohako-api-server-key-reader
+    namespace: even-g2-lab

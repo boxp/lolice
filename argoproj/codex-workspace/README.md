@@ -6,6 +6,8 @@
 
 Task Board lock には downward API から渡した Pod UID (`CODEX_TASK_BOARD_OWNER_ID`) と runner instance ID を記録します。計画 rollout では runner process 自身の SIGTERM shutdown hook と container の `preStop` が `/home/boxp/.codex-task-board/terminating-owners/` に同じ owner marker を書きます。`Recreate` で旧 Pod が完全に終了した後、別 UID の新 Pod だけが marker と owner / instance の一致する lock を `interrupted` にして再受付します。marker の作成・lock acquire・最終再走査・marker 削除は PVC 上の owner guard で直列化し、削除前に `/home/boxp/.codex-task-board/owners/` の旧 owner state を `:terminated` にするため、待機していた旧 owner が marker 削除直後に lock を作ることもありません。
 
+SIGTERM 時の終了側の動作（BOXP-252）: `task-board-runner` は `tini` を PID 1 にし、bb runner を子として起動します。runner の shutdown hook は marker を書いた後、`setsid` で起動した agent CLI の process group に TERM を送り、`CODEX_TASK_BOARD_SHUTDOWN_AGENT_GRACE_SECONDS`（既定 20 秒、上限 45 秒）だけ待ってから残りを KILL します。進行中の run は終了側が `:interrupted`（reason `planned workspace shutdown`）で記録し、Task Board のレーン・frontmatter・Notes は変更せず、lock も解放しません。lock の回収は上記の次 Pod の marker 経路に任せるため、agent や remote 推論の終了を確認できないまま別 Pod が同じ run を二重に始めることはありません。終了予算は preStop 約 3 秒 + agent 猶予 20 秒 + finalize 5 秒で、開始済みの lifecycle commit（レーン・frontmatter・summary・lock の一連の書き込み）だけは hook 開始から `CODEX_TASK_BOARD_SHUTDOWN_COMMIT_BUDGET_SECONDS`（既定 45 秒、上限 55 秒）まで待ってから抜けるため、いずれも `terminationGracePeriodSeconds: 60` の内側です。lock と一致しなかった他 owner の marker は 1 時間後に `:terminated` にして削除されます。設計正本は Obsidian `Projects/codex-task-board-runner/graceful-shutdown/design.md` です。
+
 旧 image からの初回 rollout、SIGKILL、node 障害など shutdown hook と preStop の両方が実行されない場合は heartbeat を使います。stale timeout は 180 秒、poll は 30 秒なので、最後の heartbeat から通常 210 秒以内に lock を回収します。marker のない fresh lock、owner または instance が一致しない marker、現在の Pod UID が所有する planned-shutdown markerは回収しません。
 
 ### Rollout
@@ -88,6 +90,18 @@ lock の手動削除は、Deployment が 1 replica、旧 owner UID の Pod が�
 - Pod 再作成中の SSH / Even Terminal 切断と、agent session の非 live-migration
 - SIGKILL / node 障害など shutdown hook と preStop の両方が実行されない場合の 180 秒 heartbeat fallback
 
+## Novel Board runner
+
+`novel-board-runner` sidecar（BOXP-246）は `Boards/Novel Board.md` を読み、`assignee::localllm`（lolice の `local-llm` / llama-server `gemma4-26b`）や `claude-*` / `codex*` が割り当てられたカードだけを起動します。image の entrypoint が `CODEX_WORKSPACE_ROLE=novel-board-runner` で `/opt/codex-workspace/novel-board/novel_board_runner.bb loop` を起動し、runner を含まない image では idle するため、sidecar の追加と image 更新はどちらの順でも安全です。
+
+- state: `/home/boxp/.novel-board/`（0700。`work/NOVEL-N/` の原稿・挿絵、`runs/`、`locks/`、`published/`）。Task Board runner とは別 root で lock を共有しません。
+- lock / heartbeat / planned shutdown は Task Board runner と同じ方式です（`CODEX_NOVEL_BOARD_OWNER_ID` = Pod UID、stale 180 秒、poll 30 秒、`preStop` で `prepare-shutdown`）。
+- SIGTERM 時も Task Board runner と同じです（BOXP-252）: entrypoint が `tini -- novel_board_runner.bb loop` を起動し、hook が cloud agent の process group を TERM → `CODEX_NOVEL_BOARD_SHUTDOWN_AGENT_GRACE_SECONDS`（既定 20 秒）→ KILL、localllm の stream は閉じて `work/NOVEL-N/manuscript.partial.md` に部分出力を残します。部分出力は `manuscript.md` に昇格せず、lane / assignee / lock は次 Pod の marker 回収に任せます。llama-server 側の生成は停止を確認できないため終了側は再要求しません。
+- local-llm は `--parallel 1` のため runner も localllm カードを同時に1件しか走らせません。llama-server は `codex-workspace` の NetworkPolicy で既に egress 許可済みです（`networkpolicy.yaml`）。
+- 挿絵は `GEMINI_API_KEY` と home PVC 上の `~/.claude/skills/generate-image/generate-image.bb` で runner が生成します。
+- 確認: `kubectl -n codex-workspace logs deploy/codex-workspace -c novel-board-runner --tail=50`。起動時に `novel-board runner started, ... localllm=http://llama-server.local-llm.svc.cluster.local:8080/v1 model=gemma4-26b` が出ます。
+- rollback: この sidecar を deployment から削除するだけで停止します（`.novel-board` のデータは残す）。image の巻き戻しは不要です。
+
 ## Task Board Dashboard
 
 codex-workspace Pod に同居する読み取り専用 Dashboard です。Task Board runner が PVC 上へ出力する `/home/boxp/.codex-task-board` を読み、agent run とログを PC-98 風 UI で表示します。
@@ -116,13 +130,24 @@ Kubernetes 上では `codex-task-board-dashboard` ClusterIP Service の port 808
 
 - `kubectl kustomize argoproj/codex-workspace` で manifest を生成できること。
 - 空の `runs/` では `/api/runs` が空配列を返すこと。
-- 完了済み run fixture では `summary.edn` から ticket / run id / lane / status を表示できること。
+- 完了済み run fixture では `summary.edn` から ticket / run id / agent / lane / status を表示できること。`agent` がない旧runは `-` と表示すること。
 - 欠損ログでは log API が `missing: true` を返し、UI が missing 表示へフォールバックできること。
 - lock file がある run fixture では status が `running` になり、`events.jsonl` / `stderr.log` / `last-message.md` を offset 付きで読めること。
 
 ## Read-only boundary
 
 Dashboard サイドカーは `/home/boxp` PVC を `readOnly: true` で mount します。HTTP API は `GET` のみを受け付け、Task Board card、ticket file、run directory、lock file を変更しません。
+
+## Kohako G2 Board projection (BOXP-329)
+
+Dashboard サイドカーは別 port `8090`（Service `codex-task-board-kohako`）で、Kohako G2 BFF 向けの読み取り専用 projection だけを返します。
+
+- `GET /api/kohako/board`（schema `kohako-board/v1`）と `GET /healthz` のみ。他の path は 404、GET 以外は 405。既存 `:8080` の runs / log API はこの port から見えません。
+- 入力は vault（`KOHAKO_VAULT_ROOT`、既定 `/home/boxp/Documents/obsidian-headless/BOXP`）の `Boards/Task Board.md` と `Tickets/BOXP-N.md`。ID は `BOXP-数字` だけ、ファイルは 512KB まで読みます。
+- 返すのは In Progress → Blocked → Ready → Done（48 時間以内に更新）の最大 30 件と、id・title・lane・status・担当（カード / 票）と不一致 flag・priority・更新時刻・最新 Notes の時刻 / source・進捗 / 阻害 / 要判断の 80 字抜粋・読取エラーだけです。抜粋は URL の path / query、メール、`token` / `key` / `secret` / `password` の値、32 字以上の英数字列を `…` に置き換えます。阻害・要判断はキーワードによる推定です。
+- NetworkPolicy で `8090` への ingress は `even-g2-lab` の `app == 'even-g2-main'`（Kohako BFF sidecar）だけに許可します。
+- 試験: `python3 -B -m unittest tests/workflows/test_kohako_board_projection.py`（yq v4 が必要）。
+- コードは ConfigMap の `kohako_board.py` / `server.py` なので、反映は Pod の次の再起動（image 自動更新など）時です。
 
 ## Runner Kubernetes debug access
 
@@ -180,3 +205,9 @@ kubectl -n default exec deploy/some-target-outside-debug-scope -- id
 ```
 
 監査は kube-apiserver audit log で `user.username=system:serviceaccount:codex-workspace:codex-workspace` と `objectRef.subresource` (`exec`, `attach`, `log`, `ephemeralcontainers`) を確認します。Task Board 側の `/home/boxp/.codex-task-board/runs/{ticket}/{run}/events.jsonl`、`stderr.log`、`last-message.md` と突き合わせると、ticket/run 単位で誰がどの runner からどの Pod に操作したかを追えます。
+
+### Dashboard ConfigMap
+
+`task-board-dashboard` sidecar は `/app`（`dashboard-configmap.yaml`）を process 起動時にだけ読み込みます。ConfigMap volume は Pod 内で更新されますが、実行中の process には反映されません（BOXP-329 の Kohako Board projection `:8090` はこのため未稼働のままでした）。
+
+`dashboard-configmap.yaml` の `server.py` / `kohako_board.py` などを変更するときは、同じ PR で `deployment.yaml` の Pod template annotation `codex-workspace.boxp.tk/dashboard-config-revision` を更新し、上記の通常 Argo CD sync による計画 rollout で反映します。進行中の Task Board run は planned shutdown として `interrupted` 記録され、新 Pod が即時に再受付します。

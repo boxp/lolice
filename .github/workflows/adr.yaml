@@ -1,0 +1,21 @@
+---
+name: adr
+# ADR の構造検査と Rego lint。PR では chainsaw.yaml の adr job から呼び、status-check に集約する。
+# main への push でも実行し、main の状態を確認する。LLM は呼ばず secret も渡さない。
+on:
+  push:
+    branches: [main]
+  workflow_call:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  adr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: .regomark/check.sh

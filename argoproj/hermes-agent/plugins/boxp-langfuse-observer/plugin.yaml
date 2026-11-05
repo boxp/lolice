@@ -1,0 +1,14 @@
+name: boxp-langfuse-observer
+version: 0.1.0
+description: Sends in-scope Hermes and Kohako G2 delegation turns to the in-cluster Langfuse (BOXP-428). Secrets are removed first; loss is counted, never retried into the agent.
+author: boxp
+provides_hooks:
+  - pre_llm_call
+  - pre_api_request
+  - post_api_request
+  - api_request_error
+  - post_tool_call
+  - post_compaction
+  - subagent_stop
+  - post_llm_call
+  - on_session_end

@@ -5,6 +5,10 @@ metadata:
   namespace: even-g2-lab
 spec:
   type: ClusterIP
+  # BOXP-318: pinned because WARP clients reach this Service through a
+  # Cloudflare tunnel CIDR route to this exact IP (boxp/arch
+  # terraform/cloudflare/b0xp.io/even-g2-lab/tunnel.tf). Keep in sync.
+  clusterIP: 10.104.181.159
   selector:
     app: even-g2-main
   ports:

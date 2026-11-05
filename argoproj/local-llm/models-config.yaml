@@ -10,7 +10,7 @@ data:
     model = /models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
     ctx-size = 262144
     batch-size = 2048
-    ubatch-size = 1024
+    ubatch-size = 2048
     threads = 14
     threads-batch = 14
 
@@ -32,3 +32,136 @@ data:
     threads = 12
     threads-batch = 12
     reasoning-budget = 0
+
+    # BOXP-294: Qwen3.8-27B (HauhauCS Aggressive, Q4_K_P 17.92 GB, HF revision
+    # 993a5971, sha256 ba36dc3c…) as a selectable model next to gemma4-26b. The
+    # default model is unchanged; with --models-max 1 the router loads this one
+    # only when a request names it and unloads it again when another model is
+    # requested. No ctx-size here: in b11669 the router overlays its own CLI
+    # args (-c 262144, --parallel 1, -fa auto, --reasoning off, ...) on every
+    # preset, so a preset ctx-size would be ignored anyway. Measured on golyat-4
+    # with the live image through the router at ctx 262144: ~36 GB RSS alone
+    # (load ~2.5 min, decode ~3.5 tok/s, thinking off, Japanese ok).
+    # Sampler = publisher non-thinking recommendation; callers may override.
+    [qwen38-27b]
+    model = /models/boxp294-qwen38/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+    temp = 0.7
+    top-p = 0.8
+    top-k = 20
+    min-p = 0
+    presence-penalty = 1.5
+
+    # BOXP-337: Gemma4-31B (HauhauCS Balanced QAT, dense, Q4_K_M 18.69 GB, HF
+    # repo HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP revision
+    # 9654466e, sha256 71667f9e…) as a selectable model for the 26B-A4B vs 31B
+    # comparison. Same author, series and quant as gemma4-26b; the default
+    # model is unchanged and this preset is only loaded when a request names
+    # it (--models-max 1 unloads gemma4-26b meanwhile). batch / threads match
+    # gemma4-26b; ctx and the other router CLI args are overlaid as for every
+    # preset. ubatch is 512, not 2048: with 2048 the dense 31B (60 layers, 32
+    # heads) stalled the Arc 140T on an 8.3k-token prefill (i915 "Fence
+    # expiration time out", no progress for 19 min). Short prompts were fine.
+    # 512 is what the dense qwen38-27b uses for 34k-token prefills.
+    # No sampler here (same as gemma4-26b); callers pass it.
+    [gemma4-31b]
+    model = /models/boxp337-gemma4-31b/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    # BOXP-358: candidate, HF ornith-ai/Ornith-1.5-35B-A3B-GGUF revision
+    # 12393612, Q4_K_M 21.71 GB, sha256 42739874…. Base
+    # ornith-ai/Ornith-1.5-35B-A3B (qwen3_5_moe, mit). Selectable only;
+    # the default is unchanged and --models-max 1 loads it only when a request
+    # names it. Router overlays ctx 262144, --reasoning off, etc. as for every
+    # preset. ubatch 512 is conservative after the BOXP-337 i915 fence stalls
+    # with ubatch 2048 on a dense model. Callers pass the sampler.
+    [ornith15-35b-a3b]
+    model = /models/boxp358/ornith15-35b/Ornith-1.5-35B-Q4_K_M.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    # BOXP-358 batch 6 (Owner preferred Ornith-1.5 prose): HF
+    # junafinity/Ornith-1.5-35B-A3B-uncensored-GGUF-8bit revision 0cab5bc6,
+    # Q8_0 37.80 GB, sha256 d0cd5a65…. Third-party abliterated derivative of
+    # ornith-ai/Ornith-1.5-35B-A3B (not an official Ornith release; card says
+    # apache-2.0, base card says mit). Text only (mmproj not fetched). KV at
+    # the router ctx 262144 is ~5.4 GB f16 (10 full-attention layers), so
+    # weights + KV + buffers is ~45 GB (within the 55 GB per-candidate budget).
+    # Selectable only, same semantics as the presets above. Callers pass the sampler.
+    [ornith15-35b-a3b-uncensored]
+    model = /models/boxp358/ornith15-35b-uncensored/Ornith-1.5-35B-A3B-uncensored-Q8_0.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    # BOXP-358: largest-fit candidate, HF unsloth/Qwen3.5-122B-A10B-GGUF
+    # revision 51eab4d5, UD-Q2_K_XL 41.85 GB, sha256 be44a62a…. Base
+    # Qwen/Qwen3.5-122B-A10B (MoE 122B total / ~10B active, apache-2.0).
+    # Selectable only, same semantics as the presets above. Estimated
+    # weights + KV (12 full-attention layers, 262144 ctx) + buffers stay
+    # under the 55 GB per-candidate limit; memwatch unloads it below 12 GiB
+    # MemAvailable. Callers pass the sampler.
+    [qwen35-122b-a10b]
+    model = /models/boxp358/qwen35-122b-a10b/Qwen3.5-122B-A10B-UD-Q2_K_XL.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    # BOXP-358 batch 4 (coding axis, large MoE): HF unsloth/Qwen3-Coder-Next-GGUF
+    # revision ce09c67b, Q4_K_S 45.53 GB, sha256 95e490dd…. Base
+    # Qwen/Qwen3-Coder-Next (qwen3next hybrid, 80B total / ~3B active, 48 layers of
+    # which 12 full attention, 2 KV heads x 256, apache-2.0). KV at the router ctx
+    # 262144 is ~6.4 GB f16, so weights + KV + buffers is ~54.47 GB (within the
+    # 55 GB per-candidate budget). Selectable only, same semantics as the presets above.
+    # Callers pass the sampler.
+    [qwen3-coder-next]
+    model = /models/boxp358/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_S.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    # BOXP-358 batch 7 (newest large MoE): Qwen/Qwen3.8-Flash-Next (base rev
+    # de4b8e4d, qwen4exp, 125B MoE / ~6B active + 51B ngram/PLE embedding,
+    # license qwen-community-1.0). Reuses the GGUF that BOXP-336 already fetched
+    # and sha256-verified (ISTA-DASLab GSQ-RCO Q2_0 rev ed59f920; shard 1 37.62 GB
+    # sha256 69820c02…, shard 2 = PLE table 28.80 GB sha256 316b46f3…); no new
+    # download. BOXP-336 ran it with this image (all layers on SYCL0): ~37.5 GB
+    # device weights, the PLE table stays mmap'd on the CPU side. 48 layers of
+    # which 12 full attention, 2 KV heads x 256, so f16 KV at the router ctx
+    # 262144 is ~6.4 GB and the resident total is ~46 GB (within the 55 GB
+    # per-candidate budget). Selectable only, same semantics as the presets above.
+    # Callers pass the sampler.
+    # BOXP-336 ran in a standalone pod with mmap on (llama.cpp default). The
+    # Deployment sets LLAMA_ARG_MMAP=0 / LLAMA_ARG_LOAD_MODE=none for every
+    # child, which would read the 28.8 GB PLE table into RAM as well (~75 GB in
+    # total). This preset therefore passes --load-mode mmap, which the child
+    # receives as a CLI arg and which wins over the inherited env. With mmap on,
+    # the default --lazy-mode auto reads tensors larger than 4 GiB (the PLE
+    # table) from disk on demand instead of keeping them resident. Other presets
+    # keep the no-mmap behaviour. The first router load is measured with
+    # memwatch and unloaded if MemAvailable falls below 12 GiB.
+    [qwen38-flash-next]
+    model = /models/boxp336-strata/flash-next-q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf
+    load-mode = mmap
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
+
+    [nex-n25-mini]
+    model = /models/boxp358/nex-n25-mini/nex-agi_Nex-N2.5-mini-Q4_K_M.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14

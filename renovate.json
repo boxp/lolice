@@ -8,7 +8,36 @@
       "/\\.yaml$/"
     ]
   },
+  "argocd": {
+    "managerFilePatterns": [
+      "/^argoproj/tailscale-operator/application\\.yaml$/",
+      "/^argoproj/external-secrets-operator/application\\.yaml$/"
+    ]
+  },
   "customManagers": [
+    {
+      "customType": "regex",
+      "description": "ADR 検査のツール版。SHA-256 の更新が必要なので自動 merge しない",
+      "managerFilePatterns": [
+        "/^\\.regomark\\/tools\\.env$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\n[A-Z_]+_VERSION=(?<currentValue>\\S+)"
+      ],
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "ADR の意味検査で手動実行する claude CLI",
+      "managerFilePatterns": [
+        "/^\\.github\\/workflows\\/adr-judge\\.yaml$/"
+      ],
+      "matchStrings": [
+        "CLAUDE_CODE_VERSION: (?<currentValue>[0-9.]+)"
+      ],
+      "depNameTemplate": "@anthropic-ai/claude-code",
+      "datasourceTemplate": "npm"
+    },
     {
       "customType": "regex",
       "managerFilePatterns": [
@@ -21,6 +50,48 @@
       "depNameTemplate": "docker.io/cloudflare/cloudflared",
       "versioningTemplate": "docker",
       "currentValueTemplate": "{{currentValue}}"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "ADR 検査のツールは SHA-256 の更新が必要なので手動で merge する",
+      "matchFileNames": [
+        ".regomark/tools.env"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Group cloudflared digest pinning and image updates",
+      "matchManagers": [
+        "kubernetes"
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "docker.io/cloudflare/cloudflared"
+      ],
+      "pinDigests": true,
+      "groupName": "cloudflared image updates"
+    },
+    {
+      "matchManagers": [
+        "argocd"
+      ],
+      "matchPackageNames": [
+        "tailscale-operator"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "ESO chart updates require CRD migration and security boundary review (BOXP-223).",
+      "matchManagers": [
+        "argocd"
+      ],
+      "matchPackageNames": [
+        "external-secrets"
+      ],
+      "automerge": false
     }
   ],
   "major": {

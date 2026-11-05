@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: strata-server
+  annotations:
+    configmap.reloader.stakater.com/reload: "strata-server"
+spec:
+  # BOXP-383: 停止原因は SYCL Level Zero legacy adapter の command list 同期。
+  # SYCL_UR_USE_LEVEL_ZERO_V2=1 で解消（configmap 参照）。gpu.intel.com/i915 は node に 1 つしかなく、
+  # local-llm/llama-server と同時には動かせないため 0。再検証時は local-llm を止めてから 1 にする。
+  # BOXP-383 batch7 完了後に復帰。
+  # BOXP-417（現ハードの律速究明）の診断モード。local-llm を止めた上で 1。研究の終了時に 0 と通常 command へ戻す。
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: strata-server
+  template:
+    metadata:
+      labels:
+        app: strata-server
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      priorityClassName: gpu-workload-high
+      nodeSelector:
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      securityContext:
+        fsGroup: 1000
+        supplementalGroups:
+          - 44
+          - 110
+      containers:
+        - name: strata
+          # live の llama-server と同じ image（oneAPI / Level Zero runtime と python3 を使う）。
+          image: ghcr.io/boxp/arch/llama-sycl@sha256:f74b5341cc7702f1b1bb3b1286d148965dff40abfe6976425e3052f5b5c83f53
+          imagePullPolicy: IfNotPresent
+          workingDir: /s/src-4b9e05a2
+          # BOXP-417 診断モード: 試験プロセスは node 経由の exec から条件ごとに起動する。
+          # 通常モードの command は `python3 -m serve.server --engine strata --config /config/strata.json --host 127.0.0.1 --port 9137 --offline --no-api-key`。
+          command:
+            - sleep
+            - infinity
+          env:
+            - name: ZES_ENABLE_SYSMAN
+              value: "1"
+            - name: ONEAPI_DEVICE_SELECTOR
+              value: level_zero:gpu
+            - name: HOME
+              value: /tmp
+            - name: LD_LIBRARY_PATH
+              value: /s/engine
+            - name: STRATA_GGUF_PY
+              value: /s/gguf-py
+            - name: PYTHONPATH
+              value: /s/pydeps:/s/src-4b9e05a2
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "4"
+              memory: 40Gi
+              gpu.intel.com/i915: "1"
+            limits:
+              # BOXP-417 の間だけ 76GiB（BOXP-406 の UD-Q4 + MTP 実測 anon + shmem 67GiB）。MemAvailable<12GiB で試験を止める。復帰 PR で 56GiB へ戻す。
+              memory: 76Gi
+              gpu.intel.com/i915: "1"
+          volumeMounts:
+            - name: strata
+              mountPath: /s
+              readOnly: true
+            # BOXP-417: 既存 weights の読み取りと、永続の測定記録・隔離 build。
+            - name: models
+              mountPath: /m
+              readOnly: true
+            - name: work
+              mountPath: /w
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /logs
+      volumes:
+        - name: strata
+          hostPath:
+            path: /var/lib/local-llm/models/boxp336-strata
+            type: Directory
+        - name: models
+          hostPath:
+            path: /var/lib/local-llm/models
+            type: Directory
+        - name: work
+          hostPath:
+            path: /var/lib/local-llm/models/boxp417
+            type: Directory
+        - name: config
+          configMap:
+            name: strata-server
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}

@@ -12,17 +12,21 @@ spec:
       app: codex-workspace
   template:
     metadata:
+      annotations:
+        # Bump when dashboard-configmap.yaml changes: the dashboard sidecar only
+        # loads /app at process start. See README "Dashboard ConfigMap".
+        codex-workspace.boxp.tk/dashboard-config-revision: "BOXP-422-g2-results"
       labels:
         app: codex-workspace
     spec:
+      nodeSelector:
+       kubernetes.io/arch: amd64
       serviceAccountName: codex-workspace
       automountServiceAccountToken: false
-      nodeSelector:
-        kubernetes.io/arch: amd64
       terminationGracePeriodSeconds: 60
       initContainers:
         - name: fetch-ssh-keys
-          image: docker.io/curlimages/curl:8.21.0
+          image: docker.io/curlimages/curl:8.23.0
           command:
             - /bin/sh
             - -ec
@@ -51,8 +55,32 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+        # kubelet creates a missing subPath as root, which on a new PVC would stop UID 1000
+        # from writing there. Prepare the task-board-langfuse-exporter subPaths first;
+        # only the directories themselves are changed, never their existing contents.
+        - name: prepare-task-board-langfuse-dirs
+          image: docker.io/curlimages/curl:8.23.0
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for dir in .codex-task-board .claude .claude/projects .codex .codex/sessions; do
+                mkdir -p "/home/boxp/$dir"
+                chown -h 1000:1000 "/home/boxp/$dir"
+              done
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              add: ["CHOWN", "DAC_OVERRIDE"]
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
         - name: install-docker-cli
-          image: docker.io/docker:29.7.1-cli
+          image: docker.io/docker:29.9.3-cli
           command:
             - /bin/sh
             - -ec
@@ -239,7 +267,7 @@ spec:
             - name: home
               mountPath: /home/boxp
         - name: docker
-          image: docker.io/docker:29.7.1-dind
+          image: docker.io/docker:29.9.3-dind
           imagePullPolicy: IfNotPresent
           args:
             - dockerd
@@ -320,7 +348,13 @@ spec:
         - name: task-board-runner
           image: ghcr.io/boxp/arch/codex-workspace:latest
           imagePullPolicy: Always
+          # tini keeps PID 1 out of the runner (BOXP-252): orphaned agent children
+          # are reaped and SIGTERM reaches the runner, whose shutdown hook signals
+          # the agent process groups with a bounded grace (default 20s) before
+          # exiting well inside terminationGracePeriodSeconds.
           command:
+            - /usr/bin/tini
+            - --
             - /opt/codex-workspace/task-board/task_board_runner.bb
             - loop
           lifecycle:
@@ -342,6 +376,48 @@ spec:
               value: "30"
             - name: CODEX_TASK_BOARD_LOCK_STALE_SECONDS
               value: "180"
+            # BOXP-360: Hermes の metadata-only ledger (本文なし・opaque ID) を既存の SA 権限
+            # (hermes-agent namespace の Role codex-workspace-debug: pods/exec) で read-only に取り込み、
+            # runner の SLI 集計入力へ join する。上限付き (30s / 8MiB) で失敗時は前回 snapshot + stale 表示。
+            - name: CODEX_TASK_BOARD_AI_OPS_HERMES_LEDGER_COMMAND
+              value: "kubectl exec -n hermes-agent deploy/hermes-agent -c hermes-agent -- sh -c 'cat /opt/data/ai-ops/ledger/events-*.jsonl'"
+            # BOXP-282 (owner approval 2026-10-24): the localllm docs route may read
+            # every ordinary note of the vault. Hidden dirs, Tickets/Boards/Templates
+            # and its own proposals folder stay excluded by the runner, secret-looking
+            # lines are redacted on load, and the write roots are unchanged (pilot +
+            # Projects/task-board-localllm-docs/proposals only).
+            - name: CODEX_TASK_BOARD_LOCALLLM_READ_ROOTS
+              value: "."
+            # Default research corpus when a ticket declares no docs-sources
+            # (BOXP-290, owner decision 2026-10-24): the real setting folder, so a
+            # card needs only `assignee: localllm` and a plain-language request.
+            # Read permission stays vault-wide (READ_ROOTS above); only the default
+            # exploration target narrows. An explicit docs-sources still wins.
+            - name: CODEX_TASK_BOARD_LOCALLLM_DEFAULT_SOURCES
+              value: "ひとはこさんバース"
+            # Folders the model may pick a target / destination in by content search
+            # and write to only after the owner confirmed the Backlog groom plan
+            # (BOXP-296, owner decision 2026-10-25). DOCS_ROOTS (pilot) and the
+            # proposal root are unchanged; writes stay limited to the planned
+            # note / section, wrapped in unreviewed markers, backed up per run.
+            - name: CODEX_TASK_BOARD_LOCALLLM_CANON_ROOTS
+              value: "ひとはこさんバース"
+            # BOXP-379 (owner decision 2026-11-02): the creative default of the
+            # localllm docs route (groom / create / Review rewrite when a ticket
+            # sets no docs-model) is back to gemma4-26b, the router preset
+            # Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
+            # (ctx 262144, see argoproj/local-llm/models-config.yaml), which also
+            # equals the runner code default. BOXP-367 set ornith15-35b-a3b;
+            # that preset and the other BOXP-358 candidates stay served and
+            # selectable per ticket via docs-model. Kept explicit so the default
+            # is visible in GitOps.
+            - name: CODEX_TASK_BOARD_LOCALLLM_MODEL
+              value: gemma4-26b
+            # BOXP-367: limited local coding trial route (assignee localllm-coder,
+            # pi + llama.cpp provider only, no cloud fallback). Other routes and
+            # Board defaults are unchanged.
+            - name: CODEX_TASK_BOARD_LOCALLLM_CODER_MODEL
+              value: qwen3-coder-next
             - name: CODEX_TASK_BOARD_OWNER_ID
               valueFrom:
                 fieldRef:
@@ -392,8 +468,254 @@ spec:
             - name: kubernetes-api-token
               mountPath: /var/run/secrets/codex-workspace/k8s
               readOnly: true
+            # BOXP-367: llama.cpp provider config for the localllm-coder route
+            # (pi). The runner copies only this file into a run-local HOME.
+            - name: pi-config
+              mountPath: /etc/pi-agent-config
+              readOnly: true
+        # BOXP-428: isolate exporter inputs and reload the optional ingest key on every tick.
+        - name: task-board-langfuse-exporter
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /bin/bash
+            - -c
+            - |
+              child=""
+              trap 'if [ -n "$child" ]; then kill "$child" 2>/dev/null || :; wait "$child" 2>/dev/null || :; fi; exit 0' TERM INT
+              script=/opt/codex-workspace/task-board/langfuse_exporter.bb
+              keys=/var/run/secrets/langfuse
+              while :; do
+                if [ -f "$script" ] && [ -s "$keys/LANGFUSE_PUBLIC_KEY" ] && [ -s "$keys/LANGFUSE_SECRET_KEY" ]; then
+                  public_key=$(cat "$keys/LANGFUSE_PUBLIC_KEY")
+                  secret_key=$(cat "$keys/LANGFUSE_SECRET_KEY")
+                  if [ -n "$public_key" ] && [ -n "$secret_key" ]; then
+                    LANGFUSE_PUBLIC_KEY="$public_key" LANGFUSE_SECRET_KEY="$secret_key" timeout 900 nice -n 19 bb "$script" once &
+                    child=$!
+                    wait "$child" || :
+                    child=""
+                  fi
+                fi
+                sleep "$LANGFUSE_POLL_SECONDS" &
+                child=$!
+                wait "$child" || :
+                child=""
+              done
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: CODEX_TASK_BOARD_ROOT
+              value: /home/boxp/.codex-task-board
+            - name: CLAUDE_HOME
+              value: /home/boxp/.claude
+            - name: CODEX_HOME
+              value: /home/boxp/.codex
+            - name: LANGFUSE_URL
+              value: http://langfuse-web.langfuse.svc.cluster.local:3000
+            - name: LANGFUSE_POLL_SECONDS
+              value: "60"
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-grafana
+                  key: service-account-token
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "1Gi"
+          volumeMounts:
+            - name: home
+              subPath: .codex-task-board
+              mountPath: /home/boxp/.codex-task-board
+            - name: home
+              subPath: .claude/projects
+              mountPath: /home/boxp/.claude/projects
+              readOnly: true
+            - name: home
+              subPath: .codex/sessions
+              mountPath: /home/boxp/.codex/sessions
+              readOnly: true
+            - name: langfuse-ingest-key
+              mountPath: /var/run/secrets/langfuse
+              readOnly: true
+            - name: task-board-langfuse-tmp
+              mountPath: /tmp
+        - name: novel-board-runner
+          # Novel Board runner (BOXP-246). The image entrypoint starts
+          # /opt/codex-workspace/novel-board/novel_board_runner.bb loop for this
+          # role and idles if the image does not contain the runner yet.
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - '[ -x /opt/codex-workspace/novel-board/novel_board_runner.bb ] && exec /opt/codex-workspace/novel-board/novel_board_runner.bb prepare-shutdown || exit 0'
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: CODEX_WORKSPACE_ROLE
+              value: novel-board-runner
+            - name: CODEX_HOME
+              value: /home/boxp/.codex
+            - name: CODEX_NOVEL_BOARD_ROOT
+              value: /home/boxp/.novel-board
+            - name: CODEX_NOVEL_BOARD_VAULT
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: CODEX_NOVEL_BOARD_POLL_SECONDS
+              value: "30"
+            - name: CODEX_NOVEL_BOARD_LOCK_STALE_SECONDS
+              value: "180"
+            - name: CODEX_NOVEL_BOARD_OWNER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            # Existing local-llm (argoproj/local-llm): llama-server router,
+            # gemma4-26b preset, no API key, --parallel 1.
+            - name: CODEX_NOVEL_BOARD_LOCALLLM_BASE_URL
+              value: http://llama-server.local-llm.svc.cluster.local:8080/v1
+            - name: CODEX_NOVEL_BOARD_LOCALLLM_MODEL
+              value: gemma4-26b
+            - name: CODEX_NOVEL_BOARD_LOCALLLM_TIMEOUT_SECONDS
+              value: "1800"
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-gemini
+                  key: GEMINI_API_KEY
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "2Gi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+        # BOXP-270: Task Board -> Hermes event dispatcher. Reads the outbox the
+        # runner writes on the shared home PVC, signs and posts events to the
+        # internal Hermes webhook Service, and tracks processing completion.
+        # Only this container holds the HMAC secret; the runner never sees it.
+        - name: task-board-event-dispatcher
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          env:
+            - name: CODEX_WORKSPACE_ROLE
+              value: task-board-event-dispatcher
+            - name: HOME
+              value: /home/boxp
+            - name: CODEX_TASK_BOARD_ROOT
+              value: /home/boxp/.codex-task-board
+            - name: CODEX_TASK_BOARD_VAULT
+              value: /home/boxp/Documents/obsidian-headless/BOXP
+            - name: CODEX_TASK_BOARD_EVENT_WEBHOOK_URL
+              value: http://hermes-agent-webhook.hermes-agent.svc.cluster.local:8644/webhooks/task-board
+            - name: CODEX_TASK_BOARD_EVENT_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: codex-workspace-task-board-webhook
+                  key: secret
+            - name: CODEX_TASK_BOARD_EVENT_POLL_SECONDS
+              value: "30"
+            - name: CODEX_TASK_BOARD_EVENT_QUIET_HOURS
+              value: "2-9"
+            - name: CODEX_TASK_BOARD_EVENT_TIMEZONE
+              value: Asia/Tokyo
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "20m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+        # BOXP-360: read-only /metrics for the AI ops ledger exposition that the
+        # task-board runner writes (ai-ops/metrics.prom, enum labels only). Scraped
+        # by prometheus-k8s through the ai-ops-metrics ServiceMonitor.
+        - name: ai-ops-metrics
+          image: docker.io/python:3.15-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/server.py
+          ports:
+            - name: ai-ops-metrics
+              containerPort: 9464
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PORT
+              value: "9464"
+            - name: AI_OPS_METRICS_FILE
+              value: /home/boxp/.codex-task-board/ai-ops/metrics.prom
+            - name: AI_SUBSCRIPTION_METRICS_FILE
+              value: /home/boxp/.codex-task-board/ai-ops/subscription-usage.prom
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: ai-ops-metrics
+            periodSeconds: 30
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
+              readOnly: true
+            - name: ai-ops-metrics-app
+              mountPath: /app
+              readOnly: true
         - name: task-board-dashboard
-          image: docker.io/python:3.14-alpine
+          image: docker.io/python:3.15-alpine
           imagePullPolicy: IfNotPresent
           command:
             - python
@@ -479,3 +801,14 @@ spec:
         - name: dashboard-app
           configMap:
             name: codex-task-board-dashboard
+        - name: ai-ops-metrics-app
+          configMap:
+            name: codex-workspace-ai-ops-metrics
+        # Readable by the non-root sidecar; the volume is mounted only there.
+        - name: langfuse-ingest-key
+          secret:
+            secretName: langfuse-ingest-key
+            optional: true
+            defaultMode: 0444
+        - name: task-board-langfuse-tmp
+          emptyDir: {}

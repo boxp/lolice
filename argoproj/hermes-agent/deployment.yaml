@@ -13,6 +13,12 @@ spec:
     metadata:
       labels:
         app: hermes-agent
+      annotations:
+        # BOXP-270: the init container copies the Task Board webhook route
+        # from the ConfigMap into the PVC only at Pod start. Bump this value
+        # whenever task_board_webhook_route.json changes so Argo CD rolls
+        # the Pod and the new route definition takes effect.
+        boxp.io/task-board-webhook-route-revision: "2026-10-22T14:10Z-marker-fallback"
     spec:
       automountServiceAccountToken: false
       nodeSelector:
@@ -28,6 +34,7 @@ spec:
             - -c
             - |
               set -eu
+              install -d -o 1000 -g 10000 -m 2775 /tmp/task-board-locks
               mkdir -p /opt/data/scripts /opt/data/Documents/obsidian-headless/BOXP
               skill_dir=/opt/data/skills/note-taking/obsidian-task-board
               if [ ! -f /opt/data/.shared-uid-gid-migrated ]; then
@@ -48,6 +55,245 @@ spec:
                 chown -R 1000:10000 "$skill_dir"
                 chmod 0644 "$skill_dir/SKILL.md"
                 chmod 0755 "$skill_dir/bin/task-board.bb"
+              fi
+              # BOXP-270: register the task-board webhook route. The route has
+              # no secret of its own; the gateway validates it with the global
+              # WEBHOOK_SECRET env. Other dynamic subscriptions are preserved.
+              python3 - <<'PY'
+              import json, os
+              path = "/opt/data/webhook_subscriptions.json"
+              with open("/bootstrap/task_board_webhook_route.json") as fh:
+                  managed = json.load(fh)
+              subs = {}
+              if os.path.exists(path):
+                  try:
+                      with open(path) as fh:
+                          subs = json.load(fh) or {}
+                  except Exception:
+                      subs = {}
+              subs.update(managed)
+              tmp = path + ".tmp"
+              with open(tmp, "w") as fh:
+                  json.dump(subs, fh, ensure_ascii=False, indent=2)
+              os.chmod(tmp, 0o600)
+              os.chown(tmp, 1000, 10000)
+              os.replace(tmp, path)
+              PY
+              # BOXP-270: webhook sessions need read_file / terminal /
+              # session_search (default webhook toolset is web/vision only).
+              # Idempotent migration of the persisted config.yaml: append the
+              # block once, never rewrite the file (it carries hand-edited
+              # comments); warn when a different value is already present.
+              python3 - <<'PY'
+              import os
+              # BOXP-313: the Hermes v0.22.x image venv ships ruamel.yaml (via
+              # hermes_yaml), not PyYAML; the v0.18 image had PyYAML. Support both.
+              try:
+                  import yaml
+                  safe_load = yaml.safe_load
+              except ImportError:
+                  from ruamel.yaml import YAML
+                  safe_load = YAML(typ="safe", pure=True).load
+              path = "/opt/data/config.yaml"
+              want = ["terminal", "file", "session_search"]
+              with open(path) as fh:
+                  text = fh.read()
+              cfg = safe_load(text) or {}
+              current = (cfg.get("platform_toolsets") or {}).get("webhook")
+              if current == want:
+                  print("[bootstrap] platform_toolsets.webhook already configured")
+              elif "platform_toolsets" in cfg:
+                  print(f"[bootstrap] WARNING platform_toolsets.webhook is {current!r}, expected {want!r}; not rewriting config.yaml")
+              else:
+                  block = ("\n# BOXP-270: webhook sessions (Task Board event relay) get a toolset narrower\n"
+                           "# than Telegram: read tickets/runbook, run the task-board helper, recall sessions.\n"
+                           "platform_toolsets:\n  webhook:\n" + "".join(f"    - {t}\n" for t in want))
+                  tmp = path + ".tmp"
+                  with open(tmp, "w") as fh:
+                      fh.write(text.rstrip("\n") + "\n" + block)
+                  safe_load(open(tmp).read())
+                  st = os.stat(path)
+                  os.chown(tmp, st.st_uid, st.st_gid)
+                  os.chmod(tmp, st.st_mode & 0o777)
+                  os.replace(tmp, path)
+                  print("[bootstrap] appended platform_toolsets.webhook to config.yaml")
+              PY
+              # BOXP-332: install the managed user plugin on every bootstrap.
+              plugin_dir=/opt/data/plugins/kohako-g2-context
+              mkdir -p "$plugin_dir"
+              cp /bootstrap-plugins/kohako-g2-context/plugin.yaml /bootstrap-plugins/kohako-g2-context/__init__.py "$plugin_dir/"
+              chown 1000:10000 /opt/data/plugins "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              chmod 2775 /opt/data/plugins "$plugin_dir"
+              chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              # BOXP-360: metadata-only AI ops observer plugin and its ledger directory
+              # (the ai-ops-metrics sidecar mounts only this directory, read-only).
+              plugin_dir=/opt/data/plugins/boxp-ai-ops-observer
+              mkdir -p "$plugin_dir" /opt/data/ai-ops
+              cp /bootstrap-plugins/boxp-ai-ops-observer/plugin.yaml /bootstrap-plugins/boxp-ai-ops-observer/__init__.py "$plugin_dir/"
+              chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py" /opt/data/ai-ops
+              chmod 2775 "$plugin_dir" /opt/data/ai-ops
+              chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              # BOXP-387: Kohako G2 realtime mint plugin (API server route; uses the
+              # openai-codex sign-in through Hermes core, never reads a token).
+              plugin_dir=/opt/data/plugins/kohako-g2-realtime
+              mkdir -p "$plugin_dir"
+              cp /bootstrap-plugins/kohako-g2-realtime/plugin.yaml /bootstrap-plugins/kohako-g2-realtime/__init__.py "$plugin_dir/"
+              chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              chmod 2775 "$plugin_dir"
+              chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              # BOXP-428: Langfuse observer (sends in-scope delegation turns inside the cluster).
+              plugin_dir=/opt/data/plugins/boxp-langfuse-observer
+              mkdir -p "$plugin_dir"
+              cp /bootstrap-plugins/boxp-langfuse-observer/plugin.yaml /bootstrap-plugins/boxp-langfuse-observer/__init__.py "$plugin_dir/"
+              chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              chmod 2775 "$plugin_dir"
+              chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              # BOXP-332: enable the plugins without rewriting hand-edited YAML.
+              python3 - <<'PYCONFIG'
+              import os, re
+              try:
+                  import yaml
+                  safe_load = yaml.safe_load
+              except ImportError:
+                  from ruamel.yaml import YAML
+                  safe_load = YAML(typ="safe", pure=True).load
+              path = "/opt/data/config.yaml"
+              # BOXP-360: the same idempotent edit also enables the metadata-only AI ops observer.
+              for name, note in [("kohako-g2-context", "BOXP-332: owner-DM-only reference context from Kohako G2."),
+                                 ("boxp-ai-ops-observer", "BOXP-360: metadata-only AI ops ledger."),
+                                 ("kohako-g2-realtime", "BOXP-387: Kohako G2 realtime client-secret mint (openai-codex sign-in)."),
+                                 ("boxp-langfuse-observer", "BOXP-428: in-scope delegation turns to the in-cluster Langfuse.")]:
+                  with open(path) as fh:
+                      text = fh.read()
+                  cfg = safe_load(text) or {}
+                  plugins = cfg.get("plugins") if isinstance(cfg, dict) else None
+                  enabled = plugins.get("enabled") if isinstance(plugins, dict) else None
+                  if isinstance(enabled, list) and name in enabled:
+                      print(f"[bootstrap] {name} already enabled")
+                  else:
+                      lines = text.splitlines(keepends=True)
+                      headers = [i for i, line in enumerate(lines) if re.fullmatch(r"plugins:\s*(?:#.*)?\n?", line)]
+                      idx = None
+                      if isinstance(enabled, list) and len(headers) == 1:
+                          start = headers[0] + 1
+                          end = next((i for i in range(start, len(lines)) if re.match(r"[^\s#]", lines[i])), len(lines))
+                          matches = [i for i in range(start, end) if re.fullmatch(r"  enabled: *(?:\[\])? *(?:#.*)?\n?", lines[i])]
+                          if len(matches) == 1:
+                              idx = matches[0]
+                      new = None
+                      if "plugins" not in cfg and not headers:
+                          # Older persisted configs have no plugins block: append one.
+                          enabled = []
+                          new = text + ("" if text.endswith("\n") or not text else "\n") + \
+                              f"\n# {note}\nplugins:\n  enabled:\n    - {name}\n"
+                      elif idx is not None:
+                          line = lines[idx]
+                          if re.match(r"  enabled: *\[\]", line):
+                              lines[idx] = re.sub(r" *\[\]", "", line, count=1)
+                          lines.insert(idx + 1, f"    - {name}\n")
+                          new = "".join(lines)
+                      if new is None:
+                          print(f"[bootstrap] WARNING plugins.enabled has an unsupported shape; not enabling {name}")
+                      else:
+                          try:
+                              result = safe_load(new)
+                              assert result["plugins"]["enabled"] == [name] + enabled
+                          except Exception:
+                              print(f"[bootstrap] WARNING plugins.enabled edit did not validate; not enabling {name}")
+                          else:
+                              tmp = path + ".tmp"
+                              with open(tmp, "w") as fh:
+                                  fh.write(new)
+                              st = os.stat(path)
+                              os.chown(tmp, st.st_uid, st.st_gid)
+                              os.chmod(tmp, st.st_mode & 0o7777)
+                              os.replace(tmp, path)
+                              print(f"[bootstrap] enabled {name}")
+              PYCONFIG
+              # BOXP-332 M7: the API server (Kohako G2 BFF) gets file / session_search / skills /
+              # terminal (no MCP), and ONLY while the kohako-g2-context plugin with its
+              # pre_tool_call gate is installed and enabled: the gate blocks every tool in
+              # candidate and non-G2 API sessions and sends every non-read-only tool call in
+              # G2 sessions to the human-approval gate answered on G2. Otherwise fall back to
+              # [no_mcp] (no tools). Only a missing value or one of the managed values is
+              # rewritten; anything else is left alone with a warning. BOXP-420 adds `search`
+              # (web_search only, gated by the plugin; not reported by /v1/toolsets).
+              python3 - <<'PY'
+              import os
+              try:
+                  import yaml
+                  safe_load = yaml.safe_load
+              except ImportError:
+                  from ruamel.yaml import YAML
+                  safe_load = YAML(typ="safe", pure=True).load
+              NO_TOOLS = ["no_mcp"]
+              G2_TOOLS = ["no_mcp", "file", "session_search", "search", "skills", "terminal"]
+              PREVIOUS_G2_TOOLS = ["no_mcp", "file", "session_search", "skills", "terminal"]
+              path = "/opt/data/config.yaml"
+              with open(path) as fh:
+                  text = fh.read()
+              cfg = safe_load(text) or {}
+              plugins = cfg.get("plugins") if isinstance(cfg, dict) else None
+              enabled = plugins.get("enabled") if isinstance(plugins, dict) else None
+              try:
+                  with open("/opt/data/plugins/kohako-g2-context/__init__.py") as fh:
+                      gate = 'ctx.register_hook("pre_tool_call", _gate)' in fh.read()
+              except OSError:
+                  gate = False
+              gated = gate and isinstance(enabled, list) and "kohako-g2-context" in enabled
+              target = G2_TOOLS if gated else NO_TOOLS
+              pts = cfg.get("platform_toolsets")
+              current = pts.get("api_server") if isinstance(pts, dict) else None
+              block = "  # BOXP-332: Kohako G2 BFF via API server (tools gated by the kohako-g2-context plugin).\n  api_server:\n" + "".join(f"    - {t}\n" for t in target)
+              lines = text.splitlines(keepends=True)
+              new = None
+              if not isinstance(pts, dict):
+                  print(f"[bootstrap] WARNING platform_toolsets is {pts!r}; api_server not configured")
+              elif current == target:
+                  print(f"[bootstrap] platform_toolsets.api_server already {target}")
+              elif "api_server" not in pts:
+                  idx = next(i for i, l in enumerate(lines) if l.rstrip() == "platform_toolsets:")
+                  lines.insert(idx + 1, block)
+                  new = "".join(lines)
+              elif current in (NO_TOOLS, G2_TOOLS, PREVIOUS_G2_TOOLS):
+                  idx = next((i for i, l in enumerate(lines) if l.rstrip() == "  api_server:"), None)
+                  if idx is not None:
+                      first = idx - 1 if idx and lines[idx - 1].lstrip().startswith("# BOXP-332") else idx
+                      last = idx + 1
+                      while last < len(lines) and lines[last].startswith("    - "):
+                          last += 1
+                      if last - idx - 1 == len(current):
+                          lines[first:last] = [block]
+                          new = "".join(lines)
+                  if new is None:
+                      print("[bootstrap] WARNING platform_toolsets.api_server has an unsupported shape; not rewriting")
+              else:
+                  print(f"[bootstrap] WARNING platform_toolsets.api_server is {current!r}; not rewriting")
+              if new is not None:
+                  result = safe_load(new)
+                  assert result["platform_toolsets"]["api_server"] == target
+                  assert {k: v for k, v in result.items() if k != "platform_toolsets"} == {k: v for k, v in cfg.items() if k != "platform_toolsets"}
+                  assert {k: v for k, v in result["platform_toolsets"].items() if k != "api_server"} == {k: v for k, v in pts.items() if k != "api_server"}
+                  tmp = path + ".tmp"
+                  with open(tmp, "w") as fh:
+                      fh.write(new)
+                  st = os.stat(path)
+                  os.chown(tmp, st.st_uid, st.st_gid)
+                  os.chmod(tmp, st.st_mode & 0o7777)
+                  os.replace(tmp, path)
+                  print(f"[bootstrap] set platform_toolsets.api_server: {target}")
+              PY
+              # BOXP-332: API_SERVER_KEY comes from the Deployment env (Secret
+              # hermes-agent-api-server-key, shared only with the Kohako BFF). The
+              # upstream entrypoint auto-generated a key into /opt/data/.env while
+              # the env had none, and .env is loaded with override=True, so that
+              # unused value would shadow the managed key. Drop only that line.
+              if [ -f /opt/data/.env ] && grep -q '^API_SERVER_KEY=' /opt/data/.env; then
+                env_owner=$(stat -c '%u:%g' /opt/data/.env)
+                sed -i '/^API_SERVER_KEY=/d' /opt/data/.env
+                chown "$env_owner" /opt/data/.env
+                chmod 0600 /opt/data/.env
+                echo "[bootstrap] removed auto-generated API_SERVER_KEY from .env (managed key comes from env)"
               fi
               cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
               chmod 0755 /opt/data/scripts/quiet_gate.sh
@@ -91,6 +337,8 @@ spec:
               drop: ["ALL"]
               add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
             - name: data
               mountPath: /opt/data
             - name: config
@@ -100,6 +348,18 @@ spec:
             - name: config
               mountPath: /bootstrap
               readOnly: true
+            - name: kohako-g2-context-plugin
+              mountPath: /bootstrap-plugins/kohako-g2-context
+              readOnly: true
+            - name: boxp-ai-ops-observer-plugin
+              mountPath: /bootstrap-plugins/boxp-ai-ops-observer
+              readOnly: true
+            - name: kohako-g2-realtime-plugin
+              mountPath: /bootstrap-plugins/kohako-g2-realtime
+              readOnly: true
+            - name: boxp-langfuse-observer-plugin
+              mountPath: /bootstrap-plugins/boxp-langfuse-observer
+              readOnly: true
       containers:
         - name: hermes-agent
           image: ghcr.io/boxp/arch/hermes-agent:latest
@@ -108,20 +368,43 @@ spec:
             - gateway
             - run
           env:
+            # BOXP-332: only this Telegram owner can receive G2 reference context.
+            - name: KOHAKO_G2_CONTEXT_OWNER_TELEGRAM_USER_ID
+              value: "8202126858"
             - name: HERMES_UID
               value: "1000"
             - name: HERMES_GID
               value: "10000"
+            # BOXP-332: API server for the Kohako G2 BFF only (Service hermes-agent-api,
+            # NetworkPolicy hermes-agent-api-ingress = even-g2-main only). Toolsets are
+            # file/session_search/search/skills/terminal (no MCP) behind the kohako-g2-context
+            # pre_tool_call gate (set by bootstrap-config), and the BFF refuses to send
+            # unless /v1/toolsets reports exactly that set (`search` is not listed there).
             - name: API_SERVER_ENABLED
-              value: "false"
+              value: "true"
+            - name: API_SERVER_HOST
+              value: "0.0.0.0"
+            - name: API_SERVER_PORT
+              value: "8642"
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-api-server-key
+                  key: password
+            # BOXP-313: the dashboard binds loopback only (HERMES_DASHBOARD_HOST) and
+            # is reached through the cloudflared tunnel behind Cloudflare Access
+            # (arch terraform/cloudflare/b0xp.io/hermes-agent/access.tf), the same
+            # posture as before the v0.22.5 upgrade. HERMES_DASHBOARD_PUBLIC_URL must
+            # stay unset: on v0.22.x an operator-declared public URL engages the
+            # in-gateway auth gate and, without an auth provider, the gateway itself
+            # exits with SystemExit on every start. Adding a Hermes-side auth provider
+            # (basic auth / OAuth) is a separate approval; re-add the public URL with it.
             - name: HERMES_DASHBOARD
               value: "true"
             - name: HERMES_DASHBOARD_HOST
               value: "127.0.0.1"
             - name: HERMES_DASHBOARD_PORT
               value: "9119"
-            - name: HERMES_DASHBOARD_PUBLIC_URL
-              value: "https://hermes-agent.b0xp.io"
             - name: HOME
               value: /opt/data
             - name: OBSIDIAN_VAULT_PATH
@@ -134,6 +417,14 @@ spec:
               value: ornith-35b
             - name: HERMES_STREAM_READ_TIMEOUT
               value: "1800"
+            # BOXP-270: webhook platform (internal Service hermes-agent-webhook:8644).
+            - name: WEBHOOK_ENABLED
+              value: "true"
+            - name: WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-task-board-webhook
+                  key: password
             - name: OPENWEATHERMAP_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -152,12 +443,95 @@ spec:
               mountPath: /opt/data
             - name: data
               mountPath: /home/boxp
+            # BOXP-428: a volume, not env, so that a key created or rotated later reaches the running plugin.
+            - name: langfuse-ingest-key
+              mountPath: /etc/langfuse-ingest
+              readOnly: true
             - name: tmp
               mountPath: /tmp
             - name: config
               mountPath: /etc/gai.conf
               subPath: gai.conf
               readOnly: true
+        # BOXP-360: read-only /metrics for the observer plugin's exposition file. Mounts
+        # only the ai-ops directory of the data PVC (no sessions / config / memory).
+        - name: ai-ops-metrics
+          image: docker.io/python:3.15-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - /app/server.py
+          ports:
+            - name: ai-ops-metrics
+              containerPort: 9464
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PORT
+              value: "9464"
+            - name: AI_OPS_METRICS_FILE
+              value: /data/ai-ops/metrics.prom
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 10000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: ai-ops-metrics
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /data/ai-ops
+              subPath: ai-ops
+              readOnly: true
+            - name: ai-ops-metrics-app
+              mountPath: /app
+              readOnly: true
+        # BOXP-365: inject the Viewer token only into this sidecar, never into
+        # the Hermes container env, so its terminal/LLM cannot read it. Write tools
+        # are disabled, and so are the anonymous usage stats sent to Grafana Labs
+        # by default. After rollout, connect through the official interface:
+        # hermes mcp add grafana --url http://127.0.0.1:8000/mcp
+        - name: grafana-mcp
+          image: docker.io/grafana/mcp-grafana:2.2.0@sha256:697336440e34878f8e0b26a69675db8d7e97b4d0daec25ec5441c85ac6c60e81
+          imagePullPolicy: IfNotPresent
+          command: ["/app/mcp-grafana"]
+          args: ["-t", "streamable-http", "--address", "127.0.0.1:8000", "--usage-stats=disabled", "--disable-write", "--enabled-tools", "search,datasource,prometheus,loki,dashboard,folder,alerting,annotations"]
+          env:
+            - name: GRAFANA_URL
+              value: http://grafana.monitoring.svc.cluster.local:3000
+            - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-grafana
+                  key: service-account-token
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 10000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
         - name: obsidian-sync
           image: ghcr.io/boxp/arch/hermes-agent:latest
           imagePullPolicy: IfNotPresent
@@ -193,7 +567,7 @@ spec:
             - name: data
               mountPath: /home/boxp
         - name: cloudflared
-          image: docker.io/cloudflare/cloudflared:2026.7.3@sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf
+          image: docker.io/cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
           imagePullPolicy: IfNotPresent
           args:
             - tunnel
@@ -238,6 +612,27 @@ spec:
         - name: config
           configMap:
             name: hermes-agent-config
+        - name: kohako-g2-context-plugin
+          configMap:
+            name: hermes-agent-kohako-g2-context-plugin
+        - name: boxp-ai-ops-observer-plugin
+          configMap:
+            name: hermes-agent-boxp-ai-ops-observer-plugin
+        - name: kohako-g2-realtime-plugin
+          configMap:
+            name: hermes-agent-kohako-g2-realtime-plugin
+        - name: boxp-langfuse-observer-plugin
+          configMap:
+            name: hermes-agent-boxp-langfuse-observer-plugin
+        # BOXP-428: optional so that a missing ingest key leaves the plugin idle, not the Pod down.
+        - name: langfuse-ingest-key
+          secret:
+            secretName: langfuse-ingest-key
+            optional: true
+            defaultMode: 0440
+        - name: ai-ops-metrics-app
+          configMap:
+            name: hermes-agent-ai-ops-metrics
         - name: tmp
           emptyDir:
             sizeLimit: 2Gi

@@ -1,0 +1,21 @@
+# The public inference entry stays reachable. Observation (including the fixed
+# rate-limited restore probe) is private to the controller and monitoring.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: llama-server-observation
+spec:
+  selector: app == 'llama-server'
+  types:
+    - Ingress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports: [8080]
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name in {'codex-workspace', 'monitoring'}
+      destination:
+        ports: [9901]

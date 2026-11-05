@@ -7,6 +7,7 @@ spec:
   selector: app == 'even-g2-main'
   types:
     - Ingress
+    - Egress
   ingress:
     - action: Allow
       protocol: TCP
@@ -16,3 +17,61 @@ spec:
       destination:
         ports:
           - 8080
+          # BOXP-328: Kohako G2 published route (Service kohako-g2-web).
+          - 8081
+  # BOXP-329: egress for the kohako-bff sidecar only (nginx needs none):
+  # DNS, the Access team domain JWKS over HTTPS, and the read-only Board projection.
+  egress:
+    - action: Allow
+      protocol: UDP
+      # Calico defaults an empty source; keep it explicit so Argo CD SSA stays in sync.
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'codex-workspace'
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        ports:
+          - 8090
+    # BOXP-332: kohako-bff -> Hermes API server (Runs API, bearer key).
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'hermes-agent'
+        namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
+        ports:
+          - 8642
+    # BOXP-332 (M5): kohako-bff -> whisper.cpp STT (same namespace, in-cluster only).
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'kohako-stt'
+        ports:
+          - 8080
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        notNets:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+          - 192.178.0.0/16
+        ports:
+          - 443

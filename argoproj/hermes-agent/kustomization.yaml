@@ -7,8 +7,38 @@ resources:
   - configmap.yaml
   - pvc.yaml
   - external-secret-cloudflared.yaml
+  - external-secret-grafana.yaml
   - external-secret-openweathermap.yaml
+  - external-secret-task-board-webhook.yaml
+  - rbac-task-board-webhook.yaml
+  - service-webhook.yaml
+  - external-secret-api-server-key.yaml
+  - external-secret-langfuse-ingest-key.yaml
+  - rbac-api-server-key.yaml
+  - service-api.yaml
   - deployment.yaml
   - rbac.yaml
   - networkpolicy.yaml
-  - oauth-egress-check-job.yaml
+  - service-ai-ops-metrics.yaml
+  - servicemonitor-ai-ops-metrics.yaml
+
+configMapGenerator:
+  - name: hermes-agent-kohako-g2-context-plugin
+    files:
+      - plugins/kohako-g2-context/plugin.yaml
+      - plugins/kohako-g2-context/__init__.py
+  - name: hermes-agent-boxp-ai-ops-observer-plugin
+    files:
+      - plugins/boxp-ai-ops-observer/plugin.yaml
+      - plugins/boxp-ai-ops-observer/__init__.py
+  - name: hermes-agent-kohako-g2-realtime-plugin
+    files:
+      - plugins/kohako-g2-realtime/plugin.yaml
+      - plugins/kohako-g2-realtime/__init__.py
+  - name: hermes-agent-boxp-langfuse-observer-plugin
+    files:
+      - plugins/boxp-langfuse-observer/plugin.yaml
+      - plugins/boxp-langfuse-observer/__init__.py
+  - name: hermes-agent-ai-ops-metrics
+    files:
+      - ai-ops-metrics/server.py

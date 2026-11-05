@@ -16,7 +16,7 @@ spec:
             kustomize:
               name: "839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main"
   writeBackConfig:
-    method: "git:secret:argocd/repo-lolice"
+    method: "git:secret:argocd/repo-lolice-github-app"
     gitConfig:
-      repository: "git@github.com:boxp/lolice.git"
+      repository: "https://github.com/boxp/lolice.git"
       branch: "main"

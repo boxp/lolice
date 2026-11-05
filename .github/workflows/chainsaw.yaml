@@ -1,0 +1,644 @@
+name: Manifest Validation
+
+# paths フィルタは付けない (BOXP-266)。main の ruleset で `status-check` を required status check に
+# しているため、docs-only の PR でも必ずこの workflow が走って status-check が報告される必要がある。
+# 重い chainsaw (kind) は detect job が変更ファイルから対象 component を選んだときだけ動く。
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      components: ${{ steps.detect.outputs.components }}
+      has_tests: ${{ steps.detect.outputs.has_tests }}
+      renovate_config_changed: ${{ steps.detect.outputs.renovate_config_changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed components with chainsaw tests
+        id: detect
+        run: |
+          git fetch origin main
+          git diff --name-only origin/main..HEAD > /tmp/changed_files.txt
+          echo "Changed files:"
+          cat /tmp/changed_files.txt
+
+          COMPONENTS=$(python3 << 'PYEOF'
+          import json, os
+
+          with open('/tmp/changed_files.txt') as f:
+              changed = [l.strip() for l in f if l.strip()]
+
+          required_components = {
+              'argocd',
+              'external-secrets-operator',
+              'grafana-alloy',
+              'kube-vip',
+              'codex-workspace',
+          }
+          components = set()
+          for filepath in changed:
+            parts = filepath.split('/')
+            if len(parts) >= 2:
+              if parts[0] == 'argoproj' and os.path.isdir(f'tests/chainsaw/{parts[1]}'):
+                  # codex-workspace は image updater の .argocd-source-*.yaml と文書だけの
+                  # 変更では kind を起動しない (static-policy の参照検査は常に走る)。
+                  name = os.path.basename(filepath)
+                  if parts[1] == 'codex-workspace' and (name.startswith('.argocd-source-') or name.endswith('.md')):
+                      continue
+                  components.add(parts[1])
+              elif len(parts) >= 3 and parts[0] == 'tests' and parts[1] == 'chainsaw':
+                  components.add(parts[2])
+              elif filepath.startswith('tests/workflows/') or filepath in {
+                  '.github/workflows/chainsaw.yaml',
+                  '.github/workflows/chainsaw-preflight.yaml',
+              }:
+                  # A workflow edit can change every component's execution
+                  # semantics.  It therefore runs the full normal-CI set;
+                  # this is separate from the immutable-image preflight.
+                  components.update(required_components)
+          print(json.dumps(sorted(components)))
+          PYEOF
+          )
+
+          echo "Detected components: $COMPONENTS"
+          echo "components=$COMPONENTS" >> $GITHUB_OUTPUT
+
+          if [ "$COMPONENTS" = "[]" ]; then
+            echo "has_tests=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_tests=true" >> $GITHUB_OUTPUT
+          fi
+
+          if grep -qx 'renovate.json' /tmp/changed_files.txt; then
+            echo "renovate_config_changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "renovate_config_changed=false" >> $GITHUB_OUTPUT
+          fi
+
+  # 静的ゲート (BOXP-266): kustomize render + Rego (conftest) + workflow の unit test。
+  # kind を使わないので数十秒で終わる。chainsaw とは並列に走らせ、結果は status-check で集約する。
+  static-policy:
+    needs: detect
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      KUSTOMIZE_VERSION: v5.7.1
+      KUSTOMIZE_SHA256: ea375e7372f9aa029129d4b2d16c66b7750b7f1213c4f66f910d981c895818d8
+      CONFTEST_VERSION: 0.71.1
+      CONFTEST_SHA256: c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install kustomize and conftest
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          echo "${KUSTOMIZE_SHA256}  kustomize.tar.gz" | sha256sum -c -
+          tar -xzf kustomize.tar.gz kustomize
+          sudo install -m 555 kustomize /usr/local/bin/kustomize
+          rm kustomize kustomize.tar.gz
+          curl -fsSL --retry 3 -o conftest.tar.gz \
+            "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+          echo "${CONFTEST_SHA256}  conftest.tar.gz" | sha256sum -c -
+          tar -xzf conftest.tar.gz conftest
+          sudo install -m 555 conftest /usr/local/bin/conftest
+          rm conftest conftest.tar.gz
+          kustomize version
+          conftest --version
+          yq --version
+
+      - name: Workflow unit tests (tests/workflows)
+        run: python3 -B -m unittest discover -s tests/workflows -v
+
+      - name: Rego policy unit tests (conftest verify)
+        run: |
+          set -euo pipefail
+          conftest verify --no-color -p policy/kubernetes
+          conftest verify --no-color -p policy/kustomize
+          conftest verify --no-color -p policy/references
+
+      - name: Render manifests and run Rego policy (conftest test)
+        run: scripts/static-manifest-check.sh
+
+  # renovate.json を変更する PR だけ、Renovate 本体の validator で設定を strict 検証する。
+  renovate-config-validator:
+    needs: detect
+    if: needs.detect.outputs.renovate_config_changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: renovate-config-validator --strict
+        # `npx renovate ...` だと renovate 本体が起動してしまうので --package + -c で validator を呼ぶ
+        run: npx --yes --package renovate@44.176.2 -c "renovate-config-validator --strict renovate.json"
+
+  chainsaw:
+    needs: detect
+    if: needs.detect.outputs.has_tests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      REPO_ROOT: ${{ github.workspace }}
+      CHAINSAW_KIND_CONTEXT: kind-chainsaw-test
+      CHAINSAW_NETWORK_POLICY_TEST: "true"
+      CALICO_VERSION: v3.33.0
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          # v0.33.0 writes kubeadm v1beta4 for Kubernetes >= 1.36.
+          # v0.31.0 used v1beta3, removed by Kubernetes 1.37.
+          version: v0.33.0
+          kubectl_version: v1.37.2
+          node_image: kindest/node:v1.37.0
+          cluster_name: chainsaw-test
+          config: tests/chainsaw/argocd/kind-config.yaml
+          # kind-config は disableDefaultCNI のため、Calico を入れるまでノードは Ready に
+          # ならない。既定の wait (60s) は毎回タイムアウトして 60 秒を捨てるだけなので待たない。
+          # ノードの Ready は Calico 導入後に "Apply component manifests" で待つ。
+          wait: 0s
+
+      - name: Export and verify isolated kubeconfig
+        run: |
+          set -euo pipefail
+          CHAINSAW_KIND_KUBECONFIG="$RUNNER_TEMP/chainsaw-kind-kubeconfig"
+          kind export kubeconfig --name "${CHAINSAW_KIND_CONTEXT#kind-}" --kubeconfig "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          echo "CHAINSAW_KIND_KUBECONFIG=$CHAINSAW_KIND_KUBECONFIG" >> "$GITHUB_ENV"
+
+      - name: Install chainsaw
+        uses: kyverno/action-install-chainsaw@v0.2.15
+        with:
+          verify: false
+
+      - name: Install kustomize
+        run: |
+          KUSTOMIZE_VERSION=v5.7.1
+          curl -sSL -o kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar -xzf kustomize.tar.gz kustomize
+          sudo install -m 555 kustomize /usr/local/bin/kustomize
+          rm kustomize kustomize.tar.gz
+          kustomize version
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v5
+
+      - name: Install Helm (for CRD extraction)
+        uses: azure/setup-helm@v5
+        with:
+          version: latest
+
+      - name: Install Calico NetworkPolicy enforcing CNI
+        run: |
+          set -euo pipefail
+          export KUBECONFIG="${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
+          # ここではリソースを作るだけで Pod の起動は待たない。Calico の起動 (約 50 秒) は
+          # CRD / マニフェスト適用と並行して進め、"Apply component manifests" の中で待つ。
+          # operator.tigera.io の CRD は tigera-operator が起動時に作るため、Installation 等の
+          # custom-resources.yaml は Apply step の冒頭で CRD を待ってから作る。
+          mkdir -p "$RUNNER_TEMP/calico"
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/calico/calico-crds.yaml" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/v3_projectcalico_org.yaml"
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/calico/tigera-operator.yaml" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/tigera-operator.yaml"
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/calico/custom-resources.yaml" "https://raw.githubusercontent.com/projectcalico/calico/${CALICO_VERSION}/manifests/custom-resources.yaml"
+          kubectl create -f "$RUNNER_TEMP/calico/calico-crds.yaml"
+          kubectl create -f "$RUNNER_TEMP/calico/tigera-operator.yaml"
+
+      - name: Build manifests and prefetch container images (background)
+        env:
+          COMPONENTS: ${{ needs.detect.outputs.components }}
+        run: |
+          set -euo pipefail
+          # 1. 各 component の kustomize build をここで 1 回だけ行い、ファイルに残す。
+          #    argocd base など remote resource の取得 (kustomize 内部 27s タイムアウト) を、
+          #    この後始まるイメージ pull と帯域で競合させないため、pull の開始前に済ませる。
+          MANIFEST_DIR="$RUNNER_TEMP/manifests"
+          mkdir -p "$MANIFEST_DIR"
+          echo "MANIFEST_DIR=$MANIFEST_DIR" >> "$GITHUB_ENV"
+          kustomize_build() {
+            local attempt
+            for attempt in 1 2 3; do
+              if kustomize build "$@"; then return 0; fi
+              echo "kustomize build $* に失敗 (attempt ${attempt}/3)" >&2
+              [ "$attempt" -lt 3 ] && sleep 5
+            done
+            return 1
+          }
+          for COMPONENT in $(echo "$COMPONENTS" | python3 -c "import sys,json; print('\\n'.join(json.load(sys.stdin)))"); do
+            case "$COMPONENT" in
+              argocd)
+                kustomize_build argoproj/argocd/ > "$MANIFEST_DIR/argocd.yaml"
+                # repoのbase単体にはcluster RBACが含まれない。
+                # 隔離kindのみ同版upstream標準install相当のRBACを補完する。
+                ARGOCD_BASE_REF=$(yq '.resources[] | select(contains("argo-cd/manifests/base?ref=")) | split("?ref=")[1]' argoproj/argocd/kustomization.yaml)
+                test -n "$ARGOCD_BASE_REF"
+                kustomize_build "github.com/argoproj/argo-cd/manifests/cluster-rbac?ref=$ARGOCD_BASE_REF" > "$MANIFEST_DIR/argocd-cluster-rbac.yaml"
+                ;;
+              external-secrets-operator)
+                kustomize_build argoproj/external-secrets-operator/manifests/ > "$MANIFEST_DIR/external-secrets-operator.yaml"
+                ;;
+              kube-vip|grafana-alloy|codex-workspace)
+                kustomize_build "argoproj/$COMPONENT/" > "$MANIFEST_DIR/$COMPONENT.yaml"
+                ;;
+            esac
+          done
+          ls -l "$MANIFEST_DIR"
+
+          # 2. ジョブの壁時間の大半はコンテナイメージの取得。Pod の作成を待たずに、Calico の起動や
+          #    CRD / マニフェスト適用と並行してノード内 containerd へ先に pull しておく。
+          #    best effort (失敗しても kubelet が通常どおり pull する)。結果は最後の step で表示する。
+          PREFETCH_LOG="$RUNNER_TEMP/prefetch-images.log"
+          echo "PREFETCH_LOG=$PREFETCH_LOG" >> "$GITHUB_ENV"
+          export MANIFEST_DIR TIGERA_OPERATOR_MANIFEST="$RUNNER_TEMP/calico/tigera-operator.yaml"
+          nohup bash -c '
+            "$REPO_ROOT/tests/workflows/kind-ci-images.sh" "$COMPONENTS" \
+              | tee "$RUNNER_TEMP/prefetch-images.tsv" \
+              | "$REPO_ROOT/tests/workflows/kind-prefetch-images.sh" "${CHAINSAW_KIND_CONTEXT#kind-}"
+          ' > "$PREFETCH_LOG" 2>&1 &
+          echo "image prefetch started in background (pid $!, log: $PREFETCH_LOG)"
+
+      - name: Apply component manifests to kind cluster
+        env:
+          COMPONENTS: ${{ needs.detect.outputs.components }}
+        run: |
+          set -euo pipefail
+          export KUBECONFIG="${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
+          DEFERRED_DIR="$RUNNER_TEMP/deferred-manifests"
+          mkdir -p "$DEFERRED_DIR"
+          has_component() {
+            echo "$COMPONENTS" | python3 -c "import sys,json; sys.exit(0 if '$1' in json.load(sys.stdin) else 1)" 2>/dev/null
+          }
+          # マニフェストは前の step で kustomize build 済み ($MANIFEST_DIR)。
+          : "${MANIFEST_DIR:?MANIFEST_DIR is required}"
+
+          # 入力の検証はクラスタ操作より前に済ませる (固定版でない chart 版は何もせず失敗)。
+          NEEDS_ESO=false
+          if has_component external-secrets-operator || has_component argocd; then
+            NEEDS_ESO=true
+            ESO_CHART_VERSION="$(yq -r '.spec.sources[] | select(.chart == "external-secrets") | .targetRevision' "${REPO_ROOT}/argoproj/external-secrets-operator/application.yaml")"
+            [[ "$ESO_CHART_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo 'ESO targetRevision must be a fixed chart version.' >&2
+              exit 1
+            }
+          fi
+
+          # ---- フェーズ 0: tigera-operator が CRD を作り次第 Calico の Installation を作る ----
+          # (バックグラウンド。フェーズ 2 の冒頭で終了を待つ)
+          CALICO_CR_LOG="$RUNNER_TEMP/calico-custom-resources.log"
+          (
+            set -euo pipefail
+            for attempt in $(seq 1 60); do
+              if kubectl get crd installations.operator.tigera.io >/dev/null 2>&1; then break; fi
+              sleep 2
+            done
+            kubectl wait --for=condition=established --timeout=60s \
+              crd/installations.operator.tigera.io crd/apiservers.operator.tigera.io \
+              crd/goldmanes.operator.tigera.io crd/whiskers.operator.tigera.io
+            kubectl create -f "$RUNNER_TEMP/calico/custom-resources.yaml"
+          ) > "$CALICO_CR_LOG" 2>&1 &
+          CALICO_CR_PID=$!
+
+          # ---- フェーズ 1: Calico の起動を待たずに作れるものを全部作る --------------------
+          # Pod はノードが Ready になるまで Pending のままだが、イメージ pull は
+          # 事前の pre-pull で進んでおり、Ready になった瞬間に起動できる。
+
+          # 1. ESO を先に Helm でインストール（ArgoCD より前に実施することでCRD衝突を回避）
+          ESO_INSTALLED=false
+          if [ "$NEEDS_ESO" = true ]; then
+            echo "=== ESO を Helm でインストール（CRD を Helm labels 付きでインストール） ==="
+            helm repo add external-secrets https://charts.external-secrets.io --force-update
+            kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
+            # --wait は付けない (CNI 待ちと直列になる)。Deployment の Available と
+            # webhook 依存リソースの適用はフェーズ 2 で行う。
+            helm install external-secrets external-secrets/external-secrets \
+              --version "$ESO_CHART_VERSION" --namespace external-secrets --timeout 180s
+            ESO_INSTALLED=true
+            # webhook Pod は起動時に /tmp/certs/tls.crt を 10s ごとに探すが、cert-controller が
+            # Secret を書く前に起動した Pod はマウント済み Secret の反映を待ち続け、Ready まで
+            # 60〜80s かかる (CI 実測: 31s / 80s / 再起動して 57s)。証明書が揃うまで webhook を
+            # 0 replica にしておき、フェーズ 3 で元の replica 数に戻す。
+            ESO_WEBHOOK_REPLICAS="$(kubectl get deployment external-secrets-webhook -n external-secrets -o jsonpath='{.spec.replicas}')"
+            kubectl scale deployment/external-secrets-webhook -n external-secrets --replicas=0
+            echo "ESO インストール (Helm release 作成) 完了"
+          fi
+
+          # 2. ArgoCD CRD インストール（Application CR に必要）
+          echo "=== ArgoCD CRD インストール ==="
+          curl -sL "https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.2/manifests/install.yaml" \
+            | yq 'select(.kind == "CustomResourceDefinition")' \
+            | kubectl apply --server-side --force-conflicts -f -
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          kubectl wait --for=condition=established --timeout=120s crd --all
+          echo "CRD インストール完了"
+
+          # external-secrets.io 系リソース (ExternalSecret / ClusterSecretStore など) は ESO の
+          # validating webhook が応答できるまで apply できないので、フェーズ 2 に回す。
+          IS_ESO_RESOURCE='((.apiVersion // "") | test("external-secrets[.]io/"))'
+          for COMPONENT in $(echo "$COMPONENTS" | python3 -c "import sys,json; print('\\n'.join(json.load(sys.stdin)))"); do
+            echo "=== コンポーネント $COMPONENT のマニフェストをクラスターに適用 ==="
+            case "$COMPONENT" in
+              argocd)
+                yq "select(${IS_ESO_RESOURCE} | not)" "$MANIFEST_DIR/argocd.yaml" \
+                  | kubectl apply --server-side --force-conflicts -f -
+                yq "select(${IS_ESO_RESOURCE})" "$MANIFEST_DIR/argocd.yaml" > "$DEFERRED_DIR/argocd-eso.yaml"
+                # 隔離kindのみ同版upstream標準install相当のcluster RBACを補完する (前の step でビルド済み)。
+                kubectl apply --server-side --force-conflicts -f - < "$MANIFEST_DIR/argocd-cluster-rbac.yaml"
+                ;;
+              external-secrets-operator)
+                echo "ESO は上記で既にインストール済み。ClusterSecretStore overlay は ESO webhook 起動後に適用"
+                cp "$MANIFEST_DIR/external-secrets-operator.yaml" "$DEFERRED_DIR/external-secrets-operator-eso.yaml"
+                ;;
+              codex-workspace)
+                echo "codex-workspace suite が最小マニフェストを適用します"
+                ;;
+              kube-vip)
+                kubectl apply --server-side --force-conflicts -f - < "$MANIFEST_DIR/kube-vip.yaml"
+                ;;
+              grafana-alloy)
+                # ServiceMonitor CRD は本番の kube-prometheus (argoproj/prometheus-operator)
+                # と同じ prometheus-operator 版から取得する。Alloy 本体の Helm install と
+                # Loki fixture は tests/chainsaw/grafana-alloy/log-pipeline.sh が行う。
+                KUBE_PROM_REF="$(yq '.resources[] | select(contains("kube-prometheus?ref=")) | split("?ref=")[1]' argoproj/prometheus-operator/kustomization.yaml)"
+                test -n "$KUBE_PROM_REF"
+                PROM_OPERATOR_VERSION="$(curl -fsSL "https://raw.githubusercontent.com/prometheus-operator/kube-prometheus/${KUBE_PROM_REF}/jsonnet/kube-prometheus/versions.json" | yq -r '.prometheusOperator')"
+                [[ "$PROM_OPERATOR_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+                  echo 'kube-prometheus versions.json から prometheusOperator の版を取得できませんでした' >&2
+                  exit 1
+                }
+                kubectl apply --server-side --force-conflicts -f \
+                  "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v${PROM_OPERATOR_VERSION}/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml"
+                kubectl wait --for=condition=established --timeout=60s crd/servicemonitors.monitoring.coreos.com
+                kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+                # Application はここでは適用しない。argocd suite が先に起動する本物の Argo CD が
+                # automated sync で Alloy chart を展開してしまい、suite 内の helm install と
+                # 所有権が衝突する。suite の最後 (apply-application-yaml) で適用する。
+                yq 'select(.kind != "Application")' "$MANIFEST_DIR/grafana-alloy.yaml" \
+                  | kubectl apply --server-side --force-conflicts -f -
+                ;;
+              *)
+                echo "コンポーネント $COMPONENT の事前適用処理なし（スキップ）"
+                ;;
+            esac
+          done
+
+          # ---- フェーズ 2: Calico (CNI) の起動とノード Ready を待つ ----------------------
+          echo "=== Calico の起動待ち ==="
+          wait "$CALICO_CR_PID" || { echo "Calico custom-resources の作成に失敗しました" >&2; cat "$CALICO_CR_LOG" >&2; exit 1; }
+          cat "$CALICO_CR_LOG"
+          kubectl wait --for=condition=Available deployment/tigera-operator -n tigera-operator --timeout=180s
+          for attempt in $(seq 1 30); do
+            if kubectl get deployment/calico-kube-controllers -n calico-system >/dev/null 2>&1; then break; fi
+            sleep 5
+          done
+          kubectl wait --for=condition=Available deployment/calico-kube-controllers -n calico-system --timeout=300s
+          kubectl wait --for=condition=Ready pod -l k8s-app=calico-node -n calico-system --timeout=300s
+          kubectl wait --for=condition=Ready node --all --timeout=120s
+          kubectl get pods -n calico-system
+          kubectl get nodes
+
+          # ---- フェーズ 3: ESO の webhook 起動後に external-secrets.io 系リソースを適用 ------
+          if [ "$ESO_INSTALLED" = true ]; then
+            echo "=== ESO Deployment の Available 待ち ==="
+            eso_started=$SECONDS
+            # cert-controller の readiness は webhook が Ready になるまで通らないので、ここでは
+            # Secret に証明書が書かれたことだけを待つ (cert-controller は起動直後に書く)。
+            kubectl wait secret/external-secrets-webhook -n external-secrets --for=jsonpath='{.data.tls\.crt}' --timeout=150s
+            echo "webhook 証明書が揃うまで $((SECONDS - eso_started))s"
+            kubectl scale deployment/external-secrets-webhook -n external-secrets --replicas="${ESO_WEBHOOK_REPLICAS:-1}"
+            if ! kubectl wait deployment --all -n external-secrets --for=condition=Available --timeout=180s; then
+              echo "ESO Deployment が Available になりませんでした" >&2
+              kubectl get pods -n external-secrets -o wide >&2 || true
+              kubectl logs -n external-secrets deployment/external-secrets-webhook --tail=20 >&2 || true
+              exit 1
+            fi
+            echo "ESO Available まで $((SECONDS - eso_started))s"
+            for DEFERRED in "$DEFERRED_DIR"/*-eso.yaml; do
+              [ -s "$DEFERRED" ] || continue
+              echo "=== $(basename "$DEFERRED") を適用 (ESO webhook 経由) ==="
+              # Available 直後は webhook の CA 注入が追いついていないことがあるので短く再試行する。
+              for attempt in $(seq 1 12); do
+                if kubectl apply --server-side --force-conflicts -f - < "$DEFERRED"; then break; fi
+                [ "$attempt" -lt 12 ] || { echo "ESO webhook 経由の適用に失敗しました: $DEFERRED" >&2; exit 1; }
+                sleep 5
+              done
+            done
+          fi
+          if has_component argocd; then
+            echo "=== ArgoCD マニフェスト適用後の状態確認 ==="
+            kubectl get deployments -n argocd
+            kubectl get statefulsets -n argocd
+          fi
+
+          echo "=== 全コンポーネント適用完了。クラスター状態サマリー ==="
+          kubectl get deployments --all-namespaces
+          kubectl get daemonsets --all-namespaces
+
+      - name: Run chainsaw tests
+        id: chainsaw-run
+        env:
+          COMPONENTS: ${{ needs.detect.outputs.components }}
+        run: |
+          RESULT_FILE="${RUNNER_TEMP}/chainsaw-results.md"
+          OUTPUT_DIR="${RUNNER_TEMP}/chainsaw-output"
+          mkdir -p "$OUTPUT_DIR"
+          OVERALL_STATUS=0
+
+          mapfile -t COMPONENT_LIST < <(echo "$COMPONENTS" | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin)))")
+
+          # 各 suite は namespace が分かれており (argocd / external-secrets / monitoring /
+          # kube-system)、互いの結果に依存しないので同時に走らせる。直列だと argocd
+          # (約 2 分) と grafana-alloy (約 1 分) が足し算になるが、並列なら最長 suite の
+          # 時間で済む。出力は component ごとのファイルに分け、完了順ではなく
+          # COMPONENTS の順で結果を組み立てる。
+          declare -A COMPONENT_PIDS
+          for COMPONENT in "${COMPONENT_LIST[@]}"; do
+            KUBECONFIG="$CHAINSAW_KIND_KUBECONFIG" chainsaw test \
+              --test-dir "./tests/chainsaw/$COMPONENT" \
+              > "$OUTPUT_DIR/$COMPONENT.txt" 2>&1 &
+            COMPONENT_PIDS[$COMPONENT]=$!
+            echo "Started chainsaw tests for $COMPONENT (pid ${COMPONENT_PIDS[$COMPONENT]})"
+          done
+
+          for COMPONENT in "${COMPONENT_LIST[@]}"; do
+            if wait "${COMPONENT_PIDS[$COMPONENT]}"; then
+              COMPONENT_STATUS=0
+            else
+              COMPONENT_STATUS=$?
+            fi
+            OUTPUT_FILE="$OUTPUT_DIR/$COMPONENT.txt"
+
+            echo "::group::chainsaw tests for $COMPONENT (exit $COMPONENT_STATUS)"
+            cat "$OUTPUT_FILE"
+            echo "::endgroup::"
+
+            echo "### 📦 $COMPONENT" >> "$RESULT_FILE"
+            echo "" >> "$RESULT_FILE"
+            if [ "$COMPONENT_STATUS" -eq 0 ]; then
+              echo "✅ **PASSED**" >> "$RESULT_FILE"
+            else
+              echo "❌ **FAILED**" >> "$RESULT_FILE"
+              OVERALL_STATUS=1
+            fi
+
+            echo "" >> "$RESULT_FILE"
+            echo "<details>" >> "$RESULT_FILE"
+            echo "<summary>テスト出力を展開</summary>" >> "$RESULT_FILE"
+            echo "" >> "$RESULT_FILE"
+            echo '```' >> "$RESULT_FILE"
+            # 長い出力を制限
+            head -200 "$OUTPUT_FILE" >> "$RESULT_FILE"
+            if [ "$(wc -l < "$OUTPUT_FILE")" -gt 200 ]; then
+              echo "... (出力省略。完全なログはGitHub Actionsで確認してください)" >> "$RESULT_FILE"
+            fi
+            echo '```' >> "$RESULT_FILE"
+            echo "</details>" >> "$RESULT_FILE"
+            echo "" >> "$RESULT_FILE"
+          done
+
+          echo "result_file=$RESULT_FILE" >> $GITHUB_OUTPUT
+          exit $OVERALL_STATUS
+
+      - name: Show image prefetch result
+        if: always()
+        run: |
+          if [ -n "${PREFETCH_LOG:-}" ] && [ -f "$PREFETCH_LOG" ]; then
+            echo "::group::image prefetch log"
+            cat "$PREFETCH_LOG"
+            echo "::endgroup::"
+          else
+            echo "prefetch log not found"
+          fi
+
+      - name: Capture isolated Redis diagnostics
+        if: always()
+        timeout-minutes: 2
+        env:
+          KIND_CLUSTER_NAME: chainsaw-test
+          DIAGNOSTICS_DIR: ${{ runner.temp }}/chainsaw-redis-diagnostics
+        run: |
+          set -uo pipefail
+          mkdir -p "$DIAGNOSTICS_DIR"
+          kind_kubeconfig="$(mktemp)"
+          trap 'rm -f "$kind_kubeconfig"' EXIT
+          if ! kind export kubeconfig --name "$KIND_CLUSTER_NAME" --kubeconfig "$kind_kubeconfig"; then
+            echo "kind kubeconfig export failed; no fallback context is permitted" > "$DIAGNOSTICS_DIR/context-error.txt"
+            exit 0
+          fi
+          context="$(kubectl --kubeconfig "$kind_kubeconfig" config current-context 2>/dev/null || true)"
+          if [ "$context" != "kind-$KIND_CLUSTER_NAME" ]; then
+            printf 'unexpected context: %s\n' "$context" > "$DIAGNOSTICS_DIR/context-error.txt"
+            exit 0
+          fi
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s cluster-info > "$DIAGNOSTICS_DIR/cluster-info.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s get deployment argocd-redis -n argocd -o yaml > "$DIAGNOSTICS_DIR/redis-deployment.yaml" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s get pods -n argocd -l app.kubernetes.io/name=argocd-redis -o wide > "$DIAGNOSTICS_DIR/redis-pods.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s describe deployment argocd-redis -n argocd > "$DIAGNOSTICS_DIR/redis-deployment.describe.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s describe pods -n argocd -l app.kubernetes.io/name=argocd-redis > "$DIAGNOSTICS_DIR/redis-pods.describe.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s get events -n argocd --sort-by=.lastTimestamp > "$DIAGNOSTICS_DIR/argocd-events.txt" 2>&1 || true
+          kubectl --kubeconfig "$kind_kubeconfig" --request-timeout=15s logs -n argocd -l app.kubernetes.io/name=argocd-redis --all-containers --prefix --tail=200 > "$DIAGNOSTICS_DIR/redis-containers.log" 2>&1 || true
+
+      - name: Upload isolated Redis diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: chainsaw-redis-diagnostics
+          path: ${{ runner.temp }}/chainsaw-redis-diagnostics
+          if-no-files-found: error
+
+      - name: Post PR comment
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const resultFile = process.env.RESULT_FILE || '';
+            const details = resultFile && fs.existsSync(resultFile)
+              ? fs.readFileSync(resultFile, 'utf8')
+              : '(結果ファイルが見つかりません)';
+
+            const jobStatus = '${{ steps.chainsaw-run.outcome }}';
+            const status = jobStatus === 'success' ? '✅ 全テスト通過' : '❌ テスト失敗あり';
+            const components = '${{ needs.detect.outputs.components }}';
+
+            const header = [
+              '## Chainsaw Manifest Validation',
+              '',
+              `${status}`,
+              '',
+              `**テスト対象コンポーネント**: \`${components}\``,
+              '',
+            ].join('\n');
+
+            const maxLength = 65000;
+            let body = header + details;
+            if (body.length > maxLength) {
+              body = body.substring(0, maxLength - 300)
+                + '\n\n...(出力省略)\n\n💡 完全な結果はGitHub Actionsのログを確認してください。';
+            }
+
+            try {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body,
+              });
+            } catch (err) {
+              core.warning(`PRコメント投稿をスキップしました: ${err.message}`);
+            }
+        env:
+          RESULT_FILE: ${{ steps.chainsaw-run.outputs.result_file }}
+
+  # ADR の構造検査と Rego lint (BOXP-394)。ファイル改名でも ADR のリンクが壊れるので全 PR で動かす。
+  adr:
+    uses: ./.github/workflows/adr.yaml
+    permissions:
+      contents: read
+
+  # main の ruleset 509073 で required status check にしている集約 job (BOXP-266)。
+  # 対象外で skip された job (chainsaw / renovate-config-validator) は成功扱い、
+  # failure / cancelled が 1 つでもあれば失敗にする。新しい job を足したら needs にも足すこと。
+  status-check:
+    needs:
+      - detect
+      - adr
+      - static-policy
+      - renovate-config-validator
+      - chainsaw
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Fail if any needed job failed or was cancelled
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS"
+          echo "$NEEDS" | jq -e 'to_entries | all(.value.result == "success" or .value.result == "skipped")' > /dev/null

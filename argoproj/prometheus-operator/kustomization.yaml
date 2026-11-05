@@ -1,17 +1,18 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-- github.com/prometheus-operator/kube-prometheus?ref=v0.18.0
+- github.com/prometheus-operator/kube-prometheus?ref=v0.19.0
 - application.yaml
 - grafana-lb.yaml
 - external-secret.yaml
 - external-secret-alertmanager.yaml
 - cloudflared-deployment.yaml
 - grafana-pvc.yaml
-- scrape-config.yaml
 - control-plane-node-rules.yaml
+- longhorn-storage-rules.yaml
 - local-llm-gpu-observability-rules.yaml
-- stable-diffusion-observability-rules.yaml
+- ai-ops-outcome-rules.yaml
+- ai-provider-quota-rules.yaml
 - cloudflared-pod-monitor.yaml
 - etcd-service.yaml
 - etcd-servicemonitor.yaml
@@ -45,6 +46,17 @@ configMapGenerator:
   namespace: monitoring
   files:
   - local-llm-gpu-overview.json=dashboards/local-llm-gpu-overview.json
+  options:
+    disableNameSuffixHash: true
+    labels:
+      app.kubernetes.io/component: grafana
+      app.kubernetes.io/name: grafana
+      app.kubernetes.io/part-of: kube-prometheus
+      app.kubernetes.io/version: 13.0.2
+- name: grafana-dashboard-ai-ops-quality
+  namespace: monitoring
+  files:
+  - ai-ops-quality.json=dashboards/ai-ops-quality.json
   options:
     disableNameSuffixHash: true
     labels:

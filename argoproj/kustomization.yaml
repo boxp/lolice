@@ -15,13 +15,14 @@ resources:
 - etcd-defrag/application.yaml
 - etcd-snapshot-store/application.yaml
 - even-g2-lab/application.yaml
-- hitohub/overlays/prod/application.yaml
-- hitohub/overlays/stage/application.yaml
 - k8s-ecr-token-updater/application.yaml
 - k8s/application.yaml
 - kubernetes-dashboard/application.yaml
 - local-volume-provisioner/application.yaml
 - local-llm/application.yaml
+- strata-eval/namespace.yaml
+- strata-eval/appproject.yaml
+- strata-eval/application.yaml
 - stable-diffusion/application.yaml
 - longhorn/application.yaml
 - node-feature-discovery/application.yaml
@@ -32,6 +33,7 @@ resources:
 - grafana-alloy/application.yaml
 - gpu-workload-priority/application.yaml
 - hermes-agent/argocd-application.yaml
+- langfuse/application.yaml
 - reloader/application.yaml
 - tidb-operator/application.yaml
 - kube-vip/application.yaml

@@ -1,0 +1,289 @@
+{
+  "renovateVersion": "44.142.1",
+  "mode": "--platform=local --dry-run=lookup",
+  "fixture": "14 same old real 2026.7.3 tag + digest images; no repo/live images changed",
+  "dependencyCount": 14,
+  "branchCount": 1,
+  "dependencies": [
+    {
+      "packageFile": "00.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "01.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "02.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "03.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "04.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "05.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "06.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "07.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "08.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "09.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "10.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "11.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "12.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    },
+    {
+      "packageFile": "13.yaml",
+      "depName": "docker.io/cloudflare/cloudflared",
+      "currentValue": "2026.7.3",
+      "currentDigest": "sha256:e39ee8da81ad5e05d77f38d2f51c60ca51bf2a8450ac3abab50c17fdb91d91bf",
+      "updates": [
+        {
+          "bucket": "non-major",
+          "newVersion": "2026.10.0",
+          "newValue": "2026.10.0",
+          "newMajor": 2026,
+          "newMinor": 10,
+          "newPatch": 0,
+          "updateType": "minor",
+          "isBreaking": false,
+          "newDigest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+          "branchName": "renovate/cloudflared-image-updates"
+        }
+      ]
+    }
+  ]
+}

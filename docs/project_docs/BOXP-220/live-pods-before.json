@@ -1,0 +1,106 @@
+{
+  "captureUTC": "2026-10-07T09:29:24.187671+00:00",
+  "totalPods": 207,
+  "cloudflaredContainers": [
+    {
+      "namespace": "argocd",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:2026.10.0",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:1a50cc8893b3f0dd283805d2efcd3336210aced60a83d967fb2bbc8ab69b5f35",
+      "ready": true,
+      "architecture": "amd64"
+    },
+    {
+      "namespace": "argocd",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:latest",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c",
+      "ready": true,
+      "architecture": "amd64"
+    },
+    {
+      "namespace": "bastion",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:2026.10.0",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:1a50cc8893b3f0dd283805d2efcd3336210aced60a83d967fb2bbc8ab69b5f35",
+      "ready": true,
+      "architecture": "amd64"
+    },
+    {
+      "namespace": "boxp-home",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:latest",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:b392761b711c0e5649d9b64e1fc9a10ba0563fa3e712ed7c26bde5cc1fbe9059",
+      "ready": true,
+      "architecture": "amd64"
+    },
+    {
+      "namespace": "even-g2-lab",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:2026.10.0",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:1a50cc8893b3f0dd283805d2efcd3336210aced60a83d967fb2bbc8ab69b5f35",
+      "ready": true,
+      "architecture": "amd64"
+    },
+    {
+      "namespace": "hermes-agent",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:1a50cc8893b3f0dd283805d2efcd3336210aced60a83d967fb2bbc8ab69b5f35",
+      "ready": true,
+      "architecture": "amd64"
+    },
+    {
+      "namespace": "k8s",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:2026.10.0",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:1a50cc8893b3f0dd283805d2efcd3336210aced60a83d967fb2bbc8ab69b5f35",
+      "ready": true,
+      "architecture": "amd64"
+    },
+    {
+      "namespace": "kube-dashboard",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:2026.10.0",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:1a50cc8893b3f0dd283805d2efcd3336210aced60a83d967fb2bbc8ab69b5f35",
+      "ready": true,
+      "architecture": "amd64"
+    },
+    {
+      "namespace": "longhorn-system",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:1517-bb29a0e19437",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:062c02f16c024dae3c525da23d2b518676ba91a4e514016e712581ffe0557c43",
+      "ready": true,
+      "architecture": "amd64"
+    },
+    {
+      "namespace": "monitoring",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:2026.10.0",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:1a50cc8893b3f0dd283805d2efcd3336210aced60a83d967fb2bbc8ab69b5f35",
+      "ready": true,
+      "architecture": "amd64"
+    },
+    {
+      "namespace": "stage-hitohub",
+      "kind": "containers",
+      "container": "cloudflared",
+      "image": "docker.io/cloudflare/cloudflared:2026.10.0",
+      "imageID": "docker.io/cloudflare/cloudflared@sha256:1a50cc8893b3f0dd283805d2efcd3336210aced60a83d967fb2bbc8ab69b5f35",
+      "ready": true,
+      "architecture": "amd64"
+    }
+  ],
+  "latestCount": 2
+}

@@ -9,6 +9,7 @@ data:
     import json
     import os
     import re
+    import threading
     import time
     from datetime import datetime, timezone
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,6 +23,9 @@ data:
     LOG_FILES = ("events.jsonl", "stderr.log", "last-message.md")
     MAX_LOG_BYTES = int(os.environ.get("DASHBOARD_MAX_LOG_BYTES", str(256 * 1024)))
     RECENT_LIMIT = int(os.environ.get("DASHBOARD_RECENT_LIMIT", "80"))
+    KOHAKO_VAULT_ROOT = os.environ.get("KOHAKO_VAULT_ROOT", "/home/boxp/Documents/obsidian-headless/BOXP")
+
+    import kohako_board
 
     def utc_now_iso():
       return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -50,7 +54,7 @@ data:
 
     def parse_edn_summary(text):
       result = {}
-      for key in ("lane", "status", "result", "action", "ticket", "run-id", "exit-code", "updated-at", "finished-at", "started-at", "heartbeat-at", "host", "pid"):
+      for key in ("agent", "lane", "status", "result", "action", "ticket", "run-id", "exit-code", "updated-at", "finished-at", "started-at", "heartbeat-at", "host", "pid"):
         match = re.search(r":" + re.escape(key) + r'\s+("[^"]*"|:[\w.-]+|-?\d+)', text)
         if not match:
           continue
@@ -136,7 +140,7 @@ data:
         return "failed"
       if isinstance(exit_code, int) and exit_code != 0:
         return "failed"
-      if status in ("succeeded", "complete", "finished") or result in ("ready", "done", "review"):
+      if status in ("succeeded", "complete", "finished") or result in ("ready", "done", "review", "continue", "owner-acceptance"):
         return "finished"
       if (RUNS_ROOT / str(summary.get("ticket", ""))).exists() and exit_code == 0:
         return "finished"
@@ -170,6 +174,7 @@ data:
       return {
         "ticket": ticket,
         "runId": run_id,
+        "agent": summary.get("agent") or lock_summary.get("agent"),
         "lane": summary.get("lane") or lock_summary.get("lane") or "unknown",
         "action": summary.get("action") or events["action"],
         "status": run_status(summary, has_lock),
@@ -326,11 +331,430 @@ data:
       def log_message(self, fmt, *args):
         print("%s %s" % (self.address_string(), fmt % args), flush=True)
 
+    class KohakoBoardHandler(BaseHTTPRequestHandler):
+      """BOXP-329: separate port that serves only the Kohako G2 Board projection."""
+
+      def do_GET(self):
+        path = urlparse(self.path).path
+        if path == "/healthz":
+          self.send_json({"ok": True})
+        elif path == "/api/kohako/board":
+          try:
+            self.send_json(kohako_board.build_projection(KOHAKO_VAULT_ROOT))
+          except Exception:
+            self.send_json({"error": "projection failed"}, 500)
+        elif path == "/api/kohako/results":
+          values = parse_qs(urlparse(self.path).query, keep_blank_values=True).get("ids", [])
+          ids = values[0].split(",") if len(values) == 1 else []
+          if not ids or len(ids) > 50 or any(not re.fullmatch(r"BOXP-\d{1,6}", item) for item in ids):
+            self.send_json({"error": "invalid ids"}, 400)
+            return
+          try:
+            self.send_json(kohako_board.build_results(KOHAKO_VAULT_ROOT, RUNS_ROOT, ids))
+          except Exception:
+            self.send_json({"error": "results failed"}, 500)
+        else:
+          self.send_json({"error": "not found"}, 404)
+
+      def do_POST(self):
+        self.send_error(405)
+
+      def do_PUT(self):
+        self.send_error(405)
+
+      def do_DELETE(self):
+        self.send_error(405)
+
+      def do_PATCH(self):
+        self.send_error(405)
+
+      send_json = Handler.send_json
+
+      def log_message(self, fmt, *args):
+        print("kohako-board %s" % (fmt % args), flush=True)
+
     if __name__ == "__main__":
+      # Served on its own port so even-g2-lab can be allowed to reach the projection only.
+      kohako_port = int(os.environ.get("KOHAKO_BOARD_PORT", "8090"))
+      kohako_server = ThreadingHTTPServer(("0.0.0.0", kohako_port), KohakoBoardHandler)
+      threading.Thread(target=kohako_server.serve_forever, daemon=True).start()
+      print(f"kohako board projection listening on :{kohako_port}", flush=True)
       port = int(os.environ.get("PORT", "8080"))
       server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
       print(f"codex task board dashboard listening on :{port}; root={BOARD_ROOT}", flush=True)
       server.serve_forever()
+
+  kohako_board.py: |
+    """Read-only Task Board projection for Kohako G2 (BOXP-329).
+
+    Returns only a fixed set of fields for active tickets, with
+    short masked excerpts of the latest Notes. Never returns Notes in full, ticket
+    bodies, attachments or vault paths, and never writes to the vault.
+    """
+    import re
+    from datetime import datetime, timedelta, timezone
+    from pathlib import Path
+
+    SCHEMA = "kohako-board/v1"
+    LANE_ORDER = ("In Progress", "Blocked", "Ready", "Done")
+    LANE_STATUS = {"Ready": "ready", "In Progress": "in-progress", "Blocked": "blocked", "Done": "done"}
+    ITEM_LIMIT = 30
+    EXCERPT_CHARS = 80
+    TITLE_CHARS = 120
+    DONE_WINDOW = timedelta(hours=48)
+    MAX_FILE_BYTES = 512 * 1024
+    NOTE_SCAN = 10
+
+    TICKET_ID = re.compile(r"^BOXP-\d{1,6}$")
+    CARD = re.compile(r"^- \[[ xX]\] \[\[Tickets/(BOXP-\d{1,6})\|([^\]]*)\]\](.*)$")
+    FIELD = re.compile(r"(\w+)::(\S+)")
+    NOTE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(?: (\d{2}:\d{2}(?::\d{2})?) UTC)?(?: \[([^\]\n]{1,40})\])?:\s*(.*)$")
+    BLOCKER = re.compile(r"(?i)\bblock(?:ed|er|ing)?\b|阻害|ブロッカー")
+    DECISION = re.compile(r"(?i)要判断|判断が必要|判断待ち|承認待ち|返答待ち|必要な判断|owner\s*(?:の|に)?\s*(?:判断|承認|確認|回答|返答)\s*(?:が必要|を求め|待ち|をお願い|を依頼)")
+
+    URL = re.compile(r"https?://([^/\s)>\]]+)[^\s)>\]]*")
+    EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+    SECRET_WORD = re.compile(r"(?i)\b([\w-]*(?:token|secret|password|passwd|api[_-]?key|key))\b(\s*[:=]?\s*)\S+")
+    LONG_TOKEN = re.compile(r"[A-Za-z0-9_+/=-]{32,}")
+    WIKILINK = re.compile(r"\[\[(?:[^\]|]*\|)?([^\]]*)\]\]")
+    CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+    def iso(dt):
+      return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if dt else None
+
+
+    def mtime(path):
+      try:
+        return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+      except OSError:
+        return None
+
+
+    def read_limited(path):
+      with path.open("rb") as f:
+        data = f.read(MAX_FILE_BYTES + 1)
+      return data[:MAX_FILE_BYTES].decode("utf-8", errors="replace")
+
+
+    def mask(text):
+      text = WIKILINK.sub(r"\1", text)
+      text = URL.sub(lambda m: m.group(1) + "/…", text)
+      text = EMAIL.sub("…", text)
+      text = SECRET_WORD.sub(lambda m: m.group(1) + m.group(2) + "…", text)
+      text = LONG_TOKEN.sub("…", text)
+      return text
+
+
+    def excerpt(text, limit=EXCERPT_CHARS):
+      if not text:
+        return None
+      text = " ".join(CONTROL.sub(" ", mask(text.replace("**", "").replace("`", ""))).split())
+      if not text:
+        return None
+      return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+    def parse_board(text):
+      """Return [(lane, id, label, fields)] for the lanes Kohako shows."""
+      cards, lane = [], None
+      for line in text.splitlines():
+        if line.startswith("## "):
+          lane = line[3:].strip()
+          continue
+        if lane not in LANE_STATUS:
+          continue
+        m = CARD.match(line)
+        if not m:
+          continue
+        fields = {}
+        for key, value in FIELD.findall(m.group(3)):
+          fields.setdefault(key, value)
+        label = m.group(2)
+        prefix = m.group(1) + ":"
+        title = label[len(prefix):].strip() if label.startswith(prefix) else label.strip()
+        cards.append((lane, m.group(1), title, fields))
+      return cards
+
+
+    def parse_frontmatter(text):
+      if not text.startswith("---\n"):
+        return {}
+      end = text.find("\n---", 4)
+      if end < 0:
+        return {}
+      result = {}
+      for line in text[4:end].splitlines():
+        key, sep, value = line.partition(":")
+        if sep and key and not key.startswith((" ", "-")):
+          result[key.strip()] = value.strip()
+      return result
+
+
+    def parse_notes(text):
+      """Return note entries in file order: [(datetime|None, source|None, text)]."""
+      lines = text.splitlines()
+      try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == "## Notes")
+      except StopIteration:
+        return []
+      notes = []
+      for line in lines[start + 1:]:
+        if line.startswith("## "):
+          break
+        m = NOTE.match(line)
+        if not m:
+          continue
+        date, clock, source, body = m.groups()
+        try:
+          fmt = "%Y-%m-%d %H:%M:%S" if clock and clock.count(":") == 2 else "%Y-%m-%d %H:%M" if clock else "%Y-%m-%d"
+          at = datetime.strptime(f"{date} {clock}" if clock else date, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+          at = None
+        notes.append((at, source, body))
+      return notes
+
+
+    def find_recent(notes, pattern):
+      for _, _, body in reversed(notes[-NOTE_SCAN:]):
+        if pattern.search(body):
+          return excerpt(body)
+      return None
+
+
+    def by_time(notes):
+      """Oldest first by note time; file order breaks ties and places untimed notes first."""
+      floor = datetime.min.replace(tzinfo=timezone.utc)
+      order = sorted(range(len(notes)), key=lambda i: (notes[i][0] or floor, i))
+      return [notes[i] for i in order]
+
+
+    def project_ticket(tickets_root, lane, ticket_id, title, fields):
+      item = {
+        "id": ticket_id,
+        "title": excerpt(title, TITLE_CHARS) or ticket_id,
+        "lane": lane,
+        "status": None,
+        "laneStatusMismatch": False,
+        "assignee": fields.get("assignee"),
+        "ticketAssignee": None,
+        "assigneeMismatch": False,
+        "priority": fields.get("priority"),
+        "ticketUpdatedAt": None,
+        "latestNoteAt": None,
+        "latestNoteSource": None,
+        "progress": None,
+        "blocker": None,
+        "decision": None,
+        "readError": None,
+      }
+      path = tickets_root / f"{ticket_id}.md"
+      if not path.is_file():
+        item["readError"] = "ticket_missing"
+        return item, None
+      updated = mtime(path)
+      item["ticketUpdatedAt"] = iso(updated)
+      try:
+        text = read_limited(path)
+      except OSError:
+        item["readError"] = "ticket_unreadable"
+        return item, updated
+      front = parse_frontmatter(text)
+      status = front.get("status") or None
+      item["status"] = status
+      item["laneStatusMismatch"] = bool(status) and status != LANE_STATUS[lane]
+      ticket_assignee = front.get("assignee") or None
+      item["ticketAssignee"] = ticket_assignee
+      item["assigneeMismatch"] = bool(ticket_assignee and item["assignee"]) and ticket_assignee != item["assignee"]
+      item["priority"] = item["priority"] or front.get("priority") or None
+      notes = by_time(parse_notes(text))
+      if notes:
+        # Time, source and excerpt all come from the same (latest) note.
+        latest_at, latest_source, latest_body = notes[-1]
+        item["latestNoteAt"] = iso(latest_at)
+        item["latestNoteSource"] = latest_source
+        item["progress"] = excerpt(latest_body)
+        item["blocker"] = find_recent(notes, BLOCKER)
+        item["decision"] = find_recent(notes, DECISION)
+      return item, updated
+
+
+    def build_projection(vault_root, now=None):
+      now = now or datetime.now(timezone.utc)
+      vault_root = Path(vault_root).resolve()
+      board_path = vault_root / "Boards" / "Task Board.md"
+      tickets_root = (vault_root / "Tickets").resolve()
+      if tickets_root.parent != vault_root:
+        raise ValueError("tickets root escapes vault")
+      rank = {lane: i for i, lane in enumerate(LANE_ORDER)}
+      items, seen = [], set()
+      for lane, ticket_id, title, fields in parse_board(read_limited(board_path)):
+        if ticket_id in seen or not TICKET_ID.match(ticket_id):
+          continue
+        seen.add(ticket_id)
+        updated = mtime(tickets_root / f"{ticket_id}.md")
+        if lane == "Done" and (not updated or now - updated > DONE_WINDOW):
+          continue
+        items.append((lane, ticket_id, title, fields, updated))
+      # Lane priority first, then the most recently updated ticket first within a lane.
+      items.sort(key=lambda card: (rank[card[0]], -(card[4].timestamp() if card[4] else 0)))
+      items = [card[:4] for card in items]
+      projected = [project_ticket(tickets_root, *card)[0] for card in items[:ITEM_LIMIT]]
+      return {
+        "schema": SCHEMA,
+        "generatedAt": iso(now),
+        "boardUpdatedAt": iso(mtime(board_path)),
+        "total": len(items),
+        "limit": ITEM_LIMIT,
+        "truncated": len(items) > ITEM_LIMIT,
+        "items": projected,
+      }
+
+
+    UNVERIFIED = re.compile(r"未確認|実機確認|未検証")
+
+
+    def result_text(text, limit):
+      if not text:
+        return None
+      text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+      text = re.sub(r"(?<![\w])/(?:[^\s/]+/)*[^\s]*", "…", text)
+      text = re.sub(r"(?m)^\s*#+\s*", "", text)
+      return excerpt(text, limit)
+
+
+    def result_time(value):
+      try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+      except (ValueError, TypeError, AttributeError):
+        return None
+
+
+    def lead_text(text):
+      """Leading prose of an agent's final message: stops at the first heading or table."""
+      lines = []
+      for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("TASK_BOARD_"):
+          continue
+        if stripped.startswith(("#", "|")):
+          if lines:
+            break
+          continue
+        lines.append(stripped)
+      return " ".join(line for line in lines if line)
+
+
+    def find_unverified(*texts):
+      """First sentence naming something unverified; a heading stands for the line under it."""
+      for text in texts:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for index, line in enumerate(lines):
+          if not UNVERIFIED.search(line):
+            continue
+          bare = line.strip("#*-: ：\t")
+          if (line.startswith("#") or line.endswith((":", "：")) or re.search(r"(?:事項|点)$", bare)) and index + 1 < len(lines):
+            return lines[index + 1].lstrip("-* ")
+          for sentence in re.split(r"(?<=。)", line):
+            if UNVERIFIED.search(sentence) and not re.search(r"保存|追記|記録", sentence):
+              return sentence.strip().lstrip("-* ")
+      return None
+
+
+    def safe_result_path(root, *parts):
+      root = Path(root).resolve()
+      path = root.joinpath(*parts).resolve()
+      if root not in path.parents:
+        raise ValueError("path escapes root")
+      return path
+
+
+    def run_start(run_id):
+      try:
+        return datetime.strptime(run_id[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+      except ValueError:
+        return None
+
+
+    def revision_time(rev):
+      """Time inside a board helper revision (`<base36 millis>-<hex>`), which the runner never stamps."""
+      try:
+        return datetime.fromtimestamp(int((rev or "").split("-")[0], 36) / 1000, timezone.utc)
+      except (ValueError, OverflowError, OSError):
+        return None
+
+
+    def completed_after_run(front, finished, run_ids):
+      """True when the ticket's current Done state cannot be the one this run produced.
+
+      A run started later means it was reopened; a later helper revision or closed date
+      means the lane changed by hand. Without such a trace the run is taken as the result.
+      """
+      if any((start := run_start(run_id)) and start > finished for run_id in run_ids):
+        return True
+      revised = revision_time(front.get("board_rev"))
+      if revised and revised > finished:
+        return True
+      return front.get("closed", "") > finished.date().isoformat()
+
+
+    def build_results(vault_root, runs_root, ids):
+      if len(ids) > 50 or any(not TICKET_ID.fullmatch(i) for i in ids):
+        raise ValueError("invalid ids")
+      vault = Path(vault_root).resolve()
+      runs = Path(runs_root).resolve()
+      wanted = set(ids)
+      items = []
+      for lane, ticket_id, title, fields in parse_board(read_limited(vault / "Boards" / "Task Board.md")):
+        if lane != "Done" or ticket_id not in wanted:
+          continue
+        wanted.remove(ticket_id)
+        ticket_path = safe_result_path(vault, "Tickets", ticket_id + ".md")
+        try:
+          text = read_limited(ticket_path)
+        except FileNotFoundError:
+          continue
+        front = parse_frontmatter(text)
+        if front.get("status") != "done":
+          continue
+        done_runs, run_ids = [], []
+        ticket_runs = safe_result_path(runs, ticket_id)
+        if ticket_runs.is_dir():
+          for entry in ticket_runs.iterdir():
+            run_ids.append(entry.name)
+            try:
+              run_dir = safe_result_path(ticket_runs, entry.name)
+              data = read_limited(safe_result_path(run_dir, "summary.edn"))
+              def field(key):
+                match = re.search(r":" + key + r'\s+"([^"\n]*)"', data)
+                return match.group(1) if match else None
+              finished = result_time(field("finished-at"))
+              if field("result") == "done" and finished:
+                done_runs.append((finished, entry.name, field("started-at"), run_dir))
+            except (OSError, ValueError):
+              continue
+        base = {"id": ticket_id, "title": result_text(title, 120) or ticket_id}
+        latest = max(done_runs, key=lambda r: r[0], default=None)
+        if latest is None or completed_after_run(front, latest[0], run_ids):
+          base.update(finishedAt=iso(mtime(ticket_path)), runId=None, manual=True, summary=None, unverified=None)
+        else:
+          finished, run_id, started, run_dir = latest
+          start = result_time(started) or run_start(run_id) or finished
+          notes = [n for n in by_time(parse_notes(text)) if n[0] and start <= n[0] <= finished]
+          owner = [m.group(1) for m in (re.match(r"Owner向け要約\s*[:：]\s*(\S.*)", n[2], re.S) for n in notes) if m]
+          try:
+            last = read_limited(safe_result_path(run_dir, "last-message.md"))
+          except FileNotFoundError:
+            last = ""
+          paragraph = lead_text(last)
+          clean_paragraph = result_text(paragraph, 10000)
+          eligible = [body for _, source, body in notes if source and source not in ("kohako-event", "hermes-agent") and not body.startswith(("TODO ack", "Codex task-board run"))]
+          chosen = owner[-1] if owner else (paragraph if clean_paragraph and len(clean_paragraph) >= 40 else (eligible[-1] if eligible else None))
+          unverified = find_unverified(chosen or "", last)
+          base.update(finishedAt=iso(finished), runId=run_id, manual=False, summary=result_text(chosen, 240), unverified=result_text(unverified, 120))
+        items.append(base)
+      return {"schema": "kohako-results/v1", "generatedAt": iso(datetime.now(timezone.utc)), "items": items}
 
   index.html: |
     <!doctype html>
@@ -620,6 +1044,7 @@ data:
               <h2>${esc(run.ticket)}</h2>
               <dl>
                 <dt>RUN</dt><dd>${esc(run.runId)}</dd>
+                <dt>AGENT</dt><dd>${esc(run.agent || "-")}</dd>
                 <dt>LANE</dt><dd>${esc(run.lane)}</dd>
                 <dt>STAT</dt><dd><span class="badge ${statusClass(run.status)}">${esc(run.status)}</span></dd>
                 <dt>UPD</dt><dd>${fmt(run.updatedAt)}</dd>
@@ -645,6 +1070,7 @@ data:
       const fields = [
         ["ticket", run.ticket],
         ["run id", run.runId],
+        ["agent", run.agent || "-"],
         ["lane", run.lane],
         ["status", run.status],
         ["started", fmt(run.startedAt)],

@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: langfuse-minio
+spec:
+  selector:
+    app: langfuse-minio
+  ports:
+    - port: 9000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: langfuse-minio
+spec:
+  serviceName: langfuse-minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langfuse-minio
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Retain
+  template:
+    metadata:
+      labels:
+        app: langfuse-minio
+    spec:
+      priorityClassName: langfuse-observability
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  # amd64 excludes the control plane; golyat-4 is the GPU research node.
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: ["golyat-4"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: minio
+          image: cgr.dev/chainguard/minio:latest@sha256:cee9a8e35885e93f14b3cb32960e5017aff74e2adfb52ba87c65003b0163886b
+          command: ["sh", "-c"]
+          args:
+            - mkdir -p /data/langfuse && exec minio server --address :9000 --console-address :9001 /data
+          env:
+            - name: MINIO_ROOT_USER
+              value: minio
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: langfuse-secrets
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_UPDATE
+              value: "off"
+            - name: MINIO_BROWSER
+              value: "off"
+          ports:
+            - containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: langfuse-longhorn
+        resources:
+          requests:
+            storage: 10Gi

@@ -18,6 +18,8 @@ spec:
       jqPathExpressions:
         - '.metadata.annotations["argocd.argoproj.io/tracking-id"]'
   syncPolicy:
+    automated:
+      prune: true # BOXP-310: Git から削除した監視リソース（PrometheusRule 等）の残骸を自動 prune する
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

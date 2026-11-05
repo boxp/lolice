@@ -1,0 +1,19 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hermes-agent-ai-ops-metrics
+  labels:
+    app: hermes-agent-ai-ops-metrics
+    # prometheus-k8s は opt-in された ServiceMonitor だけを収集する。
+    app.kubernetes.io/part-of: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: hermes-agent-ai-ops-metrics
+  namespaceSelector:
+    matchNames:
+      - hermes-agent
+  endpoints:
+    - port: ai-ops-metrics
+      interval: 60s
+      path: /metrics

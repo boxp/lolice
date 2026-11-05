@@ -1,0 +1,113 @@
+# BOXP-212: Longhorn の disk 逼迫・ボリューム肥大・メトリクス収集停止を検知する。
+#
+# 前提:
+# - longhorn-system/longhorn-prometheus-servicemonitor（PR #811 で opt-in ラベル付与済み）
+#   が Service longhorn-backend を scrape し、job="longhorn-backend" になる。
+# - Longhorn 1.9.1 は disk の予約量（UI の Allocated）をメトリクスに出さないため、
+#   予約超過による Schedulable=False は longhorn_disk_status でしか検知できない。
+# - volume 系メトリクスは attach 先ノードの manager だけが出すため node をまたいで max で集約する。
+#
+# テスト: scripts/test-prometheus-rules.sh（tests/longhorn-storage-rules.test.yaml）
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: longhorn-storage-rules
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    release: prometheus
+spec:
+  groups:
+    - name: longhorn-storage.rules
+      rules:
+        - alert: LonghornDiskNotSchedulable
+          # condition_reason は状態で値が変わるので node/disk で集約する。
+          expr: |
+            max by (node, disk) (
+              longhorn_disk_status{condition="schedulable"}
+            ) == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Longhorn disk is not schedulable
+            description: Longhorn disk {{ $labels.disk }} on node {{ $labels.node }} has been Schedulable=False for more than 15 minutes. New replicas cannot be placed on this node. Check Longhorn UI > Node > {{ $labels.node }} (Allocated vs Max, Conditions) and reclaim or relocate replicas as in BOXP-211.
+            runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-212/runbook.md#longhorn-disk-not-schedulable
+
+        - alert: LonghornDiskUsageHigh
+          # usage は disk が載っている filesystem 全体の使用量（root FS と共有）。
+          expr: |
+            (
+              max by (node, disk) (longhorn_disk_usage_bytes)
+              /
+              max by (node, disk) (longhorn_disk_capacity_bytes)
+            ) > 0.80
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Longhorn disk usage is above 80%
+            description: Longhorn disk {{ $labels.disk }} on node {{ $labels.node }} is {{ $value | humanizePercentage }} used for more than 30 minutes. Check Longhorn UI > Node > {{ $labels.node }} and Volume actual sizes; run filesystem trim or relocate replicas as in BOXP-211 before the node filesystem fills up.
+            runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-212/runbook.md#longhorn-disk-usage
+
+        - alert: LonghornDiskUsageCritical
+          expr: |
+            (
+              max by (node, disk) (longhorn_disk_usage_bytes)
+              /
+              max by (node, disk) (longhorn_disk_capacity_bytes)
+            ) > 0.90
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: Longhorn disk usage is above 90%
+            description: Longhorn disk {{ $labels.disk }} on node {{ $labels.node }} is {{ $value | humanizePercentage }} used for more than 10 minutes. The node root filesystem is shared with this disk; kubelet eviction and Longhorn replica failures are imminent. Free space now (trim, delete snapshots, relocate replicas) as in BOXP-211.
+            runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-212/runbook.md#longhorn-disk-usage
+
+        - alert: LonghornVolumeActualSizeDiverged
+          # Longhorn 実サイズ（snapshot 込み）が FS 使用量から大きく乖離 = trim が効いていない。
+          # backup snapshot（毎日 00:00 UTC）で一時的に増えるため、日次 trim（02:00 UTC）後も残る
+          # 場合だけ鳴るよう for: 6h と「3 倍かつ 20GB 超」の二重条件にする。
+          expr: |
+            (
+              max by (pvc_namespace, pvc) (longhorn_volume_actual_size_bytes)
+              - on (pvc_namespace, pvc)
+              max by (pvc_namespace, pvc) (
+                label_replace(
+                  label_replace(kubelet_volume_stats_used_bytes, "pvc_namespace", "$1", "namespace", "(.*)"),
+                  "pvc", "$1", "persistentvolumeclaim", "(.*)"
+                )
+              )
+            ) > 20e9
+            and
+            (
+              max by (pvc_namespace, pvc) (longhorn_volume_actual_size_bytes)
+              > on (pvc_namespace, pvc)
+              3 * max by (pvc_namespace, pvc) (
+                label_replace(
+                  label_replace(kubelet_volume_stats_used_bytes, "pvc_namespace", "$1", "namespace", "(.*)"),
+                  "pvc", "$1", "persistentvolumeclaim", "(.*)"
+                )
+              )
+            )
+          for: 6h
+          labels:
+            severity: warning
+          annotations:
+            summary: Longhorn volume actual size diverged from filesystem usage
+            description: PVC {{ $labels.pvc_namespace }}/{{ $labels.pvc }} occupies {{ $value | humanize1024 }}B more on Longhorn than its filesystem reports used, for more than 6 hours (actual size > 3x used and > 20GB). Filesystem trim is not reclaiming space. Check Longhorn UI > Volume > Snapshots and run Trim Filesystem (fallocate first if ext4 skips trimmed blocks) as in BOXP-211.
+            runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-212/runbook.md#longhorn-volume-actual-size-diverged
+
+        - alert: LonghornMetricsAbsent
+          # absent() に比較式を渡すと job / namespace ラベルは付かない（up == 0 も検知するため比較を残す）。
+          expr: |
+            absent(up{job="longhorn-backend", namespace="longhorn-system"} == 1)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Longhorn metrics are not being scraped
+            description: No healthy longhorn-manager scrape target (job longhorn-backend in longhorn-system) for more than 30 minutes. Disk and volume alerts are blind. Check Prometheus > Status > Targets, the ServiceMonitor opt-in label app.kubernetes.io/part-of=kube-prometheus, and the longhorn-manager pods.
+            runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-212/runbook.md#longhorn-metrics-absent

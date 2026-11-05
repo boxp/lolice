@@ -1,0 +1,13 @@
+# BOXP-344: closed evaluation; deny all ingress and egress.
+# Existing pinned wheels and weights must already be present on the node.
+# The live controller refuses to start when pylib/.ok is missing; no fallback.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: qwen-image-eval
+spec:
+  selector: app == 'qwen-image-eval'
+  types:
+    - Ingress
+    - Egress
+  # No ingress/egress rules: deny all. Calico omits empty arrays on readback.

@@ -1,0 +1,65 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: grafana-alloy-dynamic-validation
+spec:
+  description: |
+    Grafana Alloy のコンテナログ収集 (loki.source.file + local.file_match) が
+    全ノードのログを Loki へ届けることを kind クラスターで動的に検証する。
+    BOXP-254 (loki.source.file に glob を直接渡して 3.5 か月ログ収集が止まった) の
+    再発防止テスト。ConfigMap / ServiceMonitor の kustomize 適用は GHA ワークフロー側で実施済み。
+    Application は本物の Argo CD (argocd suite) に先回りして同期されないよう suite の最後に適用する。
+    Loki 本体は使い捨て fixture を使う。
+  steps:
+  - name: require-isolated-kind
+    try:
+    - script:
+        timeout: 15s
+        content: |
+          set -eu
+          case "${CHAINSAW_KIND_CONTEXT:-}" in
+            kind-*) ;;
+            *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
+          esac
+          : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
+          test -r "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          actual_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          test -n "$expected_server"
+          test "$actual_server" = "$expected_server"
+  - name: verify-manifests-applied
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== kustomize 適用済みリソースの確認 ==="
+          kubectl get configmap alloy-config -n monitoring
+          kubectl get servicemonitor grafana-alloy -n monitoring -o yaml
+          PART_OF=$(kubectl get servicemonitor grafana-alloy -n monitoring \
+            -o jsonpath='{.metadata.labels.app\.kubernetes\.io/part-of}')
+          if [ "$PART_OF" != "kube-prometheus" ]; then
+            echo "ERROR: ServiceMonitor の app.kubernetes.io/part-of が kube-prometheus ではありません ($PART_OF)。Prometheus の serviceMonitorSelector に一致せず Alloy のメトリクスが取り込まれません。"
+            exit 1
+          fi
+  - name: log-pipeline-end-to-end
+    try:
+    - script:
+        timeout: 900s
+        content: |
+          set -eu
+          bash "${REPO_ROOT}/tests/chainsaw/grafana-alloy/log-pipeline.sh"
+
+  # Application は最後に適用する。先に適用すると、argocd suite が起動した本物の Argo CD が
+  # automated sync で Alloy chart を展開し、log-pipeline.sh の helm install と衝突する。
+  - name: apply-application-yaml
+    try:
+    - script:
+        timeout: 60s
+        content: |
+          set -e
+          echo "=== ArgoCDApplication (application.yaml) の実適用 ==="
+          kubectl apply --server-side --force-conflicts \
+            -f "${REPO_ROOT}/argoproj/grafana-alloy/application.yaml"
+          echo "ArgoCD Application リソース作成完了"

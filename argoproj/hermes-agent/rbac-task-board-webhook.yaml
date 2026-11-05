@@ -1,0 +1,28 @@
+# BOXP-270: lets the ESO SecretStore in codex-workspace read exactly one Secret
+# (the webhook HMAC) from this namespace. No list/watch, no other Secret.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: task-board-webhook-secret-reader
+  namespace: hermes-agent
+rules:
+  - apiGroups: [""]
+    resources:
+      - secrets
+    resourceNames:
+      - hermes-agent-task-board-webhook
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: task-board-webhook-secret-reader
+  namespace: hermes-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: task-board-webhook-secret-reader
+subjects:
+  - kind: ServiceAccount
+    name: task-board-webhook-reader
+    namespace: codex-workspace

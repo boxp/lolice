@@ -12,10 +12,17 @@ spec:
     path: argoproj/stable-diffusion
     repoURL: https://github.com/boxp/lolice
     targetRevision: main
+  ignoreDifferences:
+    - group: "apps"
+      kind: Deployment
+      namespace: stable-diffusion
+      name: qwen-image-eval
+      jsonPointers: [/spec/replicas]
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - RespectIgnoreDifferences=true
 

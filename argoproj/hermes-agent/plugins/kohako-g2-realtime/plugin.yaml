@@ -1,0 +1,6 @@
+name: kohako-g2-realtime
+version: 0.1.0
+description: Mints short-lived OpenAI Realtime client secrets for the Kohako G2 BFF on the Hermes openai-codex sign-in (BOXP-387 opt-in voice pilot). No API key, no token access, no audio.
+author: boxp
+requires_auth:
+  - openai-codex

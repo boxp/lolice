@@ -1,0 +1,100 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ai-ops-outcome-rules
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    release: prometheus
+spec:
+  groups:
+    - name: ai-ops-outcome.rules
+      rules:
+        - record: ai_ops:outcome_burn_rate
+          expr: |
+            (((ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="determined"} - ignoring(part) ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="reached_in_budget"}) / ignoring(part) ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="determined"}) / 0.10)
+            and ignoring(part) (ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="determined"} > 0)
+        - record: ai_ops:outcome_reach_ratio
+          expr: |
+            (ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="reached_in_budget"} / ignoring(part) ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="determined"})
+            and ignoring(part) (ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="determined"} > 0)
+        # The *:stable series drop pod and instance before last_over_time reads them. The
+        # burn alerts therefore keep `for` across a rollout gap, and the new Pod's first
+        # value replaces the old Pod's value at once instead of competing with it for 10m.
+        - record: ai_ops:outcome_burn_rate:stable
+          expr: max by (window) (ai_ops:outcome_burn_rate)
+        - record: ai_ops:outcome_determined:stable
+          expr: max by (window) (ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="determined"})
+        - record: ai_ops:outcome_min_observations:stable
+          expr: max by (window) (ai_ops_outcome_min_observations{job="codex-workspace-ai-ops-metrics"})
+        - record: ai_ops:outcome_export_ok:stable
+          expr: min(ai_ops_outcome_export_ok{job="codex-workspace-ai-ops-metrics"})
+        - record: ai_ops:outcome_generated_timestamp:stable
+          expr: max(ai_ops_outcome_generated_timestamp_seconds{job="codex-workspace-ai-ops-metrics"})
+        - alert: AiOpsOutcomeBurnFast
+          expr: |
+            (last_over_time(ai_ops:outcome_burn_rate:stable{window="7d"}[10m]) >= 2.0)
+            and on(window) (last_over_time(ai_ops:outcome_determined:stable{window="7d"}[10m]) >= on(window) last_over_time(ai_ops:outcome_min_observations:stable{window="7d"}[10m]))
+            and on() (last_over_time(ai_ops:outcome_export_ok:stable[10m]) == 1)
+            and on() (time() - last_over_time(ai_ops:outcome_generated_timestamp:stable[10m]) <= 7200)
+          for: 2h
+          labels:
+            severity: warning
+            component: ai-ops
+            definition_version: outcome/v2-draft
+            window: 7d
+          annotations:
+            summary: AI Ops 成果の劣化を検知
+            description: "7d 窓: (determined - reached_in_budget) / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。"
+            runbook_next_actions: 許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。
+        - alert: AiOpsOutcomeBurnSlow
+          expr: |
+            (last_over_time(ai_ops:outcome_burn_rate:stable{window="28d"}[10m]) >= 1.0)
+            and on(window) (last_over_time(ai_ops:outcome_determined:stable{window="28d"}[10m]) >= on(window) last_over_time(ai_ops:outcome_min_observations:stable{window="28d"}[10m]))
+            and on() (last_over_time(ai_ops:outcome_export_ok:stable[10m]) == 1)
+            and on() (time() - last_over_time(ai_ops:outcome_generated_timestamp:stable[10m]) <= 7200)
+          for: 2h
+          labels:
+            severity: warning
+            component: ai-ops
+            definition_version: outcome/v2-draft
+            window: 28d
+          annotations:
+            summary: AI Ops 成果の劣化を検知
+            description: "28d 窓: (determined - reached_in_budget) / determined の burn rate が暫定閾値 1.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。"
+            runbook_next_actions: 許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。
+        - alert: AiOpsOutcomeMeasurementStale
+          expr: |
+            max(
+              ai_ops_outcome_export_ok{job="codex-workspace-ai-ops-metrics"} == 0
+            or time() - ai_ops_outcome_generated_timestamp_seconds{job="codex-workspace-ai-ops-metrics"} > 7200
+            or absent(ai_ops_outcome_export_ok{job="codex-workspace-ai-ops-metrics"})
+            or absent(ai_ops_outcome_generated_timestamp_seconds{job="codex-workspace-ai-ops-metrics"})
+            )
+          for: 30m
+          labels:
+            severity: warning
+            component: ai-ops
+            definition_version: outcome/v2-draft
+          annotations:
+            summary: AI Ops 成果の計測に異常
+            description: "計測の鮮度または export に異常。7d/28d 窓の到達率と観測数は信頼できない可能性がある。burn の閾値は暫定。Grafana ai-ops-quality を参照。"
+            runbook_next_actions: 許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。
+        # An evaluation's labels change with each new result, so a held value could start
+        # this alert for a version no longer exported. It reads current values only:
+        # keep_firing_for carries a firing alert across a rollout gap.
+        - alert: AiOpsHarnessEvalRegression
+          expr: |
+            (max by (model_rev, harness_version, status) (ai_ops_harness_eval_regression{job="codex-workspace-ai-ops-metrics",status="suspected"}) == 1)
+            and on() (min(ai_ops_harness_eval_export_ok{job="codex-workspace-ai-ops-metrics"}) == 1)
+          for: 5m
+          keep_firing_for: 10m
+          labels:
+            severity: warning
+            component: ai-ops
+            definition_version: harness-eval/v1-draft
+          annotations:
+            summary: ハーネス劣化の疑い（固定課題の対照評価）
+            description: 同じ model_rev で現行ハーネスの合格率または所要時間が最小構成より悪い。件数が少ないので断定しない。model_rev と harness_version の label を参照。
+            runbook_next_actions: 許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。

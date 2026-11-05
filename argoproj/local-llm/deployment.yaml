@@ -5,7 +5,8 @@ metadata:
   annotations:
     configmap.reloader.stakater.com/reload: "llama-server-models"
 spec:
-  replicas: 1
+  # BOXP-417 の性能研究の間だけ 0。実 scale/受付は BOXP-349 の runtime file queue で制御し、研究の終了時に 1 へ戻す。
+  replicas: 0
   strategy:
     type: Recreate
   selector:
@@ -37,7 +38,7 @@ spec:
           args:
             - llama-server
             - --host
-            - 0.0.0.0
+            - 127.0.0.1
             - --port
             - "8081"
             - -dev
@@ -54,7 +55,6 @@ spec:
             - "1"
             - -fa
             - auto
-            - --no-mmap
             - --jinja
             - --reasoning
             - "off"
@@ -71,6 +71,15 @@ spec:
               value: "1"
             - name: HOME
               value: /tmp
+            # mmap を使わず model を RAM に読み込む（従来の --no-mmap 相当）。
+            # llama.cpp v0.7.0 で --no-mmap が --load-mode none に置き換わったため、
+            # 旧 revision が読む LLAMA_ARG_MMAP と新 revision が読む LLAMA_ARG_LOAD_MODE の両方を
+            # 環境変数で与え、image 更新の前後どちらでも同じ挙動で起動できるようにする（BOXP-253）。
+            # 環境変数は router が起動する各 model の子プロセスにも継承される。
+            - name: LLAMA_ARG_MMAP
+              value: "0"
+            - name: LLAMA_ARG_LOAD_MODE
+              value: none
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -82,27 +91,29 @@ spec:
           resources:
             requests:
               cpu: "4"
-              memory: 28Gi
+              # BOXP-294: the largest preset (qwen38-27b at the router ctx 262144)
+              # measured ~36 GB RSS on golyat-4; keep the request above it so the
+              # scheduler does not hand that memory to other pods.
+              memory: 40Gi
               gpu.intel.com/i915: "1"
             limits:
               gpu.intel.com/i915: "1"
           startupProbe:
             httpGet:
               path: /health
-              port: llama-http
+              port: 8080
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
           readinessProbe:
             httpGet:
               path: /health
-              port: llama-http
+              port: 8080
             periodSeconds: 10
             timeoutSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /health
-              port: llama-http
+            exec:
+              command: ["curl", "--fail", "--silent", "--max-time", "4", "http://127.0.0.1:8081/health"]
             initialDelaySeconds: 60
             periodSeconds: 20
             timeoutSeconds: 5
@@ -158,11 +169,17 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 5
           volumeMounts:
+            - name: admission
+              mountPath: /etc/llm-admission
+              readOnly: true
             - name: envoy-config
               mountPath: /etc/envoy/envoy.yaml
               subPath: envoy.yaml
               readOnly: true
       volumes:
+        - name: admission
+          configMap:
+            name: llama-server-admission
         - name: models
           hostPath:
             path: /var/lib/local-llm/models

@@ -21,6 +21,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            # BOXP-328: Kohako G2 listener for the published HTTPS route only.
+            - name: kohako-web
+              containerPort: 8081
           readinessProbe:
             httpGet:
               path: /
@@ -40,4 +43,92 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
-
+        # BOXP-329: Kohako G2 BFF. Same image as web; listens on 127.0.0.1 only so it
+        # is reachable just through nginx :8081 /kohako/api/v1/ (published route).
+        # It verifies the Cloudflare Access JWT on every request; none of these
+        # values is a secret (the AUD is public in Access responses and the Owner
+        # email is already in boxp/arch terraform/cloudflare/b0xp.io/even-g2-lab).
+        - name: kohako-bff
+          image: 839695154978.dkr.ecr.ap-northeast-1.amazonaws.com/even-g2-client-main:bootstrap
+          command:
+            - node
+            - /opt/kohako-bff/server.js
+          env:
+            - name: KOHAKO_ACCESS_TEAM_DOMAIN
+              value: https://boxp.cloudflareaccess.com
+            - name: KOHAKO_ACCESS_AUD
+              value: c98ec040b98358a12ac478984c00ded11e85e9336f2acb768c5f772351fbcbcb
+            - name: KOHAKO_OWNER_EMAILS
+              value: tiyotiyouda@gmail.com
+            - name: KOHAKO_BOARD_URL
+              value: http://codex-task-board-kohako.codex-workspace.svc.cluster.local:8090/api/kohako/board
+            # BOXP-332: real Hermes conversation through the internal API server.
+            # The key stays in this sidecar (web container and device never see it).
+            - name: KOHAKO_HERMES_URL
+              value: http://hermes-agent-api.hermes-agent.svc.cluster.local:8642
+            # BOXP-332 (M5): in-cluster whisper.cpp (deployment-kohako-stt.yaml). Unset = voice disabled.
+            - name: KOHAKO_STT_URL
+              value: http://kohako-stt.even-g2-lab.svc.cluster.local:8080
+            - name: KOHAKO_HERMES_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kohako-hermes-api-key
+                  key: key
+            # BOXP-332: G2 reads the Owner's own Telegram DM (read-only, official
+            # /api/sessions API) as shared context. Only this Telegram user's open
+            # session is read; nothing is posted to Telegram.
+            - name: KOHAKO_SHARED_CONTEXT
+              value: telegram-dm
+            - name: KOHAKO_TELEGRAM_USER_ID
+              value: "8202126858"
+            # Suggestion candidates only: light model on the existing openai-codex
+            # subscription (no new provider/credential). The conversation itself
+            # keeps the Hermes default model.
+            - name: KOHAKO_CANDIDATE_PROVIDER
+              value: openai-codex
+            - name: KOHAKO_CANDIDATE_MODEL
+              value: gpt-5.6-luna
+            # BOXP-332 M7: the BFF only sends while Hermes /v1/toolsets reports exactly
+            # these enabled toolsets for the API server (gated by the kohako-g2-context
+            # plugin in hermes-agent); anything else fails closed.
+            - name: KOHAKO_HERMES_TOOLSETS
+              value: file,session_search,skills,terminal
+            # BOXP-387: opt-in realtime voice pilot. The BFF mints a short-lived OpenAI
+            # Realtime client secret through the Hermes kohako-g2-realtime plugin
+            # (openai-codex subscription sign-in, no API key) and relays G2 audio to
+            # api.openai.com over the existing public-443 egress. One session at a time,
+            # BOXP-407: no application duration limit, 6 starts per hour; nothing is stored.
+            - name: KOHAKO_REALTIME
+              value: "1"
+            - name: KOHAKO_REALTIME_ORIGIN
+              value: https://kohako-g2.b0xp.io
+            - name: KOHAKO_REALTIME_MAX_MS
+              value: "unlimited"
+            - name: KOHAKO_BFF_HOST
+              value: 127.0.0.1
+            - name: KOHAKO_BFF_PORT
+              value: "8787"
+          livenessProbe:
+            exec:
+              command:
+                - wget
+                - -q
+                - -O
+                - /dev/null
+                - http://127.0.0.1:8787/healthz
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

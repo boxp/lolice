@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: langfuse-valkey
+spec:
+  selector:
+    app: langfuse-valkey
+  ports:
+    - port: 6379
+---
+# No persistence: queue entries live in memory only and are lost on restart. When maxmemory
+# is reached (noeviction, required by Langfuse) ingestion fails and producers count a loss.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse-valkey
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langfuse-valkey
+  template:
+    metadata:
+      labels:
+        app: langfuse-valkey
+    spec:
+      priorityClassName: langfuse-observability
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  # amd64 excludes the control plane; golyat-4 is the GPU research node.
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: ["golyat-4"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+      containers:
+        - name: valkey
+          image: docker.io/valkey/valkey:8.1.11
+          args:
+            - sh
+            - -c
+            - exec valkey-server --requirepass "$REDIS_AUTH" --maxmemory 256mb --maxmemory-policy noeviction --save "" --appendonly no
+          env:
+            - name: REDIS_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: langfuse-secrets
+                  key: REDIS_AUTH
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 384Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 64Mi
