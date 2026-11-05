@@ -74,8 +74,8 @@ cd "$REPO_ROOT"
     done
   fi
 
-  # ESO は argocd / external-secrets-operator の事前適用で Helm install される。
-  if has_component external-secrets-operator || has_component argocd; then
+  # ESO は argocd / external-secrets-operator / langfuse の事前適用で Helm install される。
+  if has_component external-secrets-operator || has_component argocd || has_component langfuse; then
     ESO_CHART_VERSION="$(yq -r '.spec.sources[] | select(.chart == "external-secrets") | .targetRevision' argoproj/external-secrets-operator/application.yaml)"
     { helm template external-secrets external-secrets \
         --repo https://charts.external-secrets.io --version "$ESO_CHART_VERSION" \

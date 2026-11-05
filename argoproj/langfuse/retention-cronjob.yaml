@@ -1,0 +1,73 @@
+# BOXP-428: short retention, hourly so that one failed run has little effect. See
+# files/retention.mjs for what each step removes. Runs on the worker image because it
+# carries the S3 SDK and node; no extra image is needed.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: langfuse-retention
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app: langfuse-retention
+        spec:
+          priorityClassName: langfuse-observability
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      # amd64 excludes the control plane; golyat-4 is the GPU research node.
+                      - key: kubernetes.io/arch
+                        operator: In
+                        values: ["amd64"]
+                      - key: kubernetes.io/hostname
+                        operator: NotIn
+                        values: ["golyat-4"]
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          containers:
+            - name: retention
+              image: docker.io/langfuse/langfuse-worker:4.75.0
+              command: ["node", "/retention/retention.mjs"]
+              env:
+                - name: RETENTION_DAYS
+                  value: "14"
+                - name: RAW_EVENT_DAYS
+                  value: "1"
+                - name: LANGFUSE_PUBLIC_KEY
+                  valueFrom:
+                    secretKeyRef: {name: langfuse-ingest-key, key: LANGFUSE_PUBLIC_KEY}
+                - name: LANGFUSE_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef: {name: langfuse-ingest-key, key: LANGFUSE_SECRET_KEY}
+                - name: MINIO_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: langfuse-secrets, key: MINIO_ROOT_PASSWORD}
+                - name: CLICKHOUSE_PASSWORD
+                  valueFrom:
+                    secretKeyRef: {name: langfuse-secrets, key: CLICKHOUSE_PASSWORD}
+              resources:
+                requests: {cpu: 10m, memory: 96Mi}
+                limits: {cpu: 200m, memory: 256Mi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: script
+                  mountPath: /retention
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: langfuse-retention

@@ -1,0 +1,75 @@
+# BOXP-428: bodies stay inside this namespace. Default deny through selection of all
+# Pods; only the three named clients reach web:3000, and only cloudflared has egress
+# beyond the namespace. Langfuse's server-side telemetry and update checks have no route out.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: langfuse-default
+  namespace: langfuse
+spec:
+  selector: all()
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'langfuse'
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        selector: app == 'codex-workspace'
+      destination:
+        selector: app == 'langfuse-web'
+        ports:
+          - 3000
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
+        selector: app == 'hermes-agent'
+      destination:
+        selector: app == 'langfuse-web'
+        ports:
+          - 3000
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        selector: k8s-app == 'kube-dns'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        selector: k8s-app == 'kube-dns'
+        ports:
+          - 53
+    - action: Allow
+      destination:
+        namespaceSelector: kubernetes.io/metadata.name == 'langfuse'
+---
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: langfuse-cloudflared-egress
+  namespace: langfuse
+spec:
+  selector: app == 'langfuse-cloudflared'
+  types:
+    - Egress
+  egress:
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports:
+          - 443
+          - 7844
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports:
+          - 7844

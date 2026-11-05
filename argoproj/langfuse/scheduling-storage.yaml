@@ -1,0 +1,28 @@
+# BOXP-428: observation must yield to everything else. Any default-priority Pod can
+# preempt these, and these never preempt others. A Pending Langfuse only means missing
+# traces: producers are asynchronous and bounded.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: langfuse-observability
+value: -100
+preemptionPolicy: Never
+globalDefault: false
+description: "BOXP-428: Langfuse observability stack, lowest priority"
+---
+# One replica, reclaim Delete, and no recurring-job labels: these volumes hold short-lived
+# observation bodies, so they are deliberately outside Longhorn backups. Do not add a
+# recurring-job group without revisiting the retention design (docs/project_docs/BOXP-428).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: langfuse-longhorn
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  dataLocality: best-effort
+  staleReplicaTimeout: "30"
+  fsType: ext4
