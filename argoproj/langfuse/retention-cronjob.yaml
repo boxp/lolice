@@ -40,6 +40,8 @@ spec:
               image: docker.io/langfuse/langfuse-worker:4.75.0
               command: ["node", "/retention/retention.mjs"]
               env:
+                - name: SYNTHETIC_MARKER
+                  value: "BOXP428SYNTH"
                 - name: RETENTION_DAYS
                   value: "14"
                 - name: RAW_EVENT_DAYS

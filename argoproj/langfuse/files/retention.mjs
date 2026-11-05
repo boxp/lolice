@@ -12,7 +12,7 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire('/app/worker/');
-const { S3Client, PutBucketLifecycleConfigurationCommand, GetBucketLifecycleConfigurationCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutBucketLifecycleConfigurationCommand, GetBucketLifecycleConfigurationCommand, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
 
 const DAYS = Number(process.env.RETENTION_DAYS || 14);
 const EVENT_DAYS = Number(process.env.RAW_EVENT_DAYS || 1);
@@ -73,12 +73,69 @@ async function enforceLifecycle() {
   report.lifecycle = (got.Rules || []).map((r) => `${r.Filter?.Prefix}:${r.Expiration?.Days}d`);
 }
 
+// Counts only: never return matching values, trace IDs or object keys.
+async function audit() {
+  const marker = process.env.SYNTHETIC_MARKER;
+  const query = async (sql) => JSON.parse(await chQuery(`${sql} SETTINGS max_execution_time = 60 FORMAT JSON`, 65_000));
+  const core = (await query(`SELECT uniqExact(trace_id) AS traces, count() AS rows,
+    if(count() = 0, NULL, greatest(0, dateDiff('second', min(start_time), now64(6)) / 3600)) AS oldest_age_hours
+    FROM events_core FINAL`)).data[0];
+  const services = (await query('SELECT service_name, uniqExact(trace_id) AS traces FROM events_core FINAL GROUP BY service_name')).data;
+  const result = { traces: Number(core.traces), rows: Number(core.rows), oldest_age_hours: core.oldest_age_hours,
+    by_service: Object.fromEntries(services.map((s) => [s.service_name, Number(s.traces)])), marker_rows_ch: null,
+    s3: null, marker_objects_s3: null };
+  if (marker) {
+    const quoted = marker.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
+    const match = (col) => `position(${col}, '${quoted}') > 0`;
+    const rows = (await query(`SELECT count() AS n FROM events_full FINAL WHERE ${match('input')} OR ${match('output')}
+      OR arrayExists(x -> ${match('x')}, metadata_names) OR arrayExists(x -> ${match('x')}, metadata_values)`)).data[0];
+    result.marker_rows_ch = Number(rows.n);
+  }
+  const s3 = new S3Client({ region: 'auto', endpoint: process.env.S3_ENDPOINT || 'http://langfuse-minio:9000',
+    forcePathStyle: true, credentials: { accessKeyId: 'minio', secretAccessKey: process.env.MINIO_ROOT_PASSWORD } });
+  const objects = [];
+  const s3Deadline = AbortSignal.timeout(90_000);
+  let token;
+  for (let page = 0; page < 20; page++) {
+    const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'events/', ContinuationToken: token }),
+      { abortSignal: s3Deadline });
+    objects.push(...(list.Contents || []));
+    token = list.IsTruncated ? list.NextContinuationToken : undefined;
+    if (!token) break;
+  }
+  const oldest = objects.reduce((min, o) => Math.min(min, o.LastModified.getTime()), Infinity);
+  result.s3 = { objects: objects.length, oldest_age_hours: objects.length ? Math.max(0, (Date.now() - oldest) / 3600000) : null,
+    truncated: Boolean(token) };
+  if (marker) {
+    let scanned = 0, matches = 0, bytes = 0;
+    const limit = 32 * 1024 * 1024, needle = Buffer.from(marker);
+    objects.sort((a, b) => b.LastModified - a.LastModified);
+    for (const object of objects.slice(0, 200)) {
+      if (object.Size > limit - bytes) break;
+      const response = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: object.Key }),
+        { abortSignal: s3Deadline });
+      let tail = Buffer.alloc(0), found = false;
+      for await (const chunk of response.Body) {
+        bytes += chunk.length;
+        if (bytes > limit) { response.Body.destroy(); throw new Error('object scan limit exceeded'); }
+        const data = Buffer.concat([tail, chunk]);
+        if (data.includes(needle)) found = true;
+        tail = data.subarray(Math.max(0, data.length - needle.length + 1));
+      }
+      scanned++;
+      if (found) matches++;
+    }
+    result.marker_objects_s3 = { matches, scanned };
+  }
+  report.audit = result;
+}
+
 async function optimize() {
   for (const table of ['events_full', 'events_core']) await chQuery(`OPTIMIZE TABLE ${table} FINAL`, 600_000);
   report.optimized = true;
 }
 
-const steps = [enforceLifecycle, deleteTraces];
+const steps = [audit, enforceLifecycle, deleteTraces];
 if (process.env.FORCE_OPTIMIZE === 'true' || new Date().getUTCHours() === 18) steps.push(optimize);
 
 let failed = false;
@@ -87,7 +144,7 @@ for (const step of steps) {
     await step();
   } catch (e) {
     failed = true;
-    report[`${step.name}_error`] = e.message;
+    report[`${step.name}_error`] = step === audit ? 'audit failed' : e.message;
   }
 }
 console.log(JSON.stringify(report));
