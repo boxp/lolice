@@ -69,6 +69,7 @@ class ObserverTest(unittest.TestCase):
         plugin._turns.clear()
         plugin._stats.clear()
         plugin._sessions.clear()
+        plugin._delegated.clear()
         plugin._creds = ("pk-lf-" + "test" * 4, "sk-lf-" + "test" * 4)
         plugin._secret_values = None
 
@@ -142,6 +143,57 @@ class ObserverTest(unittest.TestCase):
                 body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
                 self.assertNotIn("UNIQUEOUTPUT", body)
                 self.assertIn("withheld", body)
+
+    def test_sensitive_commands_are_found_wherever_the_flags_are(self):
+        for command in ("kubectl -n foo get secret bar -o jsonpath='{.data.x}'", "kubectl --context a get secrets/bar",
+                        "kubectl get -n foo secret bar", "kubectl get pods,secrets -A -o yaml", "oc -n foo extract secret/bar",
+                        "aws --region ap-northeast-1 ssm get-parameter --name x --with-decryption",
+                        "aws secretsmanager get-secret-value --secret-id x", "printenv FOO", "env > /tmp/x", "export -p",
+                        "helm get values foo", "python3 -c 'import os; print(os.environ)'"):
+            with self.subTest(command):
+                plugin._sessions.clear()
+                run_turn(args={"command": command}, result="UNIQUEOUTPUT")
+                body = self._bodies()
+                self.assertNotIn("UNIQUEOUTPUT", body)
+                self.assertIn("withheld", body)
+
+    def test_ordinary_commands_are_not_withheld(self):
+        for command in ("kubectl get pods -n foo", "git status", "ls -la", "aws s3 ls", "environment-check", "reset --hard"):
+            with self.subTest(command):
+                plugin._sessions.clear()
+                run_turn(args={"command": command}, result="UNIQUEOUTPUT")
+                self.assertIn("UNIQUEOUTPUT", self._bodies())
+
+    def test_arguments_of_a_sensitive_call_are_withheld(self):
+        for args in ({"command": "echo plainwordvalue > /a/.env"}, {"path": "/a/.env", "content": "plainwordvalue"},
+                     {"command": "kubectl -n foo create secret generic x --from-literal=k=plainwordvalue"}):
+            with self.subTest(args):
+                plugin._sessions.clear()
+                run_turn(args=args, result="ok")
+                self.assertNotIn("plainwordvalue", self._bodies())
+
+    def _child_turn(self, session, parent, body="child work"):
+        plugin._on_turn_start(session_id=session, turn_id="c", user_message=body, model="m", platform="", parent_session_id=parent)
+        plugin._on_turn_end(session_id=session, turn_id="c", assistant_response="done")
+        plugin._on_session_end(session_id=session, turn_id="c", completed=True)
+
+    def test_delegated_child_is_in_scope_without_a_ticket(self):
+        plugin._on_subagent_start(parent_session_id="tg-1", parent_turn_id="t", child_session_id="child-1")
+        self._child_turn("child-1", "tg-1")
+        self.assertEqual([t["session"] for t in drain()], ["child-1"])
+        plugin._on_subagent_start(parent_session_id="child-1", parent_turn_id="c", child_session_id="grandchild-1")
+        self._child_turn("grandchild-1", "child-1")
+        self.assertEqual([t["session"] for t in drain()], ["grandchild-1"])
+
+    def test_rotated_session_of_a_child_stays_in_scope(self):
+        plugin._on_subagent_start(parent_session_id="tg-1", parent_turn_id="t", child_session_id="child-1")
+        self._child_turn("child-1-rotated", "child-1")
+        self.assertEqual(len(drain()), 1)
+
+    def test_compression_lineage_alone_is_not_delegation(self):
+        self._child_turn("tg-rotated", "tg-chat", body="dinner plans")
+        self.assertEqual(drain(), [])
+        self.assertEqual(plugin.stats().get("turns_out_of_scope"), 1)
 
     def _bodies(self):
         return "".join(b for turn in drain() for b in plugin.guarded_payloads(plugin.build_spans(turn)))

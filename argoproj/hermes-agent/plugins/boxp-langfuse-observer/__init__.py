@@ -1,11 +1,12 @@
 """Hermes -> in-cluster Langfuse observer (BOXP-428).
 
 Scope: only delegation paths the Owner selected. A turn is buffered in memory and sent when it
-ends, and only if it is a Kohako G2 session, a webhook (Task Board event) session, or it delegated
-or referred to a ticket. Other conversation is dropped and only counted. Audio and images never
+ends, and only if it is a Kohako G2 session, a webhook (Task Board event) session, or it delegated,
+was delegated (subagent_start, not the parent id, which session rotation also sets) or referred to a
+ticket. Other conversation is dropped and only counted. Audio and images never
 reach this module: no transcription hook is registered and data URIs are removed.
 
-Secrets: tool output of sensitive paths and commands is withheld, every string is masked, and the
+Secrets: arguments and output of tool calls on sensitive paths and commands are withheld, every string is masked, and the
 serialized batch is scanned again before sending. Any hit or error drops the observation and keeps
 a reason without body. Nothing is written to disk, so there is no spool to clean. Request history
 goes through an allow-list that never keeps tool results; those appear only in tool spans. After a
@@ -76,11 +77,15 @@ _PLACEHOLDER = re.compile(r"\[REDACTED:[a-z_]+\]")
 _SENSITIVE_PATH = re.compile(
     r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_rsa|id_ed25519|secrets?(?:[/\\])|[^/\s\"']*token[^/\s\"']*)")
 _SENSITIVE_COMMAND = re.compile(
-    r"(?i)(?:^|[;&|\s\"'])(?:env|printenv|set)(?:\s*$|\s*[|;&\"'])|\bkubectl\s+(?:get|describe)\s+secrets?\b|\baws\s+ssm\s+get-parameters?\b|/proc/[^/\s]+/environ\b|\bgh\s+auth\s+token\b|\bgit\s+credential\b|langfuse-ingest")
+    r"(?i)(?:^|[;&|\s\"'])(?:env|set)(?:\s*$|\s*[|;&>\"'])|\bprintenv\b|\bexport\s+-p\b|\bdeclare\s+-[a-z]*x|\bos\.environ\b|\bprocess\.env\b"
+    r"|\baws\b[^|;&]*\b(?:ssm\s+get-parameter|secretsmanager\s+get-|configure\s+(?:get|export-credentials))"
+    r"|\bhelm\s+get\b|/proc/[^/\s]+/environ\b|\bgh\s+auth\s+token\b|\bgit\s+credential\b|langfuse-ingest")
+_CLUSTER_CLI = re.compile(r"(?i)\b(?:kubectl|oc)\s")
 
 _lock = threading.Lock()
 _turns = {}
 _sessions = collections.OrderedDict()  # session id -> ran a sensitive tool
+_delegated = collections.OrderedDict()  # session ids started by delegation
 _seen_prompts = {}
 _stats = {}
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
@@ -125,6 +130,7 @@ def register(ctx):
     ctx.register_hook("api_request_error", _on_api_error)
     ctx.register_hook("post_tool_call", _on_tool)
     ctx.register_hook("post_compaction", _on_compaction)
+    ctx.register_hook("subagent_start", _on_subagent_start)
     ctx.register_hook("subagent_stop", _on_subagent)
     ctx.register_hook("post_llm_call", _on_turn_end)
     ctx.register_hook("on_session_end", _on_session_end)
@@ -185,6 +191,9 @@ def _unsafe(serialized):
 
 
 def _withhold(args_text):
+    # A cluster CLI can name the resource after any flags, or through a variable, so word order is not checked.
+    if "secret" in args_text.lower() and _CLUSTER_CLI.search(args_text):
+        return True
     return bool(_SENSITIVE_PATH.search(args_text) or _SENSITIVE_COMMAND.search(args_text))
 
 
@@ -269,6 +278,14 @@ def _tool_args(message):
             yield block.get("input")
 
 
+def _note_delegated(session):
+    with _lock:
+        _delegated[str(session)] = True
+        _delegated.move_to_end(str(session))
+        while len(_delegated) > _MAX_SESSIONS:
+            _delegated.popitem(last=False)
+
+
 def _note_session(session, messages):
     """A session first seen here may be resumed, so the taint is rebuilt from its history once."""
     with _lock:
@@ -326,6 +343,8 @@ def _guarded(fn):
 def _on_turn_start(session_id=None, turn_id=None, user_message=None, model=None, platform=None, parent_session_id=None):
     turn = _turn(session_id, turn_id)
     _note_tickets(turn, user_message)
+    if str(parent_session_id or "") in _delegated:  # rotation of a delegated session keeps it delegated
+        _note_delegated(turn["session"])
     if _tainted(parent_session_id):  # the delegated goal may repeat what the parent saw
         _taint(turn["session"])
     if _tainted(turn["session"]):  # the user can repeat a value no pattern recognises
@@ -401,7 +420,7 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
         _taint(turn["session"], turn["parent"])
     now = time.time()
     _add(turn, {"key": "tool:" + str(tool_call_id or now), "name": str(tool_name), "type": "tool",
-                "input": _WITHHELD_SESSION if already else args,
+                "input": _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else args,
                 "output": _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else result,
                 "start": now - (duration_ms or 0) / 1000, "end": now,
                 "level": "ERROR" if error_type or status in ("error", "failed") else None,
@@ -414,6 +433,13 @@ def _on_compaction(session_id=None, turn_id=None, before_tokens=None, after_toke
     now = time.time()
     _add(turn, {"key": f"compaction:{now}", "name": "compaction", "type": "span", "start": now, "end": now,
                 "metadata": {"before_tokens": before_tokens, "after_tokens": after_tokens, "messages_removed": messages_removed}})
+
+
+@_guarded
+def _on_subagent_start(parent_session_id=None, parent_turn_id=None, parent_subagent_id=None, child_session_id=None,
+                       child_subagent_id=None, child_role=None, child_goal=None):
+    if child_session_id:
+        _note_delegated(child_session_id)
 
 
 @_guarded
@@ -459,7 +485,7 @@ def _on_session_end(session_id=None, turn_id=None, completed=None, failed=None, 
 
 def in_scope(turn):
     return (turn["session"].startswith(_G2_PREFIX) or turn["platform"] in _WEBHOOK_PLATFORMS
-            or turn["delegated"] or bool(turn["tickets"]))
+            or turn["delegated"] or turn["session"] in _delegated or bool(turn["tickets"]))
 
 
 # ---------------------------------------------------------------------------
