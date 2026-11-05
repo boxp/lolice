@@ -83,7 +83,8 @@ secrets_and_rbac() {
   test "$answer" = no
 }
 
-# Both producers use their own ServiceAccount and the production ESO resources.
+# hermes-agent の本番 SecretStore/ExternalSecret で、実際に ESO Kubernetes provider から ingest key を取得する。
+# codex-workspace も自分の ServiceAccount と本番 resource で同じ確認をする。
 producer_ingest_key() {
   local manifest key producer
   manifest="$(mktemp)"
