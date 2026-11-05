@@ -120,7 +120,7 @@ spec:
             - name: AUTH_CUSTOM_ALLOW_ACCOUNT_LINKING
               value: "true"
             - name: AUTH_CUSTOM_CHECKS
-              value: pkce,state
+              value: state
             - name: AUTH_CUSTOM_SCOPE
               value: openid email profile
             - name: LANGFUSE_INIT_ORG_ID
