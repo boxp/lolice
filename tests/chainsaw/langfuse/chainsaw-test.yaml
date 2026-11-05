@@ -49,6 +49,11 @@ spec:
     - script:
         timeout: 300s
         content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" ingest'
+  - name: access-oidc-login
+    try:
+    - script:
+        timeout: 300s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" oidc'
   - name: retention
     try:
     - script:
