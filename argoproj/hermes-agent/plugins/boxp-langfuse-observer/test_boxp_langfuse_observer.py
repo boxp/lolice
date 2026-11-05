@@ -319,6 +319,27 @@ class ObserverTest(unittest.TestCase):
             self.assertFalse(plugin._unsafe(json.dumps({"v": "[REDACTED:env] done"})))
         plugin._secret_values = None
 
+    def test_a_value_counts_as_a_setting_only_under_a_setting_name(self):
+        # Secret-looking values are written out of pieces so that the file itself holds none.
+        credentials = {"PASSWORD": "dis" + "abled", "DB_PASSWORD": "tr" + "ue", "AUTHORIZATION": "xy" + "z9",
+                       "HTTP_AUTHORIZATION": "qw" + "e8", "MINIO_ROOT_PASSWORD": "1234" + "5678",
+                       "ADMIN_TOKEN": "48" + "21", "SUPPORT_SECRET": "51" + "50", "EXPORT_KEY_TOKEN": "77" + "31",
+                       "AUTH_PORT": "hun" + "ter2", "API_TOKENS": "tr" + "ue2"}
+        settings = {"AUTH_ENABLED": "disabled", "PASSWORD_REQUIRED": "false", "NO_AUTH": "true", "USE_TOKEN": "yes",
+                    "AUTH_TIMEOUT": "30", "TOKEN_TTL": "3600", "SESSION_COOKIE_MAX_AGE": "86400",
+                    "MAX_OUTPUT_TOKENS": "64000", "GIT_AUTHOR_NAME": "boxp", "AUTHORS": "boxp"}
+        for name, value in credentials.items():
+            self.assertTrue(plugin._is_secret_value(name, value), name)
+        for name, value in settings.items():
+            self.assertFalse(plugin._is_secret_value(name, value), name)
+        with patch.dict(os.environ, credentials):
+            plugin._secret_values = None
+            for value in credentials.values():
+                text = "answer: " + value + " done"
+                self.assertEqual("answer: [REDACTED:env] done", plugin.redact(text))
+                self.assertTrue(plugin._unsafe(json.dumps({"v": text})), value)
+        plugin._secret_values = None
+
     def test_environment_dumps_are_withheld_with_any_arguments(self):
         for command in ("env LANG=C", "env LANG=C | grep FOO", "env A=1 B='x y' > /tmp/x", "env -i", "env -u HOME", "env --null",
                         "/usr/bin/env LANG=C", "sudo env LANG=C", "kubectl exec pod -- env A=1", "ls\nenv LANG=C\necho done",

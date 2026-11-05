@@ -106,10 +106,13 @@ def _entry_key(name):
 
 
 _SECRET_NAME = re.compile(
-    r"(?i)(password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth(?!or)|(?<![a-z])pass(?![a-z]))")
+    r"(?i)(password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth(?!ors?(?![a-z]))|(?<![a-z])pass(?![a-z]))")
 _NOT_A_CREDENTIAL_NAME = re.compile(r"PWD|OLDPWD")
 _FLAG_VALUE = re.compile(r"(?i)true|false|yes|no|on|off|none|null|nil|enabled|disabled|0|1")
-_SETTING_NAME = re.compile(r"(?i)tokens|count|limit|max|min|ttl|timeout|expir|interval|seconds|minutes|hours|days|size|port|bytes")
+# Whole words of the name, at its ends: MINIO_ROOT_PASSWORD holds "min" and SUPPORT_SECRET holds "port".
+_TOGGLE_LAST_WORD = re.compile(r"(?i)enabled?|disabled?|required?|parallelism|rotation")
+_TOGGLE_FIRST_WORD = re.compile(r"(?i)use|enable|disable|no|skip|require")
+_COUNTER_LAST_WORD = re.compile(r"(?i)tokens|count|limit|max|min|ttl|timeout|expiry|expires|interval|seconds|minutes|hours|days|age|size|port|bytes")
 _SHORT_VALUE_LENGTH = 8
 # The text before a value may be JSON-escaped: the n of \\n and the hex of \\u3048 are not part of a word.
 _SHORT_VALUE_START = r"(?:(?<![A-Za-z0-9])|(?<=\\[nrtbf])|(?<=\\u[0-9a-fA-F]{4}))"
@@ -234,12 +237,20 @@ def register(ctx):
 # ---------------------------------------------------------------------------
 # secret removal
 
+def _is_setting(name, value):
+    """The value and the name have to agree: PASSWORD=disabled is a password, AUTH_ENABLED=disabled is a setting."""
+    words = [word for word in re.split(r"[^A-Za-z0-9]+", name) if word]
+    if not words:
+        return False
+    if _FLAG_VALUE.fullmatch(value):
+        return bool(_TOGGLE_LAST_WORD.fullmatch(words[-1]) or _TOGGLE_FIRST_WORD.fullmatch(words[0]))
+    return bool(re.fullmatch(r"[0-9]+", value) and _COUNTER_LAST_WORD.fullmatch(words[-1]))
+
+
 def _is_secret_value(name, value):
-    """Short values count too. A flag such as AUTH_ENABLED=true, or a number under a name such as
-    MAX_OUTPUT_TOKENS, is a setting; masking it would only blank ordinary words and numbers."""
+    """Short values count too. Only a setting is left alone, since masking it would blank ordinary words and numbers."""
     return (isinstance(value, str) and value.strip() and _SECRET_NAME.search(name)
-            and not _NOT_A_CREDENTIAL_NAME.fullmatch(name) and not _FLAG_VALUE.fullmatch(value)
-            and not (re.fullmatch(r"[0-9]+", value) and _SETTING_NAME.search(name)))
+            and not _NOT_A_CREDENTIAL_NAME.fullmatch(name) and not _is_setting(name, value))
 
 
 def _env_secrets():
