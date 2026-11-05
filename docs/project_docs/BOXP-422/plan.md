@@ -12,7 +12,7 @@ Telegram の通知・監督・会話・保留操作・承認は変更しない�
 | 項目 | 418 案 | 本実装 | 理由 |
 |---|---|---|---|
 | 受付元の記録 | helper `--origin` と plugin gate で frontmatter へ | Hermes の session 記録（BFF だけが作れる `kohako-g2-*` の tool_calls と tool 結果）を公式 API で読み導出 | plugin・helper の変更は Hermes 再起動か PVC 更新を要する。本票では追加の Hermes 再起動は別確認。モデルの自由文には依存しない点は同じ |
-| 要約 | 最終応答の冒頭 | `Owner向け要約` の Notes、最終応答の冒頭（見出しまで）、最新の担当 Notes の順 | 実データで最終応答が無関係な文になる例がある（BOXP-418） |
+| 要約 | 最終応答の冒頭 | 本文が `Owner向け要約:` で始まる Notes、最終応答の冒頭（見出しまで）、最新の担当 Notes の順 | 実データで最終応答が無関係な文になる例がある（BOXP-418） |
 
 ## 構成
 

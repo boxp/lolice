@@ -715,7 +715,7 @@ data:
             except ValueError:
               start = finished
           notes = [n for n in by_time(parse_notes(text)) if n[0] and n[0] >= start]
-          owner = [n[2] for n in notes if "Owner向け要約" in n[2]]
+          owner = [m.group(1) for m in (re.match(r"Owner向け要約\s*[:：]\s*(\S.*)", n[2], re.S) for n in notes) if m]
           try:
             last = read_limited(safe_result_path(run_dir, "last-message.md"))
           except FileNotFoundError:
@@ -723,7 +723,7 @@ data:
           paragraph = lead_text(last)
           clean_paragraph = result_text(paragraph, 10000)
           eligible = [body for _, source, body in notes if source and source not in ("kohako-event", "hermes-agent") and not body.startswith(("TODO ack", "Codex task-board run"))]
-          chosen = re.sub(r"^.*?Owner向け要約\s*[:：]\s*", "", owner[-1]) if owner else (paragraph if clean_paragraph and len(clean_paragraph) >= 40 else (eligible[-1] if eligible else None))
+          chosen = owner[-1] if owner else (paragraph if clean_paragraph and len(clean_paragraph) >= 40 else (eligible[-1] if eligible else None))
           unverified = find_unverified(chosen or "", last)
           base.update(finishedAt=iso(finished), runId=run_id, manual=False, summary=result_text(chosen, 240), unverified=result_text(unverified, 120))
         items.append(base)
