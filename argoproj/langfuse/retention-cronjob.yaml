@@ -42,6 +42,8 @@ spec:
               env:
                 - name: SYNTHETIC_MARKER
                   value: "BOXP428SYNTH"
+                - name: SYNTHETIC_CONTROL_MARKER
+                  value: "BOXP428CTRL"
                 - name: RETENTION_DAYS
                   value: "14"
                 - name: RAW_EVENT_DAYS

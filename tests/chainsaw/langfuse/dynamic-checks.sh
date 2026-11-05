@@ -362,10 +362,11 @@ clickhouse_count() {
 retention() {
   otlp send "$TRACE_OLD" 15 0 BOXP428SYNTH
   otlp send "$TRACE_SHARED" 0 1 chainsaw-shared
-  otlp send "$TRACE_FRESH" 0 0 chainsaw-fresh
+  otlp send "$TRACE_FRESH" 0 0 BOXP428CTRL
   local trace
   otlp present "$TRACE_OLD" BOXP428SYNTH 240
-  for trace in "$TRACE_SHARED" "$TRACE_FRESH"; do otlp present "$trace" chainsaw 240; done
+  otlp present "$TRACE_SHARED" chainsaw 240
+  otlp present "$TRACE_FRESH" BOXP428CTRL 240
 
   # 実 CronJob の spec のまま 1 回起動する。OPTIMIZE は UTC の特定時刻だけなので明示する。
   kubectl get cronjob langfuse-retention -n "$NS" -o json | jq '{apiVersion: "batch/v1", kind: "Job",
@@ -376,10 +377,10 @@ retention() {
   local report
   report="$(kubectl logs -n "$NS" job/retention-chainsaw | tail -n 1)"
   jq -e '.expired_traces_deleted >= 1 and .public_traces_deleted >= 1 and .optimized == true and .lifecycle == ["events/:1d"]
-    and .audit.traces > 0 and .audit.marker_rows_ch >= 1 and .audit.marker_objects_s3.matches >= 1 and .audit.marker_objects_s3.scanned >= 1
+    and .audit.traces > 0 and .audit.control_rows_ch >= 1 and .audit.marker_rows_ch >= 1 and .audit.marker_objects_s3.matches >= 1 and .audit.marker_objects_s3.scanned >= 1
     and ([keys[] | select(endswith("_error"))] | length == 0)' <<<"$report" >/dev/null \
     || { echo 'retention report が想定と異なります' >&2; exit 1; }
-  for trace in "$TRACE_OLD" "$TRACE_SHARED" "$TRACE_FRESH" "$TRACE_INGEST" BOXP428SYNTH chainsaw-old chainsaw-shared chainsaw-fresh chainsaw-body-marker; do
+  for trace in "$TRACE_OLD" "$TRACE_SHARED" "$TRACE_FRESH" "$TRACE_INGEST" BOXP428SYNTH BOXP428CTRL chainsaw-old chainsaw-shared chainsaw-body-marker; do
     [[ "$report" != *"$trace"* ]] || { echo 'retention report に本文または trace ID が含まれています' >&2; exit 1; }
   done
 
@@ -395,8 +396,8 @@ retention() {
   kubectl wait -n "$NS" --for=condition=Complete job/retention-chainsaw-after --timeout=240s \
     || { echo '削除後の retention Job が失敗しました' >&2; exit 1; }
   report="$(kubectl logs -n "$NS" job/retention-chainsaw-after | tail -n 1)"
-  jq -e '.audit.marker_rows_ch == 0 and .optimized == true and ([keys[] | select(endswith("_error"))] | length == 0)' <<<"$report" >/dev/null
-  for trace in "$TRACE_OLD" "$TRACE_SHARED" "$TRACE_FRESH" "$TRACE_INGEST" BOXP428SYNTH chainsaw-shared chainsaw-fresh chainsaw-body-marker; do
+  jq -e '.audit.marker_rows_ch == 0 and .audit.control_rows_ch >= 1 and .optimized == true and ([keys[] | select(endswith("_error"))] | length == 0)' <<<"$report" >/dev/null
+  for trace in "$TRACE_OLD" "$TRACE_SHARED" "$TRACE_FRESH" "$TRACE_INGEST" BOXP428SYNTH BOXP428CTRL chainsaw-shared chainsaw-body-marker; do
     [[ "$report" != *"$trace"* ]] || { echo '削除後の report に本文または trace ID が含まれています' >&2; exit 1; }
   done
 }

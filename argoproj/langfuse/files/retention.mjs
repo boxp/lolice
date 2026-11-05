@@ -83,14 +83,17 @@ async function audit() {
   const services = (await query('SELECT service_name, uniqExact(trace_id) AS traces FROM events_core FINAL GROUP BY service_name')).data;
   const result = { traces: Number(core.traces), rows: Number(core.rows), oldest_age_hours: core.oldest_age_hours,
     by_service: Object.fromEntries(services.map((s) => [s.service_name, Number(s.traces)])), marker_rows_ch: null,
-    s3: null, marker_objects_s3: null };
-  if (marker) {
-    const quoted = marker.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
+    control_rows_ch: null, s3: null, marker_objects_s3: null };
+  // A plain marker that should reach ClickHouse: without it, marker_rows_ch == 0 could just mean nothing arrived.
+  const countBody = async (value) => {
+    const quoted = value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
     const match = (col) => `position(${col}, '${quoted}') > 0`;
     const rows = (await query(`SELECT count() AS n FROM events_full FINAL WHERE ${match('input')} OR ${match('output')}
       OR arrayExists(x -> ${match('x')}, metadata_names) OR arrayExists(x -> ${match('x')}, metadata_values)`)).data[0];
-    result.marker_rows_ch = Number(rows.n);
-  }
+    return Number(rows.n);
+  };
+  if (process.env.SYNTHETIC_CONTROL_MARKER) result.control_rows_ch = await countBody(process.env.SYNTHETIC_CONTROL_MARKER);
+  if (marker) result.marker_rows_ch = await countBody(marker);
   const s3 = new S3Client({ region: 'auto', endpoint: process.env.S3_ENDPOINT || 'http://langfuse-minio:9000',
     forcePathStyle: true, credentials: { accessKeyId: 'minio', secretAccessKey: process.env.MINIO_ROOT_PASSWORD } });
   const objects = [];
