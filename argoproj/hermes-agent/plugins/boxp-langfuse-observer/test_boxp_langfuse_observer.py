@@ -300,7 +300,7 @@ class ObserverTest(unittest.TestCase):
         with patch.dict(os.environ, env):
             plugin._secret_values = None
             for text in ("answer: " + short, "答えは" + short + "です", "(" + phrase + ")", "user:" + short + "@host",
-                         "zq7", "pin 4821."):
+                         "zq7", "pin 4821.", '{"a":"x\\nzq7"}', '{"a":"\\u3048zq7"}'):
                 out = plugin.redact(text)
                 self.assertIn("[REDACTED:env]", out, text)
                 for value in (short, phrase, "zq7", "4821"):

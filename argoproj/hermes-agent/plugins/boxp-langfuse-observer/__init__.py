@@ -106,7 +106,13 @@ def _entry_key(name):
 
 
 _SECRET_NAME = re.compile(
-    r"(?i)(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth)")
+    r"(?i)(password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth(?!or)|(?<![a-z])pass(?![a-z]))")
+_NOT_A_CREDENTIAL_NAME = re.compile(r"PWD|OLDPWD")
+_FLAG_VALUE = re.compile(r"(?i)true|false|yes|no|on|off|none|null|nil|enabled|disabled|0|1")
+_SETTING_NAME = re.compile(r"(?i)tokens|count|limit|max|min|ttl|timeout|expir|interval|seconds|minutes|hours|days|size|port|bytes")
+_SHORT_VALUE_LENGTH = 8
+# The text before a value may be JSON-escaped: the n of \\n and the hex of \\u3048 are not part of a word.
+_SHORT_VALUE_START = r"(?:(?<![A-Za-z0-9])|(?<=\\[nrtbf])|(?<=\\u[0-9a-fA-F]{4}))"
 _PATTERNS = [
     ("private_key", re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----.*?(?:-----END (?:[A-Z ]+ )?PRIVATE KEY-----|\Z)", re.S)),
     ("header", re.compile(r"(?im)\b(?:proxy-authorization|authorization|set-cookie|cookie)\s*:\s*[^\r\n]+")),
@@ -178,6 +184,7 @@ _stats = {}
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
 _worker = None
 _secret_values = None
+_env_pattern_cache = (None, None)
 _creds = None
 
 
@@ -227,13 +234,32 @@ def register(ctx):
 # ---------------------------------------------------------------------------
 # secret removal
 
+def _is_secret_value(name, value):
+    """Short values count too. A flag such as AUTH_ENABLED=true, or a number under a name such as
+    MAX_OUTPUT_TOKENS, is a setting; masking it would only blank ordinary words and numbers."""
+    return (isinstance(value, str) and value.strip() and _SECRET_NAME.search(name)
+            and not _NOT_A_CREDENTIAL_NAME.fullmatch(name) and not _FLAG_VALUE.fullmatch(value)
+            and not (re.fullmatch(r"[0-9]+", value) and _SETTING_NAME.search(name)))
+
+
 def _env_secrets():
     global _secret_values
     if _secret_values is None:
-        _secret_values = sorted(
-            {v for k, v in os.environ.items() if _SECRET_NAME.search(k) and isinstance(v, str) and len(v) >= 8},
-            key=len, reverse=True)
+        _secret_values = sorted({v for k, v in os.environ.items() if _is_secret_value(k, v)}, key=len, reverse=True)
     return _secret_values
+
+
+def _env_pattern():
+    """One alternation, longest first, so a later value cannot rewrite the mark of an earlier one.
+    A short value has to stand alone: inside a longer word it is most likely a coincidence."""
+    global _env_pattern_cache
+    values = _env_secrets()
+    if _env_pattern_cache[0] is not values:
+        pattern = re.compile("|".join(
+            re.escape(v) if len(v) >= _SHORT_VALUE_LENGTH else _SHORT_VALUE_START + re.escape(v) + "(?![A-Za-z0-9])"
+            for v in values)) if values else None
+        _env_pattern_cache = (values, pattern)
+    return _env_pattern_cache[1]
 
 
 def _is_entropy(s):
@@ -378,9 +404,10 @@ def redact(text):
     """Return text without secrets. Raises nothing: failure drops the whole field."""
     try:
         out = str(text)
-        for value in _env_secrets():
-            if value in out:
-                out = out.replace(value, "[REDACTED:env]")
+        env_pattern = _env_pattern()
+        if env_pattern:
+            out, hits = env_pattern.subn("[REDACTED:env]", out)
+            if hits:
                 _count("redactions_env")
         out = _SECRET_ELEMENT.sub(_count_element, out)
         # Before the patterns, which would take the word with them and leave the rest of a value behind.
@@ -401,7 +428,8 @@ def redact(text):
 def _unsafe(serialized):
     """Final guard on the JSON text that is about to leave the process."""
     probe = _PLACEHOLDER.sub("", serialized)
-    if any(v in probe for v in _env_secrets()) or _LOOSE_SECRET.search(probe):
+    env_pattern = _env_pattern()
+    if (env_pattern and env_pattern.search(probe)) or _LOOSE_SECRET.search(probe):
         return True
     for kind, pattern in _PATTERNS:
         if kind in _FIELD_ONLY:
