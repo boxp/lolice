@@ -19,15 +19,6 @@ spec:
           - 2222
           - 3456
           - 8080
-    # BOXP-430: only the existing cloudflared tunnel can reach the lineage viewer.
-    - action: Allow
-      protocol: TCP
-      source:
-        namespaceSelector: kubernetes.io/metadata.name == 'k8s'
-        selector: app == 'cloudflared'
-      destination:
-        ports:
-          - 8091
     # BOXP-329: Kohako G2 BFF (even-g2-main Pod sidecar) -> read-only Task Board projection only.
     - action: Allow
       protocol: TCP
