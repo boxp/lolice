@@ -15,7 +15,7 @@ spec:
       annotations:
         # Bump when dashboard-configmap.yaml changes: the dashboard sidecar only
         # loads /app at process start. See README "Dashboard ConfigMap".
-        codex-workspace.boxp.tk/dashboard-config-revision: "BOXP-395-review-lane-retired"
+        codex-workspace.boxp.tk/dashboard-config-revision: "BOXP-422-g2-results"
       labels:
         app: codex-workspace
     spec:
