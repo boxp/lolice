@@ -54,7 +54,7 @@ createServer(async (req, res) => {
   try {
     if (url.pathname === "/healthz") {
       res.writeHead(200).end("ok");
-    } else if (url.pathname !== "/auth/sign-in" || (req.method !== "GET" && req.method !== "HEAD")) {
+    } else if (false) {
       res.writeHead(404).end();
     } else if (url.searchParams.has("error")) {
       await showSignInPage(req, res, url);
