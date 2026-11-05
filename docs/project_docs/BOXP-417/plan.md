@@ -19,9 +19,10 @@ Strata / llama.cpp に限定せず、golyat-4（Core Ultra 9 285H、Arc 140T、D
 
 ## 手順
 
-1. 受付 close → drain → scale 0 → GPU とメモリの解放を確認 → この PR を merge。
-2. 仮説ごとに有限の batch を実行する。予測、棄却条件、上限は ledger に開始前に記録する。
-3. 終了時は復帰 PR → strata pod 消滅 → scale 1 → 受付を閉じたまま Gemma 実推論 → QCN 設定不変の確認 → 受付 open。
+1. node 上に `/var/lib/local-llm/models/boxp417` を boxp（uid/gid 1000）所有で作成する（`hostPath.type: Directory` は自動作成しない。2026-11-05 に作成済みで、`stat` で確認）。
+2. 受付 close → drain → scale 0 → GPU とメモリの解放を確認 → この PR を merge。
+3. 仮説ごとに有限の batch を実行する。予測、棄却条件、上限は ledger に開始前に記録する。
+4. 終了時は復帰 PR → strata pod 消滅 → scale 1 → 受付を閉じたまま Gemma 実推論 → QCN 設定不変の確認 → 受付 open。
 
 ## 境界
 
