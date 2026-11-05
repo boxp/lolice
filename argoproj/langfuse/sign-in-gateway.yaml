@@ -1,0 +1,75 @@
+# BOXP-428: see files/sign-in-gateway.mjs. The tunnel routes only /auth/sign-in here, so losing
+# this Pod stops new logins and nothing else. Runs on the web image, which the node already has.
+apiVersion: v1
+kind: Service
+metadata:
+  name: langfuse-sign-in-gateway
+spec:
+  selector:
+    app: langfuse-sign-in-gateway
+  ports:
+    - port: 3001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse-sign-in-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langfuse-sign-in-gateway
+  template:
+    metadata:
+      labels:
+        app: langfuse-sign-in-gateway
+    spec:
+      priorityClassName: langfuse-observability
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: ["golyat-4"]
+      automountServiceAccountToken: false
+      containers:
+        - name: gateway
+          image: docker.io/langfuse/langfuse:4.75.0
+          command: ["node", "--max-old-space-size=48", "/gateway/sign-in-gateway.mjs"]
+          env:
+            - name: LANGFUSE_WEB_URL
+              value: http://langfuse-web:3000
+            - name: NEXTAUTH_URL
+              value: https://langfuse.b0xp.io
+            - name: AUTH_CUSTOM_ISSUER
+              valueFrom:
+                secretKeyRef: {name: langfuse-oidc, key: ISSUER}
+          ports:
+            - containerPort: 3001
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3001
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              cpu: 100m
+              memory: 96Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: script
+              mountPath: /gateway
+      volumes:
+        - name: script
+          configMap:
+            name: langfuse-sign-in-gateway

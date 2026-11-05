@@ -43,6 +43,7 @@ deploy() {
   rm -f "$manifest"
   kubectl wait -n "$NS" --for=condition=Ready externalsecret/langfuse-secrets externalsecret/langfuse-ingest-key --timeout=120s \
     || { diagnose; exit 1; }
+  deploy_oidc_fixture
   kubectl wait -n "$NS" --for=condition=Available deployment --all --timeout=420s || { diagnose; exit 1; }
   local sts
   for sts in langfuse-postgres langfuse-clickhouse langfuse-minio; do
@@ -81,6 +82,134 @@ secrets_and_rbac() {
   done
   answer="$(kubectl auth can-i get secret/langfuse-ingest-key -n "$NS" --as=system:serviceaccount:default:default || true)"
   test "$answer" = no
+}
+
+# Cloudflare Access の代わりの合成 issuer。ID token の iss/aud/署名/期限を変えられる。
+deploy_oidc_fixture() {
+  kubectl create configmap langfuse-oidc-fixture -n "$NS" --dry-run=client -o yaml \
+    --from-file=fixture.py="$SUITE/oidc-fixture.py" --from-file=client.py="$SUITE/oidc-client.py" | kubectl apply -f - >/dev/null
+  cat <<'YAML' | kubectl apply -f - >/dev/null
+apiVersion: v1
+kind: Service
+metadata:
+  name: langfuse-oidc-fixture
+  namespace: langfuse
+spec:
+  selector:
+    app: langfuse-oidc-fixture
+  ports:
+    - port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse-oidc-fixture
+  namespace: langfuse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langfuse-oidc-fixture
+  template:
+    metadata:
+      labels:
+        app: langfuse-oidc-fixture
+        chainsaw-probe: "true"
+    spec:
+      priorityClassName: langfuse-observability
+      terminationGracePeriodSeconds: 1
+      automountServiceAccountToken: false
+      containers:
+        - name: fixture
+          image: python:3.13-alpine
+          command: ["python", "/app/fixture.py"]
+          envFrom:
+            - secretRef:
+                name: langfuse-oidc
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          volumeMounts:
+            - name: app
+              mountPath: /app
+      volumes:
+        - name: app
+          configMap:
+            name: langfuse-oidc-fixture
+YAML
+}
+
+oidc_client() {
+  kubectl exec -n "$NS" deployment/langfuse-oidc-fixture -- \
+    env "OWNER_PASSWORD=$(secret_value langfuse-secrets LANGFUSE_INIT_USER_PASSWORD)" python /app/client.py "$@"
+}
+
+sql() { kubectl exec -n "$NS" statefulset/langfuse-postgres -- psql -U langfuse -d langfuse -Atc "$1"; }
+
+# 陰性は「ログインできない」だけでなく、期待した理由で拒否されたことを web のログで見る
+# (timeout や設定不足による失敗を拒否と取り違えない)。
+auth_log() { kubectl logs -n "$NS" deployment/langfuse-web --since=20s | grep -iE 'oauth|callback|signin|sign up|error' | tail -n 4 | cut -c1-400 || true; }
+
+expect_login_refused() {
+  local mode="$1" reason="$2" result
+  oidc_client mode "$mode" >/dev/null
+  result="$(oidc_client direct)"
+  echo "$result" | jq -e '.email == null and (.final | contains("error="))' >/dev/null \
+    || { echo "FAIL: $mode でログインが拒否されていない: $result" >&2; exit 1; }
+  kubectl logs -n "$NS" deployment/langfuse-web --since=20s | grep -qF "$reason" \
+    || { auth_log >&2; echo "FAIL: $mode が期待した理由で拒否されていない: $reason" >&2; exit 1; }
+  echo "ok refused: $mode ($reason)"
+}
+
+oidc() {
+  local result
+  # 偽装 header と password では入れない。API の機械認証は ingest step が見ている。
+  result="$(oidc_client spoof)"
+  echo "$result" | jq -e '.email == null' >/dev/null || { echo "FAIL: 偽装 header でログインできた: $result" >&2; exit 1; }
+  result="$(oidc_client password)"
+  echo "$result" | jq -e '.email == null' >/dev/null || { echo "FAIL: password でログインできた: $result" >&2; exit 1; }
+
+  expect_login_refused wrong_aud 'aud mismatch'
+  expect_login_refused wrong_iss 'unexpected iss value'
+  expect_login_refused expired 'JWT expired'
+  expect_login_refused bad_sig 'failed to validate JWT signature'
+  expect_login_refused alg_none 'unexpected JWT alg received'
+  expect_login_refused unknown_email 'Sign up is disabled'
+  test "$(sql "select count(*) from users where email = 'intruder@example.invalid'")" = 0 \
+    || { echo 'FAIL: 未知の email の user が作られた' >&2; exit 1; }
+
+  oidc_client mode ok >/dev/null
+  result="$(oidc_client direct)"
+  echo "$result" | jq -e '.email == "owner@example.invalid"' >/dev/null \
+    || { auth_log >&2; echo "FAIL: Owner がログインできない: $result" >&2; exit 1; }
+  test "$(sql "select m.role from organization_memberships m join users u on u.id = m.user_id where u.email = 'owner@example.invalid' and m.org_id = 'boxp'")" = OWNER \
+    || { echo 'FAIL: Owner の組織権限がない' >&2; exit 1; }
+  test "$(sql "select count(*) from \"Account\" a join users u on u.id = a.user_id where u.email = 'owner@example.invalid' and a.provider = 'custom'")" = 1 \
+    || { echo 'FAIL: Owner に provider が紐付いていない' >&2; exit 1; }
+
+  # gateway: クリックなしで同じ検証付きのログインへ入り、targetPath は自サイトだけに戻す。
+  result="$(oidc_client gateway /project/ai-ops)"
+  echo "$result" | jq -e '.status == 302 and .starts_at_issuer and .email == "owner@example.invalid" and (.final | endswith("/project/ai-ops"))' >/dev/null \
+    || { echo "FAIL: gateway からログインできない: $result" >&2; exit 1; }
+  for target in //evil.example/x https://evil.example/x '/\evil.example/x'; do
+    result="$(oidc_client gateway "$target")"
+    echo "$result" | jq -e '.email == "owner@example.invalid" and (.final | contains("evil.example") | not)' >/dev/null \
+      || { echo "FAIL: gateway が外部へ戻した: $target $result" >&2; exit 1; }
+  done
+  oidc_client mode bad_sig >/dev/null
+  result="$(oidc_client gateway)"
+  oidc_client mode ok >/dev/null
+  echo "$result" | jq -e '.email == null and (.final | contains("error="))' >/dev/null \
+    || { echo "FAIL: gateway 経由で不正な token が通った: $result" >&2; exit 1; }
+  # 失敗した login は本物の頁を返し、redirect loop にしない。
+  result="$(oidc_client gateway-status GET '/auth/sign-in?error=OAuthCallback')"
+  echo "$result" | jq -e '.status == 200 and .html' >/dev/null \
+    || { echo "FAIL: error 付きの sign-in が本物の頁を返さない: $result" >&2; exit 1; }
+  result="$(oidc_client gateway-status POST /auth/sign-in)"
+  echo "$result" | jq -e '.status == 404' >/dev/null || { echo "FAIL: gateway が POST を受けた: $result" >&2; exit 1; }
+  result="$(oidc_client gateway-status GET /api/public/health)"
+  echo "$result" | jq -e '.status == 404' >/dev/null || { echo "FAIL: gateway が他の path を中継した: $result" >&2; exit 1; }
 }
 
 # hermes-agent の本番 SecretStore/ExternalSecret で、実際に ESO Kubernetes provider から ingest key を取得する。
