@@ -517,8 +517,7 @@ spec:
               memory: "1Gi"
           volumeMounts:
             - name: home
-              subPath: .codex-task-board
-              mountPath: /home/boxp/.codex-task-board
+              mountPath: /home/boxp
             - name: home
               subPath: .claude/projects
               mountPath: /home/boxp/.claude/projects
