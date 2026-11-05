@@ -83,7 +83,9 @@ cd "$REPO_ROOT"
   fi
 
   for component in $(python3 -c 'import json, sys; print("\n".join(json.loads(sys.argv[1])))' "$COMPONENTS_JSON"); do
-    if [ "$component" = codex-workspace ]; then
+    if [ "$component" = hermes-agent ]; then
+      : # suite は本体 image を使わず python fixture だけを起動する
+    elif [ "$component" = codex-workspace ]; then
       component_manifests "$component" | yq -r 'select(.kind == "Deployment" and .metadata.name == "codex-workspace") | .spec.template.spec.containers[] | select(.name == "ai-ops-metrics") | .image' | while read -r image; do emit "$image" worker; done
     else
       component_manifests "$component" | split_by_daemonset

@@ -13,6 +13,7 @@ resources:
   - rbac-task-board-webhook.yaml
   - service-webhook.yaml
   - external-secret-api-server-key.yaml
+  - external-secret-langfuse-ingest-key.yaml
   - rbac-api-server-key.yaml
   - service-api.yaml
   - deployment.yaml
@@ -34,6 +35,10 @@ configMapGenerator:
     files:
       - plugins/kohako-g2-realtime/plugin.yaml
       - plugins/kohako-g2-realtime/__init__.py
+  - name: hermes-agent-boxp-langfuse-observer-plugin
+    files:
+      - plugins/boxp-langfuse-observer/plugin.yaml
+      - plugins/boxp-langfuse-observer/__init__.py
   - name: hermes-agent-ai-ops-metrics
     files:
       - ai-ops-metrics/server.py

@@ -39,6 +39,11 @@ spec:
     - script:
         timeout: 60s
         content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" secrets_and_rbac'
+  - name: producer-ingest-key
+    try:
+    - script:
+        timeout: 180s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" producer_ingest_key'
   - name: network-policy
     try:
     - script:

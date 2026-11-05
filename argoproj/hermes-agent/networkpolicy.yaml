@@ -25,6 +25,15 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
         ports:
           - 53
+    # BOXP-428: in-scope delegation turns to the in-cluster Langfuse.
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'langfuse-web'
+        namespaceSelector: kubernetes.io/metadata.name == 'langfuse'
+        ports:
+          - 3000
     - action: Allow
       protocol: TCP
       source: {}
