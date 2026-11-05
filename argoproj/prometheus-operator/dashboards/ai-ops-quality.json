@@ -44,7 +44,7 @@
   }, {
       "id": 230,
       "type": "row",
-      "title": "0. 成果の状態・ハーネス劣化の疑い・判断可能性・次 action（outcome/v1-draft、暫定）",
+      "title": "0. 成果の状態・ハーネス劣化の疑い・判断可能性・次 action（outcome/v2-draft、暫定）",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -167,9 +167,7 @@
         }
       ]
     }, {
-      "id": 232,
-      "type": "text",
-      "title": "ハーネス劣化の疑い（固定課題の対照評価）",
+      "description": "実運用の成果指標から因果を断定しない。件数が少ないので、劣化の疑いは同条件の再評価で確かめる。",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -180,9 +178,135 @@
         "w": 6,
         "h": 6
       },
+      "type": "stat",
+      "targets": [ {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "editorMode": "code",
+        "expr": "ai_ops_harness_eval_present{job=\"codex-workspace-ai-ops-metrics\"}",
+        "instant": true,
+        "legendFormat": "評価",
+        "refId": "A"
+      }, {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "editorMode": "code",
+        "expr": "sum(ai_ops_harness_eval_regression{job=\"codex-workspace-ai-ops-metrics\",status=\"suspected\"})",
+        "instant": true,
+        "legendFormat": "劣化の疑い",
+        "refId": "B"
+      }, {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "editorMode": "code",
+        "expr": "ai_ops_harness_eval_export_ok{job=\"codex-workspace-ai-ops-metrics\"}",
+        "instant": true,
+        "legendFormat": "export",
+        "refId": "C"
+      } ],
+      "title": "ハーネス劣化の疑い（固定課題の対照評価）",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "未計測",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [ {
+              "color": "text",
+              "value": null
+            } ]
+          }
+        },
+        "overrides": [ {
+          "matcher": {
+            "id": "byName",
+            "options": "評価"
+          },
+          "properties": [ {
+            "id": "mappings",
+            "value": [ {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "未実施",
+                  "color": "text"
+                },
+                "1": {
+                  "text": "あり",
+                  "color": "green"
+                }
+              }
+            } ]
+          } ]
+        }, {
+          "matcher": {
+            "id": "byName",
+            "options": "劣化の疑い"
+          },
+          "properties": [ {
+            "id": "mappings",
+            "value": [ {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "なし",
+                  "color": "green"
+                }
+              }
+            } ]
+          }, {
+            "id": "thresholds",
+            "value": {
+              "mode": "absolute",
+              "steps": [ {
+                "color": "green",
+                "value": null
+              }, {
+                "color": "orange",
+                "value": 1
+              } ]
+            }
+          } ]
+        }, {
+          "matcher": {
+            "id": "byName",
+            "options": "export"
+          },
+          "properties": [ {
+            "id": "mappings",
+            "value": [ {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "失敗",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "正常",
+                  "color": "green"
+                }
+              }
+            } ]
+          } ]
+        } ]
+      },
+      "id": 232,
       "options": {
-        "mode": "markdown",
-        "content": "未実施（段階 3 で `ai_ops_harness_eval_*` を導入してから表示）。実運用の成果指標から因果を断定しない。"
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "reduceOptions": {
+          "calcs": [ "lastNotNull" ],
+          "fields": "",
+          "values": false
+        }
       }
     }, {
       "id": 233,
