@@ -1,0 +1,32 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: lolice-lineage
+spec:
+  description: |
+    BOXP-430: 実際の render から取り出した sidecar と Calico policy を合成 fixture で検証する。
+    通常 PR CI の Calico 環境では通信の許可と拒否も動的に検証する。Calico の無い kindnet preflight では policy の適用と拒否検査を省き、静的検査だけにする。
+  steps:
+  - name: require-isolated-kind
+    try:
+    - script:
+        content: |
+          set -eu
+          case "${CHAINSAW_KIND_CONTEXT:-}" in kind-*) ;; *) exit 1 ;; esac
+          : "${CHAINSAW_KIND_KUBECONFIG:?}"
+          test -r "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          expected="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          actual="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
+          test -n "$expected" && test "$actual" = "$expected"
+          case "$expected" in https://127.0.0.1:*|https://localhost:*) ;; *) exit 1 ;; esac
+  - name: render-and-check
+    try:
+    - script:
+        timeout: 300s
+        content: |
+          bash "$REPO_ROOT/tests/chainsaw/codex-workspace/lolice-lineage/check.sh"
+    finally:
+    - script:
+        content: |
+          kubectl delete namespace lineage-test lineage-client k8s --ignore-not-found --wait=false
