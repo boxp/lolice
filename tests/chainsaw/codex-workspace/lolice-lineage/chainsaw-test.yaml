@@ -5,7 +5,7 @@ metadata:
 spec:
   description: |
     BOXP-430: 実際の render から取り出した sidecar と Calico policy を合成 fixture で検証する。
-    kindnet preflight では通信拒否を検証できないため、policy の静的検査のみ行う。
+    通常 PR CI の Calico 環境では通信の許可と拒否も動的に検証する。Calico の無い kindnet preflight では policy の適用と拒否検査を省き、静的検査だけにする。
   steps:
   - name: require-isolated-kind
     try:
