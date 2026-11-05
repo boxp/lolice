@@ -30,6 +30,7 @@ wait_for() {
     sleep 2
   done
 }
+dir_owner() { kubectl -n "$ns" exec exporter -c helper -- stat -c %u "$@"; }
 state_exists() { kubectl -n "$ns" exec exporter -c helper -- test -f /home/.codex-task-board/langfuse-exporter/state.edn; }
 wait_for '鍵追加後に exporter の cutoff が初期化されない' state_exists
 # The run id is after cutoff; finished-at is already settled. Only synthetic values are used.
@@ -54,6 +55,7 @@ p.mkdir(parents=True, exist_ok=True)
 (p / "session.jsonl").write_text("{}\n")
 ' "$1"
 }
+[[ $(dir_owner /home/.codex-task-board /home/.claude /home/.claude/projects /home/.codex /home/.codex/sessions | sort -u) == 1000 ]] || { echo "FAIL: exporter の subPath が UID 1000 所有ではない" >&2; exit 1; }
 seed_run first
 received() { kubectl -n "$ns" exec deploy/sink -- python -c 'import json,sys; p="/tmp/requests.jsonl"; rows=[json.loads(x) for x in open(p)]; assert any(r["authorization"] == sys.argv[1] and sys.argv[2] in r["body"] for r in rows)' "$auth" "$1" 2>/dev/null; }
 wait_for '後発の鍵による Basic 認証付き trace が届かない' received cleanbodymarker-first
