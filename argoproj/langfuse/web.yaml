@@ -118,7 +118,7 @@ spec:
               valueFrom:
                 secretKeyRef: {name: langfuse-oidc, key: CLIENT_SECRET}
             - name: AUTH_CUSTOM_ALLOW_ACCOUNT_LINKING
-              value: "true"
+              value: "false"
             - name: AUTH_CUSTOM_CHECKS
               value: pkce,state
             - name: AUTH_CUSTOM_SCOPE
