@@ -821,7 +821,7 @@ spec:
         - name: langfuse-ingest-key
           secret:
             secretName: langfuse-ingest-key
-            optional: true
+            optional: false
             defaultMode: 0444
         - name: task-board-langfuse-tmp
           emptyDir: {}
