@@ -162,6 +162,67 @@ class ObserverTest(unittest.TestCase):
             with self.subTest(name):
                 self.assertNotIn(value, plugin.redact(text))
 
+    def test_every_element_of_a_structured_value_is_masked(self):
+        first, second = "firstplainvalue", "secondplainvalue"
+        for name, text in (
+            ("json array", json.dumps({"password": [first, second]})),
+            ("json array compact", '{"password":["' + first + '","' + second + '"]}'),
+            ("json object", json.dumps({"credentials": {"user": first, "pw": second}})),
+            ("deep", json.dumps({"auth": [[first], {"x": [second]}]})),
+            ("bracket inside element", json.dumps({"password": ["a]" + first, "b}" + second]})),
+            ("backslash at element end", json.dumps({"password": ["a\\", "]" + first, second]})),
+            ("pretty", json.dumps({"password": [first, second]}, indent=2)),
+            ("nested json", json.dumps({"output": json.dumps({"password": [first, second]})})),
+            ("nested twice", json.dumps({"o": json.dumps({"o": json.dumps({"token": [first, second]})})})),
+            ("python repr", str({"password": [first, second]})),
+            ("python tuple", "password = ('" + first + "', '" + second + "')"),
+            ("shell array", "PASSWORDS=(" + first + " " + second + ")"),
+            ("yaml flow", "password: [" + first + ", " + second + "]"),
+            ("yaml flow map", "auth: {user: " + first + ", pw: " + second + "}"),
+            ("yaml list", "password:\n  - " + first + "\n  - " + second + "\n"),
+            ("yaml list same indent", "password:\n- " + first + "\n- " + second + "\n"),
+            ("yaml map", "  credentials:\n    user: " + first + "\n    pw: " + second + "\n"),
+            ("yaml nested in json", json.dumps({"o": "password:\n  - " + first + "\n  - " + second + "\n"})),
+            ("unclosed", '{"password":["' + first + '","' + second),
+            ("entry array", json.dumps({"name": "DB_PASSWORD", "value": [first, second]})),
+            ("entry array reversed", json.dumps({"value": [first, second], "name": "DB_PASSWORD"})),
+            ("entry yaml list", "- name: DB_PASSWORD\n  value:\n    - " + first + "\n    - " + second + "\n"),
+            ("flag array", "mytool --password [" + first + "," + second + "]"),
+        ):
+            with self.subTest(name):
+                out = plugin.redact(text)
+                self.assertNotIn(first, out)
+                self.assertNotIn(second, out)
+
+    def test_structured_masking_stops_at_the_end_of_the_value(self):
+        for text in (json.dumps({"password": ["plainwordvalue", "]"], "name": "keptvalue"}),
+                     json.dumps({"output": json.dumps({"password": ["plainwordvalue"], "name": "keptvalue"})}),
+                     json.dumps({"auth": {"a": {"b": "plainwordvalue"}}, "name": "keptvalue"}),
+                     "password:\n  - plainwordvalue\nname: keptvalue\n",
+                     "a:\n  password:\n  - plainwordvalue\n  name: keptvalue\n",
+                     json.dumps({"value": ["plainwordvalue"], "name": "DB_PASSWORD", "other": "keptvalue"})):
+            with self.subTest(text):
+                out = plugin.redact(text)
+                self.assertNotIn("plainwordvalue", out)
+                self.assertIn("keptvalue", out)
+
+    def test_ordinary_arrays_and_blocks_are_kept(self):
+        for text in (json.dumps({"items": ["keptvalue", "keptother"]}), "names:\n  - keptvalue\n",
+                     json.dumps({"name": "DB_HOST", "value": ["keptvalue"]}),
+                     json.dumps({"value": ["keptvalue"], "name": "DB_HOST"})):
+            with self.subTest(text):
+                self.assertEqual(plugin.redact(text), text)
+
+    def test_structured_masking_stays_fast_on_large_input(self):
+        for text in ('{"password":[' + '"a",' * 200000, "password:\n" + "  - a\n" * 200000, '{"password":[' * 50000):
+            started = time.time()
+            plugin.redact(text)
+            self.assertLess(time.time() - started, 5)
+
+    def test_structured_secret_in_tool_result_never_reaches_payload(self):
+        run_turn(result={"output": '{"password":["first","secondsecretvalue"]}'})
+        self.assertNotIn("secondsecretvalue", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+
     def test_ordinary_words_near_secret_forms_are_kept(self):
         for text in ("bypass=keptvalue", "compass: keptvalue", "tests passed: keptvalue", "author: keptvalue",
                      '{"name": "DB_HOST", "value": "keptvalue"}', "mytool --name keptvalue", "mysql -h keptvalue",
