@@ -607,38 +607,6 @@ spec:
             - name: ai-ops-metrics-app
               mountPath: /app
               readOnly: true
-        # BOXP-430: serve only the private lineage HTML from the home PVC.
-        - name: lolice-lineage-web
-          image: docker.io/nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
-          command: ["nginx", "-g", "daemon off;"]
-          ports:
-            - name: lineage-web
-              containerPort: 8091
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-            readOnlyRootFilesystem: true
-          resources:
-            requests:
-              cpu: "5m"
-              memory: "16Mi"
-            limits:
-              cpu: "100m"
-              memory: "64Mi"
-          volumeMounts:
-            - name: home
-              subPath: Documents/obsidian-headless/BOXP/Projects/lolice-infrastructure-lineage
-              mountPath: /srv/lineage
-              readOnly: true
-            - name: lolice-lineage-config
-              mountPath: /etc/nginx/conf.d
-              readOnly: true
-            - name: lolice-lineage-tmp
-              mountPath: /tmp
         - name: task-board-dashboard
           image: docker.io/python:3.15-alpine
           imagePullPolicy: IfNotPresent
@@ -729,8 +697,3 @@ spec:
         - name: ai-ops-metrics-app
           configMap:
             name: codex-workspace-ai-ops-metrics
-        - name: lolice-lineage-config
-          configMap:
-            name: lolice-lineage-web
-        - name: lolice-lineage-tmp
-          emptyDir: {}
