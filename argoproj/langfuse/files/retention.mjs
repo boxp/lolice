@@ -4,6 +4,7 @@
 // Readback on v4.75.0 showed why each step exists:
 // - DELETE /api/public/traces removes rows from ClickHouse but not the raw event objects.
 //   Those objects (events/) only expire through the bucket lifecycle rule set here.
+// - Media can be referenced for as long as its trace exists, so media/ follows RETENTION_DAYS.
 // - ClickHouse keeps deleted rows on disk until parts merge, so the daily OPTIMIZE makes
 //   deletions physical.
 import { createRequire } from 'node:module';
@@ -28,12 +29,12 @@ async function call(path, init = {}) {
   return res.json();
 }
 
-async function listTraceIds(query, keep = () => true) {
+async function listTraceIds(query, keep = () => true, fields = 'core') {
   const ids = new Set();
   let cursor;
   for (let page = 0; page < MAX_PAGES; page++) {
     const suffix = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
-    const body = await call(`/api/public/v2/observations?limit=1000&fields=core${query}${suffix}`);
+    const body = await call(`/api/public/v2/observations?limit=1000&fields=${fields}${query}${suffix}`);
     for (const o of body.data) if (keep(o)) ids.add(o.traceId);
     cursor = body.meta?.cursor;
     if (!cursor) break;
@@ -44,7 +45,9 @@ async function listTraceIds(query, keep = () => true) {
 async function deleteTraces() {
   const cutoff = new Date(Date.now() - DAYS * 86_400_000).toISOString();
   const expired = await listTraceIds(`&toStartTime=${encodeURIComponent(cutoff)}`);
-  const shared = await listTraceIds('', (o) => o.public === true);
+  // `public` is only in the basic group and is not a supported filter column. Every event of a
+  // shared trace is flagged, so scanning roots keeps this within MAX_PAGES over the whole window.
+  const shared = await listTraceIds('&isRootObservation=true', (o) => o.public === true, 'core,basic');
   const ids = [...new Set([...expired, ...shared])];
   for (let i = 0; i < ids.length; i += 1000) {
     await call('/api/public/traces', { method: 'DELETE', body: JSON.stringify({ traceIds: ids.slice(i, i + 1000) }) });
@@ -59,8 +62,8 @@ async function enforceLifecycle() {
     forcePathStyle: true,
     credentials: { accessKeyId: 'minio', secretAccessKey: process.env.MINIO_ROOT_PASSWORD },
   });
-  const rule = (prefix) => ({ ID: `expire-${prefix.replace('/', '')}`, Status: 'Enabled', Filter: { Prefix: prefix }, Expiration: { Days: EVENT_DAYS } });
-  await s3.send(new PutBucketLifecycleConfigurationCommand({ Bucket: BUCKET, LifecycleConfiguration: { Rules: [rule('events/'), rule('media/')] } }));
+  const rule = (prefix, days) => ({ ID: `expire-${prefix.replace('/', '')}`, Status: 'Enabled', Filter: { Prefix: prefix }, Expiration: { Days: days } });
+  await s3.send(new PutBucketLifecycleConfigurationCommand({ Bucket: BUCKET, LifecycleConfiguration: { Rules: [rule('events/', EVENT_DAYS), rule('media/', DAYS)] } }));
   const got = await s3.send(new GetBucketLifecycleConfigurationCommand({ Bucket: BUCKET }));
   report.lifecycle = (got.Rules || []).map((r) => `${r.Filter?.Prefix}:${r.Expiration?.Days}d`);
 }
