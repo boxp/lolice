@@ -328,6 +328,7 @@ def _on_turn_start(session_id=None, turn_id=None, user_message=None, model=None,
     _note_tickets(turn, user_message)
     if _tainted(parent_session_id):  # the delegated goal may repeat what the parent saw
         _taint(turn["session"])
+    if _tainted(turn["session"]):  # the user can repeat a value no pattern recognises
         user_message = _WITHHELD_SESSION
     turn.update(user_message=user_message, model=model, platform=platform or "", parent=parent_session_id)
 
@@ -339,6 +340,8 @@ def _on_api_request(session_id=None, turn_id=None, api_request_id=None, system_p
     messages = list(request_messages or [])
     _note_session(turn["session"], messages)
     tainted = _tainted(turn["session"])
+    if tainted and turn["user_message"] is not None:  # the taint of a resumed session is only known here
+        turn["user_message"] = _WITHHELD_SESSION
     tail = _WITHHELD_SESSION if tainted else [_message_view(m) for m in messages[-_LAST_MESSAGES:]]
     with _lock:
         turn.setdefault("requests", {})[str(api_request_id)] = {
