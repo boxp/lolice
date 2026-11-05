@@ -291,6 +291,34 @@ class ObserverTest(unittest.TestCase):
                 run_turn(args={"command": command}, result="UNIQUEOUTPUT")
                 self.assertIn("tool_body_policy", self._bodies())  # not the withheld marker
 
+    def test_short_values_and_passphrase_are_masked_without_their_name(self):
+        short, phrase = "ab" + "1!", "horse" + "77"
+        env = {"DB_PASS": short, "GPG_PASSPHRASE": phrase, "API_TOKEN": "zq7", "PIN_PASSWORD": "4821",
+               "AUTH_ENABLED": "true", "TOKENIZERS_PARALLELISM": "false", "SECRET_ROTATION": "1",
+               "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "64000", "PWD": "/tmp", "OLDPWD": "/",
+               "GIT_AUTHOR_NAME": "boxp", "UNRELATED": "visible", "EMPTY_TOKEN": ""}
+        with patch.dict(os.environ, env):
+            plugin._secret_values = None
+            for text in ("answer: " + short, "答えは" + short + "です", "(" + phrase + ")", "user:" + short + "@host",
+                         "zq7", "pin 4821."):
+                out = plugin.redact(text)
+                self.assertIn("[REDACTED:env]", out, text)
+                for value in (short, phrase, "zq7", "4821"):
+                    self.assertNotIn(value, out, text)
+                self.assertTrue(plugin._unsafe(json.dumps({"v": text})), text)
+            # Inside a longer word it is most likely a coincidence.
+            self.assertEqual("zq77 xzq7 horse777", plugin.redact("zq77 xzq7 horse777"))
+            # Flags, counters, working directories and authors are not credentials.
+            kept = "true false 1 64000 /tmp boxp/lolice"
+            self.assertEqual(kept, plugin.redact(kept))
+            self.assertFalse(plugin._unsafe(json.dumps({"v": kept})))
+        # A later value does not rewrite the mark of an earlier one, and the guard skips marks.
+        with patch.dict(os.environ, {"A_TOKEN": "longsecretvalue", "B_TOKEN": "env"}):
+            plugin._secret_values = None
+            self.assertEqual("[REDACTED:env] [REDACTED:env]", plugin.redact("longsecretvalue env"))
+            self.assertFalse(plugin._unsafe(json.dumps({"v": "[REDACTED:env] done"})))
+        plugin._secret_values = None
+
     def test_environment_dumps_are_withheld_with_any_arguments(self):
         for command in ("env LANG=C", "env LANG=C | grep FOO", "env A=1 B='x y' > /tmp/x", "env -i", "env -u HOME", "env --null",
                         "/usr/bin/env LANG=C", "sudo env LANG=C", "kubectl exec pod -- env A=1", "ls\nenv LANG=C\necho done",
