@@ -33,7 +33,7 @@ spec:
       containers:
         - name: api-transport
           # Already deployed workspace digest; no API keys or workspace volume.
-          image: ghcr.io/boxp/arch/codex-workspace@sha256:3c6de675792b1943623b4c7cdfc18b5c68433db9d6b9fe257db50528f2754ec5
+          image: ghcr.io/boxp/arch/codex-workspace@sha256:6978ce6dc8d372359af55d525dd3a216b7c2e41c2070c07ebab9877f92123821
           command: [python3, -B, /code/runtime_api_worker.py]
           env:
             - name: PYTHONUNBUFFERED
