@@ -1,3 +1,4 @@
+import html
 import importlib.util
 import inspect
 import json
@@ -6,6 +7,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -290,6 +292,41 @@ class ObserverTest(unittest.TestCase):
                 plugin._sessions.clear()
                 run_turn(args={"command": command}, result="UNIQUEOUTPUT")
                 self.assertIn("tool_body_policy", self._bodies())  # not the withheld marker
+
+    def test_value_is_masked_in_every_serialized_form(self):
+        values = {"A_TOKEN": 'ab"1', "B_TOKEN": "q'z", "C_TOKEN": "l1\nl2", "D_TOKEN": "b\\s", "E_TOKEN": "é7",
+                  "F_TOKEN": "😀k", "G_TOKEN": "s p/c", "H_TOKEN": "t\tu&v<w>", "LONG_PASSWORD": 'long"value\nwith\\all'}
+        def nested(value, depth, ascii_only=False):
+            for _ in range(depth):
+                value = json.dumps(value, ensure_ascii=ascii_only)[1:-1]
+            return value
+        with patch.dict(os.environ, values):
+            plugin._secret_values = None
+            for value in values.values():
+                forms = [value, repr(value)[1:-1], html.escape(value), urllib.parse.quote(value, safe=""),
+                         urllib.parse.quote_plus(value), value.replace("/", "\\/")]
+                forms += [nested(value, depth, ascii_only) for depth in (1, 2, 3, 4) for ascii_only in (False, True)]
+                for form in forms:
+                    out = plugin.redact("answer " + form + " end")
+                    self.assertEqual("answer [REDACTED:env] end", out, form)
+                    self.assertTrue(plugin._unsafe("answer " + form + " end"), form)
+                # What the review found: a structure goes through JSON before it reaches the mask.
+                for structure in ({"k": [value]}, {"k": {"n": value + "x"}}):
+                    for fragment in (nested(value, 1), value):
+                        self.assertNotIn(fragment, plugin._field(structure))
+                    self.assertIn("[REDACTED:env]", plugin._field(structure))
+                    # The guard alone stops it even when the field pass is skipped.
+                    self.assertTrue(plugin._unsafe(json.dumps(structure)))
+                    self.assertTrue(plugin._unsafe(json.dumps(structure, ensure_ascii=False)))
+        # A value read from a file keeps its newline; the text shows it without.
+        with patch.dict(os.environ, {"FILE_TOKEN": "zq7mw\n"}):
+            plugin._secret_values = None
+            self.assertEqual("answer [REDACTED:env]", plugin.redact("answer zq7mw"))
+        # Neighbours of a mask survive, and an ordinary sentence is not touched.
+        with patch.dict(os.environ, {"A_TOKEN": 'ab"1'}):
+            plugin._secret_values = None
+            self.assertEqual('ab"2 ab 1', plugin.redact('ab"2 ab 1'))
+        plugin._secret_values = None
 
     def test_short_values_and_passphrase_are_masked_without_their_name(self):
         short, phrase = "ab" + "1!", "horse" + "77"

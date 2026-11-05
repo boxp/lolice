@@ -184,6 +184,8 @@ _stats = {}
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
 _worker = None
 _secret_values = None
+_CONTROL_ESCAPES = {"\n": "n", "\r": "r", "\t": "t", "\b": "b", "\f": "f"}
+_HTML_NAMES = {"&": "amp", "<": "lt", ">": "gt", '"': "quot", "'": "apos"}
 _env_pattern_cache = (None, None)
 _creds = None
 
@@ -253,8 +255,32 @@ def _is_secret_value(name, value):
 def _env_secrets():
     global _secret_values
     if _secret_values is None:
-        _secret_values = sorted({v for k, v in os.environ.items() if _is_secret_value(k, v)}, key=len, reverse=True)
+        found = {v for k, v in os.environ.items() if _is_secret_value(k, v)}
+        # A value read from a file keeps its newline; the text shows it without.
+        _secret_values = sorted(found | {v.strip() for v in found}, key=len, reverse=True)
     return _secret_values
+
+
+def _encoded_char(ch):
+    """Every way serialized text can carry ch. Escapes can repeat, since JSON can sit inside JSON (bounded at 255 backslashes, depth 8, to keep the scan linear)."""
+    if ch.isascii() and ch.isalnum():
+        return ch
+    code = ord(ch)
+    units = [code] if code < 0x10000 else [0xD800 + ((code - 0x10000) >> 10), 0xDC00 + ((code - 0x10000) & 0x3FF)]
+    hex_forms = ["".join(r"\\{1,255}u%04x" % unit for unit in units),
+                 "".join("%%%02x" % byte for byte in ch.encode("utf-8", "surrogatepass")),
+                 f"&#0*{code};", f"&#x0*{code:x};"]
+    if code < 0x100:
+        hex_forms.append(r"\\{1,255}x%02x" % code)
+    if ch in _HTML_NAMES:
+        hex_forms.append(f"&{_HTML_NAMES[ch]};")
+    forms = ["(?i:" + "|".join(hex_forms) + ")"]
+    if ch in _CONTROL_ESCAPES:
+        forms.append(r"\\{1,255}" + _CONTROL_ESCAPES[ch])
+    if ch == " ":
+        forms.append(r"\+")
+    forms += [r"\\{1,255}" + re.escape(ch), re.escape(ch)]
+    return "(?:" + "|".join(forms) + ")"
 
 
 def _env_pattern():
@@ -263,7 +289,7 @@ def _env_pattern():
     global _env_pattern_cache
     values = _env_secrets()
     if _env_pattern_cache[0] is not values:
-        pattern = re.compile("|".join(re.escape(v) for v in values)) if values else None
+        pattern = re.compile("|".join("".join(map(_encoded_char, v)) for v in values)) if values else None
         _env_pattern_cache = (values, pattern)
     return _env_pattern_cache[1]
 
