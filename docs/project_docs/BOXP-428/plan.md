@@ -48,3 +48,18 @@ trace metadata の `coverage.*` と日本語入口に記載: 非公開推論は�
 3. arch: exporter (PR) → image
 4. lolice: sidecar / Hermes plugin / NetworkPolicy (PR)。merge で codex-workspace 再起動あり
 5. 実担当の小さな依頼で trace 確認 → G2 最小本人確認 → 日本語入口・退出手順
+
+## 動的検証（Chainsaw）
+
+Owner 追加要件により `tests/chainsaw/langfuse` を通常 CI に接続する。`argoproj/langfuse` か suite の変更で detect が component を選び、失敗は `status-check` へ伝播する。`.github/workflows` は変更しない（自動の push 権限に `workflow` scope が無いため）。ESO は suite が本番と同じ chart 版で入れる。workflow 自体の変更時に実行する `required_components` への `langfuse` 追加だけは未実施。
+
+| 検査 | 実体 |
+|---|---|
+| 起動 | 本番 render の全 Deployment / StatefulSet / PriorityClass |
+| Secret | 実 ESO の Password generator から生成した合成値 |
+| 権限 | producer の ServiceAccount は `langfuse-ingest-key` の get のみ |
+| 通信 | Calico で強制。許可/拒否は timeout で判定し、陽性対照を含める |
+| 取込 | OTLP → Worker → ClickHouse / MinIO、親子 span、認証なしの拒否、signup 無効 |
+| retention | 実 CronJob の spec で Job を起動し、期限切れ・共有 trace の削除と fresh の残存を API と ClickHouse で確認 |
+
+kind に無い依存は置き換えて本番で別途確認する: Cloudflare tunnel/Access、Parameter Store、Longhorn（render 上の reclaim と recurring job 無しは静的検査）。codex-workspace 側の通信許可は sidecar PR で確認する。
