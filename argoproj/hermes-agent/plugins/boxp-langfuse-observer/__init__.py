@@ -11,9 +11,12 @@ delegation itself (_BODY_TOOLS). Other tool spans keep name, status, duration, s
 first word of a command. Every string is masked, including the whole line around a secret word and
 the lines next to it, and the serialized batch is scanned again before sending. Any hit or error
 drops the observation and keeps a reason without body. Nothing is written to disk, so there is no
-spool to clean. Request history goes through an allow-list that never keeps tool results. After a
-sensitive tool ran, later bodies of that session and its delegating parent are withheld too, because
-the model has seen the output and can repeat a value no pattern recognises.
+spool to clean. Request history goes through an allow-list that never keeps tool results.
+
+The model can repeat anything a tool showed it, as a bare value no pattern recognises. So once a tool
+outside _TOOLS_WITHOUT_PRIVATE_OUTPUT ran, later bodies of that session and of its delegating parent
+are withheld, and tool spans keep their name, status and duration. History this process did not
+observe, as after a restart, is treated the same way because it cannot be checked.
 
 Key: read from an optional Secret volume, polled by the worker. It can appear or rotate while the
 Pod runs. Until then the hooks return at once and nothing is buffered.
@@ -54,13 +57,15 @@ _WEBHOOK_PLATFORMS = {"webhook"}
 _TICKET = re.compile(r"\bBOXP-\d{1,6}\b")
 _DELEGATING_TOOLS = {"delegate_task"}
 _BODY_TOOLS = _DELEGATING_TOOLS | {"todo", "clarify"}
+# Their output comes from the Owner, the delegation chain or the public web. Any other tool, known or not, can show private data.
+_TOOLS_WITHOUT_PRIVATE_OUTPUT = _BODY_TOOLS | {"web_search"}
 _PATH_ARGS = ("path", "file_path", "filepath", "filename")
 _COMMAND_ARGS = ("command", "cmd")
 _COMMAND_HEAD = re.compile(r"""(?:[A-Za-z_]\w*=\S*\s+)*(?:[^\s'"]*/)?([\w.+-]{1,64})(?=\s|$)""")
 _CHAT_ROLES = {"system", "developer", "user", "assistant"}
 _TEXT_BLOCKS = {"text", "input_text", "output_text"}
 _WITHHELD_TOOL = "[withheld: sensitive path or command]"
-_WITHHELD_SESSION = "[withheld: session ran a sensitive tool]"
+_WITHHELD_SESSION = "[withheld: the model has seen tool output or unobserved history]"
 
 # A value can sit inside serialized text at any depth, so a quote can carry escapes. A value ends at
 # a quote of its own depth, and one that never closes runs to the end of the line.
@@ -484,19 +489,19 @@ def _taint(*sessions):
             _sessions.popitem(last=False)
 
 
-def _tool_args(message):
-    """Tool arguments in any provider shape, used to find sensitive calls in resumed history."""
+def _tool_names(message):
+    """Tool names in any provider shape."""
     if not isinstance(message, dict):
         return
     for call in message.get("tool_calls") or []:
         if isinstance(call, dict):
-            yield (call.get("function") or {}).get("arguments") if isinstance(call.get("function"), dict) else call
+            yield (call.get("function") or {}).get("name") if isinstance(call.get("function"), dict) else call.get("name")
     if message.get("type") in ("function_call", "custom_tool_call"):
-        yield message.get("arguments") or message.get("input")
+        yield message.get("name")
     content = message.get("content")
     for block in content if isinstance(content, list) else []:
         if isinstance(block, dict) and block.get("type") == "tool_use":
-            yield block.get("input")
+            yield block.get("name")
 
 
 def _note_delegated(session):
@@ -507,23 +512,25 @@ def _note_delegated(session):
             _delegated.popitem(last=False)
 
 
-def _shows_environment(message):
-    """The live check on a tool result, on the whole message because providers shape results differently."""
-    if isinstance(message, dict) and message.get("role") in ("system", "developer"):
-        return False  # instructions are not command output
-    return _is_env_dump(_text(message))
+def _earlier_messages(messages):
+    """Whether the request carries more than the opening user message."""
+    chat = [m for m in messages if not (isinstance(m, dict) and m.get("role") in ("system", "developer"))]
+    return len(chat) > 1 or any(not isinstance(m, dict) or m.get("role") != "user" for m in chat)
 
 
-def _note_session(session, messages):
-    """A session first seen here may be resumed, so the taint is rebuilt from its history once."""
+def _note_request(session, parent, messages):
+    """Catches tools whose hook did not fire, and history this process cannot vouch for."""
     with _lock:
-        if session in _sessions:
-            return
-        _sessions[session] = False
-        while len(_sessions) > _MAX_SESSIONS:
-            _sessions.popitem(last=False)
-    if any(_withhold(_text(a)) for m in messages for a in _tool_args(m)) or any(map(_shows_environment, messages)):
+        seen = session in _sessions
+        vouched = parent is not None and str(parent) in _sessions  # rotation of a session observed here
+        if not seen:
+            _sessions[session] = False
+            while len(_sessions) > _MAX_SESSIONS:
+                _sessions.popitem(last=False)
+    if not seen and not vouched and _earlier_messages(messages):
         _taint(session)
+    if any(name not in _TOOLS_WITHOUT_PRIVATE_OUTPUT for m in messages for name in _tool_names(m)):
+        _taint(session, parent)
 
 
 def _message_view(message):
@@ -575,7 +582,7 @@ def _on_turn_start(session_id=None, turn_id=None, user_message=None, model=None,
         _note_delegated(turn["session"])
     if _tainted(parent_session_id):  # the delegated goal may repeat what the parent saw
         _taint(turn["session"])
-    if _tainted(turn["session"]):  # the user can repeat a value no pattern recognises
+    if _tainted(turn["session"]):  # the user can quote a reply back
         user_message = _WITHHELD_SESSION
     turn.update(user_message=user_message, model=model, platform=platform or "", parent=parent_session_id)
 
@@ -585,9 +592,11 @@ def _on_api_request(session_id=None, turn_id=None, api_request_id=None, system_p
                     message_count=None, retry_count=None, started_at=None):
     turn = _turn(session_id, turn_id)
     messages = list(request_messages or [])
-    _note_session(turn["session"], messages)
+    _note_request(turn["session"], turn["parent"], messages)
     tainted = _tainted(turn["session"])
-    if tainted and turn["user_message"] is not None:  # the taint of a resumed session is only known here
+    first_request = not turn.get("requested")
+    turn["requested"] = True
+    if tainted and first_request and turn["user_message"] is not None:  # the taint of a resumed session is only known here
         turn["user_message"] = _WITHHELD_SESSION
     tail = _WITHHELD_SESSION if tainted else [_message_view(m) for m in messages[-_LAST_MESSAGES:]]
     with _lock:
@@ -664,7 +673,7 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
     args_text = _text(args)
     already = _tainted(turn["session"])
     withheld = _withhold(args_text) or _is_env_dump(_text(result))
-    if withheld:
+    if withheld or tool_name not in _TOOLS_WITHOUT_PRIVATE_OUTPUT:
         _taint(turn["session"], turn["parent"])
     now = time.time()
     body = tool_name in _BODY_TOOLS
@@ -787,9 +796,9 @@ def build_spans(turn):
         _attr("langfuse.trace.metadata.coverage.reasoning", "not_collected"),
         _attr("langfuse.trace.metadata.coverage.provider_payload", "system prompt and last messages of each attempt"),
         _attr("langfuse.trace.metadata.coverage.g2_realtime", "delegated text only; realtime voice session not observed"),
-        _attr("langfuse.trace.metadata.coverage.tool_bodies", "delegate_task, todo and clarify only; other tools keep name, status, duration, sizes, path and program (tool_body_policy)"),
+        _attr("langfuse.trace.metadata.coverage.tool_bodies", "delegate_task, todo and clarify only; other tools keep name, status, duration, sizes, path and program (tool_body_policy) until the session is withheld"),
         _attr("langfuse.trace.metadata.coverage.truncated", str(turn["truncated"]).lower()),
-        _attr("langfuse.trace.metadata.coverage.withheld_after_sensitive_tool", str(bool(turn.get("tainted"))).lower()),
+        _attr("langfuse.trace.metadata.coverage.withheld_after_tool_output", str(bool(turn.get("tainted"))).lower()),
     ]
     end = time.time()
     spans = [{

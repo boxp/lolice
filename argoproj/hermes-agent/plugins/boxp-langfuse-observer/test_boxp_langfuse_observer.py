@@ -382,7 +382,7 @@ class ObserverTest(unittest.TestCase):
                 plugin._on_session_end(session_id=session, turn_id="t", completed=True)
                 body = self._bodies()
                 self.assertNotIn(unknown, body)
-                self.assertIn("withheld_after_sensitive_tool", body)
+                self.assertIn("withheld_after_tool_output", body)
                 # The following turn of the session still carries the value in its history.
                 run_turn(session=session, turn="t2", body="next", result=unknown)
                 body = self._bodies()
@@ -397,7 +397,7 @@ class ObserverTest(unittest.TestCase):
         run_turn(session="kohako-g2-u", turn="t2", body=unknown)
         body = self._bodies()
         self.assertNotIn(unknown, body)
-        self.assertIn("session ran a sensitive tool", body)
+        self.assertIn("has seen tool output", body)
 
     def test_user_message_of_resumed_tainted_session_is_withheld(self):
         history = [{"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]}]
@@ -621,7 +621,7 @@ class ObserverTest(unittest.TestCase):
         self.assertIn("/a/notes.txt", body)
         self.assertIn("offset", body)
         self.assertIn("tool_body_policy", body)
-        run_turn(tool="terminal", args={"command": "LANG=C /usr/bin/kubectl get pods"})
+        run_turn(session="kohako-g2-program", tool="terminal", args={"command": "LANG=C /usr/bin/kubectl get pods"})
         body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
         self.assertIn("kubectl", body)
         self.assertNotIn("get pods", body)
