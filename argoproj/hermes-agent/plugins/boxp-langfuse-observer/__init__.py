@@ -461,6 +461,13 @@ def _note_delegated(session):
             _delegated.popitem(last=False)
 
 
+def _shows_environment(message):
+    """The live check on a tool result, on the whole message because providers shape results differently."""
+    if isinstance(message, dict) and message.get("role") in ("system", "developer"):
+        return False  # instructions are not command output
+    return _is_env_dump(_text(message))
+
+
 def _note_session(session, messages):
     """A session first seen here may be resumed, so the taint is rebuilt from its history once."""
     with _lock:
@@ -469,7 +476,7 @@ def _note_session(session, messages):
         _sessions[session] = False
         while len(_sessions) > _MAX_SESSIONS:
             _sessions.popitem(last=False)
-    if any(_withhold(_text(a)) for m in messages for a in _tool_args(m)):
+    if any(_withhold(_text(a)) for m in messages for a in _tool_args(m)) or any(map(_shows_environment, messages)):
         _taint(session)
 
 
