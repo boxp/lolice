@@ -113,6 +113,20 @@ _PATTERNS = [
     ("entropy", re.compile(r"(?<![A-Za-z0-9_/+=-])[A-Za-z0-9_/+=-]{40,}(?![A-Za-z0-9_/+=-])")),
 ]
 _FIELD_ONLY = {"assignment", "entropy", "data_uri", "env_entry", "flag", "cli_password"}
+# A secret key whose value spans several tokens or lines: a list, a map, a shell array, a YAML block.
+_STRUCTURED_KEY = re.compile(
+    r"(?i)(?:" + _entry_key("name") + _QUOTE + r"?" + _SECRET_KEY + _QUOTE + r"?" + _ENTRY_GAP + _QUOTE + r"?" + _entry_key("value")
+    + r"|(?<![\w-])--?" + _SECRET_KEY + r"[ \t]+"
+    + r"|[\"']?" + _SECRET_KEY + _QUOTE + r"?" + _GAP + _SEPARATOR + _GAP + r")")
+_ENTRY_VALUE = re.compile(r"(?i)" + _entry_key("value") + r"(?=[\[{(])")
+_ENTRY_NAME_AFTER = re.compile(
+    r"(?i)" + _QUOTE + r"?" + _ENTRY_GAP + _QUOTE + r"?" + _entry_key("name") + _QUOTE + r"?" + _SECRET_KEY)
+_STRUCTURE_TOKEN = re.compile(_QUOTE + r"|[\[\]{}()]")
+_CLOSER = {"[": "]", "{": "}", "(": ")"}
+_LINE_BREAK = re.compile(r"\r?\n|\\+(?:r\\+)?n")
+_GAP_AT_END = re.compile(_GAP + r"\Z")
+_MAX_REVERSED_ENTRIES = 1000
+_MAX_REVERSED_VALUE = 4096
 _PLACEHOLDER = re.compile(r"\[REDACTED:[a-z_]+\]")
 _SENSITIVE_PATH = re.compile(
     r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_rsa|id_ed25519|secrets?(?:[/\\])|[^/\s\"']*token[^/\s\"']*)")
@@ -204,6 +218,113 @@ def _is_entropy(s):
     return classes == 3
 
 
+def _closes_quote(token, opening):
+    """A quote closes only at its own depth: the depths use 0, 1, 3, 7... backslashes, plus escaped backslashes."""
+    if token[-1] != opening[-1] or token.lstrip("\\") != opening.lstrip("\\"):
+        return False
+    depth = len(opening) - len(opening.lstrip("\\"))
+    return (len(token) - len(token.lstrip("\\")) - depth) % (2 * (depth + 1)) == 0
+
+
+def _bracket_end(text, start, stop=None):
+    """End of the bracket opened at start, or of the scanned text when it never closes."""
+    stop = len(text) if stop is None else min(stop, len(text))
+    opener, closer = text[start], _CLOSER[text[start]]
+    depth, quote = 0, None
+    for match in _STRUCTURE_TOKEN.finditer(text, start, stop):
+        token = match.group(0)
+        if quote:
+            if _closes_quote(token, quote):
+                quote = None
+        elif token == opener:
+            depth += 1
+        elif token == closer:
+            depth -= 1
+            if depth == 0:
+                return match.end()
+        elif token not in "[]{}()":
+            quote = token
+    return stop
+
+
+def _block_end(text, key_end):
+    """End of the YAML block under a key that ends at key_end, or key_end when no line belongs to it."""
+    # A key further along a longer line than this counts as column 0, which only widens the block.
+    line_start = max(0, key_end - 256)
+    for found in _LINE_BREAK.finditer(text, line_start, key_end):
+        line_start = found.end()
+    head = text[line_start:key_end]
+    indent = len(head) - len(head.lstrip(" \t"))
+    end, position = key_end, key_end
+    while True:
+        line_break = _LINE_BREAK.search(text, position)
+        if line_break is None:
+            return end
+        next_break = _LINE_BREAK.search(text, line_break.end())
+        position = next_break.start() if next_break else len(text)
+        line = text[line_break.end():position]
+        body = line.lstrip(" \t")
+        if not body.strip():
+            if next_break is None:
+                return end
+            continue
+        column = len(line) - len(body)
+        if column < indent or (column == indent and not re.match(r"-(?:\s|$)", body)):
+            return end
+        end = position
+
+
+def _structured_end(text, match):
+    """End of the multi-token value after a secret key, or None when the value is a single token."""
+    if match.end() >= len(text):
+        return None
+    if text[match.end()] in _CLOSER:
+        return _bracket_end(text, match.end())
+    gap = _GAP_AT_END.search(text, match.start(), match.end())
+    key_end = gap.start() if gap else match.end()
+    if not _LINE_BREAK.search(text, key_end, match.end()):
+        return None
+    end = _block_end(text, key_end)
+    return end if end > key_end else None
+
+
+def _mask_structured(text):
+    """A pattern can only match the start of such a value, so these are cut out by their extent first."""
+    pieces, position = [], 0
+    while True:
+        match = _STRUCTURED_KEY.search(text, position)
+        if match is None:
+            break
+        end = _structured_end(text, match)
+        if end is None:
+            pieces.append(text[position:match.end()])
+        else:
+            pieces.append(text[position:match.start()] + "[REDACTED:assignment]")
+            _count("redactions_assignment")
+        position = end if end is not None else max(match.end(), position + 1)
+    pieces.append(text[position:])
+    return _mask_reversed_entries("".join(pieces))
+
+
+def _mask_reversed_entries(text):
+    # {"value": [...], "name": "DB_PASSWORD"}: only what follows the value says it is a secret.
+    pieces, position = [], 0
+    for scanned, match in enumerate(_ENTRY_VALUE.finditer(text)):
+        if scanned >= _MAX_REVERSED_ENTRIES:  # scanning stays bounded; redact() drops the field instead
+            raise ValueError("too many entries")
+        if match.start() < position:
+            continue
+        end = _bracket_end(text, match.end(), match.end() + _MAX_REVERSED_VALUE)
+        after = _ENTRY_NAME_AFTER.match(text, end)
+        if after is None:
+            continue
+        pieces.append(text[position:match.start()] + "[REDACTED:env_entry]")
+        position = after.start()
+        _count("redactions_env_entry")
+    pieces.append(text[position:])
+    return "".join(pieces)
+
+
 def redact(text):
     """Return text without secrets. Raises nothing: failure drops the whole field."""
     try:
@@ -212,6 +333,7 @@ def redact(text):
             if value in out:
                 out = out.replace(value, "[REDACTED:env]")
                 _count("redactions_env")
+        out = _mask_structured(out)
         for kind, pattern in _PATTERNS:
             def sub(m, kind=kind):
                 if kind == "entropy" and not _is_entropy(m.group(0)):
