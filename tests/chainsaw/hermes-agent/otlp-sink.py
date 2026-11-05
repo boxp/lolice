@@ -4,6 +4,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
+        # Same as Langfuse: a request asking for an h2c upgrade gets the connection closed, unanswered.
+        if self.headers.get("Upgrade"):
+            self.close_connection = True
+            return
         body = self.rfile.read(int(self.headers["Content-Length"])).decode("utf-8")
         record = {"authorization": self.headers.get("Authorization"), "body": body}
         line = json.dumps(record)
