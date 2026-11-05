@@ -92,6 +92,16 @@
         "external-secrets"
       ],
       "automerge": false
+    },
+    {
+      "description": "Langfuse の PVC は PG16 形式で、major 更新では起動しない (BOXP-428)",
+      "matchFileNames": [
+        "argoproj/langfuse/postgres.yaml"
+      ],
+      "matchPackageNames": [
+        "docker.io/postgres"
+      ],
+      "allowedVersions": "<17"
     }
   ],
   "major": {
