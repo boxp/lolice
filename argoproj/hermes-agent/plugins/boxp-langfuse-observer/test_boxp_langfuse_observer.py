@@ -180,6 +180,27 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn(unknown, body)
                 self.assertNotIn("reply next", body)
 
+    def test_user_message_after_sensitive_tool_is_withheld(self):
+        # A credential the user pastes again matches no pattern, so only the withholding can keep it out.
+        unknown = "plainwordvalue"
+        run_turn(session="kohako-g2-u", turn="t1", args={"path": "/a/.env"}, result="V")
+        drain()
+        run_turn(session="kohako-g2-u", turn="t2", body=unknown)
+        body = self._bodies()
+        self.assertNotIn(unknown, body)
+        self.assertIn("session ran a sensitive tool", body)
+
+    def test_user_message_of_resumed_tainted_session_is_withheld(self):
+        history = [{"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]}]
+        plugin._on_turn_start(session_id="kohako-g2-v", turn_id="t", user_message="plainwordvalue")
+        plugin._on_api_request(session_id="kohako-g2-v", turn_id="t", api_request_id="a", request_messages=history)
+        plugin._on_session_end(session_id="kohako-g2-v", turn_id="t", completed=True)
+        self.assertNotIn("plainwordvalue", self._bodies())
+
+    def test_user_message_before_the_sensitive_tool_is_kept(self):
+        run_turn(session="kohako-g2-w", body="please read it", args={"path": "/a/.env"}, result="V")
+        self.assertIn("please read it", self._bodies())
+
     def test_tool_results_in_history_are_never_copied_even_without_sensitive_call(self):
         view = [plugin._message_view(m) for m in (
             {"role": "tool", "content": "TOOLBODY"},

@@ -25,6 +25,9 @@ def fire(session, clean):
     hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": body}})
     hooks["post_llm_call"](**common, assistant_response=body)
     hooks["on_session_end"](**common, completed=True)
+    # The user repeats a value in the next turn of the same session.
+    hooks["pre_llm_call"](session_id=session, turn_id="next", user_message=body)
+    hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
 
 n = 0
 while True:
