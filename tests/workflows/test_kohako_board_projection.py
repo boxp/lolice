@@ -179,7 +179,104 @@ class KohakoBoardProjectionTest(unittest.TestCase):
         self.assertEqual(self.project()['items'], [])
 
 
+class KohakoResultsTest(KohakoBoardProjectionTest):
+    def setUp(self):
+        super().setUp()
+        self.runs = Path(self.tmp.name) / 'runs'
+        self.runs.mkdir()
+
+    def run_file(self, ticket_id, run_id, result='done', finished='2026-10-27T11:00:00Z', last=''):
+        path = self.runs / ticket_id / run_id
+        path.mkdir(parents=True)
+        (path / 'summary.edn').write_text(f'{{:result "{result}" :started-at "2026-10-27T08:00:00Z" :finished-at "{finished}"}}')
+        (path / 'last-message.md').write_text(last)
+
+    def test_done_only_and_manual_without_writes(self):
+        self.write_board({'Done': [self.card(1, 'Done', 'done'), self.card(2, 'Mismatch', 'done')],
+                          'Blocked': [self.card(3, 'Blocked', 'blocked')], 'Ready': [self.card(4, 'Ready', 'ready')]})
+        for n, status in [(1, 'done'), (2, 'blocked'), (3, 'done'), (4, 'done')]:
+            self.write_ticket(f'BOXP-{n}', ticket(status, 'codex', []))
+        before = {p: p.read_bytes() for p in self.vault.rglob('*') if p.is_file()}
+        result = self.kb.build_results(self.vault, self.runs, [f'BOXP-{n}' for n in range(1, 5)])
+        self.assertEqual([x['id'] for x in result['items']], ['BOXP-1'])
+        self.assertTrue(result['items'][0]['manual'])
+        self.assertIsNone(result['items'][0]['summary'])
+        self.assertEqual(before, {p: p.read_bytes() for p in self.vault.rglob('*') if p.is_file()})
+        with self.assertRaises(ValueError):
+            self.kb.build_results(self.vault, self.runs, ['../BOXP-1'])
+
+    def test_latest_done_owner_priority_mask_and_fallback(self):
+        self.write_board({'Done': [self.card(1, 'Result', 'done'), self.card(2, 'Other', 'done')]})
+        self.write_ticket('BOXP-1', ticket('done', 'codex', [
+            '- 2026-10-27 09:00:00 UTC [codex]: Owner向け要約: 完了 /home/boxp/private api_key=secret 未確認',
+            '- 2026-10-27 10:00:00 UTC [codex]: another note']))
+        self.write_ticket('BOXP-2', ticket('done', 'codex', ['- 2026-10-27 10:00:00 UTC [codex]: fallback note']))
+        self.run_file('BOXP-1', '20261027T080000Z-old', finished='2026-10-27T09:00:00Z')
+        self.run_file('BOXP-1', '20261027T080000Z-new', last='Long paragraph ' * 10)
+        self.run_file('BOXP-1', '20261027T080000Z-failed', result='failed', finished='2026-10-27T12:00:00Z')
+        self.run_file('BOXP-2', '20261027T080000Z-test', last='short')
+        items = self.kb.build_results(self.vault, self.runs, ['BOXP-1', 'BOXP-2'])['items']
+        self.assertEqual(items[0]['runId'], '20261027T080000Z-new')
+        self.assertIn('完了', items[0]['summary'])
+        self.assertNotIn('/home/', str(items))
+        self.assertNotIn('secret', str(items))
+        self.assertIn('未確認', items[0]['unverified'])
+        self.assertEqual(items[1]['summary'], 'fallback note')
+
+    def test_summary_reads_past_a_pointer_paragraph_and_stops_at_a_heading(self):
+        self.write_board({'Done': [self.card(1, 'Result', 'done')]})
+        self.write_ticket('BOXP-1', ticket('done', 'codex', []))
+        self.run_file('BOXP-1', '20261027T080000Z-a', last=(
+            '調査結果を [ノート](/home/boxp/x.md) に保存し、Notes に未確認事項を追記しました。\n\n'
+            '現行の設定では一律停止の規則はありません。\n\n## 未確認事項\n- 実機の動作\n\nTASK_BOARD_RESULT: done\n'))
+        item = self.kb.build_results(self.vault, self.runs, ['BOXP-1'])['items'][0]
+        self.assertEqual(item['summary'], '調査結果を ノート に保存し、Notes に未確認事項を追記しました。 現行の設定では一律停止の規則はありません。')
+        self.assertEqual(item['unverified'], '実機の動作')
+
+    def test_unverified_takes_the_sentence_and_skips_pointers(self):
+        self.assertEqual(self.kb.find_unverified('作業は終えた。本番では未確認です。次へ進む。'), '本番では未確認です。')
+        self.assertEqual(self.kb.find_unverified('Notes に未確認事項を追記しました。'), None)
+        self.assertEqual(self.kb.find_unverified('本番では未確認'), '本番では未確認')
+        self.assertEqual(self.kb.find_unverified('**未確認・残っている点**\n- 実機の往復'), '実機の往復')
+        self.assertEqual(self.kb.find_unverified(''), None)
+
+    def test_no_summary_without_any_source(self):
+        self.write_board({'Done': [self.card(1, 'Result', 'done')]})
+        self.write_ticket('BOXP-1', ticket('done', 'codex', ['- 2026-10-27 10:00:00 UTC [kohako-event]: handled']))
+        self.run_file('BOXP-1', '20261027T080000Z-a', last='短文\n\nTASK_BOARD_RESULT: done')
+        self.assertIsNone(self.kb.build_results(self.vault, self.runs, ['BOXP-1'])['items'][0]['summary'])
+
+
+
 class KohakoBoardListenerTest(unittest.TestCase):
+    def test_results_http_validates_ids_and_methods(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            module = load_module(tmp)
+            path = Path(tmp) / 'server.py'
+            path.write_text(configmap_value('server.py'))
+            spec = importlib.util.spec_from_file_location('dashboard_server', path)
+            server = importlib.util.module_from_spec(spec)
+            with patch.dict('sys.modules', {'kohako_board': module}):
+                spec.loader.exec_module(server)
+            handler = object.__new__(server.KohakoBoardHandler)
+            sent = []
+            handler.send_json = lambda payload, status=200: sent.append((status, payload))
+            handler.path = '/api/kohako/results?ids=BOXP-1,../BOXP-2'
+            handler.do_GET()
+            self.assertEqual(sent[-1][0], 400)
+            handler.path = '/api/kohako/results?ids=' + ','.join(['BOXP-1'] * 51)
+            handler.do_GET()
+            self.assertEqual(sent[-1][0], 400)
+            handler.path = '/api/kohako/results?ids=BOXP-1'
+            with patch.object(module, 'build_results', side_effect=RuntimeError('secret')):
+                handler.do_GET()
+            self.assertEqual(sent[-1], (500, {'error': 'results failed'}))
+            errors = []
+            handler.send_error = errors.append
+            handler.do_POST()
+            self.assertEqual(errors, [405])
+
     def test_server_serves_only_projection_on_the_kohako_port(self):
         server = configmap_value('server.py')
         self.assertIn('class KohakoBoardHandler', server)
