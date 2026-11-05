@@ -474,12 +474,10 @@ class ObserverTest(unittest.TestCase):
                 plugin._on_session_end(session_id=session, turn_id="t", completed=True)
                 self.assertNotIn("plainresumevalue", self._bodies())
 
-    def test_ordinary_history_does_not_taint_a_resumed_session(self):
+    def test_a_session_without_earlier_messages_is_not_withheld(self):
         histories = {
-            "listing": [{"role": "tool", "content": "README.md\nsrc"}],
-            "one_variable": [{"role": "tool", "content": "PATH=/usr/bin"}],
-            "variables_in_separate_results": [{"role": "tool", "content": "PATH=/usr/bin"}, {"role": "tool", "content": "HOME=/root"}],
-            "instructions": [{"role": "system", "content": "Set PATH=/usr/bin and HOME=/root in the sandbox."}],
+            "first_message": [{"role": "user", "content": "go"}],
+            "instructions": [{"role": "system", "content": "Set PATH=/usr/bin and HOME=/root in the sandbox."}, {"role": "user", "content": "go"}],
         }
         for name, history in histories.items():
             with self.subTest(name):
@@ -488,6 +486,88 @@ class ObserverTest(unittest.TestCase):
                 plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=history)
                 plugin._on_session_end(session_id=session, turn_id="t", completed=True)
                 self.assertIn("visible " + name, self._bodies())
+
+    def _value_only_reply(self, session, tool, args, result="plainconfigvalue", first="read it"):
+        # The value has no known format and no secret word near it, so nothing about it can be recognised.
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message=first)
+        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a1", request_messages=[{"role": "user", "content": first}])
+        plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c1", tool_name=tool, args=args, result=result)
+        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a2", request_messages=[{"role": "user", "content": first}])
+        plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a2", response={"assistant_message": {"role": "assistant", "content": "plainconfigvalue"}})
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="plainconfigvalue")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+
+    def test_reply_after_reading_an_ordinary_file_is_withheld(self):
+        for tool, args in (("terminal", {"command": "cat /etc/app/config.yaml"}), ("read_file", {"path": "/etc/app/config.yaml"}),
+                           ("search_files", {"pattern": "db"}), ("session_search", {"query": "db"}), ("memory", {"action": "read"}),
+                           ("browser_vault", {}), ("a_tool_added_later", {})):
+            with self.subTest(tool):
+                session = "kohako-g2-config-" + tool
+                self._value_only_reply(session, tool, args)
+                body = self._bodies()
+                self.assertNotIn("plainconfigvalue", body)
+                self.assertIn("read it", body)  # what came before the tool stays
+                self.assertIn("withheld", body)
+                # The next turn: the user can quote the reply back.
+                run_turn(session=session, turn="t2", body="plainconfigvalue", tool="todo", args={}, result="ok")
+                self.assertNotIn("plainconfigvalue", self._bodies())
+
+    def test_replies_stay_after_tools_without_private_output(self):
+        for tool in ("todo", "clarify", "delegate_task", "web_search"):
+            with self.subTest(tool):
+                self._value_only_reply("kohako-g2-keep-" + tool, tool, {}, result="ok")
+                self.assertIn("plainconfigvalue", self._bodies())
+
+    def test_reply_after_a_child_read_a_file_is_withheld(self):
+        plugin._on_turn_start(session_id="kohako-g2-pc", turn_id="t", user_message="go")
+        plugin._on_turn_start(session_id="pc-child", turn_id="c", user_message="goal", parent_session_id="kohako-g2-pc")
+        plugin._on_tool(session_id="pc-child", turn_id="c", tool_call_id="x", tool_name="terminal", args={"command": "cat /etc/app/config.yaml"}, result="plainconfigvalue")
+        plugin._on_turn_end(session_id="pc-child", turn_id="c", assistant_response="plainconfigvalue")
+        plugin._on_session_end(session_id="pc-child", turn_id="c", completed=True)
+        plugin._on_turn_end(session_id="kohako-g2-pc", turn_id="t", assistant_response="plainconfigvalue")
+        plugin._on_session_end(session_id="kohako-g2-pc", turn_id="t", completed=True)
+        self.assertNotIn("plainconfigvalue", self._bodies())
+
+    def _resumed(self, session, history, parent=None):
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="plainconfigvalue", parent_session_id=parent)
+        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=history)
+        plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a", response={"assistant_message": {"role": "assistant", "content": "plainconfigvalue"}})
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="plainconfigvalue")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        return self._bodies()
+
+    def test_history_this_process_did_not_observe_is_withheld(self):
+        # After a restart nothing says what the model saw, and compaction leaves no tool call to find.
+        histories = {
+            "tool_result": [{"role": "tool", "content": "README.md"}, {"role": "user", "content": "go"}],
+            "tool_call": [{"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": "{}"}}]}, {"role": "user", "content": "go"}],
+            "compacted": [{"role": "user", "content": "[CONTEXT COMPACTION] the file held plainconfigvalue"}, {"role": "user", "content": "go"}],
+            "reply_only": [{"role": "assistant", "content": "plainconfigvalue"}, {"role": "user", "content": "go"}],
+        }
+        for name, history in histories.items():
+            with self.subTest(name):
+                self.assertNotIn("plainconfigvalue", self._resumed("kohako-g2-unseen-" + name, history))
+
+    def test_rotation_of_an_observed_clean_session_keeps_bodies(self):
+        plugin._on_turn_start(session_id="kohako-g2-old", turn_id="t", user_message="go")
+        plugin._on_api_request(session_id="kohako-g2-old", turn_id="t", api_request_id="a", request_messages=[{"role": "user", "content": "go"}])
+        plugin._on_session_end(session_id="kohako-g2-old", turn_id="t", completed=True)
+        self._bodies()
+        history = [{"role": "user", "content": "[CONTEXT COMPACTION] summary"}, {"role": "user", "content": "go"}]
+        self.assertIn("plainconfigvalue", self._resumed("kohako-g2-new", history, parent="kohako-g2-old"))
+        self.assertNotIn("plainconfigvalue", self._resumed("kohako-g2-new2", history, parent="kohako-g2-never-seen"))
+
+    def test_private_tool_found_in_a_later_request_withholds_without_its_hook(self):
+        # A tool whose post_tool_call never fired, for example after an interrupt.
+        plugin._on_turn_start(session_id="kohako-g2-nohook", turn_id="t", user_message="go")
+        plugin._on_api_request(session_id="kohako-g2-nohook", turn_id="t", api_request_id="a", request_messages=[{"role": "user", "content": "go"}])
+        for shape in ({"role": "assistant", "tool_calls": [{"function": {"name": "terminal"}}]},
+                      {"role": "assistant", "content": [{"type": "tool_use", "name": "terminal", "input": {}}]},
+                      {"type": "function_call", "name": "terminal", "arguments": "{}"}):
+            with self.subTest(shape):
+                plugin._sessions["kohako-g2-nohook"] = False
+                plugin._on_api_request(session_id="kohako-g2-nohook", turn_id="t", api_request_id="b", request_messages=[shape])
+                self.assertTrue(plugin._tainted("kohako-g2-nohook"))
 
     def test_final_guard_drops_span_when_masking_misses(self):
         run_turn()

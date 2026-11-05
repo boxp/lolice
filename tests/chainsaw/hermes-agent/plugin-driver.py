@@ -20,7 +20,7 @@ def fire(session, clean):
     common = {"session_id": session, "turn_id": "turn"}
     body = "cleanbodymarker" if clean else "plainwordvalue"
     hooks["pre_llm_call"](**common, user_message="hello")
-    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args={"command": "ls"} if clean else {"command": "echo plainwordvalue > /a/.env"}, result=body)
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="todo" if clean else "terminal", args={"todos": []} if clean else {"command": "echo plainwordvalue > /a/.env"}, result=body)
     hooks["pre_api_request"](**common, api_request_id="api", request_messages=[{"role": "user" if clean else "tool", "content": body}])
     hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": body}})
     hooks["post_llm_call"](**common, assistant_response=body)
@@ -54,6 +54,17 @@ def fire_resumed_env_dump(session):
     hooks["pre_api_request"](**common, api_request_id="api", request_messages=history)
     hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "plainresumevalue"}})
     hooks["post_llm_call"](**common, assistant_response="plainresumevalue")
+    hooks["on_session_end"](**common, completed=True)
+
+def fire_value_only_reply(session):
+    # Read from a path nothing flags, with no secret word: the model answers with the bare value.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="hello")
+    hooks["pre_api_request"](**common, api_request_id="api", request_messages=[{"role": "user", "content": "hello"}])
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args={"command": "cat /etc/app/config.yaml"}, result="plainconfigvalue")
+    hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "plainconfigvalue"}})
+    hooks["post_llm_call"](**common, assistant_response="plainconfigvalue")
     hooks["on_session_end"](**common, completed=True)
 
 def fire_free_text(session, text):
@@ -95,6 +106,7 @@ while True:
     fire_env_dump(f"kohako-g2-file-{n}", "cat notes.txt", "plainfilevalue")
     fire_free_text(f"kohako-g2-xmltext-{n}", "<password>\n\n\nplainxmlvalue\n\n\n</password>")
     fire_free_text(f"kohako-g2-prose-{n}", "the password is plainprosevalue")
+    fire_value_only_reply(f"kohako-g2-config-{n}")
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
     print(f"round {n}", flush=True)
