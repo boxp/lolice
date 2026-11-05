@@ -12,7 +12,7 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire('/app/worker/');
-const { S3Client, PutBucketLifecycleConfigurationCommand, GetBucketLifecycleConfigurationCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutBucketLifecycleConfigurationCommand, GetBucketLifecycleConfigurationCommand, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
 
 const DAYS = Number(process.env.RETENTION_DAYS || 14);
 const EVENT_DAYS = Number(process.env.RAW_EVENT_DAYS || 1);
@@ -73,12 +73,78 @@ async function enforceLifecycle() {
   report.lifecycle = (got.Rules || []).map((r) => `${r.Filter?.Prefix}:${r.Expiration?.Days}d`);
 }
 
+// Counts only: never return matching values, trace IDs or object keys.
+async function audit() {
+  const marker = process.env.SYNTHETIC_MARKER;
+  const query = async (sql) => JSON.parse(await chQuery(`${sql} SETTINGS max_execution_time = 60 FORMAT JSON`, 65_000));
+  const core = (await query(`SELECT uniqExact(trace_id) AS traces, count() AS rows,
+    if(count() = 0, NULL, greatest(0, dateDiff('second', min(start_time), now64(6)) / 3600)) AS oldest_age_hours
+    FROM events_core FINAL`)).data[0];
+  const services = (await query('SELECT service_name, uniqExact(trace_id) AS traces FROM events_core FINAL GROUP BY service_name')).data;
+  const result = { traces: Number(core.traces), rows: Number(core.rows), oldest_age_hours: core.oldest_age_hours,
+    by_service: Object.fromEntries(services.map((s) => [s.service_name, Number(s.traces)])), marker_rows_ch: null,
+    control_rows_ch: null, s3: null, marker_objects_s3: null };
+  // A plain marker that should reach ClickHouse: without it, marker_rows_ch == 0 could just mean nothing arrived.
+  const countBody = async (value) => {
+    const quoted = value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
+    const match = (col) => `position(${col}, '${quoted}') > 0`;
+    const rows = (await query(`SELECT count() AS n FROM events_full FINAL WHERE ${match('input')} OR ${match('output')}
+      OR arrayExists(x -> ${match('x')}, metadata_names) OR arrayExists(x -> ${match('x')}, metadata_values)`)).data[0];
+    return Number(rows.n);
+  };
+  if (process.env.SYNTHETIC_CONTROL_MARKER) result.control_rows_ch = await countBody(process.env.SYNTHETIC_CONTROL_MARKER);
+  if (marker) result.marker_rows_ch = await countBody(marker);
+  const s3 = new S3Client({ region: 'auto', endpoint: process.env.S3_ENDPOINT || 'http://langfuse-minio:9000',
+    forcePathStyle: true, credentials: { accessKeyId: 'minio', secretAccessKey: process.env.MINIO_ROOT_PASSWORD } });
+  // Listing is ordered by key, so every page is read before choosing what to scan. Only the
+  // newest SCAN_OBJECTS are kept, so memory stays bounded however many objects exist.
+  const SCAN_OBJECTS = 200;
+  const listDeadline = Date.now() + 60_000;
+  let objects = [], count = 0, oldest = Infinity, token;
+  do {
+    const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'events/', ContinuationToken: token }),
+      { abortSignal: AbortSignal.timeout(30_000) });
+    for (const object of list.Contents || []) {
+      count++;
+      oldest = Math.min(oldest, object.LastModified.getTime());
+    }
+    objects = [...objects, ...(list.Contents || [])].sort((a, b) => b.LastModified - a.LastModified).slice(0, SCAN_OBJECTS);
+    token = list.IsTruncated ? list.NextContinuationToken : undefined;
+  } while (token && Date.now() < listDeadline);
+  // An unfinished listing cannot say which object is oldest, so report unknown instead of a low value.
+  const truncated = Boolean(token);
+  result.s3 = { objects: count, oldest_age_hours: count && !truncated ? Math.max(0, (Date.now() - oldest) / 3600000) : null, truncated };
+  if (marker) {
+    let scanned = 0, matches = 0, bytes = 0;
+    const limit = 32 * 1024 * 1024, needle = Buffer.from(marker);
+    const scanDeadline = AbortSignal.timeout(60_000);
+    for (const object of objects) {
+      if (object.Size > limit - bytes) break;
+      const response = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: object.Key }),
+        { abortSignal: scanDeadline });
+      let tail = Buffer.alloc(0), found = false;
+      for await (const chunk of response.Body) {
+        bytes += chunk.length;
+        if (bytes > limit) { response.Body.destroy(); throw new Error('object scan limit exceeded'); }
+        const data = Buffer.concat([tail, chunk]);
+        if (data.includes(needle)) found = true;
+        tail = data.subarray(Math.max(0, data.length - needle.length + 1));
+      }
+      scanned++;
+      if (found) matches++;
+    }
+    // matches == 0 only clears the scanned objects: unscanned > 0 or s3.truncated leaves the rest unknown.
+    result.marker_objects_s3 = { matches, scanned, unscanned: count - scanned };
+  }
+  report.audit = result;
+}
+
 async function optimize() {
   for (const table of ['events_full', 'events_core']) await chQuery(`OPTIMIZE TABLE ${table} FINAL`, 600_000);
   report.optimized = true;
 }
 
-const steps = [enforceLifecycle, deleteTraces];
+const steps = [audit, enforceLifecycle, deleteTraces];
 if (process.env.FORCE_OPTIMIZE === 'true' || new Date().getUTCHours() === 18) steps.push(optimize);
 
 let failed = false;
@@ -87,7 +153,7 @@ for (const step of steps) {
     await step();
   } catch (e) {
     failed = true;
-    report[`${step.name}_error`] = e.message;
+    report[`${step.name}_error`] = step === audit ? 'audit failed' : e.message;
   }
 }
 console.log(JSON.stringify(report));
