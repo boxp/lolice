@@ -37,6 +37,14 @@ def fire_flagged_secret_read(session):
                             args={"command": "kubectl -n foo get secret bar -o jsonpath='{.data.x}'"}, result="plainkubevalue")
     hooks["on_session_end"](**common, completed=True)
 
+def fire_env_dump(session, command, result):
+    # The value matches no secret pattern, so only withholding the output can keep it out.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="hello")
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args={"command": command}, result=result)
+    hooks["on_session_end"](**common, completed=True)
+
 def fire_delegated_child(parent, child):
     # Neither the parent's scope nor a ticket reference reaches the child: only the delegation does.
     hooks = ctx.hooks
@@ -51,6 +59,8 @@ while True:
     fire(f"kohako-g2-{n}", False)
     fire(f"kohako-g2-clean-{n}", True)
     fire_flagged_secret_read(f"kohako-g2-kube-{n}")
+    fire_env_dump(f"kohako-g2-env-{n}", "env LANG=C", "OPAQUE=plainenvvalue")
+    fire_env_dump(f"kohako-g2-envout-{n}", "python3 show.py", "PATH=/usr/bin\nHOME=/root\nOPAQUE=plainenvvalue")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
     print(f"round {n}", flush=True)
     time.sleep(1)

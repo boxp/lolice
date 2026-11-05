@@ -164,6 +164,36 @@ class ObserverTest(unittest.TestCase):
                 run_turn(args={"command": command}, result="UNIQUEOUTPUT")
                 self.assertIn("UNIQUEOUTPUT", self._bodies())
 
+    def test_environment_dumps_are_withheld_with_any_arguments(self):
+        for command in ("env LANG=C", "env LANG=C | grep FOO", "env A=1 B='x y' > /tmp/x", "env -i", "env -u HOME", "env --null",
+                        "/usr/bin/env LANG=C", "sudo env LANG=C", "kubectl exec pod -- env A=1", "ls\nenv LANG=C\necho done",
+                        "echo $(env LANG=C)", "(env LANG=C)", "env A=1 2>&1", "set", "(set -o posix; set)", "export", "declare -p",
+                        "typeset -x", "awk 'BEGIN{for(k in ENVIRON)print k}'", "perl -e 'print %ENV'", "ruby -e 'p ENV.to_h'"):
+            with self.subTest(command):
+                plugin._sessions.clear()
+                run_turn(args={"command": command}, result="UNIQUEOUTPUT")
+                body = self._bodies()
+                self.assertNotIn("UNIQUEOUTPUT", body)
+                self.assertIn("withheld", body)
+
+    def test_output_shaped_like_an_environment_dump_is_withheld(self):
+        for result in ("PATH=/usr/bin\nHOME=/root\nOPAQUE=UNIQUEOUTPUT\n", "PATH=/usr/bin\0HOME=/root\0OPAQUE=UNIQUEOUTPUT\0",
+                       {"output": "HOME=/root\nPATH=/usr/bin\nOPAQUE=UNIQUEOUTPUT"}):
+            with self.subTest(result):
+                plugin._sessions.clear()
+                run_turn(args={"command": "python3 show.py"}, result=result)
+                body = self._bodies()
+                self.assertNotIn("UNIQUEOUTPUT", body)
+                self.assertIn("withheld", body)
+
+    def test_commands_merely_run_through_env_are_not_withheld(self):
+        for command in ("env LANG=C ls", "env A=1 B=2 make test", "/usr/bin/env python3 x.py", "docker run --env A=1 img",
+                        "cat .venv/README", "git config --unset a.b", "reset", "exporter --help"):
+            with self.subTest(command):
+                plugin._sessions.clear()
+                run_turn(args={"command": command}, result="UNIQUEOUTPUT")
+                self.assertIn("UNIQUEOUTPUT", self._bodies())
+
     def test_arguments_of_a_sensitive_call_are_withheld(self):
         for args in ({"command": "echo plainwordvalue > /a/.env"}, {"path": "/a/.env", "content": "plainwordvalue"},
                      {"command": "kubectl -n foo create secret generic x --from-literal=k=plainwordvalue"}):
