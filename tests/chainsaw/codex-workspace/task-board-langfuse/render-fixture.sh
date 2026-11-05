@@ -18,7 +18,7 @@ jq -e '
   ([$p.containers[] | select(.name == "task-board-langfuse-exporter")] | length == 1) and
   ([$p.volumes[] | select(.name == "langfuse-ingest-key" and .secret.optional == true and .secret.secretName == "langfuse-ingest-key")] | length == 1)
 ' "$tmp/deploy.json" >/dev/null || { echo 'FAIL: production exporter or optional key volume is missing' >&2; exit 1; }
-# Fixture substitutions: public bb image, local sink, short polling and synthetic env;
+# Fixture substitutions: public bb image, local sink (closes h2c upgrades like Langfuse), short polling and synthetic env;
 # the executable, sidecar command, mounts, Secret volume and directory init come from production.
 # Like a new PVC, home holds no exporter directories and is not world-writable, so kubelet
 # creates the subPath directories as root unless the production init prepares them first.
