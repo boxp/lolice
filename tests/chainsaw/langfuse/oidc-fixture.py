@@ -18,7 +18,7 @@ def new_key():
     """Returns (n, e, d) from a 2048 bit key built with the stdlib only, so no key material is stored."""
     def prime():
         while True:
-            c = secrets.randbits(1024) | (1 << 1023) | 1
+            c = secrets.randbits(1024) | (3 << 1022) | 1  # top two bits: n is exactly 2048 bits, which jose requires
             if all(pow(a, c - 1, c) == 1 for a in (2, 3, 5, 7, 11, 13, 17, 19, 23, 29)):
                 return c
     e = 65537
