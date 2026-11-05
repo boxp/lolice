@@ -11,6 +11,8 @@ spec:
   groups:
     - name: ai-ops-outcome.rules
       rules:
+        # Alerts keep no pod or instance label and read the last value over 10m, so a
+        # workspace rollout neither restarts `for` nor sends the warning mail again.
         - record: ai_ops:outcome_burn_rate
           expr: |
             (((ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="determined"} - ignoring(part) ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="reached_in_budget"}) / ignoring(part) ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="determined"}) / 0.10)
@@ -21,10 +23,10 @@ spec:
             and ignoring(part) (ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",part="determined"} > 0)
         - alert: AiOpsOutcomeBurnFast
           expr: |
-            (ai_ops:outcome_burn_rate{window="7d"} >= 2.0)
-            and on(window) (ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",window="7d",part="determined"} >= on(window) ai_ops_outcome_min_observations{job="codex-workspace-ai-ops-metrics",window="7d"})
-            and on() (ai_ops_outcome_export_ok{job="codex-workspace-ai-ops-metrics"} == 1)
-            and on() (time() - ai_ops_outcome_generated_timestamp_seconds{job="codex-workspace-ai-ops-metrics"} <= 7200)
+            (max by (window) (last_over_time(ai_ops:outcome_burn_rate{window="7d"}[10m])) >= 2.0)
+            and on(window) (max by (window) (last_over_time(ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",window="7d",part="determined"}[10m])) >= on(window) max by (window) (last_over_time(ai_ops_outcome_min_observations{job="codex-workspace-ai-ops-metrics",window="7d"}[10m])))
+            and on() (max(last_over_time(ai_ops_outcome_export_ok{job="codex-workspace-ai-ops-metrics"}[10m])) == 1)
+            and on() (time() - max(last_over_time(ai_ops_outcome_generated_timestamp_seconds{job="codex-workspace-ai-ops-metrics"}[10m])) <= 7200)
           for: 2h
           labels:
             severity: warning
@@ -37,10 +39,10 @@ spec:
             runbook_next_actions: 許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。
         - alert: AiOpsOutcomeBurnSlow
           expr: |
-            (ai_ops:outcome_burn_rate{window="28d"} >= 1.0)
-            and on(window) (ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",window="28d",part="determined"} >= on(window) ai_ops_outcome_min_observations{job="codex-workspace-ai-ops-metrics",window="28d"})
-            and on() (ai_ops_outcome_export_ok{job="codex-workspace-ai-ops-metrics"} == 1)
-            and on() (time() - ai_ops_outcome_generated_timestamp_seconds{job="codex-workspace-ai-ops-metrics"} <= 7200)
+            (max by (window) (last_over_time(ai_ops:outcome_burn_rate{window="28d"}[10m])) >= 1.0)
+            and on(window) (max by (window) (last_over_time(ai_ops_outcome_tasks{job="codex-workspace-ai-ops-metrics",window="28d",part="determined"}[10m])) >= on(window) max by (window) (last_over_time(ai_ops_outcome_min_observations{job="codex-workspace-ai-ops-metrics",window="28d"}[10m])))
+            and on() (max(last_over_time(ai_ops_outcome_export_ok{job="codex-workspace-ai-ops-metrics"}[10m])) == 1)
+            and on() (time() - max(last_over_time(ai_ops_outcome_generated_timestamp_seconds{job="codex-workspace-ai-ops-metrics"}[10m])) <= 7200)
           for: 2h
           labels:
             severity: warning
@@ -70,8 +72,8 @@ spec:
             runbook_next_actions: 許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。
         - alert: AiOpsHarnessEvalRegression
           expr: |
-            (ai_ops_harness_eval_regression{job="codex-workspace-ai-ops-metrics",status="suspected"} == 1)
-            and on() (ai_ops_harness_eval_export_ok{job="codex-workspace-ai-ops-metrics"} == 1)
+            (max by (model_rev, harness_version, status) (last_over_time(ai_ops_harness_eval_regression{job="codex-workspace-ai-ops-metrics",status="suspected"}[10m])) == 1)
+            and on() (max(last_over_time(ai_ops_harness_eval_export_ok{job="codex-workspace-ai-ops-metrics"}[10m])) == 1)
           for: 5m
           labels:
             severity: warning

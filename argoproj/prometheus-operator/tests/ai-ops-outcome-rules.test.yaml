@@ -43,8 +43,7 @@
                 "severity": "warning",
                 "component": "ai-ops",
                 "definition_version": "outcome/v2-draft",
-                "window": "7d",
-                "job": "codex-workspace-ai-ops-metrics"
+                "window": "7d"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の劣化を検知",
@@ -78,8 +77,7 @@
                 "severity": "warning",
                 "component": "ai-ops",
                 "definition_version": "outcome/v2-draft",
-                "window": "7d",
-                "job": "codex-workspace-ai-ops-metrics"
+                "window": "7d"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の劣化を検知",
@@ -229,8 +227,7 @@
                 "severity": "warning",
                 "component": "ai-ops",
                 "definition_version": "outcome/v2-draft",
-                "window": "28d",
-                "job": "codex-workspace-ai-ops-metrics"
+                "window": "28d"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の劣化を検知",
@@ -453,8 +450,7 @@
                 "severity": "warning",
                 "component": "ai-ops",
                 "definition_version": "outcome/v2-draft",
-                "window": "7d",
-                "job": "codex-workspace-ai-ops-metrics"
+                "window": "7d"
               },
               "exp_annotations": {
                 "summary": "AI Ops 成果の劣化を検知",
@@ -554,7 +550,6 @@
             "severity" : "warning",
             "component" : "ai-ops",
             "definition_version" : "harness-eval/v1-draft",
-            "job" : "codex-workspace-ai-ops-metrics",
             "model_rev" : "m1",
             "harness_version" : "h1",
             "status" : "suspected"
@@ -582,6 +577,30 @@
         "alertname" : "AiOpsHarnessEvalRegression",
         "exp_alerts" : [ ]
       } ]
+    },
+    {
+      "name": "rollout で Pod が替わっても for を数え直さず label も変わらない",
+      "interval": "1m",
+      "input_series": [
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\",pod=\"a\"}", "values": "20+0x60 stale" },
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\",pod=\"a\"}", "values": "15+0x60 stale" },
+        { "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",pod=\"a\"}", "values": "10+0x60 stale" },
+        { "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"a\"}", "values": "1+0x60 stale" },
+        { "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\",pod=\"a\"}", "values": "100000+0x60 stale" },
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"determined\",pod=\"b\"}", "values": "_x63 20+0x120" },
+        { "series": "ai_ops_outcome_tasks{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",part=\"reached_in_budget\",pod=\"b\"}", "values": "_x63 15+0x120" },
+        { "series": "ai_ops_outcome_min_observations{job=\"codex-workspace-ai-ops-metrics\",window=\"7d\",pod=\"b\"}", "values": "_x63 10+0x120" },
+        { "series": "ai_ops_outcome_export_ok{job=\"codex-workspace-ai-ops-metrics\",pod=\"b\"}", "values": "_x63 1+0x120" },
+        { "series": "ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\",pod=\"b\"}", "values": "_x63 100000+0x120" }
+      ],
+      "alert_rule_test": [
+        { "eval_time": "1h59m", "alertname": "AiOpsOutcomeBurnFast", "exp_alerts": [] },
+        { "eval_time": "2h", "alertname": "AiOpsOutcomeBurnFast", "exp_alerts": [ { "exp_labels": { "severity": "warning", "component": "ai-ops", "definition_version": "outcome/v2-draft", "window": "7d" }, "exp_annotations": {
+                "summary": "AI Ops 成果の劣化を検知",
+                "description": "7d 窓: (determined - reached_in_budget) / determined の burn rate が暫定閾値 2.0 以上。観測数は determined、最低観測数は min_observations。Grafana ai-ops-quality を参照。",
+                "runbook_next_actions": "許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。"
+              } } ] }
+      ]
     }
   ]
 }

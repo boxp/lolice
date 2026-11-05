@@ -46,3 +46,11 @@ python3 -I -c 'import json; json.load(open("argoproj/prometheus-operator/dashboa
 - runner の allowlist への追加は arch #14465。merge されるまで、prompt にこのアラートは出ない。
 
 検証: `argoproj/prometheus-operator/tests/run-promtool-tests.sh`。
+
+## rollout 後の readback で見つけた通知の欠陥（2026-11-05）
+
+burn と対照評価のアラートは `pod` / `instance` label を引き継いでいた。codex-workspace の rollout で label が変わると、発火中のアラートが解除され、`for` を数え直して別のアラートとして再度発火する。2 時間より短い間隔で rollout が続くと burn は発火できず、発火後は rollout のたびに warning メールが届く。実 Prometheus で BurnSlow の `activeAt` が rollout で 02:18 から 02:22 UTC へ戻ったことを確認した。
+
+修正: アラートの式を `max by` で集計して揮発する label を落とし、`last_over_time(...[10m])` で rollout の空白（実測 3〜4 分）をまたぐ。計測不調のアラートは `max()` と `absent()` で既に label がなく、空白の間は `for: 30m` に収まるので変えない。
+
+利用枠のアラートも同じ label を持つが、severity は info でメールにならないので今回は変えない。
