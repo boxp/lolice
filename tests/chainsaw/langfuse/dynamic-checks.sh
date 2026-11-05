@@ -394,12 +394,12 @@ retention() {
   jq -e '.expired_traces_deleted >= 1 and .public_traces_deleted >= 1 and .optimized == true and .lifecycle == ["events/:1d"]
     and .audit.traces > 0 and .audit.control_rows_ch >= 1 and .audit.marker_rows_ch >= 1 and .audit.marker_objects_s3.matches >= 1 and .audit.marker_objects_s3.scanned >= 1
     and ([keys[] | select(endswith("_error"))] | length == 0)' <<<"$report" >/dev/null \
-    || { echo 'retention report が想定と異なります' >&2; exit 1; }
+    || { echo "retention report が想定と異なります: $report" >&2; exit 1; }
   # キー順で後ろにある実 raw event まで一覧できている (最古は seed より前の ingest、新しい順の先頭はマーカー)。
   jq -e --argjson count "$S3_SEED_COUNT" --argjson min_age "$(( $(date +%s) - seed_started ))" '.audit.s3.truncated == false and .audit.s3.objects > $count
     and .audit.s3.oldest_age_hours * 3600 >= $min_age
     and .audit.marker_objects_s3.unscanned == (.audit.s3.objects - .audit.marker_objects_s3.scanned)' <<<"$report" >/dev/null \
-    || { echo 'retention report の S3 走査が 2 万件を超える object を扱えていません' >&2; exit 1; }
+    || { echo "retention report の S3 走査が 2 万件を超える object を扱えていません: $report" >&2; exit 1; }
   for trace in "$TRACE_OLD" "$TRACE_SHARED" "$TRACE_FRESH" "$TRACE_INGEST" BOXP428SYNTH BOXP428CTRL chainsaw-old chainsaw-shared chainsaw-body-marker; do
     [[ "$report" != *"$trace"* ]] || { echo 'retention report に本文または trace ID が含まれています' >&2; exit 1; }
   done

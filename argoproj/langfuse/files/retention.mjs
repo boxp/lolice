@@ -96,27 +96,32 @@ async function audit() {
   if (marker) result.marker_rows_ch = await countBody(marker);
   const s3 = new S3Client({ region: 'auto', endpoint: process.env.S3_ENDPOINT || 'http://langfuse-minio:9000',
     forcePathStyle: true, credentials: { accessKeyId: 'minio', secretAccessKey: process.env.MINIO_ROOT_PASSWORD } });
-  const objects = [];
-  const s3Deadline = AbortSignal.timeout(90_000);
-  let token;
-  for (let page = 0; page < 20; page++) {
+  // Listing is ordered by key, so every page is read before choosing what to scan. Only the
+  // newest SCAN_OBJECTS are kept, so memory stays bounded however many objects exist.
+  const SCAN_OBJECTS = 200;
+  const listDeadline = Date.now() + 60_000;
+  let objects = [], count = 0, oldest = Infinity, token;
+  do {
     const list = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'events/', ContinuationToken: token }),
-      { abortSignal: s3Deadline });
-    objects.push(...(list.Contents || []));
+      { abortSignal: AbortSignal.timeout(30_000) });
+    for (const object of list.Contents || []) {
+      count++;
+      oldest = Math.min(oldest, object.LastModified.getTime());
+    }
+    objects = [...objects, ...(list.Contents || [])].sort((a, b) => b.LastModified - a.LastModified).slice(0, SCAN_OBJECTS);
     token = list.IsTruncated ? list.NextContinuationToken : undefined;
-    if (!token) break;
-  }
-  const oldest = objects.reduce((min, o) => Math.min(min, o.LastModified.getTime()), Infinity);
-  result.s3 = { objects: objects.length, oldest_age_hours: objects.length ? Math.max(0, (Date.now() - oldest) / 3600000) : null,
-    truncated: Boolean(token) };
+  } while (token && Date.now() < listDeadline);
+  // An unfinished listing cannot say which object is oldest, so report unknown instead of a low value.
+  const truncated = Boolean(token);
+  result.s3 = { objects: count, oldest_age_hours: count && !truncated ? Math.max(0, (Date.now() - oldest) / 3600000) : null, truncated };
   if (marker) {
     let scanned = 0, matches = 0, bytes = 0;
     const limit = 32 * 1024 * 1024, needle = Buffer.from(marker);
-    objects.sort((a, b) => b.LastModified - a.LastModified);
-    for (const object of objects.slice(0, 200)) {
+    const scanDeadline = AbortSignal.timeout(60_000);
+    for (const object of objects) {
       if (object.Size > limit - bytes) break;
       const response = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: object.Key }),
-        { abortSignal: s3Deadline });
+        { abortSignal: scanDeadline });
       let tail = Buffer.alloc(0), found = false;
       for await (const chunk of response.Body) {
         bytes += chunk.length;
@@ -128,7 +133,8 @@ async function audit() {
       scanned++;
       if (found) matches++;
     }
-    result.marker_objects_s3 = { matches, scanned };
+    // matches == 0 only clears the scanned objects: unscanned > 0 or s3.truncated leaves the rest unknown.
+    result.marker_objects_s3 = { matches, scanned, unscanned: count - scanned };
   }
   report.audit = result;
 }
