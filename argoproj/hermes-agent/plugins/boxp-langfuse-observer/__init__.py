@@ -113,9 +113,6 @@ _FLAG_VALUE = re.compile(r"(?i)true|false|yes|no|on|off|none|null|nil|enabled|di
 _TOGGLE_LAST_WORD = re.compile(r"(?i)enabled?|disabled?|required?|parallelism|rotation")
 _TOGGLE_FIRST_WORD = re.compile(r"(?i)use|enable|disable|no|skip|require")
 _COUNTER_LAST_WORD = re.compile(r"(?i)tokens|count|limit|max|min|ttl|timeout|expiry|expires|interval|seconds|minutes|hours|days|age|size|port|bytes")
-_SHORT_VALUE_LENGTH = 8
-# The text before a value may be JSON-escaped: the n of \\n and the hex of \\u3048 are not part of a word.
-_SHORT_VALUE_START = r"(?:(?<![A-Za-z0-9])|(?<=\\[nrtbf])|(?<=\\u[0-9a-fA-F]{4}))"
 _PATTERNS = [
     ("private_key", re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----.*?(?:-----END (?:[A-Z ]+ )?PRIVATE KEY-----|\Z)", re.S)),
     ("header", re.compile(r"(?im)\b(?:proxy-authorization|authorization|set-cookie|cookie)\s*:\s*[^\r\n]+")),
@@ -262,13 +259,11 @@ def _env_secrets():
 
 def _env_pattern():
     """One alternation, longest first, so a later value cannot rewrite the mark of an earlier one.
-    A short value has to stand alone: inside a longer word it is most likely a coincidence."""
+    Any length matches inside a longer word: the value can be part of it, and a blanked word costs less than a leak."""
     global _env_pattern_cache
     values = _env_secrets()
     if _env_pattern_cache[0] is not values:
-        pattern = re.compile("|".join(
-            re.escape(v) if len(v) >= _SHORT_VALUE_LENGTH else _SHORT_VALUE_START + re.escape(v) + "(?![A-Za-z0-9])"
-            for v in values)) if values else None
+        pattern = re.compile("|".join(re.escape(v) for v in values)) if values else None
         _env_pattern_cache = (values, pattern)
     return _env_pattern_cache[1]
 

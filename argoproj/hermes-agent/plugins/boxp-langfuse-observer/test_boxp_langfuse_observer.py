@@ -306,8 +306,13 @@ class ObserverTest(unittest.TestCase):
                 for value in (short, phrase, "zq7", "4821"):
                     self.assertNotIn(value, out, text)
                 self.assertTrue(plugin._unsafe(json.dumps({"v": text})), text)
-            # Inside a longer word it is most likely a coincidence.
-            self.assertEqual("zq77 xzq7 horse777", plugin.redact("zq77 xzq7 horse777"))
+            # A value can be part of a longer word, so it is masked there too.
+            for text in ("zq77", "xzq7", "horse777", "abzq7cd"):
+                out = plugin.redact(text)
+                self.assertNotIn("zq7", out, text)
+                self.assertNotIn(phrase, out, text)
+                self.assertIn("[REDACTED:env]", out, text)
+                self.assertTrue(plugin._unsafe(json.dumps({"v": text})), text)
             # Flags, counters, working directories and authors are not credentials.
             kept = "true false 1 64000 /tmp boxp/lolice"
             self.assertEqual(kept, plugin.redact(kept))
