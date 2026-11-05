@@ -141,6 +141,13 @@ spec:
               chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
               chmod 2775 "$plugin_dir"
               chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              # BOXP-428: Langfuse observer (sends in-scope delegation turns inside the cluster).
+              plugin_dir=/opt/data/plugins/boxp-langfuse-observer
+              mkdir -p "$plugin_dir"
+              cp /bootstrap-plugins/boxp-langfuse-observer/plugin.yaml /bootstrap-plugins/boxp-langfuse-observer/__init__.py "$plugin_dir/"
+              chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              chmod 2775 "$plugin_dir"
+              chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
               # BOXP-332: enable the plugins without rewriting hand-edited YAML.
               python3 - <<'PYCONFIG'
               import os, re
@@ -154,7 +161,8 @@ spec:
               # BOXP-360: the same idempotent edit also enables the metadata-only AI ops observer.
               for name, note in [("kohako-g2-context", "BOXP-332: owner-DM-only reference context from Kohako G2."),
                                  ("boxp-ai-ops-observer", "BOXP-360: metadata-only AI ops ledger."),
-                                 ("kohako-g2-realtime", "BOXP-387: Kohako G2 realtime client-secret mint (openai-codex sign-in).")]:
+                                 ("kohako-g2-realtime", "BOXP-387: Kohako G2 realtime client-secret mint (openai-codex sign-in)."),
+                                 ("boxp-langfuse-observer", "BOXP-428: in-scope delegation turns to the in-cluster Langfuse.")]:
                   with open(path) as fh:
                       text = fh.read()
                   cfg = safe_load(text) or {}
@@ -349,6 +357,9 @@ spec:
             - name: kohako-g2-realtime-plugin
               mountPath: /bootstrap-plugins/kohako-g2-realtime
               readOnly: true
+            - name: boxp-langfuse-observer-plugin
+              mountPath: /bootstrap-plugins/boxp-langfuse-observer
+              readOnly: true
       containers:
         - name: hermes-agent
           image: ghcr.io/boxp/arch/hermes-agent:latest
@@ -414,6 +425,19 @@ spec:
                 secretKeyRef:
                   name: hermes-agent-task-board-webhook
                   key: password
+            # BOXP-428: optional so that a missing ingest key leaves the plugin idle, not the Pod down.
+            - name: LANGFUSE_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: langfuse-ingest-key
+                  key: LANGFUSE_PUBLIC_KEY
+                  optional: true
+            - name: LANGFUSE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: langfuse-ingest-key
+                  key: LANGFUSE_SECRET_KEY
+                  optional: true
             - name: OPENWEATHERMAP_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -606,6 +630,9 @@ spec:
         - name: kohako-g2-realtime-plugin
           configMap:
             name: hermes-agent-kohako-g2-realtime-plugin
+        - name: boxp-langfuse-observer-plugin
+          configMap:
+            name: hermes-agent-boxp-langfuse-observer-plugin
         - name: ai-ops-metrics-app
           configMap:
             name: hermes-agent-ai-ops-metrics
