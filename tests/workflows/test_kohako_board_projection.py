@@ -259,6 +259,45 @@ class KohakoResultsTest(KohakoBoardProjectionTest):
         item = self.kb.build_results(self.vault, self.runs, ['BOXP-1'])['items'][0]
         self.assertIsNone(item['summary'])
 
+    def test_a_done_state_newer_than_the_latest_done_run_is_manual(self):
+        self.write_board({'Done': [self.card(1, 'Result', 'done')]})
+        done = ticket('done', 'codex', ['- 2026-10-27 10:00:00 UTC [codex]: Owner向け要約: 過去の結果です'])
+        self.run_file('BOXP-1', '20261027T080000Z-old', last='過去の最終応答' * 10)
+
+        def item(*extra):
+            self.write_ticket('BOXP-1', done.replace('id: X\n', 'id: X\n' + ''.join(line + '\n' for line in extra)))
+            return self.kb.build_results(self.vault, self.runs, ['BOXP-1'])['items'][0]
+
+        def rev(moment):
+            millis = int(moment.timestamp() * 1000)
+            digits = ''
+            while millis:
+                millis, digit = divmod(millis, 36)
+                digits = '0123456789abcdefghijklmnopqrstuvwxyz'[digit] + digits
+            return f'board_rev: {digits}-abcd'
+
+        def assert_manual(result):
+            self.assertTrue(result['manual'])
+            self.assertIsNone(result['runId'])
+            self.assertIsNone(result['summary'])
+            self.assertIsNone(result['unverified'])
+
+        # The run's own Done state keeps its result: same-day closed, revision from before it finished, bad revisions.
+        finished = datetime(2026, 10, 27, 11, 0, tzinfo=timezone.utc)
+        for extra in (['closed: 2026-10-27'], [rev(finished - timedelta(hours=3))], ['board_rev: !!!-x'], ['closed:']):
+            result = item(*extra)
+            self.assertEqual(result['runId'], '20261027T080000Z-old', extra)
+            self.assertEqual(result['summary'], '過去の結果です')
+        # Moved by hand after the run: a later helper revision, or a later closed date.
+        assert_manual(item(rev(finished + timedelta(minutes=1)), 'closed: 2026-10-27'))
+        assert_manual(item('closed: 2026-10-28'))
+        # Reopened and worked on by a run that did not finish done.
+        self.run_file('BOXP-1', '20261027T113000Z-blocked', result='blocked', finished='2026-10-27T11:40:00Z')
+        assert_manual(item('closed: 2026-10-27'))
+        # A later done run is a new result again.
+        self.run_file('BOXP-1', '20261027T120000Z-new', finished='2026-10-27T12:30:00Z', last='新しい最終応答です。' * 10)
+        self.assertEqual(item('closed: 2026-10-27')['runId'], '20261027T120000Z-new')
+
     def test_summary_reads_past_a_pointer_paragraph_and_stops_at_a_heading(self):
         self.write_board({'Done': [self.card(1, 'Result', 'done')]})
         self.write_ticket('BOXP-1', ticket('done', 'codex', []))

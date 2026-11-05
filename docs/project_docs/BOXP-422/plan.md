@@ -31,6 +31,7 @@ G2 --60秒 sync--> BFF GET /kohako/api/v1/results（Access JWT 必須）
 - 録音・確認中・送信中・返答の 2 頁目以降を読んでいる間は表示を保留し、次の sync で表示する。
 - 結果は Hermes に渡さない。`lastExchange`、instructions、候補、承認に入らない。
 - 対象は Done のみ。Blocked は今回対象外。
+- 最新の done run より後に別 run の開始、helper の `board_rev`、`closed` の日付の更新があれば、今の Done はその run の結果ではないので手動完了として扱い、要約を出さない（Owner が Obsidian で直接、同じ日に、run を挟まず戻して閉じた場合は痕跡がなく、過去 run の結果のままになる）。
 
 ## 反映
 

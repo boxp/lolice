@@ -670,6 +670,35 @@ data:
       return path
 
 
+    def run_start(run_id):
+      try:
+        return datetime.strptime(run_id[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+      except ValueError:
+        return None
+
+
+    def revision_time(rev):
+      """Time inside a board helper revision (`<base36 millis>-<hex>`), which the runner never stamps."""
+      try:
+        return datetime.fromtimestamp(int((rev or "").split("-")[0], 36) / 1000, timezone.utc)
+      except (ValueError, OverflowError, OSError):
+        return None
+
+
+    def completed_after_run(front, finished, run_ids):
+      """True when the ticket's current Done state cannot be the one this run produced.
+
+      A run started later means it was reopened; a later helper revision or closed date
+      means the lane changed by hand. Without such a trace the run is taken as the result.
+      """
+      if any((start := run_start(run_id)) and start > finished for run_id in run_ids):
+        return True
+      revised = revision_time(front.get("board_rev"))
+      if revised and revised > finished:
+        return True
+      return front.get("closed", "") > finished.date().isoformat()
+
+
     def build_results(vault_root, runs_root, ids):
       if len(ids) > 50 or any(not TICKET_ID.fullmatch(i) for i in ids):
         raise ValueError("invalid ids")
@@ -686,12 +715,14 @@ data:
           text = read_limited(ticket_path)
         except FileNotFoundError:
           continue
-        if parse_frontmatter(text).get("status") != "done":
+        front = parse_frontmatter(text)
+        if front.get("status") != "done":
           continue
-        done_runs = []
+        done_runs, run_ids = [], []
         ticket_runs = safe_result_path(runs, ticket_id)
         if ticket_runs.is_dir():
           for entry in ticket_runs.iterdir():
+            run_ids.append(entry.name)
             try:
               run_dir = safe_result_path(ticket_runs, entry.name)
               data = read_limited(safe_result_path(run_dir, "summary.edn"))
@@ -704,16 +735,12 @@ data:
             except (OSError, ValueError):
               continue
         base = {"id": ticket_id, "title": result_text(title, 120) or ticket_id}
-        if not done_runs:
+        latest = max(done_runs, key=lambda r: r[0], default=None)
+        if latest is None or completed_after_run(front, latest[0], run_ids):
           base.update(finishedAt=iso(mtime(ticket_path)), runId=None, manual=True, summary=None, unverified=None)
         else:
-          finished, run_id, started, run_dir = max(done_runs, key=lambda r: r[0])
-          start = result_time(started)
-          if start is None:
-            try:
-              start = datetime.strptime(run_id[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-            except ValueError:
-              start = finished
+          finished, run_id, started, run_dir = latest
+          start = result_time(started) or run_start(run_id) or finished
           notes = [n for n in by_time(parse_notes(text)) if n[0] and start <= n[0] <= finished]
           owner = [m.group(1) for m in (re.match(r"Owner向け要約\s*[:：]\s*(\S.*)", n[2], re.S) for n in notes) if m]
           try:
