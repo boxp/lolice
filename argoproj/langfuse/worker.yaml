@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langfuse-worker
+  template:
+    metadata:
+      labels:
+        app: langfuse-worker
+    spec:
+      priorityClassName: langfuse-observability
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  # amd64 excludes the control plane; golyat-4 is the GPU research node.
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: ["golyat-4"]
+      automountServiceAccountToken: false
+      containers:
+        - name: worker
+          image: docker.io/langfuse/langfuse-worker:4.75.0
+          env:
+            - name: TELEMETRY_ENABLED
+              value: "false"
+            - name: LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES
+              value: "false"
+            - name: NEXTAUTH_URL
+              value: https://langfuse.b0xp.io
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: {name: langfuse-secrets, key: DATABASE_URL}
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef: {name: langfuse-secrets, key: NEXTAUTH_SECRET}
+            - name: SALT
+              valueFrom:
+                secretKeyRef: {name: langfuse-secrets, key: SALT}
+            - name: ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef: {name: langfuse-secrets, key: ENCRYPTION_KEY}
+            - name: CLICKHOUSE_URL
+              value: http://langfuse-clickhouse:8123
+            - name: CLICKHOUSE_MIGRATION_URL
+              value: clickhouse://langfuse-clickhouse:9000
+            - name: CLICKHOUSE_USER
+              value: langfuse
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: langfuse-secrets, key: CLICKHOUSE_PASSWORD}
+            - name: CLICKHOUSE_CLUSTER_ENABLED
+              value: "false"
+            - name: REDIS_HOST
+              value: langfuse-valkey
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_AUTH
+              valueFrom:
+                secretKeyRef: {name: langfuse-secrets, key: REDIS_AUTH}
+            - name: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+              value: langfuse
+            - name: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
+              value: events/
+            - name: LANGFUSE_S3_EVENT_UPLOAD_REGION
+              value: auto
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
+              value: http://langfuse-minio:9000
+            - name: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE
+              value: "true"
+            - name: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+              value: minio
+            - name: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: langfuse-secrets, key: MINIO_ROOT_PASSWORD}
+            - name: LANGFUSE_S3_BATCH_EXPORT_ENABLED
+              value: "false"
+            - name: NODE_OPTIONS
+              value: --max-old-space-size=1024
+            - name: PORT
+              value: "3030"
+          ports:
+            - containerPort: 3030
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 3030
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3030
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
