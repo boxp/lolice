@@ -55,6 +55,30 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+        # kubelet creates a missing subPath as root, which on a new PVC would stop UID 1000
+        # from writing there. Prepare the task-board-langfuse-exporter subPaths first;
+        # only the directories themselves are changed, never their existing contents.
+        - name: prepare-task-board-langfuse-dirs
+          image: docker.io/curlimages/curl:8.23.0
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              for dir in .codex-task-board .claude .claude/projects .codex .codex/sessions; do
+                mkdir -p "/home/boxp/$dir"
+                chown -h 1000:1000 "/home/boxp/$dir"
+              done
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              add: ["CHOWN", "DAC_OVERRIDE"]
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
         - name: install-docker-cli
           image: docker.io/docker:29.9.3-cli
           command:
