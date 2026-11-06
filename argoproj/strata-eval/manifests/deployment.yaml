@@ -9,8 +9,7 @@ spec:
   # SYCL_UR_USE_LEVEL_ZERO_V2=1 で解消（configmap 参照）。gpu.intel.com/i915 は node に 1 つしかなく、
   # local-llm/llama-server と同時には動かせないため 0。再検証時は local-llm を止めてから 1 にする。
   # BOXP-383 batch7 完了後に復帰。
-  # BOXP-417（現ハードの律速究明）の診断モード。local-llm を止めた上で 1。研究の終了時に 0 と通常 command へ戻す。
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
@@ -42,11 +41,22 @@ spec:
           image: ghcr.io/boxp/arch/llama-sycl@sha256:f74b5341cc7702f1b1bb3b1286d148965dff40abfe6976425e3052f5b5c83f53
           imagePullPolicy: IfNotPresent
           workingDir: /s/src-4b9e05a2
-          # BOXP-417 診断モード: 試験プロセスは node 経由の exec から条件ごとに起動する。
-          # 通常モードの command は `python3 -m serve.server --engine strata --config /config/strata.json --host 127.0.0.1 --port 9137 --offline --no-api-key`。
           command:
-            - sleep
-            - infinity
+            - python3
+            - -m
+            - serve.server
+            - --engine
+            - strata
+            - --config
+            - /config/strata.json
+            # Pod 内の loopback だけで待ち受ける。Service は作らず、
+            # 検証は kubectl port-forward からだけ行う（外部公開なし）。
+            - --host
+            - 127.0.0.1
+            - --port
+            - "9137"
+            - --offline
+            - --no-api-key
           env:
             - name: ZES_ENABLE_SYSMAN
               value: "1"
@@ -74,19 +84,13 @@ spec:
               memory: 40Gi
               gpu.intel.com/i915: "1"
             limits:
-              # BOXP-417 の間だけ 76GiB（BOXP-406 の UD-Q4 + MTP 実測 anon + shmem 67GiB）。MemAvailable<12GiB で試験を止める。復帰 PR で 56GiB へ戻す。
-              memory: 76Gi
+              # node の MemAvailable 20GiB 以上を残す上限（RAM arena 31.6GiB + 作業領域）。
+              memory: 56Gi
               gpu.intel.com/i915: "1"
           volumeMounts:
             - name: strata
               mountPath: /s
               readOnly: true
-            # BOXP-417: 既存 weights の読み取りと、永続の測定記録・隔離 build。
-            - name: models
-              mountPath: /m
-              readOnly: true
-            - name: work
-              mountPath: /w
             - name: config
               mountPath: /config
               readOnly: true
@@ -98,14 +102,6 @@ spec:
         - name: strata
           hostPath:
             path: /var/lib/local-llm/models/boxp336-strata
-            type: Directory
-        - name: models
-          hostPath:
-            path: /var/lib/local-llm/models
-            type: Directory
-        - name: work
-          hostPath:
-            path: /var/lib/local-llm/models/boxp417
             type: Directory
         - name: config
           configMap:
