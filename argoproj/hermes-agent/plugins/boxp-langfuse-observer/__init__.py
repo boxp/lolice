@@ -1606,10 +1606,16 @@ def prepare_turn(turn):
     mask = lambda value: None if value is None else _field(value, extra)
     spans = []
     for item in turn["spans"]:
-        span = dict(item)
+        # allow-list copy: hook-supplied ids (tool_call_id, api_request_id, child session id) live in "key" and are
+        # replaced by a digest (span ids stay deterministic); usage keeps only known numeric counters.
+        span = {"key": hashlib.sha256(str(item["key"]).encode("utf-8", "ignore")).hexdigest(),
+                "type": item["type"] if item.get("type") in _SPAN_TYPES else "span",
+                "level": "ERROR" if item.get("level") == "ERROR" else None,
+                "start": _number(item.get("start")), "end": _number(item.get("end")),
+                "usage": _numeric_usage(item.get("usage"))}
         for key in ("input", "output", "model"):
-            if span.get(key) is not None:
-                span[key] = mask(span[key])
+            if item.get(key) is not None:
+                span[key] = mask(item[key])
         span["name"] = mask(item["name"])[:120]
         span["metadata"] = {k: mask(v) for k, v in (item.get("metadata") or {}).items() if v is not None}
         spans.append(span)
@@ -1618,7 +1624,8 @@ def prepare_turn(turn):
         "trace": hashlib.sha256(f"hermes:{turn['session']}:{turn['turn']}".encode()).hexdigest()[:32],
         "g2": turn["session"].startswith(_G2_PREFIX),
         "session": mask(turn["session"]), "turn": mask(turn["turn"]), "platform": mask(turn["platform"] or ""),
-        "tickets": set(turn["tickets"]), "start": turn["start"], "status": turn.get("status"),
+        "tickets": {t for t in turn["tickets"] if _TICKET.fullmatch(str(t))}, "start": _number(turn["start"]) or time.time(),
+        "status": turn.get("status"),
         "tainted": turn.get("tainted"), "values_count": len(turn.get("values") or ()),
         "truncated": turn["truncated"], "user_message": mask(turn["user_message"] or ""),
         "output": mask(turn["output"] or ""), "exit_reason": mask(turn.get("exit_reason") or ""),
@@ -1626,6 +1633,23 @@ def prepare_turn(turn):
     }
     masked["payloads"] = list(guarded_payloads(build_spans(masked), extra))
     return masked
+
+
+_SPAN_TYPES = frozenset({"span", "generation", "tool", "agent"})
+_USAGE_KEYS = ("cache_read_tokens", "cached_tokens", "cache_read_input_tokens", "cache_write_tokens",
+               "cache_creation_input_tokens", "reasoning_tokens", "input_tokens", "prompt_tokens", "output_tokens",
+               "completion_tokens")
+
+
+def _number(value):
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _numeric_usage(usage):
+    """Only the counters _usage reads, as numbers: no hook-supplied strings or keys reach the queue."""
+    if not isinstance(usage, dict):
+        return None
+    return {k: usage[k] for k in _USAGE_KEYS if _number(usage.get(k)) is not None}
 
 
 def in_scope(turn):

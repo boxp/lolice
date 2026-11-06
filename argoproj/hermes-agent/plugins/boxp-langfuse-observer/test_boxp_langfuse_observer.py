@@ -911,6 +911,31 @@ class ObserverTest(unittest.TestCase):
         for marker in ("harmlessqueuemarker", "harmlessqueueoutput", "cat notes.txt"):
             self.assertIn(marker, body)
 
+    def test_queue_has_no_raw_span_keys_or_usage(self):
+        # Hook-supplied ids (tool_call_id, api_request_id, child session id) and the usage dict are not text
+        # fields, but they come from outside too: the queued item must not carry them raw.
+        secret = SECRETS["github"]
+        plugin._on_turn_start(session_id="kohako-g2-keys", turn_id="t", user_message="hi", platform="api_server")
+        plugin._on_api_request(session_id="kohako-g2-keys", turn_id="t", api_request_id="req-" + secret,
+                               system_prompt="SYS", request_messages=[{"role": "user", "content": "hi"}],
+                               message_count=1, retry_count=0, started_at=time.time())
+        plugin._on_api_response(session_id="kohako-g2-keys", turn_id="t", api_request_id="req-" + secret,
+                                response={"assistant_message": {"content": "ok"}}, model="m", base_url="https://x",
+                                usage={"input_tokens": 3, "output_tokens": 2, "note": secret, secret: 1},
+                                started_at=time.time(), ended_at=time.time())
+        plugin._on_tool(session_id="kohako-g2-keys", turn_id="t", tool_call_id="call-" + secret, tool_name="todo",
+                        args={}, result="r", duration_ms=1, status="ok")
+        plugin._on_turn_end(session_id="kohako-g2-keys", turn_id="t", assistant_response="done")
+        plugin._on_session_end(session_id="kohako-g2-keys", turn_id="t", completed=True)
+        queued = drain()
+        self.assertEqual(len(queued), 1)
+        self.assertNotIn("a1B2a1B2", repr(queued))
+        # usage numbers still reach the generation span; span ids stay deterministic per raw key
+        gen = next(s for s in plugin.build_spans(queued[0]) if any(
+            a["key"] == "langfuse.observation.type" and a["value"]["stringValue"] == "generation" for a in s["attributes"]))
+        usage = next(a for a in gen["attributes"] if a["key"] == "langfuse.observation.usage_details")
+        self.assertEqual(json.loads(usage["value"]["stringValue"]), {"input": 3, "output": 2})
+
     def test_mask_failure_queues_nothing_and_never_raises(self):
         with patch.object(plugin, "redact", side_effect=RuntimeError):
             self.assertIsNone(run_turn(session="kohako-g2-maskfail"))
