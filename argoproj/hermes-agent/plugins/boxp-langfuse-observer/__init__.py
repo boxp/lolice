@@ -211,7 +211,9 @@ _MAX_SCANNED_MESSAGES = 8192  # per session; past it the set restarts and the wh
 _local = threading.local()
 _delegated = collections.OrderedDict()  # session ids started by delegation
 _parents = collections.OrderedDict()  # session id -> the session that delegated (or rotated) to it
-_MAX_LINEAGE = 16
+# No depth limit on a lineage: cutting the walk short would keep a deep child's withholding from reaching the
+# ancestors above the cut. The walk is bounded by _parents itself (at most _MAX_SESSIONS links, see _evict) and stops
+# on a cycle.
 # Sessions whose withholding reason, pinned values or parent link were evicted from the bounded maps above. A Bloom
 # filter of fixed size (1 MiB) that is never cleared while the process runs: a false positive only withholds an
 # unrelated session (fail-closed), and forgetting a session that saw a secret would send its later bodies unmasked.
@@ -1104,9 +1106,10 @@ def _touch(session):
 def _lineage(session):
     """The session and the sessions above it. Looked up on every use, not copied at start: a parent can see a secret
     while its child is already running and hand the value to it."""
-    chain, current = [], str(session or "")
-    while current and current not in chain and len(chain) < _MAX_LINEAGE:
+    chain, seen, current = [], set(), str(session or "")
+    while current and current not in seen:
         chain.append(current)
+        seen.add(current)
         current = _parents.get(current, "")
     return chain
 
