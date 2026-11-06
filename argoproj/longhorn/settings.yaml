@@ -62,3 +62,14 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "2"
 value: "true"
+---
+# ストレージのオーバープロビジョニング率
+# golyat-1 のディスクは割り当て済み容量（scheduled）が上限に近く、実使用量にはまだ余裕があるのに
+# PVC 拡張（例: codex-workspace-home 50Gi→100Gi）が validator.longhorn.io に拒否されていたため、100→150 に引き上げる。
+# 実際のディスク逼迫は storage-minimal-available-percentage（25%）で引き続き防ぐ。
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: storage-over-provisioning-percentage
+  namespace: longhorn-system
+value: "150"
