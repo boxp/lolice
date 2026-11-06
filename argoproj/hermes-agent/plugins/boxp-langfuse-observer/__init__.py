@@ -6,17 +6,23 @@ was delegated (subagent_start, not the parent id, which session rotation also se
 ticket. Other conversation is dropped and only counted. Audio and images never
 reach this module: no transcription hook is registered and data URIs are removed.
 
-Secrets: no list of formats can be complete, so tool bodies are not sent unless the tool carries the
-delegation itself (_BODY_TOOLS). Other tool spans keep name, status, duration, sizes, path and the
-first word of a command. Every string is masked, including the whole line around a secret word and
-the lines next to it, and the serialized batch is scanned again before sending. Any hit or error
-drops the observation and keeps a reason without body. Nothing is written to disk, so there is no
-spool to clean. Request history goes through an allow-list that never keeps tool results.
+Bodies (BOXP-428 TD-05): prompts, replies, delegation and tool input/output are sent so the Owner can
+read them. Every string is masked first, including the whole line around a secret word and the lines
+next to it, and the serialized batch is scanned again before sending. Any hit or error drops the
+observation and keeps a reason without body. Nothing is written to disk, so there is no spool to clean.
 
-The model can repeat anything a tool showed it, as a bare value no pattern recognises. So once a tool
-outside _TOOLS_WITHOUT_PRIVATE_OUTPUT ran, later bodies of that session and of its delegating parent
-are withheld, and tool spans keep their name, status and duration. History this process did not
-observe, as after a restart, is treated the same way because it cannot be checked.
+Withholding needs evidence, because the model can repeat what a tool showed it as a bare value:
+- a sensitive source (credential paths, environment dumps, cluster secrets, ...): the call and its
+  output are never sent, and later bodies of the session, its parent and its children are withheld;
+- a secret value seen by the model (a known format, a secret-named assignment, element or entry, a
+  value of this process's environment) in tool input/output or in request history: the field is
+  masked and later bodies of the same sessions are withheld;
+- a secret word next to a value in prose ("the password is X"): the line is masked and X-like tokens of
+  that line and the next are masked in every later field of the same sessions, in every encoding;
+- output too large to scan (_SCAN_LIMIT), a scan error or too many such tokens: withheld as above.
+History this process did not observe, as after a restart, is scanned the same way instead of being
+withheld outright. Residual: a value with no secret word, no known format and no sensitive source,
+which the model repeats on its own, is sent. Langfuse is in-cluster, Owner-only and short-lived.
 
 Key: read from an optional Secret volume, polled by the worker. It can appear or rotate while the
 Pod runs. Until then the hooks return at once and nothing is buffered.
@@ -39,7 +45,7 @@ import urllib.request
 
 _log = logging.getLogger(__name__)
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 _URL = os.environ.get("LANGFUSE_URL", "http://langfuse-web.langfuse.svc.cluster.local:3000")
 _KEY_DIR = os.environ.get("LANGFUSE_INGEST_KEY_DIR", "/etc/langfuse-ingest")
 _KEY_POLL_SECONDS = 30
@@ -56,16 +62,19 @@ _G2_PREFIX = "kohako-g2-"
 _WEBHOOK_PLATFORMS = {"webhook"}
 _TICKET = re.compile(r"\bBOXP-\d{1,6}\b")
 _DELEGATING_TOOLS = {"delegate_task"}
-_BODY_TOOLS = _DELEGATING_TOOLS | {"todo", "clarify"}
-# Their output comes from the Owner, the delegation chain or the public web. Any other tool, known or not, can show private data.
-_TOOLS_WITHOUT_PRIVATE_OUTPUT = _BODY_TOOLS | {"web_search"}
 _PATH_ARGS = ("path", "file_path", "filepath", "filename")
 _COMMAND_ARGS = ("command", "cmd")
 _COMMAND_HEAD = re.compile(r"""(?:[A-Za-z_]\w*=\S*\s+)*(?:[^\s'"]*/)?([\w.+-]{1,64})(?=\s|$)""")
 _CHAT_ROLES = {"system", "developer", "user", "assistant"}
 _TEXT_BLOCKS = {"text", "input_text", "output_text"}
 _WITHHELD_TOOL = "[withheld: sensitive path or command]"
-_WITHHELD_SESSION = "[withheld: the model has seen tool output or unobserved history]"
+_WITHHELD_SESSION = "[withheld: a sensitive value reached the model in this session]"
+_SCAN_LIMIT = 256 * 1024
+_MAX_SESSION_VALUES = 2048
+# A value next to a secret word in prose: printable ASCII without separators, not a short plain word.
+_VALUE_TOKEN = re.compile(r"""[^\s"'`,;:=<>()\[\]{}\x00-\x1f\x7f-\uffff]{6,128}""")
+# A plain lowercase word is prose, not a value: masking it would blank words such as "generation".
+_PLAIN_WORD = re.compile(r"[a-z]+|[0-9]{1,5}")
 
 # A value can sit inside serialized text at any depth, so a quote can carry escapes. A value ends at
 # a quote of its own depth, and one that never closes runs to the end of the line.
@@ -160,7 +169,7 @@ _MAX_REVERSED_ENTRIES = 1000
 _MAX_REVERSED_VALUE = 4096
 _PLACEHOLDER = re.compile(r"\[REDACTED:[a-z_]+\]")
 _SENSITIVE_PATH = re.compile(
-    r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_rsa|id_ed25519|secrets?(?:[/\\])|[^/\s\"']*token[^/\s\"']*)")
+    r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_rsa|id_ed25519|secrets?(?:[/\\])|[^/\s\"']*token(?!s)[^/\s\"']*)")
 # Arguments are matched in their JSON form, where a newline is a backslash and an n.
 _WORD_START = r"""(?:^|[;&|\s"'(`/]|\\[nrt])"""
 _WORD_END = r"""[ \t]*(?:$|[|;&<>"')`#]|\d+[<>]|\\[nrt"])"""
@@ -177,7 +186,10 @@ _ENV_OUTPUT = [re.compile(r"(?:^|[^A-Za-z0-9_]|\\[nrt]|\\u0000)" + name + "=") f
 
 _lock = threading.Lock()
 _turns = {}
-_sessions = collections.OrderedDict()  # session id -> ran a sensitive tool
+_sessions = collections.OrderedDict()  # session id -> reason its later bodies are withheld, or ""
+_session_values = collections.OrderedDict()  # session id -> values named in prose next to a secret word
+_scanned = collections.OrderedDict()  # session id -> request messages already scanned
+_local = threading.local()
 _delegated = collections.OrderedDict()  # session ids started by delegation
 _seen_prompts = {}
 _stats = {}
@@ -191,6 +203,10 @@ _creds = None
 
 
 def _count(key, n=1):
+    kinds = getattr(_local, "kinds", None)
+    if kinds is not None:  # an evidence scan, not an export: record the kind only
+        kinds.add(key)
+        return
     with _lock:
         _stats[key] = _stats.get(key, 0) + n
 
@@ -440,10 +456,14 @@ def _mask_secret_lines(text):
     return "".join(parts)
 
 
-def redact(text):
+def redact(text, extra=None):
     """Return text without secrets. Raises nothing: failure drops the whole field."""
     try:
         out = str(text)
+        if extra is not None:
+            out, hits = extra.subn("[REDACTED:session_value]", out)
+            if hits:
+                _count("redactions_session_value")
         env_pattern = _env_pattern()
         if env_pattern:
             out, hits = env_pattern.subn("[REDACTED:env]", out)
@@ -465,11 +485,11 @@ def redact(text):
         return "[dropped: redaction error]"
 
 
-def _unsafe(serialized):
+def _unsafe(serialized, extra=None):
     """Final guard on the JSON text that is about to leave the process."""
     probe = _PLACEHOLDER.sub("", serialized)
     env_pattern = _env_pattern()
-    if (env_pattern and env_pattern.search(probe)) or _LOOSE_SECRET.search(probe):
+    if (env_pattern and env_pattern.search(probe)) or _LOOSE_SECRET.search(probe) or (extra is not None and extra.search(probe)):
         return True
     for kind, pattern in _PATTERNS:
         if kind in _FIELD_ONLY:
@@ -491,6 +511,167 @@ def _is_env_dump(result_text):
     return all(pattern.search(result_text) for pattern in _ENV_OUTPUT)
 
 
+_REFERENCE_VALUE = re.compile(r"""(?:\$\{?[\w.-]*\}?|<[^>]*>|\[REDACTED:[a-z_]+\]|\*+|x+|\.\.\.|…|"{2}|'{2})""")
+_ASSIGNED = re.compile(r"""^(?P<name>.*?)(?:[:=]|\\+u00(?:3[aA]|3[dD])|[ \t]+)(?P<value>.*)$""", re.S)
+_MAX_EVIDENCE_MATCHES = 200
+
+
+def _assigned_value(match_text):
+    """A secret-named key with a real value: not a setting, a counter, a placeholder or a reference."""
+    found = _ASSIGNED.match(match_text.strip())
+    if not found:
+        return True
+    name = found.group("name").strip().strip("\"'\\-")
+    value = found.group("value").strip().strip("\"'\\").strip()
+    if not value or _REFERENCE_VALUE.fullmatch(value):
+        return False
+    return not _is_setting(name, value)
+
+
+_TOKEN_SPLIT = re.compile(r"""[\s"'`,;:=<>()\[\]{}\\]+""")
+_STRIP = re.compile(r"""^(?:["'`]|\\+["'nrt]?)+|(?:["'`,;]|\\+["'nrt]?)+$""")
+_STOPWORD = re.compile(r"(?i)https?|basic|bearer|digest|negotiate|user|username|name|value|key|ref|from|data|true|false|null|none")
+_REFERENCE = re.compile(r"""(?i)\$\{?[\w.-]*\}?|<[^>]*>|\{\{[^}]*\}\}|\[REDACTED:[a-z_]+\]|\*+|x{3,}|\.\.\.|…|-|\|""")
+
+
+def _strip(value):
+    return _STRIP.sub("", str(value).strip()).strip()
+
+
+def _reference(token):
+    return not token or _LOOSE_SECRET.search(token) or _STOPWORD.fullmatch(token) or _REFERENCE.fullmatch(token)
+
+
+def _token_values(raw):
+    """Values to mask for matched text. A single token is the value itself; a value of several words keeps the whole
+    text and its secret-looking tokens. References (variables, placeholders, secret names, key words) are skipped,
+    and a value under 4 characters is masked in place only: masking it everywhere would blank ordinary text."""
+    found = set()
+    for value in raw:
+        value = _strip(value or "")
+        if _reference(value):
+            continue
+        tokens = [t for t in (_strip(t) for t in _TOKEN_SPLIT.split(value)) if not _reference(t)]
+        if len(tokens) == 1:
+            if len(tokens[0]) >= 4:
+                found.add(tokens[0])
+        elif tokens:
+            found.add(value)
+            found.update(t for t in tokens if len(t) >= 6 and not _PLAIN_WORD.fullmatch(t))
+    return found
+
+
+_AFTER_SEPARATOR = re.compile(r"(?s)^.*?(?:[:=]|\\+u00(?:3[aA]|3[dD]))(.*)$")
+
+
+def _pinned_values(kind, text):
+    """The values a pattern match shows, or None when it cannot be pinned (the caller withholds)."""
+    if kind in ("private_key", "data_uri"):
+        return None
+    if kind == "header":
+        raw = [text.split(":", 1)[1] if ":" in text else text]
+    elif kind == "url_credentials":
+        found = re.search(r"://[^:/@\s]*:([^@\s]*)@", text)
+        raw = [found.group(1) if found else ""]
+    elif kind == "cli_password":
+        last = re.sub(r"^(?:-p|(?:-u|--user)=?)", "", text.split()[-1])
+        raw = [re.sub(r"^[^:]*:(?=.)", "", last)]
+    elif kind == "flag":
+        raw = [re.split(r"[ \t]+", text)[-1]]
+    elif kind == "assignment":
+        found = _AFTER_SEPARATOR.match(text)
+        raw = (found.group(1) if found else text).splitlines() or [""]
+    elif kind == "bearer":
+        raw = [re.sub(r"(?i)^bearer\s+", "", text)]
+    elif kind == "env_entry":
+        raw = _TOKEN_SPLIT.split(text)
+    else:
+        raw = [text]
+    return _token_values(raw)
+
+
+def _block_values(text):
+    """Values of secret-named YAML/JSON blocks and XML elements, or None when one cannot be pinned."""
+    if _ENTRY_VALUE.search(text):  # {"value": [...], "name": "DB_PASSWORD"}: the extent is only known by masking
+        try:
+            if _mask_reversed_entries(text) != text:
+                return None
+        except ValueError:
+            return None
+    found, position = set(), 0
+    for n in range(_MAX_EVIDENCE_MATCHES + 1):
+        match = _STRUCTURED_KEY.search(text, position)
+        if match is None:
+            break
+        if n == _MAX_EVIDENCE_MATCHES:
+            return None
+        end = _structured_end(text, match)
+        if end is None:
+            position = max(match.end(), position + 1)
+            continue
+        found |= _token_values(_LINE_BREAK.split(text[match.end():end]))
+        position = end
+    for n, element in enumerate(_SECRET_ELEMENT.finditer(text)):
+        if n >= _MAX_EVIDENCE_MATCHES:
+            return None
+        found |= _token_values([re.sub(r"(?s)^[^>]*>|<[^<]*$", "", element.group(0))])
+    return found
+
+
+def _evidence(text):
+    """(reason, values): a reason when text shows the model a secret that cannot be pinned to a value, else the
+    values to mask wherever they appear later. A value of this process's environment is already masked everywhere."""
+    if len(text) > _SCAN_LIMIT:
+        return "unscanned_large_output", set()
+    try:
+        values = _block_values(text)
+        if values is None:
+            return "sensitive_value", set()
+        for kind, pattern in _PATTERNS:
+            for n, match in enumerate(pattern.finditer(text)):
+                if n >= _MAX_EVIDENCE_MATCHES:
+                    return "unscanned_large_output", set()
+                if kind == "entropy" and not _is_entropy(match.group(0)):
+                    continue
+                if kind in ("assignment", "flag") and not _assigned_value(match.group(0)):
+                    continue
+                pinned = _pinned_values(kind, match.group(0))
+                if pinned is None:
+                    return "sensitive_value", set()
+                values |= pinned
+    except Exception:
+        return "scan_error", set()
+    return None, values
+
+
+def _prose_values(text):
+    """Value-like tokens on a line with a secret word and on the line after it."""
+    lines = _LINE_BREAK.split(text[:_SCAN_LIMIT])
+    found = set()
+    for i, line in enumerate(lines):
+        if not _LOOSE_SECRET.search(line):
+            continue
+        for candidate in (line, lines[i + 1] if i + 1 < len(lines) else ""):
+            for token in _VALUE_TOKEN.findall(_LOOSE_SECRET.sub(" ", candidate)):
+                if not _PLAIN_WORD.fullmatch(token) and not _PLACEHOLDER.search(token):
+                    found.add(token)
+    return found
+
+
+def _strings(value, depth=0):
+    """String leaves, so a scan sees text without its JSON escapes."""
+    if isinstance(value, str):
+        yield value
+    elif depth < 16 and isinstance(value, dict):
+        for item in value.values():
+            yield from _strings(item, depth + 1)
+    elif depth < 16 and isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _strings(item, depth + 1)
+    elif value is not None and not isinstance(value, (dict, list, tuple)):
+        yield str(value)
+
+
 def _text(value):
     if isinstance(value, str):
         return value
@@ -500,8 +681,8 @@ def _text(value):
         return str(value)
 
 
-def _field(value):
-    out = redact(_text(value))
+def _field(value, extra=None):
+    out = redact(_text(value), extra)
     raw = out.encode("utf-8", "ignore")
     if len(raw) > _MAX_FIELD:
         out = raw[:_MAX_FIELD].decode("utf-8", "ignore") + f"…[truncated {len(raw) - _MAX_FIELD} bytes]"
@@ -543,33 +724,85 @@ def _add(turn, span):
 
 
 def _tainted(session):
+    """The reason later bodies of the session are withheld, or ""."""
     with _lock:
-        return _sessions.get(str(session or ""), False)
+        return _sessions.get(str(session or ""), "")
 
 
-def _taint(*sessions):
+def _taint(reason, *sessions):
     with _lock:
         for session in sessions:
+            if session and not _sessions.get(str(session)):
+                _sessions[str(session)] = reason
             if session:
-                _sessions[str(session)] = True
                 _sessions.move_to_end(str(session))
         while len(_sessions) > _MAX_SESSIONS:
             _sessions.popitem(last=False)
+    _count("sessions_withheld_" + reason)
 
 
-def _tool_names(message):
-    """Tool names in any provider shape."""
+def _add_values(values, *sessions):
+    """False once a session holds too many, so the caller withholds instead."""
+    ok = True
+    with _lock:
+        for session in sessions:
+            if not session or not values:
+                continue
+            held = _session_values.setdefault(str(session), set())
+            held.update(values)
+            _session_values.move_to_end(str(session))
+            if len(held) > _MAX_SESSION_VALUES:
+                ok = False
+        while len(_session_values) > _MAX_SESSIONS:
+            _session_values.popitem(last=False)
+    return ok
+
+
+def _values_of(*sessions):
+    with _lock:
+        return frozenset(v for s in sessions if s for v in _session_values.get(str(s), ()))
+
+
+_values_pattern_cache = (None, None)
+
+
+def _values_pattern(values):
+    global _values_pattern_cache
+    if not values:
+        return None
+    if _values_pattern_cache[0] != values:
+        ordered = sorted(values, key=len, reverse=True)
+        _values_pattern_cache = (values, re.compile("|".join(map(_value_pattern, ordered))))
+    return _values_pattern_cache[1]
+
+
+def _note_evidence(session, parent, args_text, result_text):
+    """Withhold on evidence only. Returns the reason found here, or None."""
+    reason_in, pinned_in = _evidence(args_text)
+    reason_out, pinned_out = _evidence(result_text)
+    reason = reason_in or reason_out
+    values = pinned_in | pinned_out | _prose_values(args_text) | _prose_values(result_text)
+    if values and not _add_values(values, session, parent):
+        reason = reason or "too_many_session_values"
+    if reason:
+        _taint(reason, session, parent)
+    return reason
+
+
+def _tool_calls(message):
+    """(name, arguments) in any provider shape."""
     if not isinstance(message, dict):
         return
     for call in message.get("tool_calls") or []:
         if isinstance(call, dict):
-            yield (call.get("function") or {}).get("name") if isinstance(call.get("function"), dict) else call.get("name")
+            function = call.get("function") if isinstance(call.get("function"), dict) else call
+            yield function.get("name"), function.get("arguments")
     if message.get("type") in ("function_call", "custom_tool_call"):
-        yield message.get("name")
+        yield message.get("name"), message.get("arguments", message.get("input"))
     content = message.get("content")
     for block in content if isinstance(content, list) else []:
         if isinstance(block, dict) and block.get("type") == "tool_use":
-            yield block.get("name")
+            yield block.get("name"), block.get("input")
 
 
 def _note_delegated(session):
@@ -580,41 +813,62 @@ def _note_delegated(session):
             _delegated.popitem(last=False)
 
 
-def _earlier_messages(messages):
-    """Whether the request carries more than the opening user message."""
-    chat = [m for m in messages if not (isinstance(m, dict) and m.get("role") in ("system", "developer"))]
-    return len(chat) > 1 or any(not isinstance(m, dict) or m.get("role") != "user" for m in chat)
-
-
 def _note_request(session, parent, messages):
-    """Catches tools whose hook did not fire, and history this process cannot vouch for."""
+    """Scans the messages not scanned yet: tools whose hook did not fire, and history from before a restart."""
     with _lock:
-        seen = session in _sessions
-        vouched = parent is not None and str(parent) in _sessions  # rotation of a session observed here
-        if not seen:
-            _sessions[session] = False
+        start = _scanned.get(session, 0)
+        if start > len(messages):  # compaction rewrote the history
+            start = 0
+        _scanned[session] = len(messages)
+        _scanned.move_to_end(session)
+        while len(_scanned) > _MAX_SESSIONS:
+            _scanned.popitem(last=False)
+        if session not in _sessions:
+            _sessions[session] = ""
             while len(_sessions) > _MAX_SESSIONS:
                 _sessions.popitem(last=False)
-    if not seen and not vouched and _earlier_messages(messages):
-        _taint(session)
-    if any(name not in _TOOLS_WITHOUT_PRIVATE_OUTPUT for m in messages for name in _tool_names(m)):
-        _taint(session, parent)
+    for message in messages[start:]:
+        if isinstance(message, dict) and message.get("role") in ("system", "developer"):
+            continue
+        if any(_withhold(_text(args)) for _, args in _tool_calls(message)):
+            _taint("sensitive_source", session, parent)
+        text = "\n".join(_strings(message))
+        if _is_env_dump(text):
+            _taint("sensitive_source", session, parent)
+        _note_evidence(session, parent, "", text)
+
+
+def _block_view(block):
+    if not isinstance(block, dict):
+        return {"omitted": type(block).__name__}
+    kind = block.get("type")
+    if kind in _TEXT_BLOCKS and isinstance(block.get("text"), str):
+        return block["text"]
+    if kind == "tool_result":
+        return {"tool_result": "\n".join(_strings(block.get("content")))}
+    if kind == "tool_use":
+        return {"tool_use": block.get("name"), "input": block.get("input")}
+    return {"omitted": str(kind)}  # reasoning, images, audio and unknown shapes
 
 
 def _message_view(message):
-    """Allow-list: role, plain text and tool names. Tool results and any unknown shape stay out."""
-    if not isinstance(message, dict) or message.get("role") not in _CHAT_ROLES:
-        kind = (message.get("role") or message.get("type")) if isinstance(message, dict) else type(message).__name__
-        return {"omitted": str(kind)}
+    """Role, text, tool calls and tool results (masked later). Reasoning and unknown shapes stay out."""
+    if not isinstance(message, dict):
+        return {"omitted": type(message).__name__}
+    if message.get("type") == "function_call_output":
+        return {"role": "tool", "content": "\n".join(_strings(message.get("output")))}
+    if message.get("type") in ("function_call", "custom_tool_call"):
+        return {"role": "assistant", "tool_calls": [{"name": n, "arguments": a} for n, a in _tool_calls(message)]}
+    role = message.get("role")
+    if role not in _CHAT_ROLES and role != "tool":
+        return {"omitted": str(role or message.get("type"))}
     content = message.get("content")
     if isinstance(content, list):
-        content = [b["text"] if isinstance(b, dict) and b.get("type") in _TEXT_BLOCKS and isinstance(b.get("text"), str)
-                   else {"omitted": str(b.get("type")) if isinstance(b, dict) else type(b).__name__} for b in content]
+        content = [_block_view(b) for b in content]
     elif content is not None and not isinstance(content, str):
         content = {"omitted": type(content).__name__}
-    view = {"role": message["role"], "content": content}
-    calls = [(c.get("function") or {}).get("name") if isinstance(c.get("function"), dict) else c.get("name")
-             for c in message.get("tool_calls") or [] if isinstance(c, dict)]
+    view = {"role": role, "content": content}
+    calls = [{"name": n, "arguments": a} for n, a in _tool_calls({"tool_calls": message.get("tool_calls")})]
     if calls:
         view["tool_calls"] = calls
     return view
@@ -649,7 +903,8 @@ def _on_turn_start(session_id=None, turn_id=None, user_message=None, model=None,
     if str(parent_session_id or "") in _delegated:  # rotation of a delegated session keeps it delegated
         _note_delegated(turn["session"])
     if _tainted(parent_session_id):  # the delegated goal may repeat what the parent saw
-        _taint(turn["session"])
+        _taint(_tainted(parent_session_id), turn["session"])
+    _add_values(_values_of(parent_session_id), turn["session"])
     if _tainted(turn["session"]):  # the user can quote a reply back
         user_message = _WITHHELD_SESSION
     turn.update(user_message=user_message, model=model, platform=platform or "", parent=parent_session_id)
@@ -667,6 +922,7 @@ def _on_api_request(session_id=None, turn_id=None, api_request_id=None, system_p
     if tainted and first_request and turn["user_message"] is not None:  # the taint of a resumed session is only known here
         turn["user_message"] = _WITHHELD_SESSION
     tail = _WITHHELD_SESSION if tainted else [_message_view(m) for m in messages[-_LAST_MESSAGES:]]
+    _count("bodies_withheld_after_exposure" if tainted else "bodies_sent")
     with _lock:
         turn.setdefault("requests", {})[str(api_request_id)] = {
             "input": tail, "message_count": message_count, "retry_count": retry_count, "started_at": started_at}
@@ -695,6 +951,7 @@ def _on_api_response(session_id=None, turn_id=None, api_request_id=None, respons
                 "input": req.get("input"), "output": output, "model": response_model or model, "usage": usage,
                 "start": started_at or req.get("started_at"), "end": ended_at,
                 "metadata": {"input_scope": f"last {_LAST_MESSAGES} of {req.get('message_count')} messages",
+                             "body_policy": "withheld_after_exposure" if _tainted(turn["session"]) else "sent",
                              "provider": provider, "location": location, "api_call": api_call_count,
                              "retry": req.get("retry_count"), "finish_reason": finish_reason}})
     _note_tickets(turn, message)
@@ -738,19 +995,27 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
         turn["delegated"] = True
     _note_tickets(turn, args)
     _note_tickets(turn, result)
-    args_text = _text(args)
+    args_text = "\n".join(_strings(args))
+    result_text = "\n".join(_strings(result))
     already = _tainted(turn["session"])
-    withheld = _withhold(args_text) or _is_env_dump(_text(result))
-    if withheld or tool_name not in _TOOLS_WITHOUT_PRIVATE_OUTPUT:
-        _taint(turn["session"], turn["parent"])
+    withheld = _withhold(_text(args)) or _is_env_dump(result_text)
+    exposure = None
+    if withheld:
+        _taint("sensitive_source", turn["session"], turn["parent"])
+        policy = "withheld_sensitive_source"
+    else:
+        exposure = _note_evidence(turn["session"], turn["parent"], args_text, result_text)
+        policy = "withheld_after_exposure" if already else "sent"
+    _count("bodies_" + policy)
     now = time.time()
-    body = tool_name in _BODY_TOOLS
+    hidden = _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else None
     _add(turn, {"key": "tool:" + str(tool_call_id or now), "name": str(tool_name), "type": "tool",
-                "input": _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else args if body else _tool_input_view(args),
-                "output": _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else result if body else {"omitted": "tool_body_policy", **_size(result)},
+                "input": hidden or args, "output": hidden or result,
                 "start": now - (duration_ms or 0) / 1000, "end": now,
                 "level": "ERROR" if error_type or status in ("error", "failed") else None,
-                "metadata": {"status": status, "error_type": error_type, "withheld": withheld or already}})
+                "metadata": {"status": status, "error_type": error_type, "withheld": bool(hidden), "body_policy": policy,
+                             "exposure": exposure, "view": _tool_input_view(args) if hidden == _WITHHELD_SESSION else None,
+                             "size": _size(result)}})
 
 
 @_guarded
@@ -775,7 +1040,8 @@ def _on_subagent(parent_session_id=None, parent_turn_id=None, child_session_id=N
     turn["delegated"] = True
     _note_tickets(turn, child_summary)
     if _tainted(child_session_id):
-        _taint(turn["session"], turn["parent"])
+        _taint(_tainted(child_session_id), turn["session"], turn["parent"])
+    _add_values(_values_of(child_session_id), turn["session"], turn["parent"])
     if _tainted(turn["session"]):
         child_summary = _WITHHELD_SESSION
     now = time.time()
@@ -800,6 +1066,7 @@ def _on_session_end(session_id=None, turn_id=None, completed=None, failed=None, 
     turn["status"] = "interrupted" if interrupted else "failed" if failed else "succeeded" if completed else "unknown"
     turn["exit_reason"] = turn_exit_reason
     turn["tainted"] = _tainted(turn["session"])
+    turn["values"] = _values_of(turn["session"], turn["parent"])
     if not in_scope(turn):
         _count("turns_out_of_scope")
         return
@@ -849,6 +1116,11 @@ def _usage(usage):
 
 
 def build_spans(turn):
+    extra = _values_pattern(turn.get("values"))
+
+    def _field(value):
+        return globals()["_field"](value, extra)
+
     trace = hashlib.sha256(f"hermes:{turn['session']}:{turn['turn']}".encode()).hexdigest()[:32]
     root_id = _id(trace, "root")
     g2 = turn["session"].startswith(_G2_PREFIX)
@@ -864,7 +1136,9 @@ def build_spans(turn):
         _attr("langfuse.trace.metadata.coverage.reasoning", "not_collected"),
         _attr("langfuse.trace.metadata.coverage.provider_payload", "system prompt and last messages of each attempt"),
         _attr("langfuse.trace.metadata.coverage.g2_realtime", "delegated text only; realtime voice session not observed"),
-        _attr("langfuse.trace.metadata.coverage.tool_bodies", "delegate_task, todo and clarify only; other tools keep name, status, duration, sizes, path and program (tool_body_policy) until the session is withheld"),
+        _attr("langfuse.trace.metadata.coverage.tool_bodies", "all tools, masked and truncated; withheld only for a sensitive source or after a sensitive value reached the model (body_policy)"),
+        _attr("langfuse.trace.metadata.coverage.withheld_reason", turn.get("tainted") or "none"),
+        _attr("langfuse.trace.metadata.coverage.session_values_masked", str(len(turn.get("values") or ()))),
         _attr("langfuse.trace.metadata.coverage.truncated", str(turn["truncated"]).lower()),
         _attr("langfuse.trace.metadata.coverage.withheld_after_tool_output", str(bool(turn.get("tainted"))).lower()),
     ]
@@ -921,18 +1195,18 @@ def batches(spans):
         yield current
 
 
-def guarded_payloads(spans):
+def guarded_payloads(spans, extra=None):
     """Yield only payloads that pass the final guard; a failing span is dropped alone."""
     for batch in batches(spans):
         body = _payload(batch)
-        if not _unsafe(body):
+        if not _unsafe(body, extra):
             yield body
             continue
-        kept = [s for s in batch if not _unsafe(json.dumps(s, ensure_ascii=False))]
+        kept = [s for s in batch if not _unsafe(json.dumps(s, ensure_ascii=False), extra)]
         _count("spans_dropped_secret_guard", len(batch) - len(kept))
         if kept:
             body = _payload(kept)
-            if not _unsafe(body):
+            if not _unsafe(body, extra):
                 yield body
 
 
@@ -963,7 +1237,7 @@ def _send(body):
 
 
 def export_turn(turn):
-    for body in guarded_payloads(build_spans(turn)):
+    for body in guarded_payloads(build_spans(turn), _values_pattern(turn.get("values"))):
         _send(body)
     _count("turns_exported")
 
