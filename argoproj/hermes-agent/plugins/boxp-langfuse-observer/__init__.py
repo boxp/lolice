@@ -615,8 +615,22 @@ def _strip(value):
     return _STRIP.sub("", str(value).strip()).strip()
 
 
+# A secret word on its own ("password", "api_key", "secrets") names the value; a word that merely contains one
+# ("my-secret-value") can be the value itself and is pinned like any other.
+_BARE_SECRET = re.compile(r"(?i)[_.-]?(?:" + _LOOSE_WORD + r")s?[_.-]?")
+# An env name (DB_PASSWORD) in an env entry names the value beside it.
+_ENV_NAME = re.compile(r"[A-Z0-9_]*[A-Z][A-Z0-9_]*")
+# A key in a structured value ({"token": ...}, token=...) is structure, not the value.
+_KEY_TOKEN = re.compile(r"""([\w.-]+)["']?\s*[:=]""")
+
+
+def _secret_word_only(token):
+    """A token that is a secret name and not a value: a bare secret word, or any non-ASCII token with one (トークン数)."""
+    return bool(_BARE_SECRET.fullmatch(token)) or (not token.isascii() and bool(_LOOSE_SECRET.search(token)))
+
+
 def _reference(token):
-    return not token or _LOOSE_SECRET.search(token) or _STOPWORD.fullmatch(token) or _REFERENCE.fullmatch(token)
+    return not token or _secret_word_only(token) or _STOPWORD.fullmatch(token) or _REFERENCE.fullmatch(token)
 
 
 _MIN_PINNED = 4
@@ -642,11 +656,12 @@ def _token_values(raw):
             continue
         # Tokens are checked one by one: a nested value such as {"token": "..."} names a secret and holds one.
         words = [t for t in (_strip(t) for t in _TOKEN_SPLIT.split(value)) if t]
-        tokens = [t for t in words if not _reference(t)]
+        keys = {k for k in _KEY_TOKEN.findall(value) if _LOOSE_SECRET.search(k)}
+        tokens = [t for t in words if not _reference(t) and t not in keys]
         if words and _PLAIN_VALUE.fullmatch(value):
             # Plain words carry no structure, so a structural word among them is part of the value ("password: value",
             # "password: value horsestaple"), not a key around one: it can be repeated alone.
-            tokens = [t for t in words if not _LOOSE_SECRET.search(t) and not _REFERENCE.fullmatch(t)]
+            tokens = [t for t in words if not _secret_word_only(t) and not _REFERENCE.fullmatch(t)]
         # Every word is pinned, plain or not: the model can repeat any one of a several-word value alone.
         for token in tokens:
             if not token.isascii():
@@ -655,7 +670,7 @@ def _token_values(raw):
                 # Too short to mask wherever it appears again, so the value cannot be pinned: the caller withholds.
                 raise _ShortValue(token)
         found.update(tokens)
-        if len(tokens) > 1 and not _LOOSE_SECRET.search(value):
+        if len(tokens) > 1 and (_PLAIN_VALUE.fullmatch(value) or not _LOOSE_SECRET.search(value)):
             found.add(value)
     return found
 
@@ -683,7 +698,7 @@ def _pinned_values(kind, text):
     elif kind == "bearer":
         raw = [re.sub(r"(?i)^bearer\s+", "", text)]
     elif kind == "env_entry":
-        raw = _TOKEN_SPLIT.split(text)
+        raw = [t for t in _TOKEN_SPLIT.split(text) if not (_ENV_NAME.fullmatch(_strip(t)) and _LOOSE_SECRET.search(t))]
     else:
         raw = [text]
     return _token_values(raw)
@@ -773,7 +788,7 @@ def _prose_candidates(line, cut):
     """Candidate values on line after position cut: tokens that are not connectives, names or references."""
     matches = [(m.group(0).strip(".-/+"), m.end()) for m in _PROSE_TOKEN.finditer(line, cut)]
     words = [(t, end) for t, end in matches if t and not _CONNECTIVE.fullmatch(t) and not _JA_CONNECTIVE.fullmatch(t)
-             and not _secret_name(t) and not _REFERENCE.fullmatch(t)]
+             and not _secret_word_only(t) and not _REFERENCE.fullmatch(t)]
     # A structural word is a candidate like any other ("the password is value horsestaple": the model can repeat
     # "value" alone), unless it is a key or an expression ("name:", data["token"]), as in _token_values.
     return [t for t, end in words if not (_STOPWORD.fullmatch(t) and _STRUCTURE_AFTER.match(line, end))]
