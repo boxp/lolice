@@ -1018,6 +1018,40 @@ class BodyVisibilityTest(unittest.TestCase):
         self.assertFalse(plugin._withhold('{"cmd": "ls", "max_output_tokens": 12000}'))
         self.assertTrue(plugin._withhold("cat /run/secrets/token"))
 
+    def test_structured_tool_output_keys_are_scanned(self):
+        # A dict result keeps the secret name only as a key; the value repeated alone must still be masked.
+        value = "Zq7" + "dictonly" + "42x"
+        for name, result in (("dict", {"token": value}), ("nested", {"data": {"auth": {"api_key": value}}}),
+                             ("list", [{"name": "x", "password": value}]), ("list_value", {"token": [value, "other"]}),
+                             ("json_string_key", {"output": {"client_secret": value}}),
+                             ("nested_secret_key", {"auth": {"token": value}}),
+                             ("mcp_text", {"content": [{"type": "text", "text": json.dumps({"auth": {"token": value}})}]})):
+            with self.subTest(name):
+                session = "kohako-g2-dict-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="mcp_tool", args={"q": "x"}, result=result)
+                plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                        response={"assistant_message": {"role": "assistant", "content": value}})
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=value + " MARKER_DICT_REPLY")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn(value, body)
+                self.assertIn("MARKER_DICT_REPLY", body)
+
+    def test_structured_history_tool_output_keys_are_scanned(self):
+        value = "Zq7" + "histonly" + "42x"
+        session = "kohako-g2-dict-history"
+        history = [{"role": "user", "content": "見て"},
+                   {"role": "tool", "content": [{"type": "tool_result", "content": {"token": value}}]},
+                   {"role": "assistant", "content": value}]
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="続き")
+        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=history)
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=value + " MARKER_HIST_REPLY")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = self._payload()
+        self.assertNotIn(value, body)
+        self.assertIn("MARKER_HIST_REPLY", body)
+
     def test_value_named_only_in_prose_is_masked_wherever_it_is_repeated(self):
         value = "Zq7" + "plainvalue" + "9"
         plugin._on_turn_start(session_id="kohako-g2-prose", turn_id="t", user_message="メモを見て")
