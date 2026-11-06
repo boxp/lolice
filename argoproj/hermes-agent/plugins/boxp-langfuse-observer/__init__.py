@@ -22,6 +22,8 @@ Withholding needs evidence, because the model can repeat what a tool showed it a
   encoding. A secret word in an ordinary sentence ("パスワードを設定してください") is a mention, not evidence;
 - output too large to scan (_SCAN_LIMIT), a scan error or too many such tokens: that body and later bodies
   are withheld as above.
+The user request, model replies and child summaries are scanned the same way before they are kept, so a
+value they name is masked where they repeat it; prose there pins values but does not withhold the reply.
 History this process did not observe, as after a restart or a rewrite by compaction (tracked by message
 content, not count), is scanned the same way instead of being
 withheld outright. Residual: a value with no secret word, no known format and no sensitive source,
@@ -1043,6 +1045,25 @@ def _note_evidence(session, parent, args_text, result_text):
     return reason
 
 
+def _note_body(turn, value, parent=None):
+    """Scans text the model or the user wrote (a reply, a summary, a request) before it is kept: a value it names is
+    pinned so a later bare repeat in any field is masked, and a body that cannot be pinned is withheld."""
+    if value is None:
+        return None
+    session, parent = turn["session"], parent if parent is not None else turn["parent"]
+    text = _scan_text(value)
+    reason, values = _evidence(text)
+    # Prose ("the token endpoint returned 200") pins what it can but never withholds a reply: a mention is not
+    # evidence (TD-07), and an unmarked plain secret is the accepted residual. Assignments and known forms still do.
+    prose, _ = _prose_values(text)
+    values = values | prose
+    if values and not _add_values(values, session, parent):
+        reason = reason or "too_many_session_values"
+    if reason:
+        _taint(reason, session, parent)
+    return reason
+
+
 def _tool_calls(message):
     """(name, arguments) in any provider shape."""
     if not isinstance(message, dict):
@@ -1175,6 +1196,8 @@ def _on_turn_start(session_id=None, turn_id=None, user_message=None, model=None,
     _add_values(_values_of(parent_session_id), turn["session"])
     if _tainted(turn["session"]):  # the user can quote a reply back
         user_message = _WITHHELD_SESSION
+    elif _note_body(turn, user_message, parent_session_id):
+        user_message = _WITHHELD_UNPINNED
     turn.update(user_message=user_message, model=model, platform=platform or "", parent=parent_session_id)
 
 
@@ -1214,13 +1237,16 @@ def _on_api_response(session_id=None, turn_id=None, api_request_id=None, respons
     with _lock:
         req = turn.get("requests", {}).pop(str(api_request_id), {})
     message = (response or {}).get("assistant_message") if isinstance(response, dict) else None
-    output = _WITHHELD_SESSION if _tainted(turn["session"]) else _message_view({"role": "assistant", **message}) if isinstance(message, dict) else None
+    already = _tainted(turn["session"])
+    unpinned = not already and isinstance(message, dict) and _note_body(turn, _message_view({"role": "assistant", **message}))
+    output = (_WITHHELD_SESSION if already else _WITHHELD_UNPINNED if unpinned else
+              _message_view({"role": "assistant", **message}) if isinstance(message, dict) else None)
     location = "local" if "local-llm" in str(base_url or "") or "llama" in str(base_url or "") else "cloud"
     _add(turn, {"key": "api:" + str(api_request_id), "name": "llm-call", "type": "generation",
                 "input": req.get("input"), "output": output, "model": response_model or model, "usage": usage,
                 "start": started_at or req.get("started_at"), "end": ended_at,
                 "metadata": {"input_scope": f"last {_LAST_MESSAGES} of {req.get('message_count')} messages",
-                             "body_policy": "withheld_after_exposure" if _tainted(turn["session"]) else "sent",
+                             "body_policy": "withheld_after_exposure" if already else "withheld_unpinned" if unpinned else "sent",
                              "provider": provider, "location": location, "api_call": api_call_count,
                              "retry": req.get("retry_count"), "finish_reason": finish_reason}})
     _note_tickets(turn, message)
@@ -1317,6 +1343,8 @@ def _on_subagent(parent_session_id=None, parent_turn_id=None, child_session_id=N
     _add_values(_values_of(child_session_id), turn["session"], turn["parent"])
     if _tainted(turn["session"]):
         child_summary = _WITHHELD_SESSION
+    elif _note_body(turn, child_summary):
+        child_summary = _WITHHELD_UNPINNED
     now = time.time()
     _add(turn, {"key": "subagent:" + str(child_session_id), "name": "subagent", "type": "agent",
                 "output": child_summary, "start": now - (duration_ms or 0) / 1000, "end": now,
@@ -1327,7 +1355,11 @@ def _on_subagent(parent_session_id=None, parent_turn_id=None, child_session_id=N
 def _on_turn_end(session_id=None, turn_id=None, assistant_response=None):
     turn = _turn(session_id, turn_id)
     _note_tickets(turn, assistant_response)
-    turn["output"] = _WITHHELD_SESSION if _tainted(turn["session"]) else assistant_response
+    if _tainted(turn["session"]):
+        assistant_response = _WITHHELD_SESSION
+    elif _note_body(turn, assistant_response):
+        assistant_response = _WITHHELD_UNPINNED
+    turn["output"] = assistant_response
 
 
 @_guarded

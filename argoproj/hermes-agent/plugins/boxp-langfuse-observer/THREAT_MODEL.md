@@ -42,6 +42,10 @@ unobserved is a regression, not a protection.
 3. Values pinned from 2.: a value identified next to a secret name (assignment, element, prose with a
    separator or a copula, e.g. "the password is X", "X is my password") is masked in every later field of
    the session lineage, including its JSON/HTML/percent escapes, Base64/base64url/hex and reversed forms.
+   Text the model or the user writes (the user request, each model reply, the final reply, a delegated
+   child's summary) is scanned like tool output before it is kept, so "password: X ... X" inside one reply
+   masks both occurrences. For these bodies only assignments/known formats can withhold; a secret word in
+   prose pins what it can but never withholds a reply (a mention is not evidence).
 4. Fail-closed: when a protected field cannot be judged (too large to scan, scan error, a value too short
    or not delimitable to pin, too many values), that observation's body is withheld with a non-body reason
    (`withheld_reason`) and the agent keeps working. A final scan of the serialized batch drops a span that
