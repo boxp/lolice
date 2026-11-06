@@ -176,6 +176,7 @@ while True:
     fire_ordinary_read(f"kohako-g2-readbase64-{n}", "password: b64leakvaluezz", base64.b64encode(b"b64leakvaluezz").decode())
     fire_read_then_reply(f"kohako-g2-readsecretword-{n}", "password: my-secretword-leakzz", base64.b64encode(b"my-secretword-leakzz").decode())
     fire_ordinary_read(f"kohako-g2-readbefore-{n}", "beforeprosevaluezz is my password", "beforeprosevaluezz")
+    fire_read_then_reply(f"kohako-g2-replyrepeat-{n}", "harmless notes", "password: replyrepeatvaluezz\nfiller one\nfiller two\nreplykeepmarker\nagain replyrepeatvaluezz")
     fire_ordinary_read(f"kohako-g2-readjasentence-{n}", "パスワードを設定してください", "jasentencereplymarker")
     fire_instructions(f"kohako-g2-instructions-{n}")
     fire_running_child(f"kohako-g2-runparent-{n}", f"runchild-{n}")

@@ -1286,6 +1286,33 @@ class BodyVisibilityTest(unittest.TestCase):
         self.assertNotRegex(body, r"(?<![A-Za-z])qzv(?![A-Za-z])")
         self.assertIn('withheld_reason", "value": {"stringValue": "short_value"}', body)
 
+    def test_value_named_in_a_model_reply_is_masked_where_it_repeats(self):
+        # The model's own text is scanned like tool output: "password: X" and a later bare X in the same reply (or a
+        # later field) are both masked, while the rest of the reply stays readable.
+        value = "correcthorse" + "batterystaple"
+        reply = "password: " + value + "\nfiller one\nfiller two\nMARKER_REPLY_KEEP\nrepeat " + value
+        for where in ("api_response", "turn_end", "user_message", "child_summary"):
+            with self.subTest(where):
+                session = "kohako-g2-reply-" + where
+                plugin._on_turn_start(session_id=session, turn_id="t",
+                                      user_message=reply if where == "user_message" else "見て MARKER_REPLY_ASK")
+                if where == "api_response":
+                    plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=[],
+                                           message_count=0, started_at=time.time())
+                    plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                            response={"assistant_message": {"content": reply}}, model="m",
+                                            base_url="https://x", started_at=time.time(), ended_at=time.time())
+                if where == "child_summary":
+                    plugin._on_subagent(parent_session_id=session, parent_turn_id="t", child_session_id="child-" + where,
+                                        child_summary=reply, child_status="completed", duration_ms=1)
+                plugin._on_turn_end(session_id=session, turn_id="t",
+                                    assistant_response=reply if where == "turn_end" else "ok MARKER_REPLY_END")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn(value, body)
+                self.assertNotIn("batterystaple", body)
+                self.assertIn("MARKER_REPLY_KEEP", body)
+
     def test_secret_word_in_an_ordinary_sentence_keeps_the_session_readable(self):
         # TD-07: a mention of a secret word is not evidence; only a separator names a value.
         for line in ("パスワードを設定してください", "トークンを再発行しました", "What is your password policy?",
