@@ -27,3 +27,14 @@ Strata / llama.cpp に限定せず、golyat-4（Core Ultra 9 285H、Arc 140T、D
 ## 境界
 
 権限の追加、driver / host kernel の変更、node reboot、電力上限の撤去、大規模 weights の取得、恒久的な既定変更はしない。健康停止は MemAvailable < 12GiB が 2 連続、GPU HANG / reset の増加。
+
+## 終了と復帰（2026-11-06）
+
+許可範囲内で実行できる識別試験を尽くしたため研究を終了し、この復帰 PR で診断モードを戻す（#1045 の argoproj 差分の revert。BOXP-406 の復帰後の状態 78eaab3 と同一）。
+
+- `argoproj/local-llm/deployment.yaml`: replicas 1
+- `argoproj/strata-eval/manifests/deployment.yaml`: replicas 0、通常 command、memory limit 56GiB、`/m`・`/w` の mount を削除
+
+node 上の `/var/lib/local-llm/models/boxp417`（測定記録、隔離 build、変換した MTP）は削除しない（記録の保護、BOXP-393 へ共有）。
+
+merge 後の手順: strata pod 消滅 → runtime file queue で scale 1 → 受付を閉じたまま Gemma 実推論 → QCN 設定不変の確認 → 受付 open。結果と残る候補の整理は Obsidian `performance-frontier-owner-summary.md`。
