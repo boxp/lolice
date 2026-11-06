@@ -29,7 +29,7 @@ spec:
             - name: KOHAKO_ACCESS_TEAM_DOMAIN
               value: https://boxp.cloudflareaccess.com
             - name: KOHAKO_ACCESS_AUD
-              value: REPLACE_WITH_KOHAKO_STUDIO_ACCESS_AUD
+              value: bd491ea940b2fe8ced4ff62699c58a02bce6919da7986a513189fc44e9caec85
             - name: KOHAKO_OWNER_EMAILS
               value: tiyotiyouda@gmail.com
             - name: KOHAKO_HERMES_URL

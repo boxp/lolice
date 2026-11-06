@@ -26,7 +26,7 @@ deploy = get(studio, 'Deployment', 'kohako-studio')['spec']['template']['spec']
 assert deploy['serviceAccountName'] == 'kohako-studio'
 bff = next(c for c in deploy['containers'] if c['name'] == 'bff')
 env = {x['name']: x.get('value') for x in bff['env']}
-assert env['KOHAKO_ACCESS_AUD'] == 'REPLACE_WITH_KOHAKO_STUDIO_ACCESS_AUD'
+assert env['KOHAKO_ACCESS_AUD'] == 'bd491ea940b2fe8ced4ff62699c58a02bce6919da7986a513189fc44e9caec85'
 assert env['KOHAKO_VERIFIER_ENABLED'] == 'true' and 'KOHAKO_STT_URL' not in env
 ws = get(workspace, 'Deployment', 'codex-workspace')['spec']['template']['spec']
 volume = next(x for x in ws['volumes'] if x['name'] == 'kohako-bff-verifier')
