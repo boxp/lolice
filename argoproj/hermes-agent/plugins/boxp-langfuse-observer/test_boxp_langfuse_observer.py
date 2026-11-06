@@ -1724,6 +1724,32 @@ class BodyVisibilityTest(unittest.TestCase):
                 self.assertIn("MARKER_CALL_ASK", body)  # what came before the call stays readable
                 self.assertIn("withheld_sensitive_source", body)
 
+    def test_tool_name_after_a_sensitive_source_is_not_sent(self):
+        # The tool name of a later call is model-chosen text too: after a source read it must not carry the value.
+        value = "Zq7" + "toolnamevalue" + "31"
+        session = "kohako-g2-toolname"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="設定を見て MARKER_TOOLNAME_ASK")
+        plugin._on_tool(session_id=session, turn_id="t", tool_call_id="a", tool_name="read_file",
+                        args={"path": "/app/.env"}, result="X=" + value)
+        plugin._on_tool(session_id=session, turn_id="t", tool_call_id="b", tool_name=value,
+                        args={}, result="unknown tool", status="error")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="done")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = self._payload()
+        self.assertNotIn(value, body)
+        self.assertNotIn("toolnamevalue", body)
+        self.assertIn("MARKER_TOOLNAME_ASK", body)
+        self.assertIn("read_file", body)  # the call that read the source was named before any exposure
+
+    def test_tool_name_in_an_ordinary_session_is_sent(self):
+        session = "kohako-g2-toolname-ok"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="一覧して")
+        plugin._on_tool(session_id=session, turn_id="t", tool_call_id="a", tool_name="search_files",
+                        args={"pattern": "x"}, result="a.txt")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="done")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        self.assertIn("search_files", self._payload())
+
     def test_grandchild_exposure_reaches_the_grandparent(self):
         # Withholding goes up the whole recorded lineage, not only to the direct parent.
         value = "Zq7" + "grandsource" + "88"

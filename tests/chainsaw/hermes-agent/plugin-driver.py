@@ -202,6 +202,8 @@ def fire_path_after_source(session):
     hooks["pre_llm_call"](session_id=session, turn_id="turn", user_message="hello")
     hooks["post_tool_call"](session_id=session, turn_id="turn", tool_call_id="env", tool_name="read_file", args={"path": "/app/.env"}, result="X")
     hooks["post_tool_call"](session_id=session, turn_id="turn", tool_call_id="next", tool_name="read_file", args={"path": "/tmp/pathleakvaluezz"}, result="ok")
+    # ... or as the name of the next call: the tool name is model-chosen text too.
+    hooks["post_tool_call"](session_id=session, turn_id="turn", tool_call_id="named", tool_name="toolnameleakzz", args={}, result="unknown tool", status="error")
     hooks["on_session_end"](session_id=session, turn_id="turn", completed=True)
 
 def fire_after_session_flood(n):
