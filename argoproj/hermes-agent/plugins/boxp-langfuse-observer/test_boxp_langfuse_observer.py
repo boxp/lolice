@@ -1149,7 +1149,8 @@ class BodyVisibilityTest(unittest.TestCase):
 
     def test_prose_mentions_without_a_value_do_not_withhold(self):
         for line in ("if token is None:", "    pass", "name: app-secrets", "max_output_tokens: 4000",
-                     "token: ${GITHUB_TOKEN}", "Reset your password from the settings page"):
+                     "token: ${GITHUB_TOKEN}", "Reset your password from the settings page",
+                     "トークン数は 1200 です", "入力トークン上限: 4000"):
             with self.subTest(line):
                 session = "kohako-g2-mention-" + str(abs(hash(line)))
                 plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")

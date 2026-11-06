@@ -672,7 +672,13 @@ _CONNECTIVE = re.compile(
     r"(?i)a|an|the|is|are|was|were|be|been|being|to|for|of|on|in|at|by|as|it|its|this|that|these|those|and|or|not|no|"
     r"my|your|our|their|his|her|new|old|set|use|used|using|with|from|into|via|here|there|now|then|also|still|just|"
     r"if|so|do|does|did|has|have|had|will|can|may|must|should|would|could|me|you|we|they|ok|yes|now|again|below|above")
-_PROSE_TOKEN = re.compile(r"""[^\s"'`,;:=<>()\[\]{}\x00-\x1f\x7f-\uffff]+""")
+# ASCII runs and non-ASCII runs are separate tokens, so a particle written against a value (パスワードはabc) splits off.
+_PROSE_TOKEN = re.compile(r"""[^\s"'`,;:=<>()\[\]{}\x00-\x1f\x7f-\U0010ffff]+|[^\x00-\x7f\s、。，．,「」『』（）【】［］〈〉《》：；！？・…]+""")
+# Japanese particles and copulas that join a secret word to its value; any other non-ASCII candidate is a value.
+_JA_CONNECTIVE = re.compile(r"は|が|を|も|の|に|で|と|へ|や|か|って|とは|には|では|です|でした|である|だ|だよ|ですよ|になります")
+# トークン数, トークン上限 and the like count tokens; they do not name a secret.
+_JA_COUNT = re.compile(r"数|量|上限|消費|使用|単位|長|化|ナイザ|課金|料金")
+_SEPARATOR_END = re.compile(r"(?:[:=：＝]|は|って|とは)\s*$")
 _MAX_PROSE_VALUES = 64
 _NAME_REST = re.compile(r"[A-Za-z_.-]{0,16}")
 
@@ -682,39 +688,53 @@ def _secret_name(token):
     return bool(_LOOSE_SECRET.search(token)) and bool(_NAME_REST.fullmatch(_LOOSE_SECRET.sub("", token)))
 
 
+def _prose_candidates(line, cut):
+    """Candidate values on line after position cut: tokens that are not connectives, names or references."""
+    tokens = [m.group(0).strip(".-/+") for m in _PROSE_TOKEN.finditer(line, cut)]
+    return [t for t in tokens if t and not _CONNECTIVE.fullmatch(t) and not _JA_CONNECTIVE.fullmatch(t)
+            and not _secret_name(t) and not _STOPWORD.fullmatch(t) and not _REFERENCE.fullmatch(t)]
+
+
 def _prose_values(text):
     """Values a secret word names in prose. On the secret word's line, every word after it that is not a connective
-    is a candidate, plain or not ("the password is correcthorsebattery"); on the next line, value-like tokens.
-    Returns (values, short): short when any candidate after a secret word is under 4 characters ("the password is
-    alpha abc") or there are more candidates than are pinned; such a value cannot be pinned, so the caller withholds."""
+    is a candidate, plain or not ("the password is correcthorsebattery"); when the line ends at the secret word and a
+    separator ("password:", "パスワード："), the next line's words are; otherwise the next line's value-like tokens.
+    Returns (values, reason). reason is "short_value" when a candidate is under 4 characters ("the password is alpha
+    abc") or there are more candidates than are pinned, and "unpinned_value" when a candidate is non-ASCII: unspaced
+    text has no word boundary, so the part the model may repeat alone ("秘密の文字列") cannot be pinned. Either way
+    the caller withholds."""
     lines = _LINE_BREAK.split(text[:_SCAN_LIMIT])
-    found, short = set(), False
+    found, reason = set(), None
     for i, line in enumerate(lines):
         line = _PLACEHOLDER.sub(" ", line)
         if not _LOOSE_SECRET.search(line):
             continue
-        # Whole tokens, so a word that merely contains a secret word ("app-secrets") does not start a value.
         spans = [(m.start(), m.end(), m.group(0).strip(".-/+")) for m in _PROSE_TOKEN.finditer(line)]
-        # A non-ASCII secret word (パスワードは...) is not a token of its own: what follows it starts the value.
-        cuts = [m.end() for m in _LOOSE_SECRET.finditer(line) if not m.group(0).isascii()]
+        # A non-ASCII secret word (パスワードは...) need not be a token of its own: what follows it starts the value.
+        cuts = [m.end() for m in _LOOSE_SECRET.finditer(line)
+                if not m.group(0).isascii() and not _JA_COUNT.match(line, m.end())]
+        # Whole tokens, so a word that merely contains a secret word ("app-secrets") does not start a value.
         cuts += [end for _, end, t in spans if _secret_name(t)]
         cut = min(cuts) if cuts else len(line)
-        candidates = [t for start, _, t in spans if start >= cut]
-        candidates = [t for t in candidates if t and not _CONNECTIVE.fullmatch(t) and not _secret_name(t)
-                      and not _STOPWORD.fullmatch(t) and not _REFERENCE.fullmatch(t)]
+        candidates = _prose_candidates(line, cut)
+        following = _PLACEHOLDER.sub(" ", lines[i + 1] if i + 1 < len(lines) else "")
+        if cuts and not candidates and _SEPARATOR_END.search(line[cut:]):
+            # "password:" then the value on the next line.
+            candidates = _prose_candidates(following, 0)
+        if any(not t.isascii() for t in candidates):
+            reason = reason or "unpinned_value"
         # Any candidate too short to pin ("password: alpha abc"), or more candidates than are pinned, leaves a value
         # that could be repeated alone, so the caller withholds.
-        if any(len(t) < _MIN_PINNED for t in candidates) or len(candidates) > _MAX_PROSE_VALUES:
-            short = True
-        found.update(t for t in candidates[:_MAX_PROSE_VALUES] if len(t) >= _MIN_PINNED)
-        following = lines[i + 1] if i + 1 < len(lines) else ""
-        for token in _VALUE_TOKEN.findall(_LOOSE_SECRET.sub(" ", _PLACEHOLDER.sub(" ", following))):
+        if any(len(t) < _MIN_PINNED for t in candidates if t.isascii()) or len(candidates) > _MAX_PROSE_VALUES:
+            reason = reason or "short_value"
+        found.update(t for t in candidates[:_MAX_PROSE_VALUES] if len(t) >= _MIN_PINNED and t.isascii())
+        for token in _VALUE_TOKEN.findall(_LOOSE_SECRET.sub(" ", following)):
             if not _PLAIN_WORD.fullmatch(token):
                 found.add(token)
         # The line's value-like tokens before the word too ("Zq7... is my password").
         found.update(t for start, _, t in spans if start < cut and _VALUE_TOKEN.fullmatch(t) and not _PLAIN_WORD.fullmatch(t)
                      and not _secret_name(t) and not _REFERENCE.fullmatch(t))
-    return found, short
+    return found, reason
 
 
 def _strings(value, depth=0):
@@ -849,9 +869,9 @@ def _note_evidence(session, parent, args_text, result_text):
     reason_in, pinned_in = _evidence(args_text)
     reason_out, pinned_out = _evidence(result_text)
     reason = reason_in or reason_out
-    prose_in, short_in = _prose_values(args_text)
-    prose_out, short_out = _prose_values(result_text)
-    reason = reason or ("short_value" if short_in or short_out else None)
+    prose_in, prose_reason_in = _prose_values(args_text)
+    prose_out, prose_reason_out = _prose_values(result_text)
+    reason = reason or prose_reason_in or prose_reason_out
     values = pinned_in | pinned_out | prose_in | prose_out
     if values and not _add_values(values, session, parent):
         reason = reason or "too_many_session_values"
