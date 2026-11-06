@@ -541,7 +541,14 @@ def _assigned_value(match_text):
 
 _TOKEN_SPLIT = re.compile(r"""[\s"'`,;:=<>()\[\]{}\\]+""")
 _STRIP = re.compile(r"""^(?:["'`]|\\+["'nrt]?)+|(?:["'`,;]|\\+["'nrt]?)+$""")
-_STOPWORD = re.compile(r"(?i)https?|basic|bearer|digest|negotiate|user|username|name|value|key|ref|from|data|true|false|null|none")
+# Structural words (keys of a JSON/YAML secret reference, a URL scheme, a literal) are skipped beside a real value, but a
+# value made of them alone is the value itself ("password: value"). Auth scheme words (Basic, Bearer) are never skipped:
+# a password can be "bearer", and pinning the scheme word only masks that word later in the session.
+_STOPWORD = re.compile(r"(?i)https?|user|username|name|value|key|ref|from|data|true|false|null|none")
+# Only plain words stand alone as a value: "name:" (a key) and data["token"] (an expression) are structure.
+_PLAIN_VALUE = re.compile(r"[\w.+/-]+(?:[ \t]+[\w.+/-]+)*")
+# Literals mean "no value" (password: none, token is None); they are never taken as the value.
+_LITERAL = re.compile(r"(?i)true|false|null|none|nil")
 _REFERENCE = re.compile(r"""(?i)\$\{?[\w.-]*\}?|<[^>]*>|\{\{[^}]*\}\}|\[REDACTED:[a-z_]+\]|\*+|x{3,}|\.\.\.|…|-|\|""")
 
 
@@ -572,10 +579,14 @@ def _token_values(raw):
     found = set()
     for value in raw:
         value = _strip(value or "")
-        if not value or _STOPWORD.fullmatch(value) or _REFERENCE.fullmatch(value):
+        if not value or _REFERENCE.fullmatch(value):
             continue
         # Tokens are checked one by one: a nested value such as {"token": "..."} names a secret and holds one.
-        tokens = [t for t in (_strip(t) for t in _TOKEN_SPLIT.split(value)) if not _reference(t)]
+        words = [t for t in (_strip(t) for t in _TOKEN_SPLIT.split(value)) if t]
+        tokens = [t for t in words if not _reference(t)]
+        if words and _PLAIN_VALUE.fullmatch(value) and all(_STOPWORD.fullmatch(t) for t in words):
+            # Nothing but structural words: they are the value ("password: value"), not keys around one.
+            tokens = [t for t in words if not _LITERAL.fullmatch(t)]
         # Every word is pinned, plain or not: the model can repeat any one of a several-word value alone.
         for token in tokens:
             if not token.isascii():
@@ -689,6 +700,7 @@ _JA_CONNECTIVE = re.compile(r"は|が|を|も|の|に|で|と|へ|や|か|って
 _JA_COUNT = re.compile(r"数|量|上限|消費|使用|単位|長|化|ナイザ|課金|料金")
 _SEPARATOR_END = re.compile(r"(?:[:=：＝]|は|って|とは)\s*$")
 _MAX_PROSE_VALUES = 64
+_STRUCTURE_AFTER = re.compile(r"""\s*[:=\[({."'\\]""")
 _NAME_REST = re.compile(r"[A-Za-z_.-]{0,16}")
 
 
@@ -699,9 +711,15 @@ def _secret_name(token):
 
 def _prose_candidates(line, cut):
     """Candidate values on line after position cut: tokens that are not connectives, names or references."""
-    tokens = [m.group(0).strip(".-/+") for m in _PROSE_TOKEN.finditer(line, cut)]
-    return [t for t in tokens if t and not _CONNECTIVE.fullmatch(t) and not _JA_CONNECTIVE.fullmatch(t)
-            and not _secret_name(t) and not _STOPWORD.fullmatch(t) and not _REFERENCE.fullmatch(t)]
+    matches = [(m.group(0).strip(".-/+"), m.end()) for m in _PROSE_TOKEN.finditer(line, cut)]
+    words = [(t, end) for t, end in matches if t and not _CONNECTIVE.fullmatch(t) and not _JA_CONNECTIVE.fullmatch(t)
+             and not _secret_name(t) and not _REFERENCE.fullmatch(t)]
+    values = [t for t, _ in words if not _STOPWORD.fullmatch(t)]
+    if values:
+        return values
+    # Nothing but structural words: they are the value ("the password is value"), as in _token_values, unless one is
+    # a key or an expression ("name:", data["token"]).
+    return [t for t, end in words if not _LITERAL.fullmatch(t) and not _STRUCTURE_AFTER.match(line, end)]
 
 
 def _prose_values(text):
