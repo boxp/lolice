@@ -72,6 +72,8 @@ class ObserverTest(unittest.TestCase):
         plugin._stats.clear()
         plugin._sessions.clear()
         plugin._delegated.clear()
+        plugin._session_values.clear()
+        plugin._scanned.clear()
         plugin._creds = ("pk-lf-" + "test" * 4, "sk-lf-" + "test" * 4)
         plugin._secret_values = None
 
@@ -291,7 +293,9 @@ class ObserverTest(unittest.TestCase):
             with self.subTest(command):
                 plugin._sessions.clear()
                 run_turn(args={"command": command}, result="UNIQUEOUTPUT")
-                self.assertIn("tool_body_policy", self._bodies())  # not the withheld marker
+                body = self._bodies()
+                self.assertIn("UNIQUEOUTPUT", body)  # the output itself, not a withheld marker
+                self.assertNotIn("[withheld", body)
 
     def test_value_is_masked_in_every_serialized_form(self):
         values = {"A_TOKEN": 'ab"1', "B_TOKEN": "q'z", "C_TOKEN": "l1\nl2", "D_TOKEN": "b\\s", "E_TOKEN": "é7",
@@ -439,7 +443,9 @@ class ObserverTest(unittest.TestCase):
             with self.subTest(command):
                 plugin._sessions.clear()
                 run_turn(args={"command": command}, result="UNIQUEOUTPUT")
-                self.assertIn("tool_body_policy", self._bodies())  # not the withheld marker
+                body = self._bodies()
+                self.assertIn("UNIQUEOUTPUT", body)  # the output itself, not a withheld marker
+                self.assertNotIn("[withheld", body)
 
     def test_arguments_of_a_sensitive_call_are_withheld(self):
         for args in ({"command": "echo plainwordvalue > /a/.env"}, {"path": "/a/.env", "content": "plainwordvalue"},
@@ -517,7 +523,7 @@ class ObserverTest(unittest.TestCase):
         run_turn(session="kohako-g2-u", turn="t2", body=unknown)
         body = self._bodies()
         self.assertNotIn(unknown, body)
-        self.assertIn("has seen tool output", body)
+        self.assertIn("sensitive value reached the model", body)
 
     def test_user_message_of_resumed_tainted_session_is_withheld(self):
         history = [{"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]}]
@@ -530,7 +536,7 @@ class ObserverTest(unittest.TestCase):
         run_turn(session="kohako-g2-w", body="please read it", args={"path": "/a/.env"}, result="V")
         self.assertIn("please read it", self._bodies())
 
-    def test_tool_results_in_history_are_never_copied_even_without_sensitive_call(self):
+    def test_tool_results_in_history_are_kept_and_reasoning_is_not(self):
         view = [plugin._message_view(m) for m in (
             {"role": "tool", "content": "TOOLBODY"},
             {"type": "function_call_output", "output": "TOOLBODY"},
@@ -538,9 +544,9 @@ class ObserverTest(unittest.TestCase):
             {"role": "assistant", "content": "say", "reasoning": "THINK",
              "tool_calls": [{"function": {"name": "terminal", "arguments": "ARGBODY"}}]})]
         text = json.dumps(view)
-        for hidden in ("TOOLBODY", "ARGBODY", "THINK"):
-            self.assertNotIn(hidden, text)
-        for kept in ("keep", "say", "terminal"):
+        self.assertNotIn("THINK", text)
+        self.assertEqual(text.count("TOOLBODY"), 3)
+        for kept in ("keep", "say", "terminal", "ARGBODY"):
             self.assertIn(kept, text)
 
     def test_taint_reaches_parent_and_child(self):
@@ -617,13 +623,21 @@ class ObserverTest(unittest.TestCase):
         plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="plainconfigvalue")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
 
-    def test_reply_after_reading_an_ordinary_file_is_withheld(self):
+    def test_reply_after_reading_an_ordinary_file_is_kept(self):
+        # Residual by design (TD-05): a bare value with no secret word, no known format and no
+        # sensitive source cannot be told apart from ordinary text, so it is sent.
+        self._value_only_reply("kohako-g2-plain-read", "read_file", {"path": "/repo/README.md"})
+        body = self._bodies()
+        self.assertIn("plainconfigvalue", body)
+        self.assertNotIn("[withheld", body)
+
+    def test_reply_after_reading_a_secret_value_is_withheld(self):
         for tool, args in (("terminal", {"command": "cat /etc/app/config.yaml"}), ("read_file", {"path": "/etc/app/config.yaml"}),
                            ("search_files", {"pattern": "db"}), ("session_search", {"query": "db"}), ("memory", {"action": "read"}),
                            ("browser_vault", {}), ("a_tool_added_later", {})):
             with self.subTest(tool):
                 session = "kohako-g2-config-" + tool
-                self._value_only_reply(session, tool, args)
+                self._value_only_reply(session, tool, args, result="db:\n  password: plainconfigvalue\n")
                 body = self._bodies()
                 self.assertNotIn("plainconfigvalue", body)
                 self.assertIn("read it", body)  # what came before the tool stays
@@ -641,7 +655,7 @@ class ObserverTest(unittest.TestCase):
     def test_reply_after_a_child_read_a_file_is_withheld(self):
         plugin._on_turn_start(session_id="kohako-g2-pc", turn_id="t", user_message="go")
         plugin._on_turn_start(session_id="pc-child", turn_id="c", user_message="goal", parent_session_id="kohako-g2-pc")
-        plugin._on_tool(session_id="pc-child", turn_id="c", tool_call_id="x", tool_name="terminal", args={"command": "cat /etc/app/config.yaml"}, result="plainconfigvalue")
+        plugin._on_tool(session_id="pc-child", turn_id="c", tool_call_id="x", tool_name="terminal", args={"command": "cat /etc/app/config.yaml"}, result="api_key: plainconfigvalue")
         plugin._on_turn_end(session_id="pc-child", turn_id="c", assistant_response="plainconfigvalue")
         plugin._on_session_end(session_id="pc-child", turn_id="c", completed=True)
         plugin._on_turn_end(session_id="kohako-g2-pc", turn_id="t", assistant_response="plainconfigvalue")
@@ -656,17 +670,20 @@ class ObserverTest(unittest.TestCase):
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
         return self._bodies()
 
-    def test_history_this_process_did_not_observe_is_withheld(self):
-        # After a restart nothing says what the model saw, and compaction leaves no tool call to find.
-        histories = {
-            "tool_result": [{"role": "tool", "content": "README.md"}, {"role": "user", "content": "go"}],
-            "tool_call": [{"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": "{}"}}]}, {"role": "user", "content": "go"}],
-            "compacted": [{"role": "user", "content": "[CONTEXT COMPACTION] the file held plainconfigvalue"}, {"role": "user", "content": "go"}],
-            "reply_only": [{"role": "assistant", "content": "plainconfigvalue"}, {"role": "user", "content": "go"}],
+    def test_history_this_process_did_not_observe_is_scanned(self):
+        # After a restart the history is scanned like live tool output: evidence withholds, ordinary text does not.
+        exposed = {
+            "tool_result": [{"role": "tool", "content": "password: plainconfigvalue"}, {"role": "user", "content": "go"}],
+            "tool_call": [{"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]}, {"role": "user", "content": "go"}],
+            "compacted": [{"role": "user", "content": "[CONTEXT COMPACTION] the file held api_key=plainconfigvalue"}, {"role": "user", "content": "go"}],
         }
-        for name, history in histories.items():
+        for name, history in exposed.items():
             with self.subTest(name):
                 self.assertNotIn("plainconfigvalue", self._resumed("kohako-g2-unseen-" + name, history))
+        ordinary = [{"role": "tool", "content": "README.md"}, {"role": "assistant", "content": "earlier reply"}, {"role": "user", "content": "go"}]
+        body = self._resumed("kohako-g2-unseen-ordinary", ordinary)
+        self.assertIn("plainconfigvalue", body)
+        self.assertIn("earlier reply", body)
 
     def test_rotation_of_an_observed_clean_session_keeps_bodies(self):
         plugin._on_turn_start(session_id="kohako-g2-old", turn_id="t", user_message="go")
@@ -675,17 +692,19 @@ class ObserverTest(unittest.TestCase):
         self._bodies()
         history = [{"role": "user", "content": "[CONTEXT COMPACTION] summary"}, {"role": "user", "content": "go"}]
         self.assertIn("plainconfigvalue", self._resumed("kohako-g2-new", history, parent="kohako-g2-old"))
-        self.assertNotIn("plainconfigvalue", self._resumed("kohako-g2-new2", history, parent="kohako-g2-never-seen"))
+        self.assertIn("plainconfigvalue", self._resumed("kohako-g2-new2", history, parent="kohako-g2-never-seen"))
 
-    def test_private_tool_found_in_a_later_request_withholds_without_its_hook(self):
+    def test_sensitive_call_found_in_a_later_request_withholds_without_its_hook(self):
         # A tool whose post_tool_call never fired, for example after an interrupt.
         plugin._on_turn_start(session_id="kohako-g2-nohook", turn_id="t", user_message="go")
         plugin._on_api_request(session_id="kohako-g2-nohook", turn_id="t", api_request_id="a", request_messages=[{"role": "user", "content": "go"}])
-        for shape in ({"role": "assistant", "tool_calls": [{"function": {"name": "terminal"}}]},
-                      {"role": "assistant", "content": [{"type": "tool_use", "name": "terminal", "input": {}}]},
-                      {"type": "function_call", "name": "terminal", "arguments": "{}"}):
+        sensitive = {"command": "cat ~/.aws/credentials"}
+        for shape in ({"role": "assistant", "tool_calls": [{"function": {"name": "terminal", "arguments": json.dumps(sensitive)}}]},
+                      {"role": "assistant", "content": [{"type": "tool_use", "name": "terminal", "input": sensitive}]},
+                      {"type": "function_call", "name": "terminal", "arguments": json.dumps(sensitive)}):
             with self.subTest(shape):
-                plugin._sessions["kohako-g2-nohook"] = False
+                plugin._sessions["kohako-g2-nohook"] = ""
+                plugin._scanned.clear()
                 plugin._on_api_request(session_id="kohako-g2-nohook", turn_id="t", api_request_id="b", request_messages=[shape])
                 self.assertTrue(plugin._tainted("kohako-g2-nohook"))
 
@@ -724,27 +743,35 @@ class ObserverTest(unittest.TestCase):
             with self.subTest(text):
                 self.assertEqual(plugin.redact(text), text)
 
-    def test_tool_bodies_are_not_sent_by_default(self):
+    def test_tool_bodies_are_sent_and_secret_values_in_them_are_not(self):
         for tool, args, result in (
                 ("read_file", {"path": "/a/notes.txt"}, "plainwordvalue"),
-                ("terminal", {"command": "mycli login plainwordvalue"}, "ok"),
                 ("write_file", {"path": "/a/b", "content": "plainwordvalue"}, "ok"),
                 ("execute_code", {"code": "x = 'plainwordvalue'"}, "plainwordvalue"),
                 ("unknown_tool", {"anything": "plainwordvalue"}, {"nested": "plainwordvalue"})):
             with self.subTest(tool):
                 run_turn(tool=tool, args=args, result=result)
-                self.assertNotIn("plainwordvalue", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+                self.assertIn("plainwordvalue", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+        for tool, args, result in (
+                ("read_file", {"path": "/a/notes.txt"}, "password: Zq7secretvalue9"),
+                ("terminal", {"command": "mycli login --password Zq7secretvalue9"}, "ok"),
+                ("execute_code", {"code": "api_key = 'Zq7secretvalue9'"}, "ok"),
+                ("unknown_tool", {"anything": "x"}, {"token": "Zq7secretvalue9"})):
+            with self.subTest("secret " + tool):
+                run_turn(session="kohako-g2-sec-" + tool, tool=tool, args=args, result=result)
+                body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
+                self.assertNotIn("Zq7secretvalue9", body)
+                self.assertIn("hello", body)  # what came before stays readable
 
     def test_tool_spans_keep_what_can_be_followed_without_the_body(self):
         run_turn(tool="read_file", args={"path": "/a/notes.txt", "offset": 3}, result="line1\nline2")
         body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
         self.assertIn("/a/notes.txt", body)
         self.assertIn("offset", body)
-        self.assertIn("tool_body_policy", body)
+        self.assertIn("line1\\nline2", body)
         run_turn(session="kohako-g2-program", tool="terminal", args={"command": "LANG=C /usr/bin/kubectl get pods"})
         body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
-        self.assertIn("kubectl", body)
-        self.assertNotIn("get pods", body)
+        self.assertIn("kubectl get pods", body)
 
     def test_delegation_tool_bodies_are_sent_masked(self):
         run_turn(tool="delegate_task", args={"goal": "delegatedgoalmarker"}, result="delegatedresultmarker")
@@ -850,6 +877,185 @@ class ObserverTest(unittest.TestCase):
         with patch.object(plugin, "_URL", "http://127.0.0.1:9"), patch("time.sleep"):
             plugin.export_turn(turn)
         self.assertEqual(plugin.stats()["batches_dropped"], 2)
+
+
+class BodyVisibilityTest(unittest.TestCase):
+    """TD-05: ordinary work stays readable; only evidence of an exposed secret withholds."""
+
+    setUp = ObserverTest.setUp
+
+    def _payload(self):
+        return "".join(b for turn in drain() for b in plugin.guarded_payloads(plugin.build_spans(turn)))
+
+    def _ordinary_session(self, session="kohako-g2-safe"):
+        first = "README を読んで要約して MARKER_SAFE_ASK"
+        plugin._on_turn_start(session_id=session, turn_id="t1", user_message=first, platform="api_server")
+        plugin._on_api_request(session_id=session, turn_id="t1", api_request_id="a1", system_prompt="SYS",
+                               request_messages=[{"role": "user", "content": first}], message_count=1)
+        plugin._on_api_response(session_id=session, turn_id="t1", api_request_id="a1",
+                                response={"assistant_message": {"role": "assistant", "content": "読みます MARKER_SAFE_PLAN"}})
+        plugin._on_tool(session_id=session, turn_id="t1", tool_call_id="c1", tool_name="read_file",
+                        args={"path": "/repo/README.md"}, result="safe readme body MARKER_SAFE_OUT")
+        plugin._on_tool(session_id=session, turn_id="t1", tool_call_id="c2", tool_name="terminal",
+                        args={"command": "ls -la /repo"}, result="total 8 MARKER_SAFE_LS")
+        history = [{"role": "user", "content": first},
+                   {"role": "assistant", "tool_calls": [{"id": "c1", "function": {"name": "read_file", "arguments": '{"path": "/repo/README.md"}'}}]},
+                   {"role": "tool", "tool_call_id": "c1", "content": "safe readme body MARKER_SAFE_OUT"}]
+        plugin._on_api_request(session_id=session, turn_id="t1", api_request_id="a2", request_messages=history, message_count=3)
+        plugin._on_api_response(session_id=session, turn_id="t1", api_request_id="a2",
+                                response={"assistant_message": {"role": "assistant", "content": "要約です MARKER_SAFE_REPLY"}})
+        plugin._on_turn_end(session_id=session, turn_id="t1", assistant_response="要約です MARKER_SAFE_REPLY")
+        plugin._on_session_end(session_id=session, turn_id="t1", completed=True)
+        run_turn(session=session, turn="t2", body="続けて MARKER_SAFE_NEXT", tool="todo", args={}, result="ok")
+
+    def test_ordinary_tools_keep_prompts_replies_and_tool_bodies(self):
+        self._ordinary_session()
+        body = self._payload()
+        for marker in ("MARKER_SAFE_ASK", "MARKER_SAFE_PLAN", "MARKER_SAFE_OUT", "MARKER_SAFE_LS", "ls -la /repo",
+                       "/repo/README.md", "MARKER_SAFE_REPLY", "reply 続けて MARKER_SAFE_NEXT", "done 続けて MARKER_SAFE_NEXT"):
+            with self.subTest(marker):
+                self.assertIn(marker, body)
+        self.assertIn('"sent"', body)
+
+    def test_empty_bodies_are_not_counted_as_safe(self):
+        # A regression that withholds everything would also keep secrets out; it must still fail here.
+        self._ordinary_session()
+        body = self._payload()
+        self.assertEqual(body.count("[withheld"), 0)
+        self.assertNotIn("tool_body_policy", body)
+
+    def test_history_after_restart_is_scanned_not_withheld(self):
+        history = [{"role": "user", "content": "前の依頼"},
+                   {"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/repo/a.md"}'}}]},
+                   {"role": "tool", "content": "ordinary text"}, {"role": "assistant", "content": "前の回答"},
+                   {"role": "user", "content": "再開後 MARKER_RESUMED_ASK"}]
+        session = "kohako-g2-resumed-clean"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="再開後 MARKER_RESUMED_ASK")
+        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=history)
+        plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                response={"assistant_message": {"role": "assistant", "content": "MARKER_RESUMED_REPLY"}})
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="MARKER_RESUMED_REPLY")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = self._payload()
+        self.assertNotIn("[withheld", body)
+        for marker in ("MARKER_RESUMED_ASK", "MARKER_RESUMED_REPLY", "前の回答"):
+            self.assertIn(marker, body)
+
+    def test_delegated_child_and_parent_stay_readable_after_ordinary_tools(self):
+        plugin._on_turn_start(session_id="kohako-g2-dp", turn_id="t", user_message="調べて MARKER_PARENT_ASK")
+        plugin._on_tool(session_id="kohako-g2-dp", turn_id="t", tool_call_id="d", tool_name="delegate_task",
+                        args={"goal": "MARKER_CHILD_GOAL"}, result="MARKER_DELEGATE_RESULT")
+        plugin._on_subagent_start(parent_session_id="kohako-g2-dp", child_session_id="dp-child")
+        plugin._on_turn_start(session_id="dp-child", turn_id="c", user_message="MARKER_CHILD_GOAL", parent_session_id="kohako-g2-dp")
+        plugin._on_tool(session_id="dp-child", turn_id="c", tool_call_id="x", tool_name="read_file", args={"path": "/repo/b.md"}, result="MARKER_CHILD_READ")
+        plugin._on_turn_end(session_id="dp-child", turn_id="c", assistant_response="MARKER_CHILD_REPLY")
+        plugin._on_session_end(session_id="dp-child", turn_id="c", completed=True)
+        plugin._on_subagent(parent_session_id="kohako-g2-dp", parent_turn_id="t", child_session_id="dp-child", child_summary="MARKER_CHILD_SUMMARY")
+        plugin._on_turn_end(session_id="kohako-g2-dp", turn_id="t", assistant_response="MARKER_PARENT_REPLY")
+        plugin._on_session_end(session_id="kohako-g2-dp", turn_id="t", completed=True)
+        body = self._payload()
+        for marker in ("MARKER_PARENT_ASK", "MARKER_CHILD_GOAL", "MARKER_DELEGATE_RESULT", "MARKER_CHILD_READ",
+                       "MARKER_CHILD_REPLY", "MARKER_CHILD_SUMMARY", "MARKER_PARENT_REPLY"):
+            with self.subTest(marker):
+                self.assertIn(marker, body)
+
+    def test_exposed_value_withholds_later_bodies(self):
+        value = "Zq7" + "valueonly" + "42x"
+        plugin._on_turn_start(session_id="kohako-g2-exp", turn_id="t", user_message="設定を見て MARKER_BEFORE")
+        plugin._on_api_request(session_id="kohako-g2-exp", turn_id="t", api_request_id="a0", request_messages=[{"role": "user", "content": "x"}])
+        plugin._on_tool(session_id="kohako-g2-exp", turn_id="t", tool_call_id="c", tool_name="read_file",
+                        args={"path": "/etc/app/config.yaml"}, result="db:\n  password: " + value + "\nport: 5432")
+        plugin._on_api_request(session_id="kohako-g2-exp", turn_id="t", api_request_id="a", request_messages=[{"role": "user", "content": "x"}])
+        plugin._on_api_response(session_id="kohako-g2-exp", turn_id="t", api_request_id="a",
+                                response={"assistant_message": {"role": "assistant", "content": value}})
+        plugin._on_turn_end(session_id="kohako-g2-exp", turn_id="t", assistant_response=value)
+        plugin._on_session_end(session_id="kohako-g2-exp", turn_id="t", completed=True)
+        run_turn(session="kohako-g2-exp", turn="t2", body="次の依頼 MARKER_AFTER " + value, tool="todo", args={}, result="ok")
+        body = self._payload()
+        self.assertNotIn(value, body)  # pinned: masked in the reply and in every later field
+        self.assertIn("MARKER_BEFORE", body)
+        self.assertIn("MARKER_AFTER", body)  # and later bodies stay readable
+        self.assertNotIn("withheld_after_exposure", body)
+
+    def test_unpinned_secret_still_withholds_later_bodies(self):
+        key = "-----BEGIN PRIVATE KEY-----\nZq7keybody9\n-----END PRIVATE KEY-----"
+        plugin._on_turn_start(session_id="kohako-g2-key", turn_id="t", user_message="鍵を見て MARKER_BEFORE")
+        plugin._on_tool(session_id="kohako-g2-key", turn_id="t", tool_call_id="c", tool_name="read_file", args={"path": "/repo/k.pem"}, result=key)
+        plugin._on_turn_end(session_id="kohako-g2-key", turn_id="t", assistant_response="MARKER_AFTER_KEY")
+        plugin._on_session_end(session_id="kohako-g2-key", turn_id="t", completed=True)
+        body = self._payload()
+        self.assertNotIn("Zq7keybody9", body)
+        self.assertNotIn("MARKER_AFTER_KEY", body)
+        self.assertIn("sensitive value reached the model", body)
+        self.assertIn('withheld_reason", "value": {"stringValue": "sensitive_value"}', body)
+
+    def test_pinned_block_and_element_values_are_masked_everywhere(self):
+        for name, output, value in (("yaml", "db:\n  password:\n    - Zq7blockvalue9\n", "Zq7blockvalue9"),
+                                    ("xml", "<password>Zq7xmlvalue9</password>", "Zq7xmlvalue9")):
+            with self.subTest(name):
+                session = "kohako-g2-pin-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file", args={"path": "/repo/c"}, result=output)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="値は " + value + " です MARKER_PIN")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn(value, body)
+                self.assertIn("MARKER_PIN", body)
+
+    def test_references_and_counters_are_not_evidence(self):
+        for name, output in (("secretKeyRef", "env:\n  - name: API_KEY\n    valueFrom:\n      secretKeyRef:\n        name: app-secrets\n        key: API_KEY\n"),
+                             ("variable", "token: ${GITHUB_TOKEN}"), ("placeholder", "password: <your password>"),
+                             ("counter", "max_output_tokens: 4000")):
+            with self.subTest(name):
+                session = "kohako-g2-ref-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file", args={"path": "/repo/c"}, result=output)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="MARKER_REF_REPLY")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertIn("MARKER_REF_REPLY", body)
+                self.assertNotIn("[withheld", body)
+        self.assertFalse(plugin._withhold('{"cmd": "ls", "max_output_tokens": 12000}'))
+        self.assertTrue(plugin._withhold("cat /run/secrets/token"))
+
+    def test_value_named_only_in_prose_is_masked_wherever_it_is_repeated(self):
+        value = "Zq7" + "plainvalue" + "9"
+        plugin._on_turn_start(session_id="kohako-g2-prose", turn_id="t", user_message="メモを見て")
+        plugin._on_tool(session_id="kohako-g2-prose", turn_id="t", tool_call_id="c", tool_name="read_file",
+                        args={"path": "/repo/notes.md"}, result="note\nthe password is " + value + "\nnext line\nfiller\nother MARKER_PROSE_KEEP")
+        plugin._on_api_response(session_id="kohako-g2-prose", turn_id="t", api_request_id="a",
+                                response={"assistant_message": {"role": "assistant", "content": "here it is " + value}})
+        plugin._on_turn_end(session_id="kohako-g2-prose", turn_id="t", assistant_response="here it is " + json.dumps(value) + " " + urllib.parse.quote(value))
+        plugin._on_session_end(session_id="kohako-g2-prose", turn_id="t", completed=True)
+        run_turn(session="kohako-g2-prose", turn="t2", body="again " + value, tool="todo", args={}, result="ok")
+        body = self._payload()
+        self.assertNotIn(value, body)
+        self.assertNotIn("plainvalue", body)
+        self.assertIn("here it is", body)
+        self.assertIn("MARKER_PROSE_KEEP", body)
+
+    def test_child_exposure_reaches_the_parent(self):
+        value = "Zq7" + "childonly" + "77"
+        plugin._on_turn_start(session_id="kohako-g2-ce", turn_id="t", user_message="go")
+        plugin._on_subagent_start(parent_session_id="kohako-g2-ce", child_session_id="ce-child")
+        plugin._on_turn_start(session_id="ce-child", turn_id="c", user_message="goal", parent_session_id="kohako-g2-ce")
+        plugin._on_tool(session_id="ce-child", turn_id="c", tool_call_id="x", tool_name="read_file",
+                        args={"path": "/etc/app/c.yaml"}, result="api_key: " + value)
+        plugin._on_turn_end(session_id="ce-child", turn_id="c", assistant_response=value)
+        plugin._on_session_end(session_id="ce-child", turn_id="c", completed=True)
+        plugin._on_subagent(parent_session_id="kohako-g2-ce", parent_turn_id="t", child_session_id="ce-child", child_summary=value)
+        plugin._on_turn_end(session_id="kohako-g2-ce", turn_id="t", assistant_response=value)
+        plugin._on_session_end(session_id="kohako-g2-ce", turn_id="t", completed=True)
+        self.assertNotIn(value, self._payload())
+
+    def test_body_policy_counts_are_reported(self):
+        self._ordinary_session("kohako-g2-count")
+        drain()
+        run_turn(session="kohako-g2-count2", args={"path": "/a/.env"}, result="x")
+        drain()
+        stats = plugin.stats()
+        self.assertGreaterEqual(stats.get("bodies_sent", 0), 4)
+        self.assertEqual(stats.get("bodies_withheld_sensitive_source"), 1)
 
 
 if __name__ == "__main__":

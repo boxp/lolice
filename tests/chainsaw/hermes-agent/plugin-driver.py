@@ -56,15 +56,16 @@ def fire_resumed_env_dump(session):
     hooks["post_llm_call"](**common, assistant_response="plainresumevalue")
     hooks["on_session_end"](**common, completed=True)
 
-def fire_value_only_reply(session):
-    # Read from a path nothing flags, with no secret word: the model answers with the bare value.
+def fire_ordinary_read(session, result, reply):
+    # TD-05: an ordinary read and the reply after it stay readable; only evidence of a secret withholds.
     hooks = ctx.hooks
     common = {"session_id": session, "turn_id": "turn"}
-    hooks["pre_llm_call"](**common, user_message="hello")
-    hooks["pre_api_request"](**common, api_request_id="api", request_messages=[{"role": "user", "content": "hello"}])
-    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args={"command": "cat /etc/app/config.yaml"}, result="plainconfigvalue")
-    hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "plainconfigvalue"}})
-    hooks["post_llm_call"](**common, assistant_response="plainconfigvalue")
+    hooks["pre_llm_call"](**common, user_message="readme askmarker")
+    hooks["pre_api_request"](**common, api_request_id="api", request_messages=[{"role": "user", "content": "readme askmarker"}])
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="read_file", args={"path": "/repo/README.md"}, result=result)
+    hooks["pre_api_request"](**common, api_request_id="api2", request_messages=[{"role": "user", "content": "readme askmarker"}, {"role": "tool", "content": result}])
+    hooks["post_api_request"](**common, api_request_id="api2", response={"assistant_message": {"content": reply}})
+    hooks["post_llm_call"](**common, assistant_response=reply)
     hooks["on_session_end"](**common, completed=True)
 
 def fire_free_text(session, text):
@@ -103,10 +104,12 @@ while True:
     fire_env_dump(f"kohako-g2-array-{n}", "cat result.json", {"output": '{"password":["first","plainarrayvalue"]}'})
     fire_resumed_env_dump(f"kohako-g2-resume-{n}")
     fire_env_dump(f"kohako-g2-xml-{n}", "cat config.xml", "<password>plainxmlvalue</password>")
-    fire_env_dump(f"kohako-g2-file-{n}", "cat notes.txt", "plainfilevalue")
+    fire_env_dump(f"kohako-g2-file-{n}", "cat notes.txt", "harmlessfileoutputmarker")
+    fire_env_dump(f"kohako-g2-filesecret-{n}", "cat notes.txt", "db:\n  password: plainfilesecret\n")
     fire_free_text(f"kohako-g2-xmltext-{n}", "<password>\n\n\nplainxmlvalue\n\n\n</password>")
     fire_free_text(f"kohako-g2-prose-{n}", "the password is plainprosevalue")
-    fire_value_only_reply(f"kohako-g2-config-{n}")
+    fire_ordinary_read(f"kohako-g2-read-{n}", "harmlessreadmemarker", "harmlessreplymarker")
+    fire_ordinary_read(f"kohako-g2-readsecret-{n}", "api_key: plainreadsecret", "plainreadsecret")
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
     print(f"round {n}", flush=True)
