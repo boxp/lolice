@@ -212,6 +212,12 @@ _local = threading.local()
 _delegated = collections.OrderedDict()  # session ids started by delegation
 _parents = collections.OrderedDict()  # session id -> the session that delegated (or rotated) to it
 _MAX_LINEAGE = 16
+# Sessions whose withholding reason, pinned values or parent link were evicted from the bounded maps above. A Bloom
+# filter of fixed size (1 MiB) that is never cleared while the process runs: a false positive only withholds an
+# unrelated session (fail-closed), and forgetting a session that saw a secret would send its later bodies unmasked.
+# A restart clears it, as it clears everything else; history from before a restart is scanned again (_note_request).
+_FORGOTTEN_BITS = 1 << 23
+_forgotten = bytearray(_FORGOTTEN_BITS // 8)
 _seen_prompts = {}
 _stats = {}
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
@@ -1059,8 +1065,40 @@ def _note_parent(session, parent):
     with _lock:
         _parents[str(session)] = str(parent)
         _parents.move_to_end(str(session))
-        while len(_parents) > _MAX_SESSIONS:
-            _parents.popitem(last=False)
+        _evict(_parents)  # a child cut from its parent would no longer see the parent's later withholding
+
+
+def _forgotten_slots(session):
+    digest = hashlib.sha256(str(session).encode("utf-8", "replace")).digest()
+    return [int.from_bytes(digest[i:i + 4], "big") % _FORGOTTEN_BITS for i in range(0, 16, 4)]
+
+
+def _forget(session):
+    """Called with _lock held, for a session whose state is evicted."""
+    for slot in _forgotten_slots(session):
+        _forgotten[slot >> 3] |= 1 << (slot & 7)
+    _stats["sessions_state_evicted"] = _stats.get("sessions_state_evicted", 0) + 1
+
+
+def _was_forgotten(session):
+    return all(_forgotten[slot >> 3] >> (slot & 7) & 1 for slot in _forgotten_slots(session))
+
+
+def _evict(table, keep=lambda value: bool(value)):
+    """Bounds a per-session map, called with _lock held. An evicted entry that still mattered is remembered as
+    forgotten, so the session (and the sessions below it) are withheld instead of released."""
+    while len(table) > _MAX_SESSIONS:
+        session, value = table.popitem(last=False)
+        if keep(value):
+            _forget(session)
+
+
+def _touch(session):
+    """Keeps a session in use at the young end of the maps, called with _lock held: only sessions idle while
+    _MAX_SESSIONS others were active are evicted."""
+    for table in (_sessions, _session_values, _parents):
+        if session in table:
+            table.move_to_end(session)
 
 
 def _lineage(session):
@@ -1076,7 +1114,13 @@ def _lineage(session):
 def _tainted(session):
     """The reason later bodies of the session are withheld, or ""."""
     with _lock:
-        return next((_sessions[s] for s in _lineage(session) if _sessions.get(s)), "")
+        for current in _lineage(session):
+            _touch(current)
+            if _sessions.get(current):
+                return _sessions[current]
+            if _was_forgotten(current):
+                return "state_evicted"
+        return ""
 
 
 def _taint(reason, *sessions):
@@ -1089,8 +1133,7 @@ def _taint(reason, *sessions):
                 _sessions[str(session)] = reason
             if session:
                 _sessions.move_to_end(str(session))
-        while len(_sessions) > _MAX_SESSIONS:
-            _sessions.popitem(last=False)
+        _evict(_sessions)  # "" (observed, not withheld) is dropped; a reason is remembered
     _count("sessions_withheld_" + reason)
 
 
@@ -1106,14 +1149,16 @@ def _add_values(values, *sessions):
             _session_values.move_to_end(str(session))
             if len(held) > _MAX_SESSION_VALUES:
                 ok = False
-        while len(_session_values) > _MAX_SESSIONS:
-            _session_values.popitem(last=False)
+        _evict(_session_values)
     return ok
 
 
 def _values_of(*sessions):
     with _lock:
-        return frozenset(v for s in sessions if s for a in _lineage(s) for v in _session_values.get(a, ()))
+        lineage = [a for s in sessions if s for a in _lineage(s)]
+        for current in lineage:
+            _touch(current)
+        return frozenset(v for a in lineage for v in _session_values.get(a, ()))
 
 
 _values_pattern_cache = (None, None)
@@ -1217,8 +1262,8 @@ def _note_request(session, parent, messages):
             _scanned.popitem(last=False)
         if session not in _sessions:
             _sessions[session] = ""
-            while len(_sessions) > _MAX_SESSIONS:
-                _sessions.popitem(last=False)
+        _touch(session)
+        _evict(_sessions)
     for message in fresh:
         # Instructions reach the model like any other text, so a value written there is pinned too. They are not tool
         # output, so describing an environment ("Set PATH=... and HOME=...") is not a dump of it.

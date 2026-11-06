@@ -67,6 +67,12 @@ unobserved is a regression, not a protection.
    or not delimitable to pin, too many values), that observation's body is withheld with a non-body reason
    (`withheld_reason`) and the agent keeps working. A final scan of the serialized batch drops a span that
    still matches. There is no fail-open path that sends an unprocessed body.
+   The per-session state (withholding reason, pinned values, parent link) is kept for the 1024 most recently
+   active sessions. An entry evicted while it still mattered is recorded in a fixed 1 MiB Bloom filter that is
+   not cleared while the process runs, and the session and its descendants are then withheld
+   (`state_evicted`) instead of being released. A false positive only withholds an unrelated session. Known
+   over-withholding: a session idle while 1024 others were active, or a delegated child whose parent link was
+   evicted, is withheld when it resumes.
 
 A regression in 1-4 (a known source or format reaching the sink) is a blocking defect.
 
