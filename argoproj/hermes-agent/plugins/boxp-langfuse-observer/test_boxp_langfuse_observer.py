@@ -887,7 +887,7 @@ class BodyVisibilityTest(unittest.TestCase):
     setUp = ObserverTest.setUp
 
     def _payload(self):
-        return "".join(b for turn in drain() for b in plugin.guarded_payloads(plugin.build_spans(turn)))
+        return "".join(b for turn in drain() for b in plugin.guarded_payloads(plugin.build_spans(turn), plugin._values_pattern(turn.get("values"))))
 
     def _ordinary_session(self, session="kohako-g2-safe"):
         first = "README を読んで要約して MARKER_SAFE_ASK"
@@ -1125,6 +1125,7 @@ class BodyVisibilityTest(unittest.TestCase):
                                    ("block_true", "password:\n  - true\n", "true"), ("xml_none", "<password>none</password>", "none")):
             with self.subTest(name):
                 session = "kohako-g2-literalvalue-" + name
+                dropped = plugin.stats().get("spans_dropped_secret_guard", 0)
                 plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_LITERAL_BEFORE")
                 plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
                                 args={"path": "/repo/c"}, result=output)
@@ -1135,6 +1136,8 @@ class BodyVisibilityTest(unittest.TestCase):
                 self.assertNotRegex(body, r'(?i)"langfuse\.observation\.(?:input|output)", "value": \{"stringValue": "[^"]*(?<![A-Za-z_*])'
                                     + re.escape(word) + r"(?![A-Za-z_*])")
                 self.assertIn("MARKER_LITERAL_BEFORE", body)
+                # The pinned word must not drop spans by matching constant metadata ("none", "true").
+                self.assertEqual(plugin.stats().get("spans_dropped_secret_guard", 0), dropped)
 
     def test_literal_too_short_withholds(self):
         for name, output in (("nil", "password: nil"), ("xxx", "token: xxx"), ("stars", "password: ***")):

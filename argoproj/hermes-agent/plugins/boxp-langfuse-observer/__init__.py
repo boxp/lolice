@@ -120,6 +120,7 @@ def _entry_key(name):
 _SECRET_NAME = re.compile(
     r"(?i)(password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth(?!ors?(?![a-z]))|(?<![a-z])pass(?![a-z]))")
 _NOT_A_CREDENTIAL_NAME = re.compile(r"PWD|OLDPWD")
+_UNSET_VALUE = re.compile(r"(?i)none|null|nil")
 _FLAG_VALUE = re.compile(r"(?i)true|false|yes|no|on|off|none|null|nil|enabled|disabled|0|1")
 # Whole words of the name, at its ends: MINIO_ROOT_PASSWORD holds "min" and SUPPORT_SECRET holds "port".
 _TOGGLE_LAST_WORD = re.compile(r"(?i)enabled?|disabled?|required?|parallelism|rotation")
@@ -269,6 +270,8 @@ def _is_setting(name, value):
     if not words:
         return False
     if _FLAG_VALUE.fullmatch(value):
+        if _UNSET_VALUE.fullmatch(value) and _COUNTER_LAST_WORD.fullmatch(words[-1]):
+            return True  # max_output_tokens: null, token_ttl: none
         return bool(_TOGGLE_LAST_WORD.fullmatch(words[-1]) or _TOGGLE_FIRST_WORD.fullmatch(words[0]))
     return bool(re.fullmatch(r"[0-9]+", value) and _COUNTER_LAST_WORD.fullmatch(words[-1]))
 
@@ -496,12 +499,42 @@ def redact(text, extra=None):
         return "[dropped: redaction error]"
 
 
+# Attributes and span fields this code fills itself (no text of the session): a pinned word is matched against the rest.
+_GENERATED_ATTRIBUTES = re.compile(r"langfuse\.trace\.metadata\.(?:status|coverage\.[\w.]+)|langfuse\.(?:trace\.name|release)|"
+                                   r"langfuse\.observation\.(?:type|level|usage_details)|service\.name")
+_GENERATED_FIELDS = frozenset({"key", "scope", "traceId", "spanId", "parentSpanId", "startTimeUnixNano", "endTimeUnixNano", "kind"})
+
+
+def _payload_values(value, depth=0):
+    """String values of the payload that can carry session text. A pinned word ("value", "none", "false") is masked in
+    every field already; matching it against JSON keys, attribute names and the plugin's own metadata would only drop
+    spans that hold nothing of the session."""
+    if isinstance(value, str):
+        yield value
+    elif depth < 64 and isinstance(value, dict):
+        if isinstance(value.get("key"), str) and _GENERATED_ATTRIBUTES.fullmatch(value["key"]):
+            return
+        for key, item in value.items():
+            if key not in _GENERATED_FIELDS:
+                yield from _payload_values(item, depth + 1)
+    elif depth < 64 and isinstance(value, list):
+        for item in value:
+            yield from _payload_values(item, depth + 1)
+
+
 def _unsafe(serialized, extra=None):
     """Final guard on the JSON text that is about to leave the process."""
     probe = _PLACEHOLDER.sub("", serialized)
     env_pattern = _env_pattern()
-    if (env_pattern and env_pattern.search(probe)) or _LOOSE_SECRET.search(probe) or (extra is not None and extra.search(probe)):
+    if (env_pattern and env_pattern.search(probe)) or _LOOSE_SECRET.search(probe):
         return True
+    if extra is not None:
+        try:
+            values = "\n".join(_payload_values(json.loads(serialized)))
+        except ValueError:
+            return True
+        if extra.search(_PLACEHOLDER.sub("", values)) or extra.search(_PLACEHOLDER.sub("", json.dumps(values))):
+            return True
     for kind, pattern in _PATTERNS:
         if kind in _FIELD_ONLY:
             continue  # JSON-escaped forms; these were applied per field
@@ -522,7 +555,8 @@ def _is_env_dump(result_text):
     return all(pattern.search(result_text) for pattern in _ENV_OUTPUT)
 
 
-_REFERENCE_VALUE = re.compile(r"""(?:\$\{?[\w.-]*\}?|<[^>]*>|\[REDACTED:[a-z_]+\]|\*+|x+|\.\.\.|…|"{2}|'{2})""")
+# A value that only looks empty ("none", "true", "xxxxx", "****") can be the password itself, so it is not a reference.
+_REFERENCE_VALUE = re.compile(r"""(?:\$\{?[\w.-]*\}?|<[^>]*>|\[REDACTED:[a-z_]+\]|\.\.\.|…|"{2}|'{2})""")
 _ASSIGNED = re.compile(r"""^(?P<name>.*?)(?:[:=]|\\+u00(?:3[aA]|3[dD])|[ \t]+)(?P<value>.*)$""", re.S)
 _MAX_EVIDENCE_MATCHES = 200
 
@@ -547,9 +581,10 @@ _STRIP = re.compile(r"""^(?:["'`]|\\+["'nrt]?)+|(?:["'`,;]|\\+["'nrt]?)+$""")
 _STOPWORD = re.compile(r"(?i)https?|user|username|name|value|key|ref|from|data|true|false|null|none")
 # Only plain words stand alone as a value: "name:" (a key) and data["token"] (an expression) are structure.
 _PLAIN_VALUE = re.compile(r"[\w.+/-]+(?:[ \t]+[\w.+/-]+)*")
-# Literals mean "no value" (password: none, token is None); they are never taken as the value.
-_LITERAL = re.compile(r"(?i)true|false|null|none|nil")
-_REFERENCE = re.compile(r"""(?i)\$\{?[\w.-]*\}?|<[^>]*>|\{\{[^}]*\}\}|\[REDACTED:[a-z_]+\]|\*+|x{3,}|\.\.\.|…|-|\|""")
+# A literal (true, none) or a masked-looking run (xxxxx, ****) taken alone is the value, not "no value": a password can
+# be any of them and cannot be told from a placeholder. Pinning masks only that word later in the session; a setting
+# (PASSWORD_REQUIRED=true, max_output_tokens: null) is left alone by _is_setting.
+_REFERENCE = re.compile(r"""(?i)\$\{?[\w.-]*\}?|<[^>]*>|\{\{[^}]*\}\}|\[REDACTED:[a-z_]+\]|\.\.\.|…|-|\|""")
 
 
 def _strip(value):
@@ -586,7 +621,7 @@ def _token_values(raw):
         tokens = [t for t in words if not _reference(t)]
         if words and _PLAIN_VALUE.fullmatch(value) and all(_STOPWORD.fullmatch(t) for t in words):
             # Nothing but structural words: they are the value ("password: value"), not keys around one.
-            tokens = [t for t in words if not _LITERAL.fullmatch(t)]
+            tokens = words
         # Every word is pinned, plain or not: the model can repeat any one of a several-word value alone.
         for token in tokens:
             if not token.isascii():
@@ -719,7 +754,7 @@ def _prose_candidates(line, cut):
         return values
     # Nothing but structural words: they are the value ("the password is value"), as in _token_values, unless one is
     # a key or an expression ("name:", data["token"]).
-    return [t for t, end in words if not _LITERAL.fullmatch(t) and not _STRUCTURE_AFTER.match(line, end)]
+    return [t for t, end in words if not _STRUCTURE_AFTER.match(line, end)]
 
 
 def _prose_values(text):
@@ -744,6 +779,9 @@ def _prose_values(text):
         cuts += [end for _, end, t in spans if _secret_name(t)]
         cut = min(cuts) if cuts else len(line)
         candidates = _prose_candidates(line, cut)
+        names = [t for _, end, t in spans if end == cut and _secret_name(t)]
+        if names and len(candidates) == 1 and _is_setting(names[0], candidates[0]):
+            candidates = []  # PASSWORD_REQUIRED=true, token_ttl: none
         following = _PLACEHOLDER.sub(" ", lines[i + 1] if i + 1 < len(lines) else "")
         if cuts and not candidates and _SEPARATOR_END.search(line[cut:]):
             # "password:" then the value on the next line.
@@ -1292,7 +1330,7 @@ def build_spans(turn):
         _attr("langfuse.trace.metadata.coverage.provider_payload", "system prompt and last messages of each attempt"),
         _attr("langfuse.trace.metadata.coverage.g2_realtime", "delegated text only; realtime voice session not observed"),
         _attr("langfuse.trace.metadata.coverage.tool_bodies", "all tools, masked and truncated; withheld only for a sensitive source or after a sensitive value reached the model (body_policy)"),
-        _attr("langfuse.trace.metadata.coverage.withheld_reason", turn.get("tainted") or "none"),
+        _attr("langfuse.trace.metadata.coverage.withheld_reason", turn.get("tainted") or "not_withheld"),
         _attr("langfuse.trace.metadata.coverage.session_values_masked", str(len(turn.get("values") or ()))),
         _attr("langfuse.trace.metadata.coverage.truncated", str(turn["truncated"]).lower()),
         _attr("langfuse.trace.metadata.coverage.withheld_after_tool_output", str(bool(turn.get("tainted"))).lower()),
