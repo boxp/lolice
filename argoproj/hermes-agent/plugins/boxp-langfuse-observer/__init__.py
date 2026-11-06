@@ -619,9 +619,10 @@ def _token_values(raw):
         # Tokens are checked one by one: a nested value such as {"token": "..."} names a secret and holds one.
         words = [t for t in (_strip(t) for t in _TOKEN_SPLIT.split(value)) if t]
         tokens = [t for t in words if not _reference(t)]
-        if words and _PLAIN_VALUE.fullmatch(value) and all(_STOPWORD.fullmatch(t) for t in words):
-            # Nothing but structural words: they are the value ("password: value"), not keys around one.
-            tokens = words
+        if words and _PLAIN_VALUE.fullmatch(value):
+            # Plain words carry no structure, so a structural word among them is part of the value ("password: value",
+            # "password: value horsestaple"), not a key around one: it can be repeated alone.
+            tokens = [t for t in words if not _LOOSE_SECRET.search(t) and not _REFERENCE.fullmatch(t)]
         # Every word is pinned, plain or not: the model can repeat any one of a several-word value alone.
         for token in tokens:
             if not token.isascii():
@@ -749,12 +750,9 @@ def _prose_candidates(line, cut):
     matches = [(m.group(0).strip(".-/+"), m.end()) for m in _PROSE_TOKEN.finditer(line, cut)]
     words = [(t, end) for t, end in matches if t and not _CONNECTIVE.fullmatch(t) and not _JA_CONNECTIVE.fullmatch(t)
              and not _secret_name(t) and not _REFERENCE.fullmatch(t)]
-    values = [t for t, _ in words if not _STOPWORD.fullmatch(t)]
-    if values:
-        return values
-    # Nothing but structural words: they are the value ("the password is value"), as in _token_values, unless one is
-    # a key or an expression ("name:", data["token"]).
-    return [t for t, end in words if not _STRUCTURE_AFTER.match(line, end)]
+    # A structural word is a candidate like any other ("the password is value horsestaple": the model can repeat
+    # "value" alone), unless it is a key or an expression ("name:", data["token"]), as in _token_values.
+    return [t for t, end in words if not (_STOPWORD.fullmatch(t) and _STRUCTURE_AFTER.match(line, end))]
 
 
 def _prose_values(text):
