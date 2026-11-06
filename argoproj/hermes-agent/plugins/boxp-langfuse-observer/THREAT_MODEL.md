@@ -79,6 +79,9 @@ unobserved is a regression, not a protection.
    still matches. There is no fail-open path that sends an unprocessed body.
    A withheld tool call keeps no text of its input in metadata either: no path, program or argument name,
    only the argument count and size, because after an exposure the model can pass the value on as a path.
+   The tool name is model-chosen text as well: once the session lineage is withheld, a later call is sent as
+   `tool (name withheld)` (`name_withheld`), since the model could pass the value on as the name of a call.
+   The call that reads the source itself was named before the exposure and keeps its name.
    The per-session state (withholding reason, pinned values, parent link) is kept for the 1024 most recently
    active sessions. An entry evicted while it still mattered is recorded in a fixed 1 MiB Bloom filter that is
    not cleared while the process runs, and the session and its descendants are then withheld

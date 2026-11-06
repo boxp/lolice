@@ -1503,6 +1503,9 @@ def _tool_input_view(args):
     return {"arg_count": len(args) if isinstance(args, (dict, list, tuple)) else None, **_size(args)}
 
 
+_WITHHELD_TOOL_NAME = "tool (name withheld)"
+
+
 @_guarded
 def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, args=None, result=None, duration_ms=None,
              status=None, error_type=None):
@@ -1528,11 +1531,16 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
     now = time.time()
     hidden = (_WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else
               _WITHHELD_UNPINNED if exposure else None)
-    _add(turn, {"key": "tool:" + str(tool_call_id or now), "name": str(tool_name), "type": "tool",
+    # The tool name is model-chosen text as well: once the session has seen a withheld value it could carry that
+    # value as the "name" of a later call (THREAT_MODEL.md 4.), so it is replaced like the body. The call that reads
+    # a source itself was named before the exposure and keeps its name.
+    _add(turn, {"key": "tool:" + str(tool_call_id or now), "name": _WITHHELD_TOOL_NAME if already else str(tool_name),
+                "type": "tool",
                 "input": hidden or args, "output": hidden or result,
                 "start": now - (duration_ms or 0) / 1000, "end": now,
                 "level": "ERROR" if error_type or status in ("error", "failed") else None,
                 "metadata": {"status": status, "error_type": error_type, "withheld": bool(hidden), "body_policy": policy,
+                             "name_withheld": bool(already),
                              "exposure": exposure, "view": _tool_input_view(args) if hidden in (_WITHHELD_SESSION, _WITHHELD_UNPINNED) else None,
                              "size": _size(result)}})
 
