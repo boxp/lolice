@@ -54,9 +54,9 @@ spec:
           done
           test "$(identity)" = "$before" || { echo 'FAIL: 鍵の反映で Pod が再起動した'; exit 1; }
           # A round sends many sessions; the checks below need a whole round, not just its first session. Wait until the
-          # round's last session (jasentencereplymarker) arrived, or 90s; a missing marker then fails the positive check.
+          # round's last sessions (jasentencereplymarker, evictkeepmarker) arrived, or 90s; a missing marker then fails the positive check.
           deadline=$(( $(date +%s) + 90 ))
-          until kubectl exec -n "$ns" deployment/sink -- python -c 'import json,sys; body="".join(json.loads(x)["body"] for x in open("/tmp/requests.jsonl")); sys.exit(not all(m in body for m in ("jasentencereplymarker", "delegatedgoalmarker", "childbodymarker")))' 2>/dev/null; do
+          until kubectl exec -n "$ns" deployment/sink -- python -c 'import json,sys; body="".join(json.loads(x)["body"] for x in open("/tmp/requests.jsonl")); sys.exit(not all(m in body for m in ("jasentencereplymarker", "delegatedgoalmarker", "childbodymarker", "evictkeepmarker")))' 2>/dev/null; do
             [ "$(date +%s)" -lt "$deadline" ] || break
             sleep 2
           done
