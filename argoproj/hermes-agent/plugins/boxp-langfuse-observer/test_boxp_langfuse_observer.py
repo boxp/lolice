@@ -1101,7 +1101,11 @@ class BodyVisibilityTest(unittest.TestCase):
                                    ("eq_basic", "DB_PASSWORD=basic", "basic"), ("dict_negotiate", {"token": "negotiate"}, "negotiate"),
                                    ("yaml_value", "password: value", "value"), ("prose_data", "the secret is data", "data"),
                                    ("block_bearer", "password:\n  - bearer\n", "bearer"), ("ja_bearer", "パスワードは bearer です", "bearer"),
-                                   ("multi_bearer", "password: bearer horsestaple", "bearer")):
+                                   ("multi_bearer", "password: bearer horsestaple", "bearer"),
+                                   ("prose_mixed_value", "the password is value horsestaple", "value"),
+                                   ("yaml_mixed_value", "password: value horsestaple", "value"),
+                                   ("eq_mixed_data", "DB_PASSWORD='data horsestaple'", "data"),
+                                   ("prose_mixed_user", "the secret is horsestaple user", "user")):
             with self.subTest(name):
                 session = "kohako-g2-stopvalue-" + name
                 plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_STOPVALUE_BEFORE")
