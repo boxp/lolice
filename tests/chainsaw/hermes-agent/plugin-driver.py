@@ -140,6 +140,32 @@ def fire_running_child(parent, child):
     hooks["on_session_end"](**common, completed=True)
     hooks["on_session_end"](**parent_common, completed=True)
 
+def fire_sensitive_call(session):
+    # The reply that asks to write .env is kept before the tool hook fires; its call arguments carry the value.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="write settings")
+    hooks["pre_api_request"](**common, api_request_id="api", request_messages=[{"role": "user", "content": "write settings"}])
+    hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "writing", "tool_calls": [
+        {"id": "c", "type": "function", "function": {"name": "write_file", "arguments": '{"path": "/app/.env", "content": "X=envcallvaluezz"}'}}]}})
+    hooks["post_llm_call"](**common, assistant_response="done")
+    hooks["on_session_end"](**common, completed=True)
+
+def fire_grandchild_source(top, mid, low):
+    # A grandchild reads a sensitive source; the grandparent repeats the value before the middle session finishes.
+    hooks = ctx.hooks
+    hooks["pre_llm_call"](session_id=top, turn_id="turn", user_message="delegate")
+    hooks["subagent_start"](parent_session_id=top, parent_turn_id="turn", child_session_id=mid, child_role="orchestrator", child_goal="work")
+    hooks["pre_llm_call"](session_id=mid, turn_id="turn", user_message="midgoal", platform="", parent_session_id=top)
+    hooks["subagent_start"](parent_session_id=mid, parent_turn_id="turn", child_session_id=low, child_role="leaf", child_goal="work")
+    hooks["pre_llm_call"](session_id=low, turn_id="turn", user_message="lowgoal", platform="", parent_session_id=mid)
+    hooks["post_tool_call"](session_id=low, turn_id="turn", tool_call_id="env", tool_name="read_file", args={"path": "/app/.env"},
+                            result="value grandsourcevaluezz")
+    hooks["post_llm_call"](session_id=top, turn_id="turn", assistant_response="grandsourcevaluezz")
+    hooks["on_session_end"](session_id=top, turn_id="turn", completed=True)
+    hooks["on_session_end"](session_id=low, turn_id="turn", completed=True)
+    hooks["on_session_end"](session_id=mid, turn_id="turn", completed=True)
+
 n = 0
 while True:
     n += 1
@@ -180,6 +206,8 @@ while True:
     fire_ordinary_read(f"kohako-g2-readjasentence-{n}", "パスワードを設定してください", "jasentencereplymarker")
     fire_instructions(f"kohako-g2-instructions-{n}")
     fire_running_child(f"kohako-g2-runparent-{n}", f"runchild-{n}")
+    fire_sensitive_call(f"kohako-g2-envcall-{n}")
+    fire_grandchild_source(f"kohako-g2-grandtop-{n}", f"grandmid-{n}", f"grandlow-{n}")
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")

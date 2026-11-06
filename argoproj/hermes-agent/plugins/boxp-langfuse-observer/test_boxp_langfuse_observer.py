@@ -1388,6 +1388,51 @@ class BodyVisibilityTest(unittest.TestCase):
         plugin._on_session_end(session_id="kohako-g2-ce", turn_id="t", completed=True)
         self.assertNotIn(value, self._payload())
 
+    def test_tool_call_to_a_sensitive_path_in_a_reply_is_not_sent(self):
+        # The reply that asks for the call is kept before the tool hook fires; its arguments must be checked there.
+        value = "Zq7" + "envwritebody" + "42"
+        for name, message in (
+            ("openai", {"role": "assistant", "content": "書きます MARKER_CALL_TEXT", "tool_calls": [
+                {"id": "c", "type": "function", "function": {"name": "write_file",
+                                                            "arguments": json.dumps({"path": "/app/.env", "content": "X=" + value})}}]}),
+            ("anthropic", {"role": "assistant", "content": [
+                {"type": "text", "text": "書きます MARKER_CALL_TEXT"},
+                {"type": "tool_use", "name": "write_file", "input": {"path": "/app/.env", "content": "X=" + value}}]}),
+        ):
+            with self.subTest(name):
+                session = "kohako-g2-envcall-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="設定を書いて MARKER_CALL_ASK")
+                plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a",
+                                       request_messages=[{"role": "user", "content": "設定を書いて"}])
+                plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                        response={"assistant_message": message})
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="done")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn(value, body)
+                self.assertNotIn("envwritebody", body)
+                self.assertIn("MARKER_CALL_ASK", body)  # what came before the call stays readable
+                self.assertIn("withheld_sensitive_source", body)
+
+    def test_grandchild_exposure_reaches_the_grandparent(self):
+        # Withholding goes up the whole recorded lineage, not only to the direct parent.
+        value = "Zq7" + "grandsource" + "88"
+        top, mid, low = "kohako-g2-gp", "gp-child", "gp-grandchild"
+        plugin._on_turn_start(session_id=top, turn_id="t", user_message="go MARKER_GP_ASK")
+        plugin._on_subagent_start(parent_session_id=top, child_session_id=mid)
+        plugin._on_turn_start(session_id=mid, turn_id="m", user_message="goal", parent_session_id=top)
+        plugin._on_subagent_start(parent_session_id=mid, child_session_id=low)
+        plugin._on_turn_start(session_id=low, turn_id="l", user_message="goal", parent_session_id=mid)
+        plugin._on_tool(session_id=low, turn_id="l", tool_call_id="x", tool_name="read_file",
+                        args={"path": "/app/.env"}, result="value " + value)
+        # The grandparent repeats the value (e.g. relayed by a progress note) before the middle child finishes.
+        plugin._on_turn_end(session_id=top, turn_id="t", assistant_response=value)
+        plugin._on_session_end(session_id=top, turn_id="t", completed=True)
+        body = self._payload()
+        self.assertNotIn(value, body)
+        self.assertIn("MARKER_GP_ASK", body)
+        self.assertEqual(plugin._tainted(top), "sensitive_source")
+
     def test_body_policy_counts_are_reported(self):
         self._ordinary_session("kohako-g2-count")
         drain()
