@@ -1017,6 +1017,13 @@ class BodyVisibilityTest(unittest.TestCase):
                 self.assertNotIn("[withheld", body)
         self.assertFalse(plugin._withhold('{"cmd": "ls", "max_output_tokens": 12000}'))
         self.assertTrue(plugin._withhold("cat /run/secrets/token"))
+        for args in ('{"path": "/tmp/tokens.json"}', '{"cmd": "cat tokens.json"}', '{"path": "/var/lib/app/tokens"}',
+                     '{"path": "C:\\\\app\\\\tokens.yaml"}', '{"cmd": "cat ./refresh_tokens.txt"}'):
+            with self.subTest(args):
+                self.assertTrue(plugin._withhold(args))
+        for args in ('{"cmd": "ls", "max_output_tokens": 12000}', '{"cmd": "grep -n input_tokens usage.log"}'):
+            with self.subTest(args):
+                self.assertFalse(plugin._withhold(args))
 
     def test_structured_tool_output_keys_are_scanned(self):
         # A dict result keeps the secret name only as a key; the value repeated alone must still be masked.
@@ -1088,7 +1095,9 @@ class BodyVisibilityTest(unittest.TestCase):
     def test_short_value_withholds_later_bodies(self):
         # A value under 4 characters cannot be masked wherever it appears again, so the session is withheld.
         for name, line in (("yaml", "password: abc"), ("prose", "the password is abc"), ("ja", "パスワードはabcです"),
-                           ("flag", "mycli --password abc"), ("dict", {"token": "abc"})):
+                           ("flag", "mycli --password abc"), ("dict", {"token": "abc"}),
+                           ("later_word", "password: alpha abc"), ("later_prose", "the password is alpha abc"),
+                           ("past_cap", "password: " + " ".join("word%02dx" % i for i in range(70)) + " abc")):
             with self.subTest(name):
                 session = "kohako-g2-short-" + name
                 plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_SHORT_BEFORE")

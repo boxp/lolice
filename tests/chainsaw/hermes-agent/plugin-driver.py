@@ -56,13 +56,13 @@ def fire_resumed_env_dump(session):
     hooks["post_llm_call"](**common, assistant_response="plainresumevalue")
     hooks["on_session_end"](**common, completed=True)
 
-def fire_ordinary_read(session, result, reply):
+def fire_ordinary_read(session, result, reply, path="/repo/README.md"):
     # TD-05: an ordinary read and the reply after it stay readable; only evidence of a secret withholds.
     hooks = ctx.hooks
     common = {"session_id": session, "turn_id": "turn"}
     hooks["pre_llm_call"](**common, user_message="readme askmarker")
     hooks["pre_api_request"](**common, api_request_id="api", request_messages=[{"role": "user", "content": "readme askmarker"}])
-    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="read_file", args={"path": "/repo/README.md"}, result=result)
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="read_file", args={"path": path}, result=result)
     hooks["pre_api_request"](**common, api_request_id="api2", request_messages=[{"role": "user", "content": "readme askmarker"}, {"role": "tool", "content": result}])
     hooks["post_api_request"](**common, api_request_id="api2", response={"assistant_message": {"content": reply}})
     hooks["post_llm_call"](**common, assistant_response=reply)
@@ -125,6 +125,8 @@ while True:
     fire_ordinary_read(f"kohako-g2-readdict-{n}", {"data": {"auth": {"token": "plaindictvalue"}}}, "plaindictvalue")
     fire_ordinary_read(f"kohako-g2-readlower-{n}", "the password is lowerprosevalue", "lowerprosevalue")
     fire_ordinary_read(f"kohako-g2-readshort-{n}", "password: qzv", "qzv")
+    fire_ordinary_read(f"kohako-g2-readshortlater-{n}", "password: alpha qzw", "qzw")
+    fire_ordinary_read(f"kohako-g2-readtokenfile-{n}", '{"refresh": "opaquefilevaluezz"}', "opaquefilevaluezz", path="/tmp/tokens.json")
     fire_ordinary_read(f"kohako-g2-readlarge-{n}", "the password is plainfarvalue\n" + "line\n" * 20 + "plainfarvalue\n" + "filler line\n" * 30000, "ok")
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
     fire_delegation(f"kohako-g2-delegation-{n}")
