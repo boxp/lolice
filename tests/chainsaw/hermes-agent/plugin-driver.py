@@ -125,6 +125,8 @@ while True:
     fire_ordinary_read(f"kohako-g2-readdict-{n}", {"data": {"auth": {"token": "plaindictvalue"}}}, "plaindictvalue")
     fire_ordinary_read(f"kohako-g2-readlower-{n}", "the password is lowerprosevalue", "lowerprosevalue")
     fire_ordinary_read(f"kohako-g2-readshort-{n}", "password: qzv", "qzv")
+    fire_ordinary_read(f"kohako-g2-readja-{n}", "パスワードは ひみつのもじれつ", "ひみつのもじれつ")
+    fire_ordinary_read(f"kohako-g2-readjaunspaced-{n}", "パスワードはひみつのもじれつです", "ひみつのもじれつ")
     fire_ordinary_read(f"kohako-g2-readshortlater-{n}", "password: alpha qzw", "qzw")
     fire_ordinary_read(f"kohako-g2-readtokenfile-{n}", '{"refresh": "opaquefilevaluezz"}', "opaquefilevaluezz", path="/tmp/tokens.json")
     fire_ordinary_read(f"kohako-g2-readlarge-{n}", "the password is plainfarvalue\n" + "line\n" * 20 + "plainfarvalue\n" + "filler line\n" * 30000, "ok")

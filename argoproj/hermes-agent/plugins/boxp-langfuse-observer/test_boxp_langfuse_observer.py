@@ -1112,6 +1112,41 @@ class BodyVisibilityTest(unittest.TestCase):
                 self.assertIn("MARKER_SHORT_BEFORE", body)
                 self.assertIn('withheld_reason", "value": {"stringValue": "short_value"}', body)
 
+    def test_non_ascii_value_named_by_a_secret_word_withholds_later_bodies(self):
+        # Unspaced text has no word boundary to pin a value by, so a non-ASCII value after a secret word withholds.
+        value = "秘密のもじれつ"
+        for name, line in (("ja_spaced", "パスワードは " + value), ("ja_unspaced", "パスワードは" + value + "です"),
+                           ("ja_fullwidth_colon", "パスワード：" + value), ("en_word", "password: " + value),
+                           ("en_prose", "the password is " + value), ("next_line", "パスワード：\n" + value),
+                           ("ascii_next_line", "password:\n" + value)):
+            with self.subTest(name):
+                session = "kohako-g2-nonascii-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_NONASCII_BEFORE")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=line)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=value)
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                run_turn(session=session, turn="t2", body="again " + value, tool="todo", args={}, result="ok")
+                body = self._payload()
+                self.assertNotIn(value, body)
+                self.assertNotIn("もじれつ", body)
+                self.assertIn("MARKER_NONASCII_BEFORE", body)
+                self.assertIn('withheld_reason", "value": {"stringValue": "unpinned_value"}', body)
+
+    def test_japanese_particles_around_an_ascii_value_still_pin_it(self):
+        for name, line in (("spaced", "パスワードは correcthorsebattery です"), ("unspaced", "パスワードはcorrecthorsebatteryです"),
+                           ("next_line", "パスワード：\ncorrecthorsebattery")):
+            with self.subTest(name):
+                session = "kohako-g2-japarticle-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=line)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="correcthorsebattery MARKER_JA_KEEP")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn("correcthorsebattery", body)
+                self.assertIn("MARKER_JA_KEEP", body)
+
     def test_prose_mentions_without_a_value_do_not_withhold(self):
         for line in ("if token is None:", "    pass", "name: app-secrets", "max_output_tokens: 4000",
                      "token: ${GITHUB_TOKEN}", "Reset your password from the settings page"):
