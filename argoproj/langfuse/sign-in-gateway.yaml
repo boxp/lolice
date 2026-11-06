@@ -39,7 +39,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: gateway
-          image: docker.io/langfuse/langfuse:4.75.0
+          image: docker.io/langfuse/langfuse:4.76.0
           command: ["node", "--max-old-space-size=48", "/gateway/sign-in-gateway.mjs"]
           env:
             - name: LANGFUSE_WEB_URL
