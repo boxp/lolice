@@ -1,3 +1,4 @@
+import base64
 import html
 import importlib.util
 import inspect
@@ -1247,6 +1248,50 @@ class BodyVisibilityTest(unittest.TestCase):
                 plugin._on_session_end(session_id=session, turn_id="t", completed=True)
                 body = self._payload()
                 self.assertIn("MARKER_MENTION_REPLY", body)
+                self.assertNotIn("[withheld", body)
+
+    def test_plain_value_before_a_secret_word_is_pinned(self):
+        # "X is my password": the model can repeat X alone, plain or encoded, so X is masked in every later field.
+        for name, line in (("is_my", "correcthorsebattery is my password"), ("was_the", "correcthorsebattery was the token"),
+                           ("sentence", "remember: correcthorsebattery is our api_key now")):
+            with self.subTest(name):
+                session = "kohako-g2-before-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_BEFORE_KEEP")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=line)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="correcthorsebattery "
+                                    + base64.b64encode(b"correcthorsebattery").decode() + " MARKER_BEFORE_REPLY")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn("correcthorsebattery", body)
+                self.assertNotIn(base64.b64encode(b"correcthorsebattery").decode()[:20], body)
+                self.assertIn("MARKER_BEFORE_KEEP", body)
+                self.assertIn("MARKER_BEFORE_REPLY", body)
+        session = "kohako-g2-before-short"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")
+        plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                        args={"path": "/repo/c"}, result="qzv is my password")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="qzv")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = self._payload()
+        self.assertNotRegex(body, r"(?<![A-Za-z])qzv(?![A-Za-z])")
+        self.assertIn('withheld_reason", "value": {"stringValue": "short_value"}', body)
+
+    def test_secret_word_in_an_ordinary_sentence_keeps_the_session_readable(self):
+        # TD-07: a mention of a secret word is not evidence; only a separator names a value.
+        for line in ("パスワードを設定してください", "トークンを再発行しました", "What is your password policy?",
+                     "This is the token endpoint"):
+            with self.subTest(line):
+                session = "kohako-g2-sentence-" + str(abs(hash(line)))
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_SENTENCE_ASK")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=line)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="MARKER_SENTENCE_REPLY")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                run_turn(session=session, turn="t2", body="MARKER_SENTENCE_NEXT", tool="todo", args={}, result="ok")
+                body = self._payload()
+                for marker in ("MARKER_SENTENCE_ASK", "MARKER_SENTENCE_REPLY", "MARKER_SENTENCE_NEXT"):
+                    self.assertIn(marker, body)
                 self.assertNotIn("[withheld", body)
 
     def test_each_word_of_a_multi_line_block_value_is_pinned(self):
