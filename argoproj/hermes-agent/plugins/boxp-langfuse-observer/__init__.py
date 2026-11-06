@@ -350,7 +350,9 @@ def _encoded_forms(value):
     # base64url differs only in two characters, so one pattern takes both alphabets.
     url_safe = {"+": "(?:" + _encoded_char("+") + "|-)", "/": "(?:" + _encoded_char("/") + "|_)"}
     patterns = [_value_pattern(form, url_safe) for form in sorted(forms) if len(form) >= _MIN_PINNED and form != value]
-    if len(value) >= _MIN_PINNED and value[::-1] != value:
+    # Reversed at every length: a short value pinned from a reply ("the password is qzv") is as easy to hand back
+    # reversed ("vzq"). A short ASCII session value is matched as a word of its own, its reverse included.
+    if value[::-1] != value:
         patterns.append(_value_pattern(value[::-1]))
     return patterns + ["(?i:" + _value_pattern(raw.hex()) + ")"]  # hex digits in either case
 

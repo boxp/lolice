@@ -49,7 +49,9 @@ unobserved is a regression, not a protection.
    strings, values of this process's environment.
 3. Values pinned from 2.: a value identified next to a secret name (assignment, element, prose with a
    separator or a copula, e.g. "the password is X", "X is my password") is masked in every later field of
-   the session lineage, including its JSON/HTML/percent escapes, Base64/base64url/hex and reversed forms.
+   the session lineage, including its JSON/HTML/percent escapes, Base64/base64url/hex and reversed forms
+   (reversed at every length: a 2-3 character value pinned from a reply is matched reversed as a word of its own;
+   a short environment value, reversed or not, matches anywhere).
    Every Base64/base64url/hex-looking run is also decoded (4 alignments for Base64, 2 for hex); when the
    decoded text reads as text and contains a pinned or environment value anywhere ("xqzvy" -> `eHF6dnk=`
    for a pinned `qzv`), the whole run is masked. Known over-masking: such an encoded run is blanked even
