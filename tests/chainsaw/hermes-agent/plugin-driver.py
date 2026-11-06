@@ -1,4 +1,5 @@
 import importlib.util
+import base64
 import os
 import time
 
@@ -103,6 +104,17 @@ def fire_delegated_child(parent, child):
     hooks["pre_llm_call"](**common, user_message="childbodymarker", platform="", parent_session_id=parent)
     hooks["on_session_end"](**common, completed=True)
 
+def fire_instructions(session):
+    # A value written in the system prompt reaches the model like any other text, and the model repeats it alone.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="what is it")
+    hooks["pre_api_request"](**common, api_request_id="api", system_prompt="rules\npassword: sysinstrvalue\n\nmore\nrules",
+                             request_messages=[{"role": "system", "content": "the password is devinstrvalue"}, {"role": "user", "content": "what is it"}])
+    hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "sysinstrvalue devinstrvalue"}})
+    hooks["post_llm_call"](**common, assistant_response="sysinstrvalue devinstrvalue")
+    hooks["on_session_end"](**common, completed=True)
+
 def fire_running_child(parent, child):
     # The parent sees a secret while its child is already running, then the child repeats it.
     hooks = ctx.hooks
@@ -150,6 +162,8 @@ while True:
     fire_ordinary_read(f"kohako-g2-readliteral-{n}", "password: xxxxxxxxxxxx", "xxxxxxxxxxxx")
     fire_ordinary_read(f"kohako-g2-readmixedstop-{n}", "the password is username horsestaplezz", "username")
     fire_ordinary_read(f"kohako-g2-readblockword-{n}", "password:\n  - firstvalue\n  - blockwordleak horse battery\n", "blockwordleak")
+    fire_ordinary_read(f"kohako-g2-readbase64-{n}", "password: b64leakvaluezz", base64.b64encode(b"b64leakvaluezz").decode())
+    fire_instructions(f"kohako-g2-instructions-{n}")
     fire_running_child(f"kohako-g2-runparent-{n}", f"runchild-{n}")
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
     fire_delegation(f"kohako-g2-delegation-{n}")

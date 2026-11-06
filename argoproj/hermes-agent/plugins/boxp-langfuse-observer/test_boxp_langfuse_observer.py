@@ -1350,5 +1350,81 @@ class BodyVisibilityTest(unittest.TestCase):
         self.assertNotIn(value, body)
         self.assertIn("MARKER_REWRITE_REPLY", body)
 
+    def test_value_in_system_or_developer_instructions_is_pinned(self):
+        # Instructions reach the model like any other text: a value written there can be repeated alone.
+        value = "correcthorse" + "battery"
+        cases = {
+            "system_message": ({"request_messages": [{"role": "system", "content": "notes\npassword: " + value + "\n\nmore\nrules"},
+                                                     {"role": "user", "content": "what is it"}]}),
+            "developer_message": ({"request_messages": [{"role": "developer", "content": [{"type": "input_text", "text": "the password is " + value}]},
+                                                        {"role": "user", "content": "what is it"}]}),
+            "system_prompt": ({"system_prompt": "rules\npassword: " + value + "\n\nmore\nrules",
+                               "request_messages": [{"role": "user", "content": "what is it"}]}),
+        }
+        for name, request in cases.items():
+            with self.subTest(name):
+                session = "kohako-g2-instr-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="what is it")
+                plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", **request)
+                plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                        response={"assistant_message": {"role": "assistant", "content": value}})
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=value + " MARKER_INSTR_KEEP")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn(value, body)
+                self.assertIn("MARKER_INSTR_KEEP", body)
+
+    def test_ordinary_instructions_stay_readable(self):
+        # Positive control: instructions without a secret value are sent and do not withhold the session.
+        session = "kohako-g2-instr-plain"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello MARKER_INSTR_ASK")
+        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", system_prompt="You are Kohako. Answer briefly. MARKER_INSTR_SYS",
+                               request_messages=[{"role": "system", "content": "Set PATH=/usr/bin and HOME=/root in the sandbox."},
+                                                 {"role": "user", "content": "hello MARKER_INSTR_ASK"}])
+        plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                response={"assistant_message": {"role": "assistant", "content": "hi MARKER_INSTR_REPLY"}})
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="hi MARKER_INSTR_REPLY")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = self._payload()
+        for marker in ("MARKER_INSTR_ASK", "MARKER_INSTR_SYS", "MARKER_INSTR_REPLY"):
+            self.assertIn(marker, body)
+
+    def test_encoded_repeat_of_a_pinned_value_is_masked(self):
+        # The model can hand a seen value back in another encoding: base64 (aligned anywhere in a longer run), base64url,
+        # hex and reversed.
+        import base64 as b64
+        import binascii
+        value = "correcthorse" + "battery"
+        raw = value.encode()
+        forms = {
+            "base64": b64.b64encode(raw).decode(),
+            "base64_unpadded": b64.b64encode(raw).decode().rstrip("="),
+            "base64_offset1": b64.b64encode(b"x" + raw + b"y").decode(),
+            "base64_offset2": b64.b64encode(b"xy" + raw + b"z").decode(),
+            "base64url": b64.urlsafe_b64encode(b"\xff" + raw).decode(),
+            "hex": binascii.hexlify(raw).decode(),
+            "hex_upper": binascii.hexlify(raw).decode().upper(),
+            "reversed": value[::-1],
+        }
+        for name, encoded in forms.items():
+            with self.subTest(name):
+                session = "kohako-g2-enc-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="メモを見て")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/notes.md"}, result="note\npassword: " + value + "\n\nfiller\nother")
+                plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                        response={"assistant_message": {"role": "assistant", "content": encoded}})
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=encoded + " MARKER_ENC_KEEP")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn(encoded, body)
+                self.assertIn("MARKER_ENC_KEEP", body)
+
+    def test_encoded_environment_value_is_masked(self):
+        import base64 as b64
+        encoded = b64.b64encode(ENV_SECRET.encode()).decode()
+        self.assertNotIn(encoded, plugin.redact("here: " + encoded))
+        self.assertNotIn(ENV_SECRET[::-1], plugin.redact("here: " + ENV_SECRET[::-1]))
+
 if __name__ == "__main__":
     unittest.main()
