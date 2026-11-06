@@ -92,7 +92,8 @@ unobserved is a regression, not a protection.
    so whatever the worker holds, retries or drops is already masked. Non-text span fields are copied by an
    allow-list: the span key (which carries hook-supplied tool_call_id / api_request_id / child session ids) is
    replaced by its sha256 digest, usage keeps only the known numeric counters, type/level/timestamps are
-   normalised, and ticket ids must match BOXP-N. If masking raises, nothing is queued
+   normalised, and ticket ids must match BOXP-N and be left unchanged by the masking (a pinned or environment
+   value shaped like BOXP-N is dropped from the tickets/tags instead of copied). If masking raises, nothing is queued
    (`turns_dropped_mask_error`) and the agent continues. A full queue is checked first and costs no masking
    work. Cost: the masking work that used to run in the worker now runs in the session-end hook (measured
    about 0.1 s for an ordinary turn, 0.8 s for ten 30 KB tool outputs, a few seconds for a turn near the

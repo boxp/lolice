@@ -936,6 +936,22 @@ class ObserverTest(unittest.TestCase):
         usage = next(a for a in gen["attributes"] if a["key"] == "langfuse.observation.usage_details")
         self.assertEqual(json.loads(usage["value"]["stringValue"]), {"input": 3, "output": 2})
 
+    def test_ticket_shaped_pinned_value_is_not_copied_as_ticket(self):
+        # A pinned value that looks like a ticket id must not bypass masking through the tickets set / tags.
+        pinned = "BOXP-987654"
+        run_turn(session="kohako-g2-tkt", body="hi", args={"command": "cat notes.txt"}, result="password: " + pinned)
+        plugin._on_turn_start(session_id="kohako-g2-tkt", turn_id="t2", user_message="again", platform="api_server")
+        plugin._on_turn_end(session_id="kohako-g2-tkt", turn_id="t2", assistant_response="it was " + pinned)
+        plugin._on_session_end(session_id="kohako-g2-tkt", turn_id="t2", completed=True)
+        queued = drain()
+        self.assertTrue(queued)
+        self.assertNotIn(pinned, repr(queued))
+        # positive control: an ordinary ticket reference is still tagged
+        run_turn(session="kohako-g2-tkt-ok", body="work on BOXP-428", args={"command": "cat notes.txt"}, result="ok")
+        item = drain()[0]
+        self.assertEqual(item["tickets"], {"BOXP-428"})
+        self.assertIn("ticket:BOXP-428", "".join(item["payloads"]))
+
     def test_mask_failure_queues_nothing_and_never_raises(self):
         with patch.object(plugin, "redact", side_effect=RuntimeError):
             self.assertIsNone(run_turn(session="kohako-g2-maskfail"))

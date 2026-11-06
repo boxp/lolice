@@ -1624,7 +1624,9 @@ def prepare_turn(turn):
         "trace": hashlib.sha256(f"hermes:{turn['session']}:{turn['turn']}".encode()).hexdigest()[:32],
         "g2": turn["session"].startswith(_G2_PREFIX),
         "session": mask(turn["session"]), "turn": mask(turn["turn"]), "platform": mask(turn["platform"] or ""),
-        "tickets": {t for t in turn["tickets"] if _TICKET.fullmatch(str(t))}, "start": _number(turn["start"]) or time.time(),
+        # a ticket id is copied only when masking leaves it unchanged: a pinned/env value shaped like BOXP-N
+        # must not bypass the masking through the tickets set (tags, in_scope)
+        "tickets": {t for t in turn["tickets"] if _TICKET.fullmatch(str(t)) and mask(str(t)) == str(t)}, "start": _number(turn["start"]) or time.time(),
         "status": turn.get("status"),
         "tainted": turn.get("tainted"), "values_count": len(turn.get("values") or ()),
         "truncated": turn["truncated"], "user_message": mask(turn["user_message"] or ""),
