@@ -198,7 +198,19 @@ _SENSITIVE_COMMAND = re.compile(
     r"(?i)" + _ENV_DUMP + r"|\bprintenv\b|\bexport\s+-p\b|\b(?:declare|typeset)(?:\s+-[a-z]*[px]|" + _WORD_END + r")"
     r"|\benviron\b|\bprocess\.env\b|\bgetenv\b|(?-i:[%$]ENV\b|\bENV(?:\.|\[))"
     r"|\baws\b[^|;&]*\b(?:ssm\s+get-parameter|secretsmanager\s+get-|configure\s+(?:get|export-credentials))"
-    r"|\bhelm\s+get\b|\bgh\s+auth\s+token\b|\bgit\s+credential\b|langfuse-ingest")
+    r"|\bhelm\s+get\b|\bgh\s+auth\s+token\b|\bgit\s+credential\b|langfuse-ingest"
+    # Cloud and CLI credential commands that print a token, key or secret value to stdout. The subcommand may follow
+    # global flags, so up to 512 characters of the same command (no pipe or separator) are skipped.
+    r"|\bgcloud\b[^|;&\n]{0,512}?\b(?:print-(?:access|identity)-token|config-helper|secrets\s+versions\s+access"
+    r"|keys\s+create)\b"
+    r"|\baz\b[^|;&\n]{0,512}?\b(?:get-access-token|keyvault\s+(?:secret|key|certificate)\s+(?:show|download)"
+    r"|create-for-rbac|credential\s+reset|keys\s+list)\b|(?<!\w)--expose-token\b"
+    r"|\baws\b[^|;&\n]{0,512}?\b(?:sts\s+(?:get-session-token|assume-role[\w-]*|get-federation-token)"
+    r"|get-login-password|create-access-key|eks\s+get-token|get-authorization-token|get-role-credentials)\b"
+    r"|\b(?:kubectl|oc)\b[^|;&\n]{0,512}?\bcreate\s+token\b|\boc\s+whoami\s+(?:-t|--show-token)\b"
+    r"|\bvault\s+(?:--?\S+\s+(?:[^-\s]\S*\s+)?){0,8}(?:kv\s+get|read|token\s+create|login|print\s+token)\b"
+    r"|\bop\s+(?:--?\S+\s+(?:[^-\s]\S*\s+)?){0,8}(?:read|item\s+get|inject)\b|\bbw\s+get\b|\bheroku\s+auth:token\b"
+    r"|\bnpm\s+token\b|\bdoctl\s+auth\s+token\b|(?<!\w)--show-token\b|\bdocker-credential-[\w-]+")
 _CLUSTER_CLI = re.compile(r"(?i)\b(?:kubectl|oc)\s")
 _ENV_OUTPUT = [re.compile(r"(?:^|[^A-Za-z0-9_]|\\[nrt]|\\u0000)" + name + "=") for name in ("PATH", "HOME")]
 

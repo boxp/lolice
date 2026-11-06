@@ -36,7 +36,12 @@ unobserved is a regression, not a protection.
 1. Known secret sources, not collected at all: credential files (`auth.json`, `.credentials*`, `.env*`,
    `.ssh/`, `.aws/`, kubeconfig, `.git-credentials`, `.netrc`, private key files, `secrets/`, token files),
    environment dumps (`env`, `printenv`, `export -p`, `declare -x`, `process.env`, output with `PATH=` and
-   `HOME=`), cluster secrets (`kubectl ... secret`), cloud/CLI credential commands. The call is sent
+   `HOME=`), cluster secrets (`kubectl ... secret`, `kubectl create token`), cloud/CLI credential commands
+   (`gcloud auth print-access-token`/`print-identity-token`/`config config-helper`/`secrets versions access`,
+   `az account get-access-token`/`keyvault secret show`/`ad sp create-for-rbac`, `aws sts`/`ecr get-login-password`/
+   `ssm get-parameter`/`secretsmanager get-*`, `gh auth token`, `vault kv get`/`read`, `op read`, `bw get`,
+   `--show-token`, `docker-credential-*`). A credential command not in this list is a known gap (its output is
+   still masked by known formats and secret words). The call is sent
    without its body and the later bodies of the session lineage are withheld (the model has seen it).
    The check runs on the model reply that asks for the call too (its `tool_calls` arguments, e.g. writing
    `.env`), because that reply is kept before the tool hook fires. Withholding and pinned values go to the
