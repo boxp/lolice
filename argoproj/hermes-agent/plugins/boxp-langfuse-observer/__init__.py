@@ -892,6 +892,12 @@ def _ja_pins(token):
     return {v for v in [value] + value.split("の") if len(v) >= _MIN_REPLY_PINNED}
 
 
+def _ja_unpinnable(token):
+    """True when the value _ja_pins takes from token, or a part of it split at の, is a single character."""
+    value = _JA_VALUE_EDGE.sub("", token)
+    return any(0 < len(v) < _MIN_REPLY_PINNED for v in [value] + value.split("の"))
+
+
 _SEPARATOR_END = re.compile(r"(?:[:=：＝]|は|って|とは)\s*$")
 _MAX_PROSE_VALUES = 64
 _STRUCTURE_AFTER = re.compile(r"""\s*[:=\[({."'\\]""")
@@ -973,7 +979,12 @@ def _prose_values(text, reply=False):
         named = not cuts or _VALUE_SEPARATOR.match(line, cut) or not line[cut:].strip()
         if any(not t.isascii() for t in candidates) and named:
             if reply:
-                found.update(v for t in candidates[:_MAX_PROSE_VALUES] if not t.isascii() for v in _ja_pins(t))
+                ja = [t for t in candidates[:_MAX_PROSE_VALUES] if not t.isascii()]
+                found.update(v for t in ja for v in _ja_pins(t))
+                # A 1-character value or part ("パスワードは あ") cannot be pinned without masking every such
+                # character, so it withholds like a 1-character ASCII value.
+                if any(_ja_unpinnable(t) for t in ja):
+                    reason = reason or "short_value"
             else:
                 reason = reason or "unpinned_value"
         # Any candidate too short to pin ("password: alpha abc"), or more candidates than are pinned, leaves a value

@@ -67,7 +67,7 @@ unobserved is a regression, not a protection.
    prose pins what it can but does not withhold a reply (a mention is not evidence). A value such prose names
    with a separator is pinned even when it is short or non-ASCII ("the password is qzv" pins `qzv` as a word
    of its own; "パスワードは 秘密のもじれつ" pins the value and its parts split at の), so its bare repeat is
-   masked; only a 1-character value withholds (`short_value`). Known over-masking: the words after a secret
+   masked; only a 1-character value, ASCII or not, or a 1-character part split at の ("パスワードは あ") withholds (`short_value`). Known over-masking: the words after a secret
    word in a reply ("Your password is too short." pins `too`/`short`) are masked in later fields of the
    session lineage; the session stays readable.
 4. Fail-closed: when a protected field cannot be judged (too large to scan, scan error, a value too short
