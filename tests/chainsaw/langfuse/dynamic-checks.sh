@@ -386,7 +386,7 @@ mcp_readonly_proxy() {
   web="$(service_ip "$NS" langfuse-web)"
   expect deny "outside -> MCP proxy:3002" kubectl exec -n langfuse-outside spoof -- python -c "$PY_CONNECT" "$proxy" 3002
   kubectl exec -n "$NS" deployment/langfuse-mcp-readonly -- node -e "$NODE_CONNECT" "$(service_ip langfuse-outside outside)" 443 >/dev/null 2>&1 && { echo 'FAIL: proxy has outside egress' >&2; return 1; }
-  kubectl exec -i -n hermes-agent hermes-allowed -- env "LF_PK=$(secret_value langfuse-ingest-key LANGFUSE_PUBLIC_KEY)" "LF_SK=$(secret_value langfuse-ingest-key LANGFUSE_SECRET_KEY)" python - "$proxy" "$web" "$TRACE_INGEST" <<'PYTEST'
+  if ! kubectl exec -i -n hermes-agent hermes-allowed -- env "LF_PK=$(secret_value langfuse-ingest-key LANGFUSE_PUBLIC_KEY)" "LF_SK=$(secret_value langfuse-ingest-key LANGFUSE_SECRET_KEY)" python - "$proxy" "$web" "$TRACE_INGEST" <<'PYTEST'
 import datetime, json, os, sys, urllib.request, urllib.error
 proxy, web, trace = sys.argv[1:]
 def request(path, body=None, headers=None, host=proxy, port=3002):
@@ -404,6 +404,7 @@ def rpc(method, params=None):
     return json.loads(body)
 assert request('/healthz') == (200,b'ok')
 r = rpc('initialize', {'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'chainsaw','version':'1'}})
+assert 'result' in r, f"initialize failed: {r.get('error')}"
 assert r['result']['serverInfo'] and not ({'resources','prompts'} & r['result']['capabilities'].keys())
 r = rpc('tools/list'); names = {t['name'] for t in r['result']['tools']}
 assert names == {'listObservations','getObservation','getObservationFieldSchema','getObservationFilterSchema','getObservationFilterValues','getHealth'}
@@ -428,12 +429,17 @@ assert matches, 'ingested observation missing'
 args.update(observationId=matches[0]['id'], fields=['id','traceId','input','output'])
 r = rpc('tools/call', {'name':'getObservation','arguments':args})
 assert 'chainsaw-body-marker' in json.dumps(r), 'observation body missing'
-status, _ = request('/api/public/mcp', {'jsonrpc':'2.0','id':1,'method':'tools/list'}, {'Host':'langfuse.b0xp.io','Content-Type':'application/json'}, web, 3000)
+status, _ = request('/api/public/mcp', {'jsonrpc':'2.0','id':1,'method':'tools/list'}, {'Host':'langfuse-web.langfuse.svc.cluster.local:3000','Content-Type':'application/json'}, web, 3000)
 assert status in (401,403)
 assert request('/mcp', b' '*65537)[0] == 413
 assert json.loads(request('/mcp', b'[]')[1])['error']['code'] == -32600
 print('PASS: real Langfuse MCP proxy checks')
 PYTEST
+  then
+    # 本文を出さない proxy の 1 行ログ (method/tool/decision/upstream status) だけを診断に使う。
+    kubectl logs -n "$NS" deployment/langfuse-mcp-readonly --tail=20 >&2 || true
+    return 1
+  fi
   logs="$(kubectl logs -n "$NS" deployment/langfuse-mcp-readonly)"
   [[ "$logs" == *'decision=denied'* ]] || { echo 'FAIL: denied request not logged' >&2; return 1; }
   for key in LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY; do

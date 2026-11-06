@@ -2,7 +2,7 @@
 # 本番 render を隔離 kind で動く形にする。置き換えるのは kind に存在しない依存境界だけ:
 # - cloudflared と langfuse-cloudflared (Cloudflare tunnel / AWS Parameter Store が必要。本番で確認)
 # - ExternalSecret langfuse-oidc (Parameter Store。Access for SaaS の値なので合成値の Secret に置換。実経路は本番で確認)
-# - NEXTAUTH_URL (kind に TLS の公開 hostname が無いので Service の URL)
+# - NEXTAUTH_URL (kind に TLS の公開 hostname が無いので Service の URL)。MCP proxy の Host も同じ値に揃える
 # - Longhorn StorageClass (kind は local-path。reclaim と backup 対象外は下の静的検査と本番で確認)
 set -euo pipefail
 : "${REPO_ROOT:?REPO_ROOT is required}"
@@ -34,6 +34,8 @@ jq '[.[]
   | select((.metadata.name == "langfuse-oidc" and .kind == "ExternalSecret") | not)
   | if (.kind == "Deployment" and (.metadata.name == "langfuse-web" or .metadata.name == "langfuse-sign-in-gateway"))
     then .spec.template.spec.containers[0].env |= map(if .name == "NEXTAUTH_URL" then .value = "http://langfuse-web.langfuse.svc.cluster.local:3000" else . end) else . end
+  | if (.kind == "Deployment" and .metadata.name == "langfuse-mcp-readonly")
+    then .spec.template.spec.containers[0].env |= map(if .name == "LANGFUSE_PUBLIC_HOST" then .value = "langfuse-web.langfuse.svc.cluster.local:3000" else . end) else . end
   | if .kind == "StatefulSet" then .spec.volumeClaimTemplates |= map(.spec.storageClassName = "standard") else . end]
   | . + [{apiVersion: "v1", kind: "Secret", metadata: {name: "langfuse-oidc", namespace: "langfuse"}, stringData: {
       ISSUER: "http://langfuse-oidc-fixture.langfuse.svc.cluster.local:8080", CLIENT_ID: "synthetic-client",
