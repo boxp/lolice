@@ -37,7 +37,7 @@ spec:
           restartPolicy: Never
           containers:
             - name: retention
-              image: docker.io/langfuse/langfuse-worker:4.75.0
+              image: docker.io/langfuse/langfuse-worker:4.76.0
               command: ["node", "/retention/retention.mjs"]
               env:
                 - name: SYNTHETIC_MARKER
