@@ -176,7 +176,16 @@ _MAX_REVERSED_ENTRIES = 1000
 _MAX_REVERSED_VALUE = 4096
 _PLACEHOLDER = re.compile(r"\[REDACTED:[a-z_]+\]")
 _SENSITIVE_PATH = re.compile(
-    r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?|\.gnupg(?:[/\\]|\b)|secrets?(?:[/\\])"
+    r"(?i)(?:^|[/\\\s\"'=])(?:"
+    # Well-known credential files (~/.kube/config, ~/.npmrc, ~/.pgpass, ~/.docker/config.json, gh hosts.yml, ...): their
+    # contents may hold credentials of no known format, so they are sources, not text to mask (same list as the Task
+    # Board exporter). Each must end at a word end or a path separator so ~/.config alone or ~/.kubeignore is not one.
+    r"(?:\.npmrc|\.pypirc|\.pgpass|\.my\.cnf|\.mylogin\.cnf|\.dockercfg|\.docker[/\\]+config\.json|\.boto|\.s3cfg"
+    r"|\.vault-token|\.terraformrc|credentials\.tfrc\.json|\.kube[/\\]+config|\.yarnrc(?:\.yml)?|\.curlrc|\.wgetrc"
+    r"|\.m2[/\\]+settings(?:-security)?\.xml|gradle\.properties"
+    r"|\.config[/\\]+(?:gh[/\\]+hosts\.ya?ml|gcloud|hub|rclone[/\\]+rclone\.conf)|\.azure"
+    r"|application_default_credentials\.json|\.cargo[/\\]+credentials(?:\.toml)?|\.gem[/\\]+credentials|\.htpasswd)"
+    r"(?=[\s\"'/\\;|&)]|\Z)|auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?|\.gnupg(?:[/\\]|\b)|secrets?(?:[/\\])"
     # A file or directory named for tokens (tokens.json, refresh_tokens.txt, /var/lib/app/tokens). A bare key such as
     # max_output_tokens has no extension and no path separator, so it is not a path; a bare token(s) file name is.
     # Bounded to a file name's length so a long line is scanned in linear time.

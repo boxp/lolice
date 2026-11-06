@@ -34,7 +34,10 @@ unobserved is a regression, not a protection.
 ## Protected (must not be stored or sent)
 
 1. Known secret sources, not collected at all: credential files (`auth.json`, `.credentials*`, `.env*`,
-   `.ssh/`, `.aws/`, kubeconfig, `.git-credentials`, `.netrc`, private key files, `secrets/`, token files),
+   `.ssh/`, `.aws/`, kubeconfig and `~/.kube/config`, `.git-credentials`, `.netrc`, private key files, `secrets/`,
+   token files, and the well-known CLI credential files shared with the Task Board exporter: `.npmrc`, `.pypirc`,
+   `.pgpass`, `.my.cnf`, `.docker/config.json`, `.boto`, `.s3cfg`, `.vault-token`, `.terraformrc`, gh `hosts.yml`,
+   `.config/gcloud`, `.azure`, `.cargo`/`.gem` credentials, `.htpasswd`, ...),
    environment dumps (`env`, `printenv`, `export -p`, `declare -x`, `process.env`, output with `PATH=` and
    `HOME=`), cluster secrets (`kubectl ... secret`, `kubectl create token`), cloud/CLI credential commands
    (`gcloud auth print-access-token`/`print-identity-token`/`config config-helper`/`secrets versions access`,
