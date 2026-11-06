@@ -107,6 +107,26 @@ class ObserverTest(unittest.TestCase):
             run_turn()
             self.assertEqual(len(drain()), 1)
 
+    def test_exposure_before_key_still_withholds_after_key_appears(self):
+        # The key arrives after the session already read a secret source: the later value-only repeat must not leak.
+        value = "keylessvalue" + "zq"
+        plugin._creds = None
+        run_turn(session="kohako-g2-nokey", turn="t1", args={"path": "/a/.env"}, result="X=" + value)
+        self.assertEqual(drain(), [])
+        self.assertEqual(plugin._stats.get("turns_skipped_no_key"), 1)
+        plugin._creds = ("pk-lf-later", "sk-lf-later")
+        plugin._on_turn_start(session_id="kohako-g2-nokey", turn_id="t2", user_message="what was it?", model="m", platform="api_server")
+        plugin._on_api_response(session_id="kohako-g2-nokey", turn_id="t2", api_request_id="a2",
+                                response={"assistant_message": {"content": value}}, usage={}, model="m",
+                                base_url="https://x", started_at=time.time(), ended_at=time.time())
+        plugin._on_turn_end(session_id="kohako-g2-nokey", turn_id="t2", assistant_response=value)
+        plugin._on_session_end(session_id="kohako-g2-nokey", turn_id="t2", completed=True)
+        body = self._bodies()
+        self.assertNotIn(value, body)
+        # positive control: a fresh session after the key appears still sends its harmless body
+        run_turn(session="kohako-g2-fresh", body="harmlessafterkey")
+        self.assertIn("harmlessafterkey", self._bodies())
+
     def test_worker_picks_up_key_while_running(self):
         with tempfile.TemporaryDirectory() as key_dir, patch.object(plugin, "_KEY_DIR", key_dir), \
                 patch.object(plugin, "_KEY_POLL_SECONDS", 0.01), patch.object(plugin, "_start_worker"):

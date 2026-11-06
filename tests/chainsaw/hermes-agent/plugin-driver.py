@@ -218,6 +218,10 @@ def fire_after_session_flood(n):
 n = 0
 while True:
     n += 1
+    if n == 1:  # before the ingest key exists: the session reads a secret source while nothing is exported yet
+        fire_env_dump("kohako-g2-prekey", "cat /app/.env", "OPAQUE=prekeyopaquezz")
+    # every round, also after the key appears, the same session repeats the value alone
+    fire_free_text("kohako-g2-prekey", "prekeyopaquezz")
     fire(f"kohako-g2-{n}", False)
     fire(f"kohako-g2-clean-{n}", True)
     fire_flagged_secret_read(f"kohako-g2-kube-{n}")
