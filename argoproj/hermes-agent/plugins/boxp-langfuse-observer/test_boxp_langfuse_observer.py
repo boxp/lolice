@@ -3,6 +3,7 @@ import importlib.util
 import inspect
 import json
 import os
+import re
 import tempfile
 import threading
 import time
@@ -1114,6 +1115,52 @@ class BodyVisibilityTest(unittest.TestCase):
                 self.assertNotRegex(body, r'(?i)"langfuse\.observation\.(?:input|output)", "value": \{"stringValue": "[^"]*(?<![A-Za-z_])'
                                     + word + r"(?![A-Za-z_])")
                 self.assertIn("MARKER_STOPVALUE_BEFORE", body)
+
+    def test_value_that_looks_like_a_literal_or_placeholder_is_pinned(self):
+        # A password can be "none", "true" or "xxxxx": a value that only looks empty is still the value.
+        for name, output, word in (("yaml_none", "password: none", "none"), ("yaml_true", "password: true", "true"),
+                                   ("yaml_x", "password: xxxxx", "xxxxx"), ("eq_false", "DB_PASSWORD=false", "false"),
+                                   ("dict_null", {"token": "null"}, "null"), ("prose_none", "the password is none", "none"),
+                                   ("stars", "password: ********", "********"), ("quoted_x", 'api_key = "xxxxxxxx"', "xxxxxxxx"),
+                                   ("block_true", "password:\n  - true\n", "true"), ("xml_none", "<password>none</password>", "none")):
+            with self.subTest(name):
+                session = "kohako-g2-literalvalue-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_LITERAL_BEFORE")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=output)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=word)
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                run_turn(session=session, turn="t2", body="again " + word, tool="todo", args={}, result="ok")
+                body = self._payload()
+                self.assertNotRegex(body, r'(?i)"langfuse\.observation\.(?:input|output)", "value": \{"stringValue": "[^"]*(?<![A-Za-z_*])'
+                                    + re.escape(word) + r"(?![A-Za-z_*])")
+                self.assertIn("MARKER_LITERAL_BEFORE", body)
+
+    def test_literal_too_short_withholds(self):
+        for name, output in (("nil", "password: nil"), ("xxx", "token: xxx"), ("stars", "password: ***")):
+            with self.subTest(name):
+                session = "kohako-g2-literalshort-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=output)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="nil xxx ***")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertIn('withheld_reason", "value": {"stringValue": "short_value"}', body)
+
+    def test_literal_of_a_setting_or_counter_is_not_pinned(self):
+        # A counter or toggle left unset is a setting, not a credential: "null" stays readable afterwards.
+        for name, output in (("counter", "max_output_tokens: null"), ("toggle", "PASSWORD_REQUIRED=true"),
+                             ("ttl", "token_ttl: none")):
+            with self.subTest(name):
+                session = "kohako-g2-literalsetting-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=output)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="MARKER_LITSET null true none")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertIn("MARKER_LITSET null true none", body)
 
     def test_structural_word_alone_that_is_too_short_withholds(self):
         for name, output in (("yaml_key", "password: key"), ("prose_ref", "the token is ref")):
