@@ -542,10 +542,18 @@ def _reference(token):
     return not token or _LOOSE_SECRET.search(token) or _STOPWORD.fullmatch(token) or _REFERENCE.fullmatch(token)
 
 
+_MIN_PINNED = 4
+
+
+class _ShortValue(Exception):
+    """A secret value too short to pin."""
+
+
 def _token_values(raw):
     """Values to mask for matched text. A single token is the value itself; a value of several words keeps the whole
     text and its secret-looking tokens. References (variables, placeholders, secret names, key words) are skipped,
-    and a value under 4 characters is masked in place only: masking it everywhere would blank ordinary text."""
+    and a value under 4 characters raises _ShortValue: masking it everywhere would blank ordinary text, so the session
+    is withheld instead."""
     found = set()
     for value in raw:
         value = _strip(value or "")
@@ -554,8 +562,10 @@ def _token_values(raw):
         # Tokens are checked one by one: a nested value such as {"token": "..."} names a secret and holds one.
         tokens = [t for t in (_strip(t) for t in _TOKEN_SPLIT.split(value)) if not _reference(t)]
         if len(tokens) == 1:
-            if len(tokens[0]) >= 4:
-                found.add(tokens[0])
+            if len(tokens[0]) < _MIN_PINNED:
+                # Too short to mask wherever it appears again, so the value cannot be pinned: the caller withholds.
+                raise _ShortValue(tokens[0])
+            found.add(tokens[0])
         elif tokens:
             if not _LOOSE_SECRET.search(value):
                 found.add(value)
@@ -641,23 +651,59 @@ def _evidence(text):
                 if pinned is None:
                     return "sensitive_value", set()
                 values |= pinned
+    except _ShortValue:
+        return "short_value", set()
     except Exception:
         return "scan_error", set()
     return None, values
 
 
+# Words that join a secret word to its value in prose ("the password is ..."); they are not values themselves.
+_CONNECTIVE = re.compile(
+    r"(?i)a|an|the|is|are|was|were|be|been|being|to|for|of|on|in|at|by|as|it|its|this|that|these|those|and|or|not|no|"
+    r"my|your|our|their|his|her|new|old|set|use|used|using|with|from|into|via|here|there|now|then|also|still|just|"
+    r"if|so|do|does|did|has|have|had|will|can|may|must|should|would|could|me|you|we|they|ok|yes|now|again|below|above")
+_PROSE_TOKEN = re.compile(r"""[^\s"'`,;:=<>()\[\]{}\x00-\x1f\x7f-\uffff]+""")
+_MAX_PROSE_VALUES = 8
+_NAME_REST = re.compile(r"[A-Za-z_.-]{0,16}")
+
+
+def _secret_name(token):
+    """A token that names a secret (password, DB_PASSWORD, apiKey), not one that holds a value."""
+    return bool(_LOOSE_SECRET.search(token)) and bool(_NAME_REST.fullmatch(_LOOSE_SECRET.sub("", token)))
+
+
 def _prose_values(text):
-    """Value-like tokens on a line with a secret word and on the line after it."""
+    """Values a secret word names in prose. On the secret word's line, every word after it that is not a connective
+    is a candidate, plain or not ("the password is correcthorsebattery"); on the next line, value-like tokens.
+    Returns (values, short): short when the first candidate after a secret word is under 4 characters, which cannot
+    be pinned ("the password is abc"), so the caller withholds."""
     lines = _LINE_BREAK.split(text[:_SCAN_LIMIT])
-    found = set()
+    found, short = set(), False
     for i, line in enumerate(lines):
+        line = _PLACEHOLDER.sub(" ", line)
         if not _LOOSE_SECRET.search(line):
             continue
-        for candidate in (line, lines[i + 1] if i + 1 < len(lines) else ""):
-            for token in _VALUE_TOKEN.findall(_LOOSE_SECRET.sub(" ", candidate)):
-                if not _PLAIN_WORD.fullmatch(token) and not _PLACEHOLDER.search(token):
-                    found.add(token)
-    return found
+        # Whole tokens, so a word that merely contains a secret word ("app-secrets") does not start a value.
+        spans = [(m.start(), m.end(), m.group(0).strip(".-/+")) for m in _PROSE_TOKEN.finditer(line)]
+        # A non-ASCII secret word (パスワードは...) is not a token of its own: what follows it starts the value.
+        cuts = [m.end() for m in _LOOSE_SECRET.finditer(line) if not m.group(0).isascii()]
+        cuts += [end for _, end, t in spans if _secret_name(t)]
+        cut = min(cuts) if cuts else len(line)
+        candidates = [t for start, _, t in spans if start >= cut]
+        candidates = [t for t in candidates if t and not _CONNECTIVE.fullmatch(t) and not _secret_name(t)
+                      and not _STOPWORD.fullmatch(t) and not _REFERENCE.fullmatch(t)]
+        if candidates and len(candidates[0]) < _MIN_PINNED:
+            short = True
+        found.update(t for t in candidates[:_MAX_PROSE_VALUES] if len(t) >= _MIN_PINNED)
+        following = lines[i + 1] if i + 1 < len(lines) else ""
+        for token in _VALUE_TOKEN.findall(_LOOSE_SECRET.sub(" ", _PLACEHOLDER.sub(" ", following))):
+            if not _PLAIN_WORD.fullmatch(token):
+                found.add(token)
+        # The line's value-like tokens before the word too ("Zq7... is my password").
+        found.update(t for start, _, t in spans if start < cut and _VALUE_TOKEN.fullmatch(t) and not _PLAIN_WORD.fullmatch(t)
+                     and not _secret_name(t) and not _REFERENCE.fullmatch(t))
+    return found, short
 
 
 def _strings(value, depth=0):
@@ -792,7 +838,10 @@ def _note_evidence(session, parent, args_text, result_text):
     reason_in, pinned_in = _evidence(args_text)
     reason_out, pinned_out = _evidence(result_text)
     reason = reason_in or reason_out
-    values = pinned_in | pinned_out | _prose_values(args_text) | _prose_values(result_text)
+    prose_in, short_in = _prose_values(args_text)
+    prose_out, short_out = _prose_values(result_text)
+    reason = reason or ("short_value" if short_in or short_out else None)
+    values = pinned_in | pinned_out | prose_in | prose_out
     if values and not _add_values(values, session, parent):
         reason = reason or "too_many_session_values"
     if reason:
