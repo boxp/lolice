@@ -68,6 +68,18 @@ def fire_ordinary_read(session, result, reply):
     hooks["post_llm_call"](**common, assistant_response=reply)
     hooks["on_session_end"](**common, completed=True)
 
+def fire_rewritten_history(session):
+    # Compaction rewrites the history to the same length; the rewritten message shows a secret value.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    first = [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}, {"role": "user", "content": "c"}]
+    second = [{"role": "user", "content": "a"}, {"role": "tool", "content": [{"type": "tool_result", "content": {"token": "plainrewritevalue"}}]}, {"role": "user", "content": "c"}]
+    hooks["pre_llm_call"](**common, user_message="hello")
+    hooks["pre_api_request"](**common, api_request_id="api", request_messages=first)
+    hooks["pre_api_request"](**common, api_request_id="api2", request_messages=second)
+    hooks["post_llm_call"](**common, assistant_response="plainrewritevalue")
+    hooks["on_session_end"](**common, completed=True)
+
 def fire_free_text(session, text):
     # The same value through what the model and the user say, where no tool policy applies.
     hooks = ctx.hooks
@@ -113,6 +125,8 @@ while True:
     fire_ordinary_read(f"kohako-g2-readdict-{n}", {"data": {"auth": {"token": "plaindictvalue"}}}, "plaindictvalue")
     fire_ordinary_read(f"kohako-g2-readlower-{n}", "the password is lowerprosevalue", "lowerprosevalue")
     fire_ordinary_read(f"kohako-g2-readshort-{n}", "password: qzv", "qzv")
+    fire_ordinary_read(f"kohako-g2-readlarge-{n}", "the password is plainfarvalue\n" + "line\n" * 20 + "plainfarvalue\n" + "filler line\n" * 30000, "ok")
+    fire_rewritten_history(f"kohako-g2-rewrite-{n}")
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
     print(f"round {n}", flush=True)

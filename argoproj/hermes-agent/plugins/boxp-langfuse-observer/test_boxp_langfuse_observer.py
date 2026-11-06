@@ -1139,5 +1139,38 @@ class BodyVisibilityTest(unittest.TestCase):
         self.assertEqual(stats.get("bodies_withheld_sensitive_source"), 1)
 
 
+    def test_unscannable_tool_output_is_not_sent(self):
+        # Too large to scan: nothing can be pinned, so a value far from its secret word must not leave in this body.
+        value = "Zq7" + "farvalue" + "9x"
+        result = ("the password is " + value + "\n" + "ordinary line\n" * 20 + value + " MARKER_FAR\n"
+                  + "filler line\n" * (plugin._SCAN_LIMIT // 10))
+        session = "kohako-g2-large"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="ログを見て")
+        plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                        args={"path": "/repo/big.log"}, result=result)
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=value)
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = self._payload()
+        self.assertNotIn(value, body)
+        self.assertNotIn("farvalue", body)
+        self.assertNotIn("MARKER_FAR", body)
+
+    def test_history_rewritten_to_the_same_length_is_rescanned(self):
+        value = "Zq7" + "rewritten" + "42x"
+        session = "kohako-g2-rewrite"
+        first = [{"role": "user", "content": "見て"}, {"role": "assistant", "content": "了解"},
+                 {"role": "user", "content": "続き"}]
+        second = [{"role": "user", "content": "要約"},
+                  {"role": "tool", "content": [{"type": "tool_result", "content": {"token": value}}]},
+                  {"role": "user", "content": "続き"}]
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")
+        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=first)
+        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="b", request_messages=second)
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=value + " MARKER_REWRITE_REPLY")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = self._payload()
+        self.assertNotIn(value, body)
+        self.assertIn("MARKER_REWRITE_REPLY", body)
+
 if __name__ == "__main__":
     unittest.main()
