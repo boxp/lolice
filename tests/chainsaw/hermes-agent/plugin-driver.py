@@ -184,13 +184,15 @@ def fire_deep_lineage_source(n, depth=20):
     hooks = ctx.hooks
     chain = [f"kohako-g2-deeptop-{n}"] + [f"deep-{n}-{i}" for i in range(depth)]
     hooks["pre_llm_call"](session_id=chain[0], turn_id="turn", user_message="delegate deep")
+    # Only the links: a turn per intermediate session would burst ~20 extra turns into the bounded queue each round
+    # and drop the round's last sessions (the positive markers), which real delegation does not do.
     for parent, child in zip(chain, chain[1:]):
         hooks["subagent_start"](parent_session_id=parent, parent_turn_id="turn", child_session_id=child, child_role="leaf", child_goal="work")
-        hooks["pre_llm_call"](session_id=child, turn_id="turn", user_message="deepgoal", platform="", parent_session_id=parent)
+    hooks["pre_llm_call"](session_id=chain[-1], turn_id="turn", user_message="deepgoal", platform="", parent_session_id=chain[-2])
     hooks["post_tool_call"](session_id=chain[-1], turn_id="turn", tool_call_id="env", tool_name="read_file", args={"path": "/app/.env"},
                             result="value deepsourcevaluezz")
     hooks["post_llm_call"](session_id=chain[0], turn_id="turn", assistant_response="deepsourcevaluezz")
-    for session in chain:
+    for session in (chain[-1], chain[0]):
         hooks["on_session_end"](session_id=session, turn_id="turn", completed=True)
 
 def fire_after_session_flood(n):
