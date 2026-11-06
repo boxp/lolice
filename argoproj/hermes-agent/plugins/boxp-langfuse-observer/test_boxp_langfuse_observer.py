@@ -1677,5 +1677,51 @@ class BodyVisibilityTest(unittest.TestCase):
         self.assertNotIn(encoded, plugin.redact("here: " + encoded))
         self.assertNotIn(ENV_SECRET[::-1], plugin.redact("here: " + ENV_SECRET[::-1]))
 
+    def _flood_sessions(self, count):
+        """Other sessions, each observed, holding a value and delegating once, as a busy long-running gateway sees."""
+        for i in range(count):
+            session = "kohako-g2-flood-%d" % i
+            plugin._note_request(session, "", [{"role": "user", "content": "hi %d" % i}])
+            plugin._add_values({"floodpinnedvalue%d" % i}, session)
+            plugin._taint("sensitive_source", session + "-tainted")
+            plugin._note_parent(session + "-child", session)
+
+    def test_long_running_session_keeps_its_state_past_the_session_limit(self):
+        # A tainted session, a session holding a pinned value and a child whose parent is tainted later must not be
+        # released when more than _MAX_SESSIONS other sessions come and go while they idle.
+        plainvalue = "evictplainvalue"
+        pinned = "evictpinnedvalue"
+        run_turn(session="kohako-g2-evt", turn="t1", args={"path": "/a/.env"}, result=plainvalue)
+        plugin._on_turn_start(session_id="kohako-g2-evp", turn_id="t1", user_message="hi")
+        plugin._on_tool(session_id="kohako-g2-evp", turn_id="t1", tool_call_id="c1", tool_name="read_file",
+                        args={"path": "notes.txt"}, result="password: " + pinned, duration_ms=1, status="ok")
+        plugin._on_turn_end(session_id="kohako-g2-evp", turn_id="t1", assistant_response="ok")
+        plugin._on_session_end(session_id="kohako-g2-evp", turn_id="t1", completed=True)
+        plugin._on_turn_start(session_id="kohako-g2-evc", turn_id="t1", user_message="child", parent_session_id="kohako-g2-evq")
+        plugin._on_session_end(session_id="kohako-g2-evc", turn_id="t1", completed=True)
+        drain()
+        self._flood_sessions(plugin._MAX_SESSIONS + 64)
+        drain()
+        plugin._taint("sensitive_source", "kohako-g2-evq")
+        run_turn(session="kohako-g2-evt", turn="t2", body="it was " + plainvalue)
+        run_turn(session="kohako-g2-evp", turn="t2", body="again " + pinned)
+        run_turn(session="kohako-g2-evc", turn="t2", body="childreplyplain")
+        body = self._payload()
+        self.assertNotIn(plainvalue, body)
+        self.assertNotIn(pinned, body)
+        self.assertNotIn("childreplyplain", body)
+
+    def test_active_sessions_survive_the_session_limit_and_new_ones_stay_visible(self):
+        # Positive control: an untainted session and a fresh session after the flood keep their bodies.
+        run_turn(session="kohako-g2-evok", turn="t1", body="evictkeepmarker")
+        drain()
+        self._flood_sessions(plugin._MAX_SESSIONS + 64)
+        drain()
+        run_turn(session="kohako-g2-evok", turn="t2", body="evictkeepmarker two")
+        run_turn(session="kohako-g2-evnew", turn="t1", body="evictnewmarker")
+        body = self._payload()
+        self.assertIn("evictkeepmarker two", body)
+        self.assertIn("evictnewmarker", body)
+
 if __name__ == "__main__":
     unittest.main()

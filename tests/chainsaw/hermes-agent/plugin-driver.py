@@ -179,6 +179,26 @@ def fire_grandchild_source(top, mid, low):
     hooks["on_session_end"](session_id=low, turn_id="turn", completed=True)
     hooks["on_session_end"](session_id=mid, turn_id="turn", completed=True)
 
+def fire_after_session_flood(n):
+    # A long-running session that saw a secret idles while more than _MAX_SESSIONS other sessions come and go; its
+    # later bodies must stay withheld or masked. The flood uses the bookkeeping directly so the sink is not flooded.
+    hooks = ctx.hooks
+    tainted, pinned, clean = f"kohako-g2-evictsrc-{n}", f"kohako-g2-evictpin-{n}", f"kohako-g2-evictok-{n}"
+    hooks["pre_llm_call"](session_id=tainted, turn_id="turn", user_message="hello")
+    hooks["post_tool_call"](session_id=tainted, turn_id="turn", tool_call_id="tool", tool_name="read_file", args={"path": "/app/.env"}, result="evictedplainvaluezz")
+    hooks["on_session_end"](session_id=tainted, turn_id="turn", completed=True)
+    fire_read_then_reply(pinned, "password: evictpinnedvaluezz", "ok")
+    for i in range(plugin._MAX_SESSIONS + 64):
+        other = f"kohako-g2-flood-{n}-{i}"
+        plugin._note_request(other, "", [{"role": "user", "content": "hi"}])
+        plugin._add_values({f"floodvalue{i}zz"}, other)
+        plugin._taint("sensitive_source", other + "-t")
+        plugin._note_parent(other + "-c", other)
+    for session, text in ((tainted, "evictedplainvaluezz"), (pinned, "evictpinnedvaluezz"), (clean, "evictkeepmarker")):
+        hooks["pre_llm_call"](session_id=session, turn_id="next", user_message=text)
+        hooks["post_llm_call"](session_id=session, turn_id="next", assistant_response=text)
+        hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
+
 n = 0
 while True:
     n += 1
@@ -228,5 +248,7 @@ while True:
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
+    if n <= 2:
+        fire_after_session_flood(n)
     print(f"round {n}", flush=True)
     time.sleep(1)
