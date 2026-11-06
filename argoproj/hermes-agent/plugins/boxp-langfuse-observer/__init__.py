@@ -69,9 +69,6 @@ _G2_PREFIX = "kohako-g2-"
 _WEBHOOK_PLATFORMS = {"webhook"}
 _TICKET = re.compile(r"\bBOXP-\d{1,6}\b")
 _DELEGATING_TOOLS = {"delegate_task"}
-_PATH_ARGS = ("path", "file_path", "filepath", "filename")
-_COMMAND_ARGS = ("command", "cmd")
-_COMMAND_HEAD = re.compile(r"""(?:[A-Za-z_]\w*=\S*\s+)*(?:[^\s'"]*/)?([\w.+-]{1,64})(?=\s|$)""")
 _CHAT_ROLES = {"system", "developer", "user", "assistant"}
 _TEXT_BLOCKS = {"text", "input_text", "output_text"}
 _AUTHORED_ROLES = _CHAT_ROLES
@@ -1482,18 +1479,11 @@ def _size(value):
 
 
 def _tool_input_view(args):
-    """What was done without the content: argument names, a path, and the program a command runs."""
-    if not isinstance(args, dict):
-        return {"omitted": type(args).__name__, **_size(args)}
-    view = {"arg_names": sorted(str(k) for k in args)}
-    for name in _PATH_ARGS:
-        if isinstance(args.get(name), str):
-            view[name] = args[name]
-    for name in _COMMAND_ARGS:
-        found = _COMMAND_HEAD.match(args[name].strip()) if isinstance(args.get(name), str) else None
-        if found:
-            view["program"] = found.group(1)
-    return view
+    """The shape of a withheld call without any of its text: the number of arguments and the size.
+
+    Argument names, paths and the program of a command are model-chosen text, so after an exposure they can carry
+    the value onward (THREAT_MODEL.md): a withheld call says only that it ran and how large its input was."""
+    return {"arg_count": len(args) if isinstance(args, (dict, list, tuple)) else None, **_size(args)}
 
 
 @_guarded

@@ -74,6 +74,8 @@ unobserved is a regression, not a protection.
    or not delimitable to pin, too many values), that observation's body is withheld with a non-body reason
    (`withheld_reason`) and the agent keeps working. A final scan of the serialized batch drops a span that
    still matches. There is no fail-open path that sends an unprocessed body.
+   A withheld tool call keeps no text of its input in metadata either: no path, program or argument name,
+   only the argument count and size, because after an exposure the model can pass the value on as a path.
    The per-session state (withholding reason, pinned values, parent link) is kept for the 1024 most recently
    active sessions. An entry evicted while it still mattered is recorded in a fixed 1 MiB Bloom filter that is
    not cleared while the process runs, and the session and its descendants are then withheld
