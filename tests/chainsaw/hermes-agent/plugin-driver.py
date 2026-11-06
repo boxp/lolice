@@ -229,6 +229,11 @@ while True:
     fire_resumed_env_dump(f"kohako-g2-resume-{n}")
     fire_env_dump(f"kohako-g2-xml-{n}", "cat config.xml", "<password>plainxmlvalue</password>")
     fire_env_dump(f"kohako-g2-file-{n}", "cat notes.txt", "harmlessfileoutputmarker")
+    # Cloud CLI credential commands print a token with no known format; the output and later bodies are withheld.
+    fire_env_dump(f"kohako-g2-gcloudtoken-{n}", "gcloud auth print-access-token", "gcloudopaquevaluezz")
+    fire_free_text(f"kohako-g2-gcloudtoken-{n}", "gcloudopaquevaluezz")
+    fire_env_dump(f"kohako-g2-aztoken-{n}", "az account get-access-token -o tsv", "azcliopaquevaluezz")
+    fire_free_text(f"kohako-g2-aztoken-{n}", "azcliopaquevaluezz")
     fire_env_dump(f"kohako-g2-filesecret-{n}", "cat notes.txt", "db:\n  password: plainfilesecret\n")
     fire_free_text(f"kohako-g2-xmltext-{n}", "<password>\n\n\nplainxmlvalue\n\n\n</password>")
     fire_free_text(f"kohako-g2-prose-{n}", "the password is plainprosevalue")

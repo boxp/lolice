@@ -283,7 +283,22 @@ class ObserverTest(unittest.TestCase):
                         "kubectl get -n foo secret bar", "kubectl get pods,secrets -A -o yaml", "oc -n foo extract secret/bar",
                         "aws --region ap-northeast-1 ssm get-parameter --name x --with-decryption",
                         "aws secretsmanager get-secret-value --secret-id x", "printenv FOO", "env > /tmp/x", "export -p",
-                        "helm get values foo", "python3 -c 'import os; print(os.environ)'"):
+                        "helm get values foo", "python3 -c 'import os; print(os.environ)'",
+                        # Cloud and CLI credential commands print a token or key to stdout.
+                        "gcloud auth print-access-token", "gcloud auth application-default print-access-token",
+                        "gcloud --project p auth print-identity-token --audiences=x", "gcloud config config-helper --format=json",
+                        "gcloud secrets versions access latest --secret=x", "gcloud iam service-accounts keys create k.out --iam-account=a",
+                        "az account get-access-token", "az account get-access-token --resource https://x --query accessToken -o tsv",
+                        "az keyvault secret show --vault-name v -n x", "az ad sp create-for-rbac -n x",
+                        "az ad sp credential reset --id x", "az storage account keys list -n x", "az acr login -n x --expose-token",
+                        "aws sts get-session-token", "aws sts assume-role --role-arn x --role-session-name y",
+                        "aws ecr get-login-password --region r", "aws iam create-access-key", "aws eks get-token --cluster-name c",
+                        "aws codeartifact get-authorization-token --domain d", "aws sso get-role-credentials --role-name r",
+                        "kubectl create token default -n foo", "oc whoami -t", "oc whoami --show-token",
+                        "vault kv get secret/x", "vault read auth/token/lookup-self", "vault token create", "op read op://v/i/f",
+                        "op item get x --reveal", "bw get password x", "heroku auth:token", "npm token create",
+                        "doctl auth token", "glab auth status --show-token", "docker-credential-desktop get",
+                        "gh auth status --show-token"):
             with self.subTest(command):
                 plugin._sessions.clear()
                 run_turn(args={"command": command}, result="UNIQUEOUTPUT")
@@ -292,7 +307,10 @@ class ObserverTest(unittest.TestCase):
                 self.assertIn("withheld", body)
 
     def test_ordinary_commands_are_not_withheld(self):
-        for command in ("kubectl get pods -n foo", "git status", "ls -la", "aws s3 ls", "environment-check", "reset --hard"):
+        for command in ("kubectl get pods -n foo", "git status", "ls -la", "aws s3 ls", "environment-check", "reset --hard",
+                        "gcloud compute instances list", "gcloud auth list", "az account show", "az vm list",
+                        "aws sts get-caller-identity", "kubectl get serviceaccounts", "oc whoami", "gh auth status",
+                        "vault status", "npm install", "op --version"):
             with self.subTest(command):
                 plugin._sessions.clear()
                 run_turn(args={"command": command}, result="UNIQUEOUTPUT")
