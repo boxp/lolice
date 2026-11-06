@@ -74,6 +74,7 @@ _COMMAND_ARGS = ("command", "cmd")
 _COMMAND_HEAD = re.compile(r"""(?:[A-Za-z_]\w*=\S*\s+)*(?:[^\s'"]*/)?([\w.+-]{1,64})(?=\s|$)""")
 _CHAT_ROLES = {"system", "developer", "user", "assistant"}
 _TEXT_BLOCKS = {"text", "input_text", "output_text"}
+_AUTHORED_ROLES = _CHAT_ROLES
 _WITHHELD_TOOL = "[withheld: sensitive path or command]"
 _WITHHELD_SESSION = "[withheld: a sensitive value reached the model in this session]"
 _WITHHELD_UNPINNED = "[withheld: this output could not be scanned or masked]"
@@ -358,13 +359,81 @@ def _values_regex(values, bounded_short=False):
     return re.compile("|".join(p for value in sorted(values, key=len, reverse=True) for p in patterns(value)))
 
 
+# A run that can be base64, base64url or hex. Encoding a longer text that contains a value ("xqzvy" -> eHF6dnk=) leaves
+# no fixed encoded form of the value itself, so the run is decoded and the value looked for in the decoded text.
+_ENCODED_RUN = re.compile(r"[A-Za-z0-9+/_-]{3,}={0,2}")
+_HEX_RUN = re.compile(r"[0-9a-fA-F]+")
+_URL_SAFE = str.maketrans("-_", "+/")
+_MAX_DECODED_RUN = 1 << 20
+
+
+def _readable(data):
+    """Decoded bytes that read as text. An ordinary word decodes to bytes that do not, so it is left alone."""
+    if len(data) < 2:
+        return None
+    text = data.decode("utf-8", "replace")
+    printable = sum(ch.isprintable() or ch in "\t\n\r" for ch in text if ch != "\ufffd")
+    if text.count("\ufffd") > 2 or printable < 0.9 * len(text):
+        return None
+    return text
+
+
+def _decodings(run):
+    core = run.rstrip("=")[:_MAX_DECODED_RUN]
+    found = []
+    if _HEX_RUN.fullmatch(core):
+        for part in (core, core[1:], core[:-1]):
+            if len(part) % 2 == 0 and part:
+                found.append(bytes.fromhex(part))
+    for offset in range(4):
+        part = core[offset:].translate(_URL_SAFE)
+        if len(part) % 4 == 1:
+            part = part[:-1]
+        try:
+            found.append(base64.b64decode(part + "=" * (-len(part) % 4)))
+        except (ValueError, TypeError):
+            continue
+    return [text for text in map(_readable, found) if text]
+
+
+class _ValuesMatcher:
+    """The value regex (each value and its fixed encoded forms) plus a decode of every encoded run, so a value inside
+    an encoded longer text is found too. Inside decoded text a value matches anywhere: a blanked encoded run costs less
+    than a leak."""
+
+    def __init__(self, values, bounded_short=False):
+        self.regex = _values_regex(values, bounded_short)
+        self.plain = re.compile("|".join(re.escape(v) for v in sorted(values, key=len, reverse=True) if v))
+
+    def _hides_value(self, run):
+        return any(self.plain.search(text) for text in _decodings(run))
+
+    def search(self, text):
+        found = self.regex.search(text)
+        if found:
+            return found
+        return next((m for m in _ENCODED_RUN.finditer(text) if self._hides_value(m.group(0))), None)
+
+    def subn(self, repl, text):
+        out, hits = self.regex.subn(repl, text)
+        count = [0]
+
+        def sub(match):
+            if self._hides_value(match.group(0)):
+                count[0] += 1
+                return repl
+            return match.group(0)
+        out = _ENCODED_RUN.sub(sub, out)
+        return out, hits + count[0]
+
+
 def _env_pattern():
     """One alternation, longest first, so a later value cannot rewrite the mark of an earlier one.
     Any length matches inside a longer word: the value can be part of it, and a blanked word costs less than a leak."""
     global _env_pattern_cache
     values = _env_secrets()
     if _env_pattern_cache[0] is not values:
-        pattern = _values_regex(values) if values else None
+        pattern = _ValuesMatcher(values) if values else None
         _env_pattern_cache = (values, pattern)
     return _env_pattern_cache[1]
 
@@ -1055,7 +1124,7 @@ def _values_pattern(values):
     if not values:
         return None
     if _values_pattern_cache[0] != values:
-        _values_pattern_cache = (values, _values_regex(values, bounded_short=True))
+        _values_pattern_cache = (values, _ValuesMatcher(values, bounded_short=True))
     return _values_pattern_cache[1]
 
 
@@ -1080,7 +1149,10 @@ def _note_body(turn, value, parent=None):
     pinned so a later bare repeat in any field is masked, and a body that cannot be pinned is withheld."""
     if value is None:
         return None
-    session, parent = turn["session"], parent if parent is not None else turn["parent"]
+    return _note_written(turn["session"], parent if parent is not None else turn["parent"], value)
+
+
+def _note_written(session, parent, value):
     text = _scan_text(value)
     reason, values = _evidence(text)
     # Prose ("the token endpoint returned 200") pins what it can but does not withhold a reply: a mention is not
@@ -1156,7 +1228,36 @@ def _note_request(session, parent, messages):
         text = _scan_text(message)
         if not instructions and _is_env_dump(text):
             _taint("sensitive_source", session, parent)
-        _note_evidence(session, parent, "", text)
+        authored, rest = _authored_parts(message)
+        # A request, a reply or an instruction is scanned the way _note_body scans it live, so an ordinary sentence
+        # ("Your password is too short.") in unobserved history pins what it names but does not withhold the session.
+        for part in authored:
+            _note_written(session, parent, part)
+        if rest is not None:
+            _note_evidence(session, parent, "", _scan_text(rest))
+
+
+def _authored_parts(message):
+    """(texts the user, the model or the instructions wrote, everything else). Tool output, tool call arguments and
+    unknown shapes stay in the second part, which keeps the stricter tool scan."""
+    if not isinstance(message, dict) or message.get("type") or message.get("role") not in _AUTHORED_ROLES:
+        return [], message
+    content = message.get("content")
+    rest = {k: v for k, v in message.items() if k not in ("role", "content")}
+    if isinstance(content, str):
+        return [content], rest or None
+    if not isinstance(content, list):
+        return [], message
+    authored, other = [], []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") in _TEXT_BLOCKS and isinstance(block.get("text"), str) \
+                and set(block) <= {"type", "text", "cache_control"}:
+            authored.append(block["text"])
+        else:
+            other.append(block)
+    if other:
+        rest["content"] = other
+    return authored, rest or None
 
 
 def _block_view(block):

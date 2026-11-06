@@ -21,7 +21,10 @@ turns). The following must stay readable and are covered by positive tests (unit
 
 - an ordinary tool call (read_file, terminal, MCP, ...) and its output, and every later turn of the
   session, its parent and its children;
-- a request history this process did not observe (after a restart or compaction);
+- a request history this process did not observe (after a restart or compaction). It is scanned by
+  author: user/assistant/system/developer text is scanned like a live reply (an ordinary sentence such
+  as "Your password is too short." pins words but does not withhold), while tool results, tool call
+  arguments and unknown shapes keep the tool-output scan;
 - text that mentions a secret word without a value ("Reset your password", "パスワードを設定してください",
   "if token is None:", "max_output_tokens: 4000").
 
@@ -47,6 +50,10 @@ unobserved is a regression, not a protection.
 3. Values pinned from 2.: a value identified next to a secret name (assignment, element, prose with a
    separator or a copula, e.g. "the password is X", "X is my password") is masked in every later field of
    the session lineage, including its JSON/HTML/percent escapes, Base64/base64url/hex and reversed forms.
+   Every Base64/base64url/hex-looking run is also decoded (4 alignments for Base64, 2 for hex); when the
+   decoded text reads as text and contains a pinned or environment value anywhere ("xqzvy" -> `eHF6dnk=`
+   for a pinned `qzv`), the whole run is masked. Known over-masking: such an encoded run is blanked even
+   when the value is only part of a longer decoded word.
    Text the model or the user writes (the user request, each model reply, the final reply, a delegated
    child's summary) is scanned like tool output before it is kept, so "password: X ... X" inside one reply
    masks both occurrences. For these bodies only assignments/known formats can withhold; a secret word in
