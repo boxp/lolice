@@ -1420,6 +1420,39 @@ class BodyVisibilityTest(unittest.TestCase):
                 self.assertNotIn(encoded, body)
                 self.assertIn("MARKER_ENC_KEEP", body)
 
+    def test_value_containing_a_secret_word_is_pinned(self):
+        # A value is not a secret name because it contains one ("my-secret-value"): its re-encoded repeat is masked.
+        import base64 as b64
+        cases = {
+            "assignment": ("password: my-secret-value", "my-secret-value"),
+            "json": ('{"token": "tokenhorse-staple"}', "tokenhorse-staple"),
+            "prose": ("the password is my-secret-value", "my-secret-value"),
+            "upper": ("password: SECRETHORSE_STAPLE9", "SECRETHORSE_STAPLE9"),
+        }
+        for name, (line, value) in cases.items():
+            for form, repeat in (("base64", b64.b64encode(value.encode()).decode()), ("hex", value.encode().hex())):
+                with self.subTest(name + "-" + form):
+                    session = "kohako-g2-sw-" + name + "-" + form
+                    plugin._on_turn_start(session_id=session, turn_id="t", user_message="メモを見て")
+                    plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                    args={"path": "/repo/notes.md"}, result="note\n" + line + "\n\nfiller\nother")
+                    plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=repeat + " MARKER_SW_KEEP")
+                    plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                    body = self._payload()
+                    self.assertNotIn(repeat, body)
+                    self.assertIn("MARKER_SW_KEEP", body)
+
+    def test_secret_word_mention_alone_keeps_body(self):
+        # A bare secret word or an env name beside it is not withheld.
+        session = "kohako-g2-sw-mention"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="メモを見て")
+        plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                        args={"path": "/repo/notes.md"}, result="Set the password in the settings page.\nMARKER_SWM_OUT")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="done MARKER_SWM_REPLY")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = self._payload()
+        self.assertIn("MARKER_SWM_REPLY", body)
+
     def test_encoded_environment_value_is_masked(self):
         import base64 as b64
         encoded = b64.b64encode(ENV_SECRET.encode()).decode()

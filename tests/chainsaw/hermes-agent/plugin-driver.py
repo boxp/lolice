@@ -163,6 +163,7 @@ while True:
     fire_ordinary_read(f"kohako-g2-readmixedstop-{n}", "the password is username horsestaplezz", "username")
     fire_ordinary_read(f"kohako-g2-readblockword-{n}", "password:\n  - firstvalue\n  - blockwordleak horse battery\n", "blockwordleak")
     fire_ordinary_read(f"kohako-g2-readbase64-{n}", "password: b64leakvaluezz", base64.b64encode(b"b64leakvaluezz").decode())
+    fire_ordinary_read(f"kohako-g2-readsecretword-{n}", "password: my-secretword-leakzz", base64.b64encode(b"my-secretword-leakzz").decode())
     fire_instructions(f"kohako-g2-instructions-{n}")
     fire_running_child(f"kohako-g2-runparent-{n}", f"runchild-{n}")
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
