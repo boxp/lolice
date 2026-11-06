@@ -19,8 +19,10 @@ Withholding needs evidence, because the model can repeat what a tool showed it a
   masked and later bodies of the same sessions are withheld;
 - a secret word next to a value in prose ("the password is X"): the line is masked and X-like tokens of
   that line and the next are masked in every later field of the same sessions, in every encoding;
-- output too large to scan (_SCAN_LIMIT), a scan error or too many such tokens: withheld as above.
-History this process did not observe, as after a restart, is scanned the same way instead of being
+- output too large to scan (_SCAN_LIMIT), a scan error or too many such tokens: that body and later bodies
+  are withheld as above.
+History this process did not observe, as after a restart or a rewrite by compaction (tracked by message
+content, not count), is scanned the same way instead of being
 withheld outright. Residual: a value with no secret word, no known format and no sensitive source,
 which the model repeats on its own, is sent. Langfuse is in-cluster, Owner-only and short-lived.
 
@@ -69,6 +71,7 @@ _CHAT_ROLES = {"system", "developer", "user", "assistant"}
 _TEXT_BLOCKS = {"text", "input_text", "output_text"}
 _WITHHELD_TOOL = "[withheld: sensitive path or command]"
 _WITHHELD_SESSION = "[withheld: a sensitive value reached the model in this session]"
+_WITHHELD_UNPINNED = "[withheld: this output could not be scanned or masked]"
 _SCAN_LIMIT = 256 * 1024
 _MAX_SESSION_VALUES = 2048
 # A value next to a secret word in prose: printable ASCII without separators, not a short plain word.
@@ -188,7 +191,8 @@ _lock = threading.Lock()
 _turns = {}
 _sessions = collections.OrderedDict()  # session id -> reason its later bodies are withheld, or ""
 _session_values = collections.OrderedDict()  # session id -> values named in prose next to a secret word
-_scanned = collections.OrderedDict()  # session id -> request messages already scanned
+_scanned = collections.OrderedDict()  # session id -> fingerprints of request messages already scanned
+_MAX_SCANNED_MESSAGES = 8192  # per session; past it the set restarts and the whole history is scanned again
 _local = threading.local()
 _delegated = collections.OrderedDict()  # session ids started by delegation
 _seen_prompts = {}
@@ -873,13 +877,25 @@ def _note_delegated(session):
             _delegated.popitem(last=False)
 
 
+def _fingerprint(message):
+    try:
+        data = json.dumps(message, sort_keys=True, default=repr, ensure_ascii=False)
+    except Exception:
+        data = repr(message)
+    return hashlib.sha256(data.encode("utf-8", "replace")).digest()
+
+
 def _note_request(session, parent, messages):
     """Scans the messages not scanned yet: tools whose hook did not fire, and history from before a restart."""
+    # By content, not by count: compaction can rewrite earlier messages and keep (or grow) the length.
+    prints = [_fingerprint(m) for m in messages]
     with _lock:
-        start = _scanned.get(session, 0)
-        if start > len(messages):  # compaction rewrote the history
-            start = 0
-        _scanned[session] = len(messages)
+        seen = _scanned.get(session)
+        if seen is None or len(seen) + len(prints) > _MAX_SCANNED_MESSAGES:
+            seen = set()
+        fresh = [m for m, fp in zip(messages, prints) if fp not in seen]
+        seen.update(prints)
+        _scanned[session] = seen
         _scanned.move_to_end(session)
         while len(_scanned) > _MAX_SESSIONS:
             _scanned.popitem(last=False)
@@ -887,7 +903,7 @@ def _note_request(session, parent, messages):
             _sessions[session] = ""
             while len(_sessions) > _MAX_SESSIONS:
                 _sessions.popitem(last=False)
-    for message in messages[start:]:
+    for message in fresh:
         if isinstance(message, dict) and message.get("role") in ("system", "developer"):
             continue
         if any(_withhold(_text(args)) for _, args in _tool_calls(message)):
@@ -1065,16 +1081,19 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
         policy = "withheld_sensitive_source"
     else:
         exposure = _note_evidence(turn["session"], turn["parent"], args_text, result_text)
-        policy = "withheld_after_exposure" if already else "sent"
+        # A reason means this body holds something that could not be pinned to a value (too large to scan, a short
+        # value, a private key, ...): masking cannot cover the rest of it, so this body is withheld too.
+        policy = "withheld_after_exposure" if already else "withheld_unpinned" if exposure else "sent"
     _count("bodies_" + policy)
     now = time.time()
-    hidden = _WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else None
+    hidden = (_WITHHELD_TOOL if withheld else _WITHHELD_SESSION if already else
+              _WITHHELD_UNPINNED if exposure else None)
     _add(turn, {"key": "tool:" + str(tool_call_id or now), "name": str(tool_name), "type": "tool",
                 "input": hidden or args, "output": hidden or result,
                 "start": now - (duration_ms or 0) / 1000, "end": now,
                 "level": "ERROR" if error_type or status in ("error", "failed") else None,
                 "metadata": {"status": status, "error_type": error_type, "withheld": bool(hidden), "body_policy": policy,
-                             "exposure": exposure, "view": _tool_input_view(args) if hidden == _WITHHELD_SESSION else None,
+                             "exposure": exposure, "view": _tool_input_view(args) if hidden in (_WITHHELD_SESSION, _WITHHELD_UNPINNED) else None,
                              "size": _size(result)}})
 
 
