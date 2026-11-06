@@ -72,6 +72,7 @@ class ObserverTest(unittest.TestCase):
         plugin._stats.clear()
         plugin._sessions.clear()
         plugin._delegated.clear()
+        plugin._parents.clear()
         plugin._session_values.clear()
         plugin._scanned.clear()
         plugin._creds = ("pk-lf-" + "test" * 4, "sk-lf-" + "test" * 4)
@@ -1200,7 +1201,10 @@ class BodyVisibilityTest(unittest.TestCase):
                 plugin._on_session_end(session_id=parent, turn_id="t", completed=True)
                 body = self._payload()
                 self.assertNotIn(value, body)
-                self.assertIn("MARKER_CHILD_BEFORE", body)
+                self.assertIn('"run-child-' + name + '"', body)  # the child's trace is still sent
+                if name == "pinned":  # a pinned value is masked; the child's bodies stay readable
+                    self.assertIn("MARKER_CHILD_BEFORE", body)
+                    self.assertNotIn("withheld_after_exposure", body)
 
     def test_child_exposure_reaches_the_parent(self):
         value = "Zq7" + "childonly" + "77"

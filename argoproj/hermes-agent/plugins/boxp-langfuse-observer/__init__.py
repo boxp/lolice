@@ -200,6 +200,8 @@ _scanned = collections.OrderedDict()  # session id -> fingerprints of request me
 _MAX_SCANNED_MESSAGES = 8192  # per session; past it the set restarts and the whole history is scanned again
 _local = threading.local()
 _delegated = collections.OrderedDict()  # session ids started by delegation
+_parents = collections.OrderedDict()  # session id -> the session that delegated (or rotated) to it
+_MAX_LINEAGE = 16
 _seen_prompts = {}
 _stats = {}
 _queue = queue.Queue(maxsize=_QUEUE_MAX)
@@ -558,6 +560,10 @@ class _ShortValue(Exception):
     """A secret value too short to pin."""
 
 
+class _UnpinnedValue(Exception):
+    """A non-ASCII secret value: unspaced text has no word boundary, so the part repeated alone cannot be pinned."""
+
+
 def _token_values(raw):
     """Values to mask for matched text. A single token is the value itself; a value of several words keeps the whole
     text and its secret-looking tokens. References (variables, placeholders, secret names, key words) are skipped,
@@ -570,15 +576,16 @@ def _token_values(raw):
             continue
         # Tokens are checked one by one: a nested value such as {"token": "..."} names a secret and holds one.
         tokens = [t for t in (_strip(t) for t in _TOKEN_SPLIT.split(value)) if not _reference(t)]
-        if len(tokens) == 1:
-            if len(tokens[0]) < _MIN_PINNED:
+        # Every word is pinned, plain or not: the model can repeat any one of a several-word value alone.
+        for token in tokens:
+            if not token.isascii():
+                raise _UnpinnedValue(token)
+            if len(token) < _MIN_PINNED:
                 # Too short to mask wherever it appears again, so the value cannot be pinned: the caller withholds.
-                raise _ShortValue(tokens[0])
-            found.add(tokens[0])
-        elif tokens:
-            if not _LOOSE_SECRET.search(value):
-                found.add(value)
-            found.update(t for t in tokens if len(t) >= 6 and not _PLAIN_WORD.fullmatch(t))
+                raise _ShortValue(token)
+        found.update(tokens)
+        if len(tokens) > 1 and not _LOOSE_SECRET.search(value):
+            found.add(value)
     return found
 
 
@@ -662,6 +669,8 @@ def _evidence(text):
                 values |= pinned
     except _ShortValue:
         return "short_value", set()
+    except _UnpinnedValue:
+        return "unpinned_value", set()
     except Exception:
         return "scan_error", set()
     return None, values
@@ -811,10 +820,30 @@ def _add(turn, span):
         turn["bytes"] += size
 
 
+def _note_parent(session, parent):
+    if not session or not parent or str(session) == str(parent):
+        return
+    with _lock:
+        _parents[str(session)] = str(parent)
+        _parents.move_to_end(str(session))
+        while len(_parents) > _MAX_SESSIONS:
+            _parents.popitem(last=False)
+
+
+def _lineage(session):
+    """The session and the sessions above it. Looked up on every use, not copied at start: a parent can see a secret
+    while its child is already running and hand the value to it."""
+    chain, current = [], str(session or "")
+    while current and current not in chain and len(chain) < _MAX_LINEAGE:
+        chain.append(current)
+        current = _parents.get(current, "")
+    return chain
+
+
 def _tainted(session):
     """The reason later bodies of the session are withheld, or ""."""
     with _lock:
-        return _sessions.get(str(session or ""), "")
+        return next((_sessions[s] for s in _lineage(session) if _sessions.get(s)), "")
 
 
 def _taint(reason, *sessions):
@@ -848,7 +877,7 @@ def _add_values(values, *sessions):
 
 def _values_of(*sessions):
     with _lock:
-        return frozenset(v for s in sessions if s for v in _session_values.get(str(s), ()))
+        return frozenset(v for s in sessions if s for a in _lineage(s) for v in _session_values.get(a, ()))
 
 
 _values_pattern_cache = (None, None)
@@ -1003,6 +1032,7 @@ def _guarded(fn):
 def _on_turn_start(session_id=None, turn_id=None, user_message=None, model=None, platform=None, parent_session_id=None):
     turn = _turn(session_id, turn_id)
     _note_tickets(turn, user_message)
+    _note_parent(turn["session"], parent_session_id)
     if str(parent_session_id or "") in _delegated:  # rotation of a delegated session keeps it delegated
         _note_delegated(turn["session"])
     if _tainted(parent_session_id):  # the delegated goal may repeat what the parent saw
@@ -1137,6 +1167,7 @@ def _on_subagent_start(parent_session_id=None, parent_turn_id=None, parent_subag
                        child_subagent_id=None, child_role=None, child_goal=None):
     if child_session_id:
         _note_delegated(child_session_id)
+        _note_parent(child_session_id, parent_session_id)
 
 
 @_guarded
