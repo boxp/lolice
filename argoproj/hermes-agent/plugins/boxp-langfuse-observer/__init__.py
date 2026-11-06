@@ -17,14 +17,17 @@ Withholding needs evidence, because the model can repeat what a tool showed it a
 - a secret value seen by the model (a known format, a secret-named assignment, element or entry, a
   value of this process's environment) in tool input/output or in request history: the field is
   masked and later bodies of the same sessions are withheld;
-- a secret word next to a value in prose ("the password is X"): the line is masked and X-like tokens of
-  that line and the next are masked in every later field of the same sessions, in every encoding;
+- a secret word next to a value in prose ("the password is X", "X is my password"): the line is masked and
+  X-like tokens of that line and the next are masked in every later field of the same sessions, in every
+  encoding. A secret word in an ordinary sentence ("パスワードを設定してください") is a mention, not evidence;
 - output too large to scan (_SCAN_LIMIT), a scan error or too many such tokens: that body and later bodies
   are withheld as above.
 History this process did not observe, as after a restart or a rewrite by compaction (tracked by message
 content, not count), is scanned the same way instead of being
 withheld outright. Residual: a value with no secret word, no known format and no sensitive source,
 which the model repeats on its own, is sent. Langfuse is in-cluster, Owner-only and short-lived.
+THREAT_MODEL.md records the Owner-approved contract: what is protected, what must stay readable and the
+accepted residual (unmarked plain-text values, free phrasings and transformations not listed there).
 
 Key: read from an optional Secret volume, polled by the worker. It can appear or rotate while the
 Pod runs. Until then the hooks return at once and nothing is buffered.
@@ -801,6 +804,26 @@ def _prose_candidates(line, cut):
     return found
 
 
+_VALUE_SEPARATOR = re.compile(r"(?i)\s*(?:[:=：＝]|は|って|とは|(?:is|are|was|were)(?![a-z]))")
+_COPULA = re.compile(r"(?i)is|are|was|were|=|:")
+_QUESTION = re.compile(r"(?i)what|which|where|who|whose|how|why|when")
+
+
+def _value_before(spans, cut):
+    """The ASCII word joined to the secret word at cut by a copula and connectives only ("X is my password",
+    "X was the token"), or None. Only the nearest word: earlier words of the sentence are not the value."""
+    before = [t for start, end, t in spans if end <= cut and t and not _secret_name(t)]
+    gap = []
+    while before and (_CONNECTIVE.fullmatch(before[-1]) or _COPULA.fullmatch(before[-1])):
+        gap.append(before.pop())
+    if not before or not any(_COPULA.fullmatch(t) for t in gap):
+        return None
+    word = before[-1]
+    if not word.isascii() or _REFERENCE.fullmatch(word) or _STOPWORD.fullmatch(word) or _QUESTION.fullmatch(word):
+        return None
+    return word
+
+
 def _prose_values(text):
     """Values a secret word names in prose. On the secret word's line, every word after it that is not a connective
     is a candidate, plain or not ("the password is correcthorsebattery"); when the line ends at the secret word and a
@@ -830,7 +853,9 @@ def _prose_values(text):
         if cuts and not candidates and _SEPARATOR_END.search(line[cut:]):
             # "password:" then the value on the next line.
             candidates = _prose_candidates(following, 0)
-        if any(not t.isascii() for t in candidates):
+        # A non-ASCII candidate withholds only when a separator names it as the value ("パスワードは X", "password: X").
+        # A secret word in an ordinary sentence ("パスワードを設定してください") is a mention, not evidence (TD-07).
+        if any(not t.isascii() for t in candidates) and (not cuts or _VALUE_SEPARATOR.match(line, cut) or not line[cut:].strip()):
             reason = reason or "unpinned_value"
         # Any candidate too short to pin ("password: alpha abc"), or more candidates than are pinned, leaves a value
         # that could be repeated alone, so the caller withholds.
@@ -843,6 +868,13 @@ def _prose_values(text):
         # The line's value-like tokens before the word too ("Zq7... is my password").
         found.update(t for start, _, t in spans if start < cut and _VALUE_TOKEN.fullmatch(t) and not _PLAIN_WORD.fullmatch(t)
                      and not _secret_name(t) and not _REFERENCE.fullmatch(t))
+        # A plain word joined to the secret word by a copula is its value too ("correcthorsebattery is my password").
+        before = _value_before(spans, cut)
+        if before is not None:
+            if len(before) < _MIN_PINNED:
+                reason = reason or "short_value"
+            else:
+                found.add(before)
     return found, reason
 
 

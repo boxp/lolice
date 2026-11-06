@@ -1,0 +1,67 @@
+# boxp-langfuse-observer: threat model and accepted residual (BOXP-428 TD-07)
+
+This file records the observation contract the Owner approved on 2026-11-06 (Owner: "その方針にしましょう").
+It is the review boundary for this plugin: a finding is judged against it. The source of truth for the
+contract is the vault note `Projects/langfuse-observability/request.md` (top section).
+
+## Deployment boundary
+
+- Langfuse runs inside the lolice cluster (`argoproj/langfuse`). Bodies are sent only to
+  `langfuse-web.langfuse.svc.cluster.local`, never to an external SaaS or an external LLM.
+- The UI is reachable only through Cloudflare Access (Owner-only policy) and Langfuse OIDC; sign-up and
+  password login are disabled. Ingestion uses a project API key read from an optional Secret volume.
+- Retention: traces older than 14 days are deleted by the `langfuse-retention` CronJob, raw events in
+  MinIO expire after 1 day. Nothing is written to disk by this plugin (no spool).
+
+## Goal: readable bodies (positive visibility)
+
+The Owner must be able to read, in the UI, the prompts, replies, tool input/output and delegation bodies
+of the selected paths (Kohako G2 sessions, webhook/Task Board sessions, delegation and ticket-referring
+turns). The following must stay readable and are covered by positive tests (unit and Chainsaw):
+
+- an ordinary tool call (read_file, terminal, MCP, ...) and its output, and every later turn of the
+  session, its parent and its children;
+- a request history this process did not observe (after a restart or compaction);
+- text that mentions a secret word without a value ("Reset your password", "パスワードを設定してください",
+  "if token is None:", "max_output_tokens: 4000").
+
+Withholding a whole session only because a tool ran, a secret word was mentioned or history was
+unobserved is a regression, not a protection.
+
+## Protected (must not be stored or sent)
+
+1. Known secret sources, not collected at all: credential files (`auth.json`, `.credentials*`, `.env*`,
+   `.ssh/`, `.aws/`, kubeconfig, `.git-credentials`, `.netrc`, private key files, `secrets/`, token files),
+   environment dumps (`env`, `printenv`, `export -p`, `declare -x`, `process.env`, output with `PATH=` and
+   `HOME=`), cluster secrets (`kubectl ... secret`), cloud/CLI credential commands. The call is sent
+   without its body and the later bodies of the session lineage are withheld (the model has seen it).
+2. Known formats, masked in every field before the batch is queued: private keys, Authorization /
+   Cookie headers, URL credentials, JWT, provider keys (sk-, ghp_, xox*, AKIA, AIza, ...), bearer tokens,
+   secret-named assignments / flags / env entries / XML elements / YAML blocks, data URIs, high-entropy
+   strings, values of this process's environment.
+3. Values pinned from 2.: a value identified next to a secret name (assignment, element, prose with a
+   separator or a copula, e.g. "the password is X", "X is my password") is masked in every later field of
+   the session lineage, including its JSON/HTML/percent escapes, Base64/base64url/hex and reversed forms.
+4. Fail-closed: when a protected field cannot be judged (too large to scan, scan error, a value too short
+   or not delimitable to pin, too many values), that observation's body is withheld with a non-body reason
+   (`withheld_reason`) and the agent keeps working. A final scan of the serialized batch drops a span that
+   still matches. There is no fail-open path that sends an unprocessed body.
+
+A regression in 1-4 (a known source or format reaching the sink) is a blocking defect.
+
+## Accepted residual (Owner-approved, not a defect of this plugin)
+
+The Owner accepted, for this self-hosted, Owner-only, short-retention deployment, that the following can
+reach Langfuse. They must not be "fixed" by withholding bodies broadly or by adding an endless list of
+phrasings and encodings:
+
+- a secret with no known format and no secret name next to it (an unmarked plain-text value), and the
+  model repeating it alone;
+- a value named in free prose in a way the patterns above do not delimit (a value far from the secret
+  word, inside a longer sentence, in a non-separator Japanese phrasing such as "Xがパスワードです");
+- transformations other than those listed in 3. (base32, rot13, case changes, splitting, paraphrase,
+  translation);
+- text the Owner or the system prompt writes directly, when it carries no known format or secret name.
+
+The residual does not extend to: collecting credentials on purpose, sending fields unprocessed, disabling
+masking, or sending bodies outside the cluster.
