@@ -1068,6 +1068,53 @@ class BodyVisibilityTest(unittest.TestCase):
         self.assertIn("here it is", body)
         self.assertIn("MARKER_PROSE_KEEP", body)
 
+    def test_plain_lowercase_value_named_in_prose_is_masked(self):
+        # A plain lowercase word is still a value when a secret word names it.
+        for name, line in (("en", "the password is correcthorsebattery"), ("colon", "password: correcthorsebattery"),
+                           ("ja", "パスワードは correcthorsebattery です")):
+            with self.subTest(name):
+                session = "kohako-g2-plain-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="メモを見て")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/notes.md"}, result="note\n" + line + "\n\nfiller\nother")
+                plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                        response={"assistant_message": {"role": "assistant", "content": "correcthorsebattery"}})
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="correcthorsebattery MARKER_PLAIN_KEEP")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn("correcthorsebattery", body)
+                self.assertIn("MARKER_PLAIN_KEEP", body)
+
+    def test_short_value_withholds_later_bodies(self):
+        # A value under 4 characters cannot be masked wherever it appears again, so the session is withheld.
+        for name, line in (("yaml", "password: abc"), ("prose", "the password is abc"), ("ja", "パスワードはabcです"),
+                           ("flag", "mycli --password abc"), ("dict", {"token": "abc"})):
+            with self.subTest(name):
+                session = "kohako-g2-short-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_SHORT_BEFORE")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=line)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="abc")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                run_turn(session=session, turn="t2", body="again abc", tool="todo", args={}, result="ok")
+                body = self._payload()
+                self.assertNotRegex(body, r"(?<![A-Za-z])abc(?![A-Za-z])")
+                self.assertIn("MARKER_SHORT_BEFORE", body)
+                self.assertIn('withheld_reason", "value": {"stringValue": "short_value"}', body)
+
+    def test_prose_mentions_without_a_value_do_not_withhold(self):
+        for line in ("if token is None:", "    pass", "name: app-secrets", "max_output_tokens: 4000",
+                     "token: ${GITHUB_TOKEN}", "Reset your password from the settings page"):
+            with self.subTest(line):
+                session = "kohako-g2-mention-" + str(abs(hash(line)))
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file", args={"path": "/repo/c"}, result=line)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="MARKER_MENTION_REPLY")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertIn("MARKER_MENTION_REPLY", body)
+                self.assertNotIn("[withheld", body)
+
     def test_child_exposure_reaches_the_parent(self):
         value = "Zq7" + "childonly" + "77"
         plugin._on_turn_start(session_id="kohako-g2-ce", turn_id="t", user_message="go")

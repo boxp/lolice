@@ -111,6 +111,8 @@ while True:
     fire_ordinary_read(f"kohako-g2-read-{n}", "harmlessreadmemarker", "harmlessreplymarker")
     fire_ordinary_read(f"kohako-g2-readsecret-{n}", "api_key: plainreadsecret", "plainreadsecret")
     fire_ordinary_read(f"kohako-g2-readdict-{n}", {"data": {"auth": {"token": "plaindictvalue"}}}, "plaindictvalue")
+    fire_ordinary_read(f"kohako-g2-readlower-{n}", "the password is lowerprosevalue", "lowerprosevalue")
+    fire_ordinary_read(f"kohako-g2-readshort-{n}", "password: qzv", "qzv")
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
     print(f"round {n}", flush=True)
