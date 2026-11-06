@@ -179,6 +179,20 @@ def fire_grandchild_source(top, mid, low):
     hooks["on_session_end"](session_id=low, turn_id="turn", completed=True)
     hooks["on_session_end"](session_id=mid, turn_id="turn", completed=True)
 
+def fire_deep_lineage_source(n, depth=20):
+    # A source read deeper than any fixed lineage cap must still withhold the root that repeats the value.
+    hooks = ctx.hooks
+    chain = [f"kohako-g2-deeptop-{n}"] + [f"deep-{n}-{i}" for i in range(depth)]
+    hooks["pre_llm_call"](session_id=chain[0], turn_id="turn", user_message="delegate deep")
+    for parent, child in zip(chain, chain[1:]):
+        hooks["subagent_start"](parent_session_id=parent, parent_turn_id="turn", child_session_id=child, child_role="leaf", child_goal="work")
+        hooks["pre_llm_call"](session_id=child, turn_id="turn", user_message="deepgoal", platform="", parent_session_id=parent)
+    hooks["post_tool_call"](session_id=chain[-1], turn_id="turn", tool_call_id="env", tool_name="read_file", args={"path": "/app/.env"},
+                            result="value deepsourcevaluezz")
+    hooks["post_llm_call"](session_id=chain[0], turn_id="turn", assistant_response="deepsourcevaluezz")
+    for session in chain:
+        hooks["on_session_end"](session_id=session, turn_id="turn", completed=True)
+
 def fire_after_session_flood(n):
     # A long-running session that saw a secret idles while more than _MAX_SESSIONS other sessions come and go; its
     # later bodies must stay withheld or masked. The flood uses the bookkeeping directly so the sink is not flooded.
@@ -245,6 +259,7 @@ while True:
     fire_running_child(f"kohako-g2-runparent-{n}", f"runchild-{n}")
     fire_sensitive_call(f"kohako-g2-envcall-{n}")
     fire_grandchild_source(f"kohako-g2-grandtop-{n}", f"grandmid-{n}", f"grandlow-{n}")
+    fire_deep_lineage_source(n)
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")

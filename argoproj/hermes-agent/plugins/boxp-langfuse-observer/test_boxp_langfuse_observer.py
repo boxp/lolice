@@ -1523,6 +1523,28 @@ class BodyVisibilityTest(unittest.TestCase):
         self.assertIn("MARKER_GP_ASK", body)
         self.assertEqual(plugin._tainted(top), "sensitive_source")
 
+    def test_exposure_deep_in_a_long_lineage_reaches_the_root(self):
+        # No depth cap: a source read 20 delegations down still withholds the root that repeats the value.
+        value = "Zq7" + "deepsource" + "77"
+        chain = ["kohako-g2-deep"] + [f"deep-{i}" for i in range(20)]
+        plugin._on_turn_start(session_id=chain[0], turn_id="t", user_message="go MARKER_DEEP_ASK")
+        for parent, child in zip(chain, chain[1:]):
+            plugin._on_subagent_start(parent_session_id=parent, child_session_id=child)
+            plugin._on_turn_start(session_id=child, turn_id="c", user_message="goal", parent_session_id=parent)
+        plugin._on_tool(session_id=chain[-1], turn_id="c", tool_call_id="x", tool_name="read_file",
+                        args={"path": "/app/.env"}, result="value " + value)
+        plugin._on_turn_end(session_id=chain[0], turn_id="t", assistant_response=value)
+        plugin._on_session_end(session_id=chain[0], turn_id="t", completed=True)
+        body = self._payload()
+        self.assertNotIn(value, body)
+        self.assertIn("MARKER_DEEP_ASK", body)
+        self.assertEqual(plugin._tainted(chain[0]), "sensitive_source")
+
+    def test_lineage_cycle_terminates(self):
+        plugin._note_parent("cyc-a", "cyc-b")
+        plugin._note_parent("cyc-b", "cyc-a")
+        self.assertEqual(plugin._lineage("cyc-a"), ["cyc-a", "cyc-b"])
+
     def test_body_policy_counts_are_reported(self):
         self._ordinary_session("kohako-g2-count")
         drain()
