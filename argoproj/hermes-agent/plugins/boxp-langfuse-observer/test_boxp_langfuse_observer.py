@@ -1342,6 +1342,53 @@ class BodyVisibilityTest(unittest.TestCase):
                     for marker in ("MARKER_REPLY_SHORT_ASK", "MARKER_REPLY_SHORT_KEEP", "MARKER_REPLY_SHORT_NEXT"):
                         self.assertIn(marker, body)
 
+    def test_encoded_text_containing_a_pinned_short_value_is_masked(self):
+        # A pinned value inside a longer word that is then encoded ("xqzvy" -> eHF6dnk=) is found by decoding the run,
+        # not by listing every alignment of every neighbour. Ordinary base64 next to it stays.
+        for encoded in ("eHF6dnk=", "eHF6dnk", "78717a7679", "78717A7679", "c2F5IHhxenZ5IG5vdw=="):
+            with self.subTest(encoded):
+                session = "kohako-g2-encshort-" + encoded[:6]
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_ENC_ASK")
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="the password is qzv\nfiller\nMARKER_ENC_REPLY")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                run_turn(session=session, turn="t2", body="encoded " + encoded + " aGVsbG8gd29ybGQ= MARKER_ENC_NEXT",
+                         tool="todo", args={}, result="ok")
+                body = self._payload()
+                self.assertNotIn(encoded, body)
+                for marker in ("MARKER_ENC_ASK", "MARKER_ENC_REPLY", "MARKER_ENC_NEXT", "aGVsbG8gd29ybGQ="):
+                    self.assertIn(marker, body)
+
+    def test_ordinary_reply_in_unobserved_history_keeps_the_session_readable(self):
+        # History the plugin did not see (a restart) is scanned by who wrote it: a reply or a request is scanned as one,
+        # so "Your password is too short." does not withhold the session; tool output keeps the stricter scan.
+        for history in ([{"role": "assistant", "content": "Your password is too short."}],
+                        [{"role": "user", "content": "パスワードは定期的に変更してください。"}],
+                        [{"role": "assistant", "content": [{"type": "text", "text": "Your password is too short."}]}]):
+            with self.subTest(history):
+                session = "kohako-g2-histreply-" + str(abs(hash(repr(history))))
+                messages = history + [{"role": "user", "content": "続けて MARKER_HR_ASK"}]
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="続けて MARKER_HR_ASK")
+                plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=messages,
+                                       message_count=len(messages), started_at=time.time())
+                plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                        response={"assistant_message": {"content": "MARKER_HR_REPLY"}}, model="m",
+                                        base_url="https://x", started_at=time.time(), ended_at=time.time())
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="MARKER_HR_REPLY")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn("[withheld", body)
+                for marker in ("MARKER_HR_ASK", "MARKER_HR_REPLY"):
+                    self.assertIn(marker, body)
+        # Tool output in history still withholds on an unpinnable value.
+        session = "kohako-g2-histtool"
+        messages = [{"role": "tool", "content": "password: ab"}, {"role": "user", "content": "続けて MARKER_HT_ASK"}]
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="続けて MARKER_HT_ASK")
+        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=messages,
+                               message_count=len(messages), started_at=time.time())
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="MARKER_HT_REPLY")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        self.assertNotIn("MARKER_HT_REPLY", self._payload())
+
     def test_ordinary_sentence_in_a_reply_keeps_the_session_readable(self):
         # Pinning a short word from a reply masks that word; it does not withhold the session (TD-07).
         for reply in ("Your password is too short.", "パスワードは定期的に変更してください。"):

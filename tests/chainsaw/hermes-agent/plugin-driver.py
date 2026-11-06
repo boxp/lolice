@@ -78,6 +78,19 @@ def fire_read_then_reply(session, result, reply):
     hooks["post_llm_call"](**common, assistant_response=reply)
     hooks["on_session_end"](**common, completed=True)
 
+def fire_history_reply(session):
+    # History the plugin did not see (a restart) holds an ordinary reply that mentions a password. It is scanned as a
+    # reply, not as tool output, so the session after it stays readable.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    history = [{"role": "user", "content": "check it"}, {"role": "assistant", "content": "Your password is too short."},
+               {"role": "user", "content": "historyaskmarker"}]
+    hooks["pre_llm_call"](**common, user_message="historyaskmarker")
+    hooks["pre_api_request"](**common, api_request_id="api", request_messages=history)
+    hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "historyreplykeepmarker"}})
+    hooks["post_llm_call"](**common, assistant_response="historyreplykeepmarker")
+    hooks["on_session_end"](**common, completed=True)
+
 def fire_rewritten_history(session):
     # Compaction rewrites the history to the same length; the rewritten message shows a secret value.
     hooks = ctx.hooks
@@ -204,6 +217,8 @@ while True:
     fire_ordinary_read(f"kohako-g2-readbefore-{n}", "beforeprosevaluezz is my password", "beforeprosevaluezz")
     fire_read_then_reply(f"kohako-g2-replyrepeat-{n}", "harmless notes", "password: replyrepeatvaluezz\nfiller one\nfiller two\nreplykeepmarker\nagain replyrepeatvaluezz")
     fire_read_then_reply(f"kohako-g2-replyshort-{n}", "harmless notes", "the password is qzk\nfiller one\nreplyshortkeepmarker\nqzk")
+    fire_read_then_reply(f"kohako-g2-replyencshort-{n}", "harmless notes", "the password is qzj\nfiller one\nreplyencshortkeepmarker\n" + base64.b64encode(b"xqzjy").decode())
+    fire_history_reply(f"kohako-g2-historyreply-{n}")
     fire_read_then_reply(f"kohako-g2-replyja-{n}", "harmless notes", "パスワードは ないしょのことば\nfiller one\nreplyjakeepmarker\nことば")
     fire_ordinary_read(f"kohako-g2-readjasentence-{n}", "パスワードを設定してください", "jasentencereplymarker")
     fire_instructions(f"kohako-g2-instructions-{n}")
