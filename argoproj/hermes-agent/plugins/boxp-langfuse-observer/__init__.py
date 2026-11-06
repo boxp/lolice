@@ -172,7 +172,12 @@ _MAX_REVERSED_ENTRIES = 1000
 _MAX_REVERSED_VALUE = 4096
 _PLACEHOLDER = re.compile(r"\[REDACTED:[a-z_]+\]")
 _SENSITIVE_PATH = re.compile(
-    r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_rsa|id_ed25519|secrets?(?:[/\\])|[^/\s\"']*token(?!s)[^/\s\"']*)")
+    r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_rsa|id_ed25519|secrets?(?:[/\\])"
+    # A file or directory named for tokens (tokens.json, refresh_tokens.txt, /var/lib/app/tokens). A bare key such as
+    # max_output_tokens has no extension and no path separator, so it is not a path; a bare token(s) file name is.
+    # Bounded to a file name's length so a long line is scanned in linear time.
+    r"|tokens?(?=[\s\"']|\Z)"
+    r")|[/\\][^/\\\s\"']{0,255}?token|token[^/\\\s\"']{0,255}?(?:\.[A-Za-z0-9]+(?![\w-])|[/\\])")
 # Arguments are matched in their JSON form, where a newline is a backslash and an n.
 _WORD_START = r"""(?:^|[;&|\s"'(`/]|\\[nrt])"""
 _WORD_END = r"""[ \t]*(?:$|[|;&<>"')`#]|\d+[<>]|\\[nrt"])"""
@@ -668,7 +673,7 @@ _CONNECTIVE = re.compile(
     r"my|your|our|their|his|her|new|old|set|use|used|using|with|from|into|via|here|there|now|then|also|still|just|"
     r"if|so|do|does|did|has|have|had|will|can|may|must|should|would|could|me|you|we|they|ok|yes|now|again|below|above")
 _PROSE_TOKEN = re.compile(r"""[^\s"'`,;:=<>()\[\]{}\x00-\x1f\x7f-\uffff]+""")
-_MAX_PROSE_VALUES = 8
+_MAX_PROSE_VALUES = 64
 _NAME_REST = re.compile(r"[A-Za-z_.-]{0,16}")
 
 
@@ -680,8 +685,8 @@ def _secret_name(token):
 def _prose_values(text):
     """Values a secret word names in prose. On the secret word's line, every word after it that is not a connective
     is a candidate, plain or not ("the password is correcthorsebattery"); on the next line, value-like tokens.
-    Returns (values, short): short when the first candidate after a secret word is under 4 characters, which cannot
-    be pinned ("the password is abc"), so the caller withholds."""
+    Returns (values, short): short when any candidate after a secret word is under 4 characters ("the password is
+    alpha abc") or there are more candidates than are pinned; such a value cannot be pinned, so the caller withholds."""
     lines = _LINE_BREAK.split(text[:_SCAN_LIMIT])
     found, short = set(), False
     for i, line in enumerate(lines):
@@ -697,7 +702,9 @@ def _prose_values(text):
         candidates = [t for start, _, t in spans if start >= cut]
         candidates = [t for t in candidates if t and not _CONNECTIVE.fullmatch(t) and not _secret_name(t)
                       and not _STOPWORD.fullmatch(t) and not _REFERENCE.fullmatch(t)]
-        if candidates and len(candidates[0]) < _MIN_PINNED:
+        # Any candidate too short to pin ("password: alpha abc"), or more candidates than are pinned, leaves a value
+        # that could be repeated alone, so the caller withholds.
+        if any(len(t) < _MIN_PINNED for t in candidates) or len(candidates) > _MAX_PROSE_VALUES:
             short = True
         found.update(t for t in candidates[:_MAX_PROSE_VALUES] if len(t) >= _MIN_PINNED)
         following = lines[i + 1] if i + 1 < len(lines) else ""

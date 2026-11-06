@@ -1018,7 +1018,8 @@ class BodyVisibilityTest(unittest.TestCase):
         self.assertFalse(plugin._withhold('{"cmd": "ls", "max_output_tokens": 12000}'))
         self.assertTrue(plugin._withhold("cat /run/secrets/token"))
         for args in ('{"path": "/tmp/tokens.json"}', '{"cmd": "cat tokens.json"}', '{"path": "/var/lib/app/tokens"}',
-                     '{"path": "C:\\\\app\\\\tokens.yaml"}', '{"cmd": "cat ./refresh_tokens.txt"}'):
+                     '{"path": "C:\\\\app\\\\tokens.yaml"}', '{"cmd": "cat ./refresh_tokens.txt"}',
+                     '{"cmd": "cat token"}', '{"path": "tokens"}'):
             with self.subTest(args):
                 self.assertTrue(plugin._withhold(args))
         for args in ('{"cmd": "ls", "max_output_tokens": 12000}', '{"cmd": "grep -n input_tokens usage.log"}'):
