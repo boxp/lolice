@@ -165,3 +165,24 @@ data:
     ubatch-size = 512
     threads = 14
     threads-batch = 14
+
+    # BOXP-358 batch 9 (coding axis, small thinking MoE): JetBrains/Mellum2.1-12B-A2.5B-Thinking
+    # (base rev 92ddae9f, arch mellum, 12B total / 2.5B active, 64 experts / 8 active,
+    # 28 layers of which 7 full attention and 21 sliding-window (1024), 4 KV heads x 128,
+    # apache-2.0, official ctx 131072). GGUF from the publisher's own repo
+    # JetBrains/Mellum2.1-12B-A2.5B-Thinking-GGUF rev 4159d684, Q4_K_M 8.07 GB
+    # (sha256 ecc4d5b8…), text model only (the MTP draft file is not fetched; the
+    # gemma4 MTP trial in batch 5 was rejected). f16 KV for the 7 full-attention
+    # layers at the router ctx 262144 is ~3.8 GB, so weights + KV + buffers is
+    # ~14 GB. The router ctx 262144 exceeds the official 131072; the long-context
+    # phase of the suite records how it behaves past that. Thinking is switched
+    # off per request with chat_template_kwargs enable_thinking=false (the
+    # template then emits an empty <think> block), as for the other thinking
+    # presets. Selectable only, same semantics as the presets above. Callers pass
+    # the sampler (publisher recommends temp 0.6 / top_p 0.95 / top_k 20).
+    [mellum21-12b-a25b-thinking]
+    model = /models/boxp358/mellum21-12b-a25b-thinking/Mellum2.1-12B-A2.5B-Thinking-Q4_K_M.gguf
+    batch-size = 2048
+    ubatch-size = 512
+    threads = 14
+    threads-batch = 14
