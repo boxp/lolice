@@ -80,6 +80,9 @@ unobserved is a regression, not a protection.
    (`state_evicted`) instead of being released. A false positive only withholds an unrelated session. Known
    over-withholding: a session idle while 1024 others were active, or a delegated child whose parent link was
    evicted, is withheld when it resumes.
+   The hooks track this state from the first turn even while the ingest key is absent; only the export is
+   skipped (`turns_skipped_no_key`). A session that read a secret source before the key appeared therefore
+   stays withheld/masked after it appears.
 
 A regression in 1-4 (a known source or format reaching the sink) is a blocking defect.
 

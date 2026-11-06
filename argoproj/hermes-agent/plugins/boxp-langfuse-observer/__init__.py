@@ -276,7 +276,7 @@ def _refresh_credentials():
 
 def register(ctx):
     if not _refresh_credentials():
-        _log.info("boxp-langfuse-observer idle until the ingest key appears")
+        _log.info("boxp-langfuse-observer tracks exposure but exports nothing until the ingest key appears")
     ctx.register_hook("pre_llm_call", _on_turn_start)
     ctx.register_hook("pre_api_request", _on_api_request)
     ctx.register_hook("post_api_request", _on_api_response)
@@ -1367,9 +1367,10 @@ def _note_tickets(turn, value):
 
 
 def _guarded(fn):
+    # Hooks run even while the ingest key is absent: the exposure state (taint, pinned values, lineage) has to be
+    # tracked from the first turn, or a session that read a secret before the key appeared would send a later
+    # verbatim repeat of it unmasked. Only the export is skipped until the key exists (see _on_session_end).
     def wrapper(*args, **kwargs):
-        if _creds is None:
-            return None
         try:
             fn(*args, **kwargs)
         except Exception:
@@ -1576,6 +1577,9 @@ def _on_session_end(session_id=None, turn_id=None, completed=None, failed=None, 
     turn["values"] = _values_of(turn["session"], turn["parent"])
     if not in_scope(turn):
         _count("turns_out_of_scope")
+        return
+    if _creds is None:  # nothing to send yet; the state above is kept so later turns are masked/withheld
+        _count("turns_skipped_no_key")
         return
     try:
         _queue.put_nowait(turn)
