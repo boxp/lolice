@@ -952,6 +952,55 @@ class ObserverTest(unittest.TestCase):
         self.assertEqual(item["tickets"], {"BOXP-428"})
         self.assertIn("ticket:BOXP-428", "".join(item["payloads"]))
 
+    def test_matcher_cache_is_not_swapped_by_a_concurrent_session(self):
+        # Another session's thread may replace the shared matcher cache between this call's store and return; the
+        # matcher returned must still be the one built for this call's values (a deterministic interleaving).
+        import sys
+        mine, theirs = frozenset({"mysessionvalue9q"}), frozenset({"othersessionvalue7z"})
+        other = plugin._ValuesMatcher(theirs, bounded_short=True)
+
+        def interleave(cache_name, values_of_mine, foreign):
+            def tracer(frame, event, arg):
+                if frame.f_globals is plugin.__dict__ and event == "line":
+                    cached = getattr(plugin, cache_name)
+                    if cached[0] is not None and cached[0] == values_of_mine:
+                        setattr(plugin, cache_name, foreign)
+                return tracer
+            return tracer
+
+        plugin._values_pattern_cache = (None, None)
+        sys.settrace(interleave("_values_pattern_cache", mine, (theirs, other)))
+        try:
+            matcher = plugin._values_pattern(mine)
+        finally:
+            sys.settrace(None)
+        self.assertIsNotNone(matcher.search("x mysessionvalue9q y"))
+        env_values = plugin._env_secrets()
+        plugin._env_pattern_cache = (None, None)
+        sys.settrace(interleave("_env_pattern_cache", env_values, (frozenset({"zz"}), other)))
+        try:
+            env_matcher = plugin._env_pattern()
+        finally:
+            sys.settrace(None)
+        self.assertIsNotNone(env_matcher.search("x " + ENV_SECRET + " y"))
+        # and a concurrent stress run masks each session's own value
+        errors = []
+
+        def worker(i):
+            values = frozenset({f"stressvalue{i:03d}qq"})
+            for _ in range(200):
+                m = plugin._values_pattern(values)
+                if m is None or m.search(f"a stressvalue{i:03d}qq b") is None:
+                    errors.append(i)
+                    return
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(errors, [])
+
     def test_mask_failure_queues_nothing_and_never_raises(self):
         with patch.object(plugin, "redact", side_effect=RuntimeError):
             self.assertIsNone(run_turn(session="kohako-g2-maskfail"))

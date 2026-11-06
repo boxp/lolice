@@ -451,10 +451,12 @@ def _env_pattern():
     Any length matches inside a longer word: the value can be part of it, and a blanked word costs less than a leak."""
     global _env_pattern_cache
     values = _env_secrets()
-    if _env_pattern_cache[0] is not values:
-        pattern = _ValuesMatcher(values) if values else None
-        _env_pattern_cache = (values, pattern)
-    return _env_pattern_cache[1]
+    cached = _env_pattern_cache  # one read: another thread may replace the shared cache at any point
+    if cached[0] is values:
+        return cached[1]
+    pattern = _ValuesMatcher(values) if values else None
+    _env_pattern_cache = (values, pattern)
+    return pattern
 
 
 def _is_entropy(s):
@@ -1193,9 +1195,15 @@ def _values_pattern(values):
     global _values_pattern_cache
     if not values:
         return None
-    if _values_pattern_cache[0] != values:
-        _values_pattern_cache = (values, _ValuesMatcher(values, bounded_short=True))
-    return _values_pattern_cache[1]
+    # Hooks of concurrent sessions share this cache. Read it once and return the matcher built for *these* values,
+    # never a re-read of the global, which another session may have replaced in between (its matcher would leave
+    # this session's values unmasked). The tuple is swapped whole, so a reader never sees a mixed pair.
+    cached = _values_pattern_cache
+    if cached[0] == values:
+        return cached[1]
+    matcher = _ValuesMatcher(values, bounded_short=True)
+    _values_pattern_cache = (values, matcher)
+    return matcher
 
 
 def _note_evidence(session, parent, args_text, result_text):

@@ -98,6 +98,8 @@ unobserved is a regression, not a protection.
    work. Cost: the masking work that used to run in the worker now runs in the session-end hook (measured
    about 0.1 s for an ordinary turn, 0.8 s for ten 30 KB tool outputs, a few seconds for a turn near the
    4 MiB turn limit); the tool hooks already scan the same text synchronously.
+   The value matchers are cached in one shared slot that hooks of concurrent sessions replace; each call reads
+   the slot once and returns the matcher built for its own values, so another session's matcher is never used.
 
 A regression in 1-5 (a known source or format reaching the sink or the queue) is a blocking defect.
 
