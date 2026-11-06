@@ -1161,6 +1161,47 @@ class BodyVisibilityTest(unittest.TestCase):
                 self.assertIn("MARKER_MENTION_REPLY", body)
                 self.assertNotIn("[withheld", body)
 
+    def test_each_word_of_a_multi_line_block_value_is_pinned(self):
+        # A later line of a secret block can hold several words; the model can repeat any one of them alone.
+        for name, output, word in (("list", "password:\n  - firstvalue\n  - correct horse battery\n", "correct"),
+                                   ("map", "secrets:\n  password:\n    one: zebrafirst\n    two: staple battery horse\n", "staple"),
+                                   ("short", "password:\n  - firstvalue\n  - correct ab battery\n", "ab"),
+                                   ("ja", "password:\n  - firstvalue\n  - ひみつの もじれつ\n", "もじれつ")):
+            with self.subTest(name):
+                session = "kohako-g2-blockword-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_BLOCK_BEFORE")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=output)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=word)
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                run_turn(session=session, turn="t2", body="again " + word, tool="todo", args={}, result="ok")
+                body = self._payload()
+                self.assertNotRegex(body, r"(?<![A-Za-z])" + word + r"(?![A-Za-z])")
+                self.assertIn("MARKER_BLOCK_BEFORE", body)
+
+    def test_parent_exposure_reaches_a_child_that_is_already_running(self):
+        for name, result, value in (("unpinned", "-----BEGIN PRIVATE KEY-----\nzq7runningkeybody\n-----END PRIVATE KEY-----", "zq7runningkeybody"),
+                                    ("pinned", "api_key: Zq7runningpinned42", "Zq7runningpinned42")):
+            with self.subTest(name):
+                parent, child = "kohako-g2-run-" + name, "run-child-" + name
+                plugin._on_turn_start(session_id=parent, turn_id="t", user_message="go")
+                plugin._on_subagent_start(parent_session_id=parent, child_session_id=child)
+                plugin._on_turn_start(session_id=child, turn_id="c", user_message="goal MARKER_CHILD_BEFORE", parent_session_id=parent)
+                plugin._on_tool(session_id=parent, turn_id="t", tool_call_id="k", tool_name="read_file", args={"path": "/repo/k"}, result=result)
+                plugin._on_api_request(session_id=child, turn_id="c", api_request_id="a",
+                                       request_messages=[{"role": "user", "content": "goal"}, {"role": "user", "content": "use " + value}])
+                plugin._on_api_response(session_id=child, turn_id="c", api_request_id="a",
+                                        response={"assistant_message": {"role": "assistant", "content": value}})
+                plugin._on_tool(session_id=child, turn_id="c", tool_call_id="x", tool_name="todo", args={"note": value}, result=value)
+                plugin._on_turn_end(session_id=child, turn_id="c", assistant_response=value)
+                plugin._on_session_end(session_id=child, turn_id="c", completed=True)
+                run_turn(session=child, turn="c2", body="again " + value, tool="todo", args={}, result="ok")
+                plugin._on_turn_end(session_id=parent, turn_id="t", assistant_response="MARKER_PARENT_DONE")
+                plugin._on_session_end(session_id=parent, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertNotIn(value, body)
+                self.assertIn("MARKER_CHILD_BEFORE", body)
+
     def test_child_exposure_reaches_the_parent(self):
         value = "Zq7" + "childonly" + "77"
         plugin._on_turn_start(session_id="kohako-g2-ce", turn_id="t", user_message="go")

@@ -103,6 +103,22 @@ def fire_delegated_child(parent, child):
     hooks["pre_llm_call"](**common, user_message="childbodymarker", platform="", parent_session_id=parent)
     hooks["on_session_end"](**common, completed=True)
 
+def fire_running_child(parent, child):
+    # The parent sees a secret while its child is already running, then the child repeats it.
+    hooks = ctx.hooks
+    parent_common = {"session_id": parent, "turn_id": "turn"}
+    common = {"session_id": child, "turn_id": "turn"}
+    hooks["pre_llm_call"](**parent_common, user_message="delegate")
+    hooks["subagent_start"](parent_session_id=parent, parent_turn_id="turn", child_session_id=child, child_role="leaf", child_goal="work")
+    hooks["pre_llm_call"](**common, user_message="childgoal", platform="", parent_session_id=parent)
+    hooks["post_tool_call"](**parent_common, tool_call_id="key", tool_name="read_file", args={"path": "/repo/k.pem"},
+                            result="-----BEGIN PRIVATE KEY-----\nrunningchildkeyvalue\n-----END PRIVATE KEY-----")
+    hooks["pre_api_request"](**common, api_request_id="api", request_messages=[{"role": "user", "content": "runningchildkeyvalue"}])
+    hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "runningchildkeyvalue"}})
+    hooks["post_llm_call"](**common, assistant_response="runningchildkeyvalue")
+    hooks["on_session_end"](**common, completed=True)
+    hooks["on_session_end"](**parent_common, completed=True)
+
 n = 0
 while True:
     n += 1
@@ -130,6 +146,8 @@ while True:
     fire_ordinary_read(f"kohako-g2-readshortlater-{n}", "password: alpha qzw", "qzw")
     fire_ordinary_read(f"kohako-g2-readtokenfile-{n}", '{"refresh": "opaquefilevaluezz"}', "opaquefilevaluezz", path="/tmp/tokens.json")
     fire_ordinary_read(f"kohako-g2-readlarge-{n}", "the password is plainfarvalue\n" + "line\n" * 20 + "plainfarvalue\n" + "filler line\n" * 30000, "ok")
+    fire_ordinary_read(f"kohako-g2-readblockword-{n}", "password:\n  - firstvalue\n  - blockwordleak horse battery\n", "blockwordleak")
+    fire_running_child(f"kohako-g2-runparent-{n}", f"runchild-{n}")
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
