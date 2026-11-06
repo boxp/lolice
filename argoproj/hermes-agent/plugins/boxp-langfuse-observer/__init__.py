@@ -984,7 +984,10 @@ def _tainted(session):
 
 
 def _taint(reason, *sessions):
+    """Withholds the sessions and every session above them: a value seen by a grandchild can reach the grandparent
+    (a progress note, a relayed summary) before the session between them finishes."""
     with _lock:
+        sessions = list(dict.fromkeys(s for given in sessions if given for s in _lineage(given)))
         for session in sessions:
             if session and not _sessions.get(str(session)):
                 _sessions[str(session)] = reason
@@ -999,7 +1002,7 @@ def _add_values(values, *sessions):
     """False once a session holds too many, so the caller withholds instead."""
     ok = True
     with _lock:
-        for session in sessions:
+        for session in list(dict.fromkeys(s for given in sessions if given for s in _lineage(given))):
             if not session or not values:
                 continue
             held = _session_values.setdefault(str(session), set())
@@ -1237,16 +1240,22 @@ def _on_api_response(session_id=None, turn_id=None, api_request_id=None, respons
     with _lock:
         req = turn.get("requests", {}).pop(str(api_request_id), {})
     message = (response or {}).get("assistant_message") if isinstance(response, dict) else None
-    already = _tainted(turn["session"])
-    unpinned = not already and isinstance(message, dict) and _note_body(turn, _message_view({"role": "assistant", **message}))
-    output = (_WITHHELD_SESSION if already else _WITHHELD_UNPINNED if unpinned else
+    # The reply is kept before the tool hook fires, so a call it makes to a sensitive path (writing .env, reading a
+    # key) is checked here too: the call's arguments are the sensitive body.
+    sensitive_call = isinstance(message, dict) and any(_withhold(_text(args)) for _, args in _tool_calls(message))
+    if sensitive_call:
+        _taint("sensitive_source", turn["session"], turn["parent"])
+    already = not sensitive_call and _tainted(turn["session"])
+    unpinned = not sensitive_call and not already and isinstance(message, dict) and _note_body(turn, _message_view({"role": "assistant", **message}))
+    output = (_WITHHELD_TOOL if sensitive_call else _WITHHELD_SESSION if already else _WITHHELD_UNPINNED if unpinned else
               _message_view({"role": "assistant", **message}) if isinstance(message, dict) else None)
     location = "local" if "local-llm" in str(base_url or "") or "llama" in str(base_url or "") else "cloud"
     _add(turn, {"key": "api:" + str(api_request_id), "name": "llm-call", "type": "generation",
                 "input": req.get("input"), "output": output, "model": response_model or model, "usage": usage,
                 "start": started_at or req.get("started_at"), "end": ended_at,
                 "metadata": {"input_scope": f"last {_LAST_MESSAGES} of {req.get('message_count')} messages",
-                             "body_policy": "withheld_after_exposure" if already else "withheld_unpinned" if unpinned else "sent",
+                             "body_policy": ("withheld_sensitive_source" if sensitive_call else "withheld_after_exposure" if already
+                                             else "withheld_unpinned" if unpinned else "sent"),
                              "provider": provider, "location": location, "api_call": api_call_count,
                              "retry": req.get("retry_count"), "finish_reason": finish_reason}})
     _note_tickets(turn, message)

@@ -35,6 +35,11 @@ unobserved is a regression, not a protection.
    environment dumps (`env`, `printenv`, `export -p`, `declare -x`, `process.env`, output with `PATH=` and
    `HOME=`), cluster secrets (`kubectl ... secret`), cloud/CLI credential commands. The call is sent
    without its body and the later bodies of the session lineage are withheld (the model has seen it).
+   The check runs on the model reply that asks for the call too (its `tool_calls` arguments, e.g. writing
+   `.env`), because that reply is kept before the tool hook fires. Withholding and pinned values go to the
+   session and every recorded ancestor (parent, grandparent, ...); a session reads them from its whole
+   lineage, so a running child and a sibling see them as well. Known over-withholding: a long-lived G2
+   session is withheld once any descendant touches a known source.
 2. Known formats, masked in every field before the batch is queued: private keys, Authorization /
    Cookie headers, URL credentials, JWT, provider keys (sk-, ghp_, xox*, AKIA, AIza, ...), bearer tokens,
    secret-named assignments / flags / env entries / XML elements / YAML blocks, data URIs, high-entropy
