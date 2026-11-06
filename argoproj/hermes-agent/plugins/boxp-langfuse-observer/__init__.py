@@ -176,11 +176,14 @@ _MAX_REVERSED_ENTRIES = 1000
 _MAX_REVERSED_VALUE = 4096
 _PLACEHOLDER = re.compile(r"\[REDACTED:[a-z_]+\]")
 _SENSITIVE_PATH = re.compile(
-    r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_rsa|id_ed25519|secrets?(?:[/\\])"
+    r"(?i)(?:^|[/\\\s\"'=])(?:auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.git-credentials|\.netrc|id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?|\.gnupg(?:[/\\]|\b)|secrets?(?:[/\\])"
     # A file or directory named for tokens (tokens.json, refresh_tokens.txt, /var/lib/app/tokens). A bare key such as
     # max_output_tokens has no extension and no path separator, so it is not a path; a bare token(s) file name is.
     # Bounded to a file name's length so a long line is scanned in linear time.
     r"|tokens?(?=[\s\"']|\Z)"
+    # Private key and keystore files (private.key, server.pem, client.pfx): once a key body loses its header it has no
+    # known format left to mask, so reading the file withholds its bodies. Bounded to a file name's length.
+    r"|[^/\\\s\"'=]{0,255}?\.(?:key|pem|p8|p12|pfx|jks|keystore|ppk)(?=[\s\"';|&)]|\Z)"
     r")|[/\\][^/\\\s\"']{0,255}?token|token[^/\\\s\"']{0,255}?(?:\.[A-Za-z0-9]+(?![\w-])|[/\\])")
 # Arguments are matched in their JSON form, where a newline is a backslash and an n.
 _WORD_START = r"""(?:^|[;&|\s"'(`/]|\\[nrt])"""

@@ -983,7 +983,7 @@ class BodyVisibilityTest(unittest.TestCase):
     def test_unpinned_secret_still_withholds_later_bodies(self):
         key = "-----BEGIN PRIVATE KEY-----\nZq7keybody9\n-----END PRIVATE KEY-----"
         plugin._on_turn_start(session_id="kohako-g2-key", turn_id="t", user_message="鍵を見て MARKER_BEFORE")
-        plugin._on_tool(session_id="kohako-g2-key", turn_id="t", tool_call_id="c", tool_name="read_file", args={"path": "/repo/k.pem"}, result=key)
+        plugin._on_tool(session_id="kohako-g2-key", turn_id="t", tool_call_id="c", tool_name="read_file", args={"path": "/repo/notes.txt"}, result=key)
         plugin._on_turn_end(session_id="kohako-g2-key", turn_id="t", assistant_response="MARKER_AFTER_KEY")
         plugin._on_session_end(session_id="kohako-g2-key", turn_id="t", completed=True)
         body = self._payload()
