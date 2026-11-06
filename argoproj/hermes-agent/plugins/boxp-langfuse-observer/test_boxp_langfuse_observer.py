@@ -1313,6 +1313,49 @@ class BodyVisibilityTest(unittest.TestCase):
                 self.assertNotIn("batterystaple", body)
                 self.assertIn("MARKER_REPLY_KEEP", body)
 
+    def test_short_or_non_ascii_value_named_in_a_reply_is_masked_where_it_repeats(self):
+        # A reply that names a short ("the password is qzv") or non-ASCII value ("パスワードは 秘密のもじれつ") pins it
+        # instead of withholding: the bare repeat is masked in the same and later fields, and the reply stays readable.
+        cases = (("short", "the password is qzv", "qzv", r"(?<![A-Za-z])qzv(?![A-Za-z])"),
+                 ("ja_spaced", "パスワードは 秘密のもじれつ", "秘密のもじれつ", "もじれつ"),
+                 ("ja_unspaced", "パスワードは秘密のもじれつです", "秘密のもじれつ", "もじれつ"),
+                 ("ja_part", "パスワードは 秘密のもじれつ", "もじれつ", "もじれつ"))
+        for where in ("api_response", "turn_end"):
+            for name, named, repeat, leak in cases:
+                with self.subTest(where=where, case=name):
+                    session = "kohako-g2-replyshort-" + where + "-" + name
+                    reply = named + "\nfiller\nMARKER_REPLY_SHORT_KEEP\n" + repeat
+                    plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_REPLY_SHORT_ASK")
+                    if where == "api_response":
+                        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=[],
+                                               message_count=0, started_at=time.time())
+                        plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                                response={"assistant_message": {"content": reply}}, model="m",
+                                                base_url="https://x", started_at=time.time(), ended_at=time.time())
+                    plugin._on_turn_end(session_id=session, turn_id="t",
+                                        assistant_response=reply if where == "turn_end" else "ok MARKER_REPLY_SHORT_END")
+                    plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                    run_turn(session=session, turn="t2", body="next " + repeat + " MARKER_REPLY_SHORT_NEXT", tool="todo", args={}, result="ok")
+                    body = self._payload()
+                    self.assertNotRegex(body, leak)
+                    self.assertNotIn(json.dumps(leak)[1:-1], body)
+                    for marker in ("MARKER_REPLY_SHORT_ASK", "MARKER_REPLY_SHORT_KEEP", "MARKER_REPLY_SHORT_NEXT"):
+                        self.assertIn(marker, body)
+
+    def test_ordinary_sentence_in_a_reply_keeps_the_session_readable(self):
+        # Pinning a short word from a reply masks that word; it does not withhold the session (TD-07).
+        for reply in ("Your password is too short.", "パスワードは定期的に変更してください。"):
+            with self.subTest(reply):
+                session = "kohako-g2-replysentence-" + str(abs(hash(reply)))
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_RS_ASK")
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=reply + "\n\nfiller\nMARKER_RS_REPLY")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                run_turn(session=session, turn="t2", body="MARKER_RS_NEXT", tool="todo", args={}, result="ok")
+                body = self._payload()
+                for marker in ("MARKER_RS_ASK", "MARKER_RS_REPLY", "MARKER_RS_NEXT"):
+                    self.assertIn(marker, body)
+                self.assertNotIn("[withheld", body)
+
     def test_secret_word_in_an_ordinary_sentence_keeps_the_session_readable(self):
         # TD-07: a mention of a secret word is not evidence; only a separator names a value.
         for line in ("パスワードを設定してください", "トークンを再発行しました", "What is your password policy?",
