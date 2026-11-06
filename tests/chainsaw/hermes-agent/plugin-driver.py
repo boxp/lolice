@@ -195,6 +195,15 @@ def fire_deep_lineage_source(n, depth=20):
     for session in (chain[-1], chain[0]):
         hooks["on_session_end"](session_id=session, turn_id="turn", completed=True)
 
+def fire_path_after_source(session):
+    # After a secret source the model passes the value on as the next call's path; the withheld call carries no
+    # text of its input, not even in metadata.
+    hooks = ctx.hooks
+    hooks["pre_llm_call"](session_id=session, turn_id="turn", user_message="hello")
+    hooks["post_tool_call"](session_id=session, turn_id="turn", tool_call_id="env", tool_name="read_file", args={"path": "/app/.env"}, result="X")
+    hooks["post_tool_call"](session_id=session, turn_id="turn", tool_call_id="next", tool_name="read_file", args={"path": "/tmp/pathleakvaluezz"}, result="ok")
+    hooks["on_session_end"](session_id=session, turn_id="turn", completed=True)
+
 def fire_after_session_flood(n):
     # A long-running session that saw a secret idles while more than _MAX_SESSIONS other sessions come and go; its
     # later bodies must stay withheld or masked. The flood uses the bookkeeping directly so the sink is not flooded.
@@ -273,6 +282,7 @@ while True:
     fire_sensitive_call(f"kohako-g2-envcall-{n}")
     fire_grandchild_source(f"kohako-g2-grandtop-{n}", f"grandmid-{n}", f"grandlow-{n}")
     fire_deep_lineage_source(n)
+    fire_path_after_source(f"kohako-g2-pathleak-{n}")
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")

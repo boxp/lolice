@@ -556,6 +556,25 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn(unknown, body)
                 self.assertNotIn("reply next", body)
 
+    def test_withheld_tool_call_puts_no_argument_text_in_its_metadata(self):
+        # After a sensitive source the model can pass the value on as a path, a command or an argument name; a
+        # withheld call must not describe itself with any of that text.
+        unknown = "plainwordpathvalue"
+        for name, args in (("path", {"path": "/tmp/" + unknown}), ("command", {"command": unknown + " --flag"}),
+                           ("key", {unknown: "x"}), ("list", [unknown])):
+            with self.subTest(name):
+                session = "kohako-g2-view-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="read it")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c1", tool_name="read_file",
+                                args={"path": "/a/.env"}, result=unknown)
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c2", tool_name="read_file",
+                                args=args, result="ok")
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="done")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._bodies()
+                self.assertNotIn(unknown, body)
+                self.assertIn("withheld_after_exposure", body)
+
     def test_user_message_after_sensitive_tool_is_withheld(self):
         # A credential the user pastes again matches no pattern, so only the withholding can keep it out.
         unknown = "plainwordvalue"
