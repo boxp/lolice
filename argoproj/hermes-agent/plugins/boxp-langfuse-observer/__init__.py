@@ -1050,7 +1050,7 @@ def _field(value, extra=None):
 
 
 # ---------------------------------------------------------------------------
-# turn buffer. Hooks only store references here; redaction runs in the worker.
+# turn buffer. Hooks store raw references here; prepare_turn masks them before anything is queued.
 
 def _key(session_id, turn_id):
     return (str(session_id or ""), str(turn_id or ""))
@@ -1582,10 +1582,50 @@ def _on_session_end(session_id=None, turn_id=None, completed=None, failed=None, 
     if _creds is None:  # nothing to send yet; the state above is kept so later turns are masked/withheld
         _count("turns_skipped_no_key")
         return
+    if _queue.full():  # checked first so a full queue costs no masking work in the hook
+        _count("turns_dropped_queue_full")
+        return
     try:
-        _queue.put_nowait(turn)
+        prepared = prepare_turn(turn)
+    except Exception:  # masking failed: nothing unmasked is queued (fail-closed), the agent continues
+        _count("turns_dropped_mask_error")
+        return
+    try:
+        _queue.put_nowait(prepared)
     except queue.Full:
         _count("turns_dropped_queue_full")
+
+
+def prepare_turn(turn):
+    """Mask every text field and run the final guard before the turn enters the queue.
+
+    The queue (and so anything the worker could retry, log or drop) only ever holds masked text and the guarded
+    OTLP bodies; the raw tool results, replies and the pinned session values stay in the hook-side buffer and are
+    not copied into it."""
+    extra = _values_pattern(turn.get("values"))
+    mask = lambda value: None if value is None else _field(value, extra)
+    spans = []
+    for item in turn["spans"]:
+        span = dict(item)
+        for key in ("input", "output", "model"):
+            if span.get(key) is not None:
+                span[key] = mask(span[key])
+        span["name"] = mask(item["name"])[:120]
+        span["metadata"] = {k: mask(v) for k, v in (item.get("metadata") or {}).items() if v is not None}
+        spans.append(span)
+    masked = {
+        "masked": True,
+        "trace": hashlib.sha256(f"hermes:{turn['session']}:{turn['turn']}".encode()).hexdigest()[:32],
+        "g2": turn["session"].startswith(_G2_PREFIX),
+        "session": mask(turn["session"]), "turn": mask(turn["turn"]), "platform": mask(turn["platform"] or ""),
+        "tickets": set(turn["tickets"]), "start": turn["start"], "status": turn.get("status"),
+        "tainted": turn.get("tainted"), "values_count": len(turn.get("values") or ()),
+        "truncated": turn["truncated"], "user_message": mask(turn["user_message"] or ""),
+        "output": mask(turn["output"] or ""), "exit_reason": mask(turn.get("exit_reason") or ""),
+        "parent": mask(turn["parent"] or ""), "spans": spans,
+    }
+    masked["payloads"] = list(guarded_payloads(build_spans(masked), extra))
+    return masked
 
 
 def in_scope(turn):
@@ -1628,14 +1668,18 @@ def _usage(usage):
 
 
 def build_spans(turn):
-    extra = _values_pattern(turn.get("values"))
+    if turn.get("masked"):  # prepared by prepare_turn: every text field is already masked and truncated
+        def _field(value):
+            return _text(value)
+    else:
+        extra = _values_pattern(turn.get("values"))
 
-    def _field(value):
-        return globals()["_field"](value, extra)
+        def _field(value):
+            return globals()["_field"](value, extra)
 
-    trace = hashlib.sha256(f"hermes:{turn['session']}:{turn['turn']}".encode()).hexdigest()[:32]
+    trace = turn.get("trace") or hashlib.sha256(f"hermes:{turn['session']}:{turn['turn']}".encode()).hexdigest()[:32]
     root_id = _id(trace, "root")
-    g2 = turn["session"].startswith(_G2_PREFIX)
+    g2 = turn["g2"] if "g2" in turn else turn["session"].startswith(_G2_PREFIX)
     tags = ["hermes"] + (["g2"] if g2 else []) + [f"platform:{turn['platform'] or 'unknown'}"]
     tags += [f"ticket:{t}" for t in sorted(turn["tickets"])]
     trace_name = "g2-delegation" if g2 else "hermes-turn"
@@ -1650,7 +1694,7 @@ def build_spans(turn):
         _attr("langfuse.trace.metadata.coverage.g2_realtime", "delegated text only; realtime voice session not observed"),
         _attr("langfuse.trace.metadata.coverage.tool_bodies", "all tools, masked and truncated; withheld only for a sensitive source or after a sensitive value reached the model (body_policy)"),
         _attr("langfuse.trace.metadata.coverage.withheld_reason", turn.get("tainted") or "not_withheld"),
-        _attr("langfuse.trace.metadata.coverage.session_values_masked", str(len(turn.get("values") or ()))),
+        _attr("langfuse.trace.metadata.coverage.session_values_masked", str(turn["values_count"] if "values_count" in turn else len(turn.get("values") or ()))),
         _attr("langfuse.trace.metadata.coverage.truncated", str(turn["truncated"]).lower()),
         _attr("langfuse.trace.metadata.coverage.withheld_after_tool_output", str(bool(turn.get("tainted"))).lower()),
     ]
@@ -1749,7 +1793,9 @@ def _send(body):
 
 
 def export_turn(turn):
-    for body in guarded_payloads(build_spans(turn), _values_pattern(turn.get("values"))):
+    if "payloads" not in turn:  # only prepare_turn output is queued; this keeps direct callers masked too
+        turn = prepare_turn(turn)
+    for body in turn["payloads"]:
         _send(body)
     _count("turns_exported")
 

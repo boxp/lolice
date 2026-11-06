@@ -886,6 +886,37 @@ class ObserverTest(unittest.TestCase):
         b = plugin.build_spans(drain()[0])
         self.assertEqual([s["spanId"] for s in a], [s["spanId"] for s in b])
 
+    def test_queue_holds_only_masked_text(self):
+        # Known-format secrets in the tool result, reply and request must be masked before the turn is queued,
+        # not only by the worker afterwards: the queued item itself must not carry them (nor the pinned values).
+        pinned = "queuepinnedvalue" + "zq"
+        joined = "\n".join(SECRETS.values())
+        run_turn(session="kohako-g2-queue", body="ask " + joined,
+                 args={"command": "cat notes.txt"}, result=joined + "\npassword: " + pinned)
+        plugin._on_turn_start(session_id="kohako-g2-queue", turn_id="t2", user_message="again", platform="api_server")
+        plugin._on_turn_end(session_id="kohako-g2-queue", turn_id="t2", assistant_response="it was " + pinned)
+        plugin._on_session_end(session_id="kohako-g2-queue", turn_id="t2", completed=True)
+        queued = drain()
+        self.assertEqual(len(queued), 2)
+        dumped = repr(queued)
+        for marker in MARKERS + [pinned]:
+            self.assertNotIn(marker, dumped)
+        for item in queued:
+            self.assertNotIn("values", item)
+            self.assertTrue(item["payloads"])
+        # positive control: an ordinary session's tool output and reply are in the queued payloads, readable
+        run_turn(session="kohako-g2-queue-ok", body="harmlessqueuemarker", args={"command": "cat notes.txt"},
+                 result="harmlessqueueoutput")
+        body = "".join(drain()[0]["payloads"])
+        for marker in ("harmlessqueuemarker", "harmlessqueueoutput", "cat notes.txt"):
+            self.assertIn(marker, body)
+
+    def test_mask_failure_queues_nothing_and_never_raises(self):
+        with patch.object(plugin, "redact", side_effect=RuntimeError):
+            self.assertIsNone(run_turn(session="kohako-g2-maskfail"))
+        self.assertEqual(drain(), [])
+        self.assertEqual(plugin.stats()["turns_dropped_mask_error"], 1)
+
     def test_turn_limits_and_queue_full_never_raise(self):
         plugin._on_turn_start(session_id="kohako-g2-big", turn_id="t")
         for i in range(plugin._MAX_TURN_SPANS + 5):

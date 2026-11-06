@@ -86,7 +86,16 @@ unobserved is a regression, not a protection.
    skipped (`turns_skipped_no_key`). A session that read a secret source before the key appeared therefore
    stays withheld/masked after it appears.
 
-A regression in 1-4 (a known source or format reaching the sink) is a blocking defect.
+5. Masking happens before the queue: when a turn ends, the session-end hook masks every text field (2. and 3.)
+   and runs the final guard (4.), then queues only the masked turn and its guarded OTLP bodies. The raw tool
+   results, replies and the pinned values stay in the hook-side turn buffer and are never copied into the queue,
+   so whatever the worker holds, retries or drops is already masked. If masking raises, nothing is queued
+   (`turns_dropped_mask_error`) and the agent continues. A full queue is checked first and costs no masking
+   work. Cost: the masking work that used to run in the worker now runs in the session-end hook (measured
+   about 0.1 s for an ordinary turn, 0.8 s for ten 30 KB tool outputs, a few seconds for a turn near the
+   4 MiB turn limit); the tool hooks already scan the same text synchronously.
+
+A regression in 1-5 (a known source or format reaching the sink or the queue) is a blocking defect.
 
 ## Accepted residual (Owner-approved, not a defect of this plugin)
 
