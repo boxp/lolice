@@ -69,6 +69,15 @@ def fire_ordinary_read(session, result, reply, path="/repo/README.md"):
     hooks["post_llm_call"](**common, assistant_response=reply)
     hooks["on_session_end"](**common, completed=True)
 
+def fire_read_then_reply(session, result, reply):
+    # The reply comes straight after the tool, before the history carrying the tool result is sent again.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="readme askmarker")
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="read_file", args={"path": "/repo/notes.md"}, result=result)
+    hooks["post_llm_call"](**common, assistant_response=reply)
+    hooks["on_session_end"](**common, completed=True)
+
 def fire_rewritten_history(session):
     # Compaction rewrites the history to the same length; the rewritten message shows a secret value.
     hooks = ctx.hooks
@@ -163,7 +172,7 @@ while True:
     fire_ordinary_read(f"kohako-g2-readmixedstop-{n}", "the password is username horsestaplezz", "username")
     fire_ordinary_read(f"kohako-g2-readblockword-{n}", "password:\n  - firstvalue\n  - blockwordleak horse battery\n", "blockwordleak")
     fire_ordinary_read(f"kohako-g2-readbase64-{n}", "password: b64leakvaluezz", base64.b64encode(b"b64leakvaluezz").decode())
-    fire_ordinary_read(f"kohako-g2-readsecretword-{n}", "password: my-secretword-leakzz", base64.b64encode(b"my-secretword-leakzz").decode())
+    fire_read_then_reply(f"kohako-g2-readsecretword-{n}", "password: my-secretword-leakzz", base64.b64encode(b"my-secretword-leakzz").decode())
     fire_instructions(f"kohako-g2-instructions-{n}")
     fire_running_child(f"kohako-g2-runparent-{n}", f"runchild-{n}")
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
