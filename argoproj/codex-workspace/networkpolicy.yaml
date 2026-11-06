@@ -80,6 +80,12 @@ spec:
           - 9464
   egress:
     - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'kohako-studio'
+        namespaceSelector: kubernetes.io/metadata.name == 'kohako-studio'
+        ports: [8080]
+    - action: Allow
       protocol: UDP
       destination:
         selector: k8s-app == 'kube-dns'

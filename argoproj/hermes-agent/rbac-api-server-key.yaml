@@ -26,3 +26,6 @@ subjects:
   - kind: ServiceAccount
     name: kohako-api-server-key-reader
     namespace: even-g2-lab
+  - kind: ServiceAccount
+    name: kohako-api-server-key-reader
+    namespace: kohako-studio

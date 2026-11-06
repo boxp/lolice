@@ -102,8 +102,8 @@ spec:
           - 8644
 ---
 # BOXP-332: the API server listens on 0.0.0.0:8642 inside the Pod (bearer
-# API_SERVER_KEY required by Hermes). Only the Kohako G2 BFF sidecar in the
-# even-g2-main Pod may reach it.
+# API_SERVER_KEY required by Hermes). The Kohako G2 BFF sidecar and
+# Kohako Studio may reach it.
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
 metadata:
@@ -120,6 +120,14 @@ spec:
       source:
         namespaceSelector: kubernetes.io/metadata.name == 'even-g2-lab'
         selector: app == 'even-g2-main'
+      destination:
+        ports:
+          - 8642
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'kohako-studio'
+        selector: app == 'kohako-studio'
       destination:
         ports:
           - 8642

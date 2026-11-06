@@ -178,6 +178,9 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 20
           volumeMounts:
+            - name: kohako-bff-verifier
+              mountPath: /var/run/secrets/kohako-bff-verifier
+              readOnly: true
             - name: home
               mountPath: /home/boxp
             - name: pi-config
@@ -765,6 +768,13 @@ spec:
               mountPath: /app
               readOnly: true
       volumes:
+        - name: kohako-bff-verifier
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: kohako-bff-verifier
+                  expirationSeconds: 3600
+                  path: token
         - name: home
           persistentVolumeClaim:
             claimName: codex-workspace-home
