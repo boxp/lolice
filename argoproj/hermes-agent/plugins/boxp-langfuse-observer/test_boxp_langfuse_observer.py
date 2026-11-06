@@ -1210,6 +1210,21 @@ class BodyVisibilityTest(unittest.TestCase):
                      '{"path": "/a/key.p8"}', '{"path": "/a/app.keystore"}', '{"cmd": "ls ~/.gnupg/private-keys-v1.d"}'):
             with self.subTest(args):
                 self.assertTrue(plugin._withhold(args))
+        # Well-known credential files (P0 lolice#1091 :179): their contents may carry credentials of no known format.
+        for args in ('{"path": "~/.kube/config"}', '{"cmd": "cat ~/.kube/config"}', '{"path": "/home/u/.kube/config"}',
+                     '{"cmd": "kubectl config view --raw --kubeconfig ~/.kube/config"}', '{"path": "C:\\\\u\\\\.kube\\\\config"}',
+                     '{"cmd": "cat ~/.npmrc"}', '{"path": "/root/.pypirc"}', '{"cmd": "cat ~/.pgpass"}', '{"cmd": "cat ~/.my.cnf"}',
+                     '{"path": "~/.docker/config.json"}', '{"cmd": "cat ~/.boto"}', '{"cmd": "cat ~/.s3cfg"}',
+                     '{"cmd": "cat ~/.vault-token"}', '{"cmd": "cat ~/.terraformrc"}', '{"path": "~/.config/gh/hosts.yml"}',
+                     '{"cmd": "ls ~/.config/gcloud"}', '{"cmd": "cat ~/.azure/accessTokens.json"}',
+                     '{"path": "~/.cargo/credentials.toml"}', '{"cmd": "cat ~/.gem/credentials"}', '{"cmd": "cat /etc/nginx/.htpasswd"}',
+                     '{"path": "/root/.config/gcloud/application_default_credentials.json"}', '{"cmd": "cat ~/.netrc"}'):
+            with self.subTest(args):
+                self.assertTrue(plugin._withhold(args))
+        for args in ('{"path": "/repo/package.json"}', '{"cmd": "cat ~/.bashrc"}', '{"cmd": "ls ~/.config"}',
+                     '{"path": "/repo/docs/kube-config.md"}', '{"cmd": "cat config/settings.yaml"}', '{"path": "/repo/.kubeignore"}'):
+            with self.subTest(args):
+                self.assertFalse(plugin._withhold(args))
         for args in ('{"cmd": "ls", "max_output_tokens": 12000}', '{"cmd": "grep -n input_tokens usage.log"}',
                      '{"path": "/repo/keyboard.md"}', '{"path": "/repo/docs/api-keys.md"}', '{"cmd": "cat monkey.txt"}',
                      '{"path": "/repo/src/keymap.py"}', '{"cmd": "grep -rn pem_path src"}'):
