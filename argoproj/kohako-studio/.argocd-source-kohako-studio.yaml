@@ -1,0 +1,3 @@
+kustomize:
+  images:
+  - ghcr.io/boxp/arch/kohako-studio=ghcr.io/boxp/arch/kohako-studio:sha-08e3869
