@@ -166,6 +166,8 @@ while True:
     fire_ordinary_read(f"kohako-g2-readjaunspaced-{n}", "パスワードはひみつのもじれつです", "ひみつのもじれつ")
     fire_ordinary_read(f"kohako-g2-readshortlater-{n}", "password: alpha qzw", "qzw")
     fire_ordinary_read(f"kohako-g2-readtokenfile-{n}", '{"refresh": "opaquefilevaluezz"}', "opaquefilevaluezz", path="/tmp/tokens.json")
+    fire_ordinary_read(f"kohako-g2-readkeyfile-{n}", "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCkeybodyvaluezz", "keybodyvaluezz", path="/etc/app/private.key")
+    fire_ordinary_read(f"kohako-g2-readpemfile-{n}", "pembodyvaluezzAAAAB3NzaC1", "pembodyvaluezz", path="/etc/ssl/server.pem")
     fire_ordinary_read(f"kohako-g2-readlarge-{n}", "the password is plainfarvalue\n" + "line\n" * 20 + "plainfarvalue\n" + "filler line\n" * 30000, "ok")
     fire_ordinary_read(f"kohako-g2-readstopword-{n}", "password: negotiate", "negotiate")
     fire_ordinary_read(f"kohako-g2-readliteral-{n}", "password: xxxxxxxxxxxx", "xxxxxxxxxxxx")

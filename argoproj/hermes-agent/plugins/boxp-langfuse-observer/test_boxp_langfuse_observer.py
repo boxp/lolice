@@ -1025,7 +1025,16 @@ class BodyVisibilityTest(unittest.TestCase):
                      '{"cmd": "cat token"}', '{"path": "tokens"}'):
             with self.subTest(args):
                 self.assertTrue(plugin._withhold(args))
-        for args in ('{"cmd": "ls", "max_output_tokens": 12000}', '{"cmd": "grep -n input_tokens usage.log"}'):
+        # Private key and keystore files: a key body has no known format once its header is cut off.
+        for args in ('{"path": "/etc/app/private.key"}', '{"cmd": "cat server.pem"}', '{"path": "/etc/ssl/private/tls.key"}',
+                     '{"cmd": "head -c 200 cert.p12"}', '{"path": "C:\\\\keys\\\\client.pfx"}', '{"path": "/app/keystore.jks"}',
+                     '{"cmd": "cat ~/.ssh2/id_ecdsa"}', '{"path": "/home/u/id_dsa"}', '{"path": "/a/putty.ppk"}',
+                     '{"path": "/a/key.p8"}', '{"path": "/a/app.keystore"}', '{"cmd": "ls ~/.gnupg/private-keys-v1.d"}'):
+            with self.subTest(args):
+                self.assertTrue(plugin._withhold(args))
+        for args in ('{"cmd": "ls", "max_output_tokens": 12000}', '{"cmd": "grep -n input_tokens usage.log"}',
+                     '{"path": "/repo/keyboard.md"}', '{"path": "/repo/docs/api-keys.md"}', '{"cmd": "cat monkey.txt"}',
+                     '{"path": "/repo/src/keymap.py"}', '{"cmd": "grep -rn pem_path src"}'):
             with self.subTest(args):
                 self.assertFalse(plugin._withhold(args))
 
