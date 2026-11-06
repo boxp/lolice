@@ -50,7 +50,12 @@ unobserved is a regression, not a protection.
    Text the model or the user writes (the user request, each model reply, the final reply, a delegated
    child's summary) is scanned like tool output before it is kept, so "password: X ... X" inside one reply
    masks both occurrences. For these bodies only assignments/known formats can withhold; a secret word in
-   prose pins what it can but never withholds a reply (a mention is not evidence).
+   prose pins what it can but does not withhold a reply (a mention is not evidence). A value such prose names
+   with a separator is pinned even when it is short or non-ASCII ("the password is qzv" pins `qzv` as a word
+   of its own; "パスワードは 秘密のもじれつ" pins the value and its parts split at の), so its bare repeat is
+   masked; only a 1-character value withholds (`short_value`). Known over-masking: the words after a secret
+   word in a reply ("Your password is too short." pins `too`/`short`) are masked in later fields of the
+   session lineage; the session stays readable.
 4. Fail-closed: when a protected field cannot be judged (too large to scan, scan error, a value too short
    or not delimitable to pin, too many values), that observation's body is withheld with a non-body reason
    (`withheld_reason`) and the agent keeps working. A final scan of the serialized batch drops a span that

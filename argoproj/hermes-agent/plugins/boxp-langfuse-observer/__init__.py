@@ -346,10 +346,16 @@ def _encoded_forms(value):
     return patterns + ["(?i:" + _value_pattern(raw.hex()) + ")"]  # hex digits in either case
 
 
-def _values_regex(values):
-    """Longest first, each value followed by its encoded forms."""
-    return re.compile("|".join(p for value in sorted(values, key=len, reverse=True)
-                               for p in [_value_pattern(value)] + _encoded_forms(value)))
+def _values_regex(values, bounded_short=False):
+    """Longest first, each value followed by its encoded forms. With bounded_short (session values), a short ASCII
+    value (pinned from a reply, "the password is qzv") is matched as a word of its own, so it does not blank every
+    longer word that contains it. Environment values keep matching anywhere."""
+    def patterns(value):
+        alternatives = [_value_pattern(value)] + _encoded_forms(value)
+        if bounded_short and value.isascii() and len(value) < _MIN_PINNED:
+            return [r"(?<![A-Za-z0-9])(?:" + "|".join(alternatives) + r")(?![A-Za-z0-9])"]
+        return alternatives
+    return re.compile("|".join(p for value in sorted(values, key=len, reverse=True) for p in patterns(value)))
 
 
 def _env_pattern():
@@ -784,6 +790,17 @@ _PROSE_TOKEN = re.compile(r"""[^\s"'`,;:=<>()\[\]{}\x00-\x1f\x7f-\U0010ffff]+|[^
 _JA_CONNECTIVE = re.compile(r"は|が|を|も|の|に|で|と|へ|や|か|って|とは|には|では|です|でした|である|だ|だよ|ですよ|になります")
 # トークン数, トークン上限 and the like count tokens; they do not name a secret.
 _JA_COUNT = re.compile(r"数|量|上限|消費|使用|単位|長|化|ナイザ|課金|料金")
+_JA_VALUE_EDGE = re.compile(r"^(?:は|って|とは|が|を|:|：|=|＝)+|(?:です|でした|である|だ|だよ|ですよ|になります)+$")
+_MIN_REPLY_PINNED = 2
+
+
+def _ja_pins(token):
+    """A non-ASCII value named in a reply ("パスワードは 秘密のもじれつ"): the value without the separator or copula
+    around it, and its parts split at の, so the whole or a part repeated alone is masked."""
+    value = _JA_VALUE_EDGE.sub("", token)
+    return {v for v in [value] + value.split("の") if len(v) >= _MIN_REPLY_PINNED}
+
+
 _SEPARATOR_END = re.compile(r"(?:[:=：＝]|は|って|とは)\s*$")
 _MAX_PROSE_VALUES = 64
 _STRUCTURE_AFTER = re.compile(r"""\s*[:=\[({."'\\]""")
@@ -829,14 +846,16 @@ def _value_before(spans, cut):
     return word
 
 
-def _prose_values(text):
+def _prose_values(text, reply=False):
     """Values a secret word names in prose. On the secret word's line, every word after it that is not a connective
     is a candidate, plain or not ("the password is correcthorsebattery"); when the line ends at the secret word and a
     separator ("password:", "パスワード："), the next line's words are; otherwise the next line's value-like tokens.
     Returns (values, reason). reason is "short_value" when a candidate is under 4 characters ("the password is alpha
     abc") or there are more candidates than are pinned, and "unpinned_value" when a candidate is non-ASCII: unspaced
     text has no word boundary, so the part the model may repeat alone ("秘密の文字列") cannot be pinned. Either way
-    the caller withholds."""
+    the caller withholds. With reply=True (text the model or the user wrote, which is kept rather than withheld,
+    TD-07) such values are pinned instead: a short ASCII one of 2+ characters as a word of its own, a non-ASCII one
+    whole and in parts (_ja_pins). Only a 1-character value still gives "short_value"."""
     lines = _LINE_BREAK.split(text[:_SCAN_LIMIT])
     found, reason = set(), None
     for i, line in enumerate(lines):
@@ -860,11 +879,19 @@ def _prose_values(text):
             candidates = _prose_candidates(following, 0)
         # A non-ASCII candidate withholds only when a separator names it as the value ("パスワードは X", "password: X").
         # A secret word in an ordinary sentence ("パスワードを設定してください") is a mention, not evidence (TD-07).
-        if any(not t.isascii() for t in candidates) and (not cuts or _VALUE_SEPARATOR.match(line, cut) or not line[cut:].strip()):
-            reason = reason or "unpinned_value"
+        named = not cuts or _VALUE_SEPARATOR.match(line, cut) or not line[cut:].strip()
+        if any(not t.isascii() for t in candidates) and named:
+            if reply:
+                found.update(v for t in candidates[:_MAX_PROSE_VALUES] if not t.isascii() for v in _ja_pins(t))
+            else:
+                reason = reason or "unpinned_value"
         # Any candidate too short to pin ("password: alpha abc"), or more candidates than are pinned, leaves a value
         # that could be repeated alone, so the caller withholds.
-        if any(len(t) < _MIN_PINNED for t in candidates if t.isascii()) or len(candidates) > _MAX_PROSE_VALUES:
+        short = [t for t in candidates[:_MAX_PROSE_VALUES] if t.isascii() and len(t) < _MIN_PINNED]
+        if reply:
+            found.update(t for t in short if len(t) >= _MIN_REPLY_PINNED)
+            short = [t for t in short if len(t) < _MIN_REPLY_PINNED]
+        if short or len(candidates) > _MAX_PROSE_VALUES:
             reason = reason or "short_value"
         found.update(t for t in candidates[:_MAX_PROSE_VALUES] if len(t) >= _MIN_PINNED and t.isascii())
         for token in _VALUE_TOKEN.findall(_LOOSE_SECRET.sub(" ", following)):
@@ -876,7 +903,7 @@ def _prose_values(text):
         # A plain word joined to the secret word by a copula is its value too ("correcthorsebattery is my password").
         before = _value_before(spans, cut)
         if before is not None:
-            if len(before) < _MIN_PINNED:
+            if len(before) < (_MIN_REPLY_PINNED if reply else _MIN_PINNED):
                 reason = reason or "short_value"
             else:
                 found.add(before)
@@ -1028,7 +1055,7 @@ def _values_pattern(values):
     if not values:
         return None
     if _values_pattern_cache[0] != values:
-        _values_pattern_cache = (values, _values_regex(values))
+        _values_pattern_cache = (values, _values_regex(values, bounded_short=True))
     return _values_pattern_cache[1]
 
 
@@ -1056,9 +1083,12 @@ def _note_body(turn, value, parent=None):
     session, parent = turn["session"], parent if parent is not None else turn["parent"]
     text = _scan_text(value)
     reason, values = _evidence(text)
-    # Prose ("the token endpoint returned 200") pins what it can but never withholds a reply: a mention is not
-    # evidence (TD-07), and an unmarked plain secret is the accepted residual. Assignments and known forms still do.
-    prose, _ = _prose_values(text)
+    # Prose ("the token endpoint returned 200") pins what it can but does not withhold a reply: a mention is not
+    # evidence (TD-07), and an unmarked plain secret is the accepted residual. A value prose names by a separator is
+    # pinned even when short or non-ASCII ("the password is qzv", "パスワードは 秘密のもじれつ"), so its bare repeat
+    # is masked; only a 1-character one withholds. Assignments and known forms still withhold as before.
+    prose, prose_reason = _prose_values(text, reply=True)
+    reason = reason or prose_reason
     values = values | prose
     if values and not _add_values(values, session, parent):
         reason = reason or "too_many_session_values"
