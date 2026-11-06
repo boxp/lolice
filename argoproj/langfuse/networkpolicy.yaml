@@ -33,6 +33,26 @@ spec:
         selector: app == 'langfuse-web'
         ports:
           - 3000
+    # BOXP-440: codex-workspace may reach the read-only MCP proxy.
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        selector: app == 'codex-workspace'
+      destination:
+        selector: app == 'langfuse-mcp-readonly'
+        ports:
+          - 3002
+    # BOXP-440: hermes-agent may reach the read-only MCP proxy.
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
+        selector: app == 'hermes-agent'
+      destination:
+        selector: app == 'langfuse-mcp-readonly'
+        ports:
+          - 3002
   egress:
     - action: Allow
       protocol: UDP

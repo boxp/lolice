@@ -1,0 +1,83 @@
+# BOXP-440: the proxy keeps the project key out of MCP clients and admits read-only tools.
+apiVersion: v1
+kind: Service
+metadata:
+  name: langfuse-mcp-readonly
+spec:
+  selector:
+    app: langfuse-mcp-readonly
+  ports:
+    - port: 3002
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse-mcp-readonly
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langfuse-mcp-readonly
+  template:
+    metadata:
+      labels:
+        app: langfuse-mcp-readonly
+    spec:
+      priorityClassName: langfuse-observability
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: ["golyat-4"]
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: proxy
+          image: docker.io/langfuse/langfuse:4.75.0
+          command: ["node", "--max-old-space-size=64", "/proxy/mcp-readonly-proxy.mjs"]
+          env:
+            # Langfuse checks Host against NEXTAUTH_URL; keep this in sync with web.yaml.
+            - name: LANGFUSE_PUBLIC_HOST
+              value: langfuse.b0xp.io
+          ports:
+            - containerPort: 3002
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 3002
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: script
+              mountPath: /proxy
+            - name: ingest-key
+              mountPath: /var/run/secrets/langfuse
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: langfuse-mcp-readonly-proxy
+        - name: ingest-key
+          secret:
+            secretName: langfuse-ingest-key
+            defaultMode: 0440

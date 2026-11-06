@@ -14,6 +14,7 @@ resources:
   - minio.yaml
   - web.yaml
   - sign-in-gateway.yaml
+  - mcp-readonly-proxy.yaml
   - worker.yaml
   - cloudflared.yaml
   - retention-cronjob.yaml
@@ -29,3 +30,6 @@ configMapGenerator:
   - name: langfuse-sign-in-gateway
     files:
       - files/sign-in-gateway.mjs
+  - name: langfuse-mcp-readonly-proxy
+    files:
+      - files/mcp-readonly-proxy.mjs

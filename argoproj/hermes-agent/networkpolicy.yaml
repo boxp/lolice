@@ -34,6 +34,15 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'langfuse'
         ports:
           - 3000
+    # BOXP-440: read-only Langfuse MCP proxy.
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'langfuse-mcp-readonly'
+        namespaceSelector: kubernetes.io/metadata.name == 'langfuse'
+        ports:
+          - 3002
     - action: Allow
       protocol: TCP
       source: {}

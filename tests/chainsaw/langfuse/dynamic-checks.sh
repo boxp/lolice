@@ -380,6 +380,73 @@ ingest() {
   test -n "$objects" || { echo 'raw event が MinIO にありません' >&2; exit 1; }
 }
 
+mcp_readonly_proxy() {
+  local proxy web logs key
+  proxy="$(service_ip "$NS" langfuse-mcp-readonly)"
+  web="$(service_ip "$NS" langfuse-web)"
+  expect deny "outside -> MCP proxy:3002" kubectl exec -n langfuse-outside spoof -- python -c "$PY_CONNECT" "$proxy" 3002
+  kubectl exec -n "$NS" deployment/langfuse-mcp-readonly -- node -e "$NODE_CONNECT" "$(service_ip langfuse-outside outside)" 443 >/dev/null 2>&1 && { echo 'FAIL: proxy has outside egress' >&2; return 1; }
+  if ! kubectl exec -i -n hermes-agent hermes-allowed -- env "LF_PK=$(secret_value langfuse-ingest-key LANGFUSE_PUBLIC_KEY)" "LF_SK=$(secret_value langfuse-ingest-key LANGFUSE_SECRET_KEY)" python - "$proxy" "$web" "$TRACE_INGEST" <<'PYTEST'
+import datetime, json, os, sys, urllib.request, urllib.error
+proxy, web, trace = sys.argv[1:]
+def request(path, body=None, headers=None, host=proxy, port=3002):
+    data = None if body is None else (body if isinstance(body, bytes) else json.dumps(body).encode())
+    req = urllib.request.Request(f'http://{host}:{port}{path}', data=data, headers=headers or {})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            body = r.read()
+            assert all(os.environ[k].encode() not in body for k in ('LF_PK','LF_SK')), 'key leaked in response'
+            return r.status, body
+    except urllib.error.HTTPError as e: return e.code, e.read()
+def rpc(method, params=None):
+    status, body = request('/mcp', {'jsonrpc':'2.0','id':1,'method':method,'params':params or {}}, {'Authorization':'Basic bogus','Content-Type':'application/json'})
+    assert status == 200
+    return json.loads(body)
+assert request('/healthz') == (200,b'ok')
+r = rpc('initialize', {'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'chainsaw','version':'1'}})
+assert 'result' in r, f"initialize failed: {r.get('error')}"
+assert r['result']['serverInfo'] and not ({'resources','prompts'} & r['result']['capabilities'].keys())
+r = rpc('tools/list'); names = {t['name'] for t in r['result']['tools']}
+assert names == {'listObservations','getObservation','getObservationFieldSchema','getObservationFilterSchema','getObservationFilterValues','getHealth'}
+assert not names & {'createTextPrompt','deleteDatasetItem','submitFeedback','createScore'}
+assert rpc('tools/call', {'name':'createScore','arguments':{}})['error']['code'] == -32602
+for method in ('prompts/list','resources/list'): assert rpc(method)['error']['code'] == -32601
+now = datetime.datetime.now(datetime.timezone.utc)
+start = (now - datetime.timedelta(minutes=59)).isoformat(); end = (now + datetime.timedelta(minutes=1)).isoformat()
+args = {'traceId':trace,'fromStartTime':start,'toStartTime':end,'fields':['id','traceId']}
+r = rpc('tools/call', {'name':'listObservations','arguments':args})
+def objects(x):
+    if isinstance(x,dict):
+        yield x
+        for v in x.values(): yield from objects(v)
+    elif isinstance(x,list):
+        for v in x: yield from objects(v)
+    elif isinstance(x,str):
+        try: yield from objects(json.loads(x))
+        except (ValueError,RecursionError): pass
+matches = [v for v in objects(r) if v.get('traceId') == trace and v.get('id')]
+assert matches, 'ingested observation missing'
+args.update(observationId=matches[0]['id'], fields=['id','traceId','input','output'])
+r = rpc('tools/call', {'name':'getObservation','arguments':args})
+assert 'chainsaw-body-marker' in json.dumps(r), 'observation body missing'
+status, _ = request('/api/public/mcp', {'jsonrpc':'2.0','id':1,'method':'tools/list'}, {'Host':'langfuse-web.langfuse.svc.cluster.local:3000','Content-Type':'application/json'}, web, 3000)
+assert status in (401,403)
+assert request('/mcp', b' '*65537)[0] == 413
+assert json.loads(request('/mcp', b'[]')[1])['error']['code'] == -32600
+print('PASS: real Langfuse MCP proxy checks')
+PYTEST
+  then
+    # 本文を出さない proxy の 1 行ログ (method/tool/decision/upstream status) だけを診断に使う。
+    kubectl logs -n "$NS" deployment/langfuse-mcp-readonly --tail=20 >&2 || true
+    return 1
+  fi
+  logs="$(kubectl logs -n "$NS" deployment/langfuse-mcp-readonly)"
+  [[ "$logs" == *'decision=denied'* ]] || { echo 'FAIL: denied request not logged' >&2; return 1; }
+  for key in LANGFUSE_PUBLIC_KEY LANGFUSE_SECRET_KEY; do
+    [[ "$logs" != *"$(secret_value langfuse-ingest-key "$key")"* ]] || { echo 'FAIL: key in logs' >&2; return 1; }
+  done
+}
+
 clickhouse_count() {
   kubectl exec -n "$NS" statefulset/langfuse-clickhouse -- clickhouse-client --user langfuse \
     --password "$(secret_value langfuse-secrets CLICKHOUSE_PASSWORD)" \

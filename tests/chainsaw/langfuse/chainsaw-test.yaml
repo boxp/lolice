@@ -59,6 +59,13 @@ spec:
     - script:
         timeout: 300s
         content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" ingest'
+  - name: mcp-readonly-proxy
+    try:
+    - script:
+        timeout: 300s
+        content: |
+          "${REPO_ROOT}/tests/chainsaw/langfuse/mcp-proxy-unit.sh"
+          "${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" mcp_readonly_proxy
   - name: access-oidc-login
     try:
     - script:
