@@ -248,7 +248,7 @@ while True:
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
-    if n <= 2:
+    if n % 3 == 1:  # also after the ingest key appears; the first rounds run before it
         fire_after_session_flood(n)
     print(f"round {n}", flush=True)
     time.sleep(1)
