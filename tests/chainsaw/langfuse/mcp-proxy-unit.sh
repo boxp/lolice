@@ -39,6 +39,11 @@ try {
   for (const method of ['prompts/list','resources/list']) { r=await post(rpc(method)); assert.equal(r.body.error.code,-32601); } assert.equal(calls,before);
   r=await post(rpc('tools/call',{name:'listObservations',arguments:{limit:100}})); assert.ok(r.body.result);
   r=await post('[]'); assert.equal(r.body.error.code,-32600);
+  const beforeBad=calls;
+  for (const args of ['str', 1, null, [1]]) { r=await post(rpc('tools/call',{name:'listObservations',arguments:args})); assert.equal(r.body.error.code,-32602); }
+  for (const params of ['str', 1, [1]]) { r=await post({jsonrpc:'2.0',id:1,method:'tools/call',params}); assert.equal(r.body.error.code,-32602); }
+  assert.equal(calls,beforeBad); assert.ok((await fetch('http://127.0.0.1:3002/healthz')).ok,'proxy survives malformed arguments');
+  r=await post(rpc('tools/call',{name:'listObservations',arguments:{limit:'100'}})); assert.ok(r.body.result);
   r=await post(' '.repeat(65537)); assert.equal(r.status,413);
   await new Promise(r=>setTimeout(r,50)); assert.match(logs,/decision=denied/); assert.ok(!logs.includes(pk) && !logs.includes(sk));
   console.log('PASS: MCP proxy unit checks');

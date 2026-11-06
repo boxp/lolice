@@ -9,7 +9,9 @@ const secretDir = process.env.LANGFUSE_SECRET_DIR ?? '/var/run/secrets/langfuse'
 const maxRequest = 64 * 1024, maxResponse = 512 * 1024;
 const error = (id, code, message) => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
 
-http.createServer(async (req, res) => {
+http.createServer((req, res) => handle(req, res).catch(() => { if (!res.headersSent) { res.writeHead(500, { 'content-type': 'text/plain' }); res.end('internal error'); } else res.destroy(); })).listen(3002, '0.0.0.0');
+
+async function handle(req, res) {
   const start = Date.now(); let method = '-', tool = '-', decision = 'denied', status = '-', bytes = 0, id = null;
   const send = (statusCode, value) => {
     const body = value === null ? '' : typeof value === 'string' ? value : JSON.stringify(value);
@@ -30,13 +32,16 @@ http.createServer(async (req, res) => {
   method = methods.has(rpc.method) ? rpc.method : 'other';
   const notification = !Object.hasOwn(rpc, 'id');
   if (!methods.has(rpc.method)) return notification ? send(202, null) : send(200, error(id, -32601, 'method not found'));
+  const isPlainObject = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+  if ('params' in rpc && rpc.params !== undefined && !isPlainObject(rpc.params)) return notification ? send(202, null) : send(200, error(id, -32602, 'invalid params'));
   if (rpc.method === 'tools/call') {
     const name = rpc.params?.name;
     tool = allowed.has(name) ? name : 'other';
     if (!allowed.has(name)) return notification ? send(202, null) : send(200, error(id, -32602, 'tool not allowed by read-only proxy'));
+    if (rpc.params.arguments !== undefined && !isPlainObject(rpc.params.arguments)) return notification ? send(202, null) : send(200, error(id, -32602, 'tool arguments must be an object'));
     if (name === 'listObservations') {
-      const args = rpc.params.arguments ?? {};
-      if (args.limit === undefined || args.limit > 50) args.limit = 50;
+      const args = { ...(rpc.params.arguments ?? {}) };
+      if (typeof args.limit !== 'number' || !Number.isFinite(args.limit) || args.limit < 1 || args.limit > 50) args.limit = 50;
       rpc.params.arguments = args;
     }
   }
@@ -66,4 +71,4 @@ http.createServer(async (req, res) => {
     if (rpc.method === 'initialize' && value.result?.capabilities) { delete value.result.capabilities.prompts; delete value.result.capabilities.resources; }
     return send(200, value);
   } catch { return notification ? send(202, null) : send(200, error(id, -32000, 'upstream request failed')); }
-}).listen(3002, '0.0.0.0');
+}
