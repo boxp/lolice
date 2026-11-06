@@ -1317,6 +1317,9 @@ class BodyVisibilityTest(unittest.TestCase):
         # A reply that names a short ("the password is qzv") or non-ASCII value ("パスワードは 秘密のもじれつ") pins it
         # instead of withholding: the bare repeat is masked in the same and later fields, and the reply stays readable.
         cases = (("short", "the password is qzv", "qzv", r"(?<![A-Za-z])qzv(?![A-Za-z])"),
+                 ("short_reversed", "the password is qzv", "vzq", r"(?<![A-Za-z])vzq(?![A-Za-z])"),
+                 ("two_reversed", "the password is qz", "zq", r"(?<![A-Za-z])zq(?![A-Za-z])"),
+                 ("ja_short_reversed", "パスワードは ことば", "ばとこ", "ばとこ"),
                  ("ja_spaced", "パスワードは 秘密のもじれつ", "秘密のもじれつ", "もじれつ"),
                  ("ja_unspaced", "パスワードは秘密のもじれつです", "秘密のもじれつ", "もじれつ"),
                  ("ja_part", "パスワードは 秘密のもじれつ", "もじれつ", "もじれつ"))

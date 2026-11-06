@@ -252,7 +252,7 @@ while True:
     fire_read_then_reply(f"kohako-g2-readsecretword-{n}", "password: my-secretword-leakzz", base64.b64encode(b"my-secretword-leakzz").decode())
     fire_ordinary_read(f"kohako-g2-readbefore-{n}", "beforeprosevaluezz is my password", "beforeprosevaluezz")
     fire_read_then_reply(f"kohako-g2-replyrepeat-{n}", "harmless notes", "password: replyrepeatvaluezz\nfiller one\nfiller two\nreplykeepmarker\nagain replyrepeatvaluezz")
-    fire_read_then_reply(f"kohako-g2-replyshort-{n}", "harmless notes", "the password is qzk\nfiller one\nreplyshortkeepmarker\nqzk")
+    fire_read_then_reply(f"kohako-g2-replyshort-{n}", "harmless notes", "the password is qzk\nfiller one\nreplyshortkeepmarker\nqzk\nkzq")
     fire_read_then_reply(f"kohako-g2-replyencshort-{n}", "harmless notes", "the password is qzj\nfiller one\nreplyencshortkeepmarker\n" + base64.b64encode(b"xqzjy").decode())
     fire_history_reply(f"kohako-g2-historyreply-{n}")
     fire_read_then_reply(f"kohako-g2-replyja-{n}", "harmless notes", "パスワードは ないしょのことば\nfiller one\nreplyjakeepmarker\nことば")
