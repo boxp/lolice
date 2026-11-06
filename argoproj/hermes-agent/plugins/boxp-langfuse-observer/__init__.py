@@ -549,14 +549,16 @@ def _token_values(raw):
     found = set()
     for value in raw:
         value = _strip(value or "")
-        if _reference(value):
+        if not value or _STOPWORD.fullmatch(value) or _REFERENCE.fullmatch(value):
             continue
+        # Tokens are checked one by one: a nested value such as {"token": "..."} names a secret and holds one.
         tokens = [t for t in (_strip(t) for t in _TOKEN_SPLIT.split(value)) if not _reference(t)]
         if len(tokens) == 1:
             if len(tokens[0]) >= 4:
                 found.add(tokens[0])
         elif tokens:
-            found.add(value)
+            if not _LOOSE_SECRET.search(value):
+                found.add(value)
             found.update(t for t in tokens if len(t) >= 6 and not _PLAIN_WORD.fullmatch(t))
     return found
 
@@ -670,6 +672,15 @@ def _strings(value, depth=0):
             yield from _strings(item, depth + 1)
     elif value is not None and not isinstance(value, (dict, list, tuple)):
         yield str(value)
+
+
+def _scan_text(value):
+    """Text for secret detection. String leaves are scanned without their JSON escapes, and a structured value is also
+    scanned as JSON so a secret name kept only as a key ({"token": "..."}) still pins its value."""
+    leaves = "\n".join(_strings(value))
+    if isinstance(value, (dict, list, tuple)):
+        return leaves + "\n" + _text(value)
+    return leaves
 
 
 def _text(value):
@@ -832,7 +843,7 @@ def _note_request(session, parent, messages):
             continue
         if any(_withhold(_text(args)) for _, args in _tool_calls(message)):
             _taint("sensitive_source", session, parent)
-        text = "\n".join(_strings(message))
+        text = _scan_text(message)
         if _is_env_dump(text):
             _taint("sensitive_source", session, parent)
         _note_evidence(session, parent, "", text)
@@ -995,8 +1006,8 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
         turn["delegated"] = True
     _note_tickets(turn, args)
     _note_tickets(turn, result)
-    args_text = "\n".join(_strings(args))
-    result_text = "\n".join(_strings(result))
+    args_text = _scan_text(args)
+    result_text = _scan_text(result)
     already = _tainted(turn["session"])
     withheld = _withhold(_text(args)) or _is_env_dump(result_text)
     exposure = None
