@@ -1,0 +1,23 @@
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: kohako-studio
+  namespace: argocd
+spec:
+  applicationRefs:
+    - namePattern: "kohako-studio"
+      images:
+        - alias: "kohako-studio"
+          imageName: "ghcr.io/boxp/arch/kohako-studio:latest"
+          commonUpdateSettings:
+            updateStrategy: "newest-build"
+            platforms:
+              - "linux/amd64"
+          manifestTargets:
+            kustomize:
+              name: "ghcr.io/boxp/arch/kohako-studio"
+  writeBackConfig:
+    method: "git:secret:argocd/repo-lolice-github-app"
+    gitConfig:
+      repository: "https://github.com/boxp/lolice.git"
+      branch: "main"

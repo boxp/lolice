@@ -1,0 +1,61 @@
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: kohako-studio
+  namespace: kohako-studio
+spec:
+  selector: app == 'kohako-studio'
+  types: [Ingress, Egress]
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'even-g2-lab'
+        selector: app == 'cloudflared'
+      destination: {ports: [8080]}
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        selector: app == 'codex-workspace'
+      destination: {ports: [8080]}
+  egress:
+    - action: Allow
+      protocol: UDP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'hermes-agent'
+        namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
+        ports: [8642]
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        nets: [10.96.0.1/32]
+        ports: [443]
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        nets: [192.168.10.99/32, 192.168.10.102/32, 192.168.10.103/32, 192.168.10.104/32]
+        ports: [6443]
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        notNets: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 192.178.0.0/16]
+        ports: [443]

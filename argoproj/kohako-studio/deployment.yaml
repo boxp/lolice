@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kohako-studio
+  namespace: kohako-studio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kohako-studio
+  template:
+    metadata:
+      labels:
+        app: kohako-studio
+    spec:
+      serviceAccountName: kohako-studio
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bff
+          image: ghcr.io/boxp/arch/kohako-studio:latest
+          imagePullPolicy: Always
+          env:
+            - name: KOHAKO_ACCESS_TEAM_DOMAIN
+              value: https://boxp.cloudflareaccess.com
+            - name: KOHAKO_ACCESS_AUD
+              value: bd491ea940b2fe8ced4ff62699c58a02bce6919da7986a513189fc44e9caec85
+            - name: KOHAKO_OWNER_EMAILS
+              value: tiyotiyouda@gmail.com
+            - name: KOHAKO_HERMES_URL
+              value: http://hermes-agent-api.hermes-agent.svc.cluster.local:8642
+            - name: KOHAKO_HERMES_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kohako-hermes-api-key
+                  key: key
+            - name: KOHAKO_HERMES_TOOLSETS
+              value: file,session_search,skills,terminal
+            - name: KOHAKO_VERIFIER_ENABLED
+              value: "true"
+            - name: KOHAKO_VERIFIER_USERNAME
+              value: system:serviceaccount:codex-workspace:codex-workspace
+            - name: KOHAKO_BFF_HOST
+              value: 127.0.0.1
+            - name: KOHAKO_BFF_PORT
+              value: "8787"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+        - name: web
+          image: ghcr.io/boxp/arch/kohako-studio:latest
+          imagePullPolicy: Always
+          command: [nginx, -g, "daemon off;"]
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+          volumeMounts:
+            - name: nginx-tmp
+              mountPath: /tmp/nginx
+      volumes:
+        - name: nginx-tmp
+          emptyDir: {}

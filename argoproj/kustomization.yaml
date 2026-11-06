@@ -15,6 +15,7 @@ resources:
 - etcd-defrag/application.yaml
 - etcd-snapshot-store/application.yaml
 - even-g2-lab/application.yaml
+- kohako-studio/application.yaml
 - k8s-ecr-token-updater/application.yaml
 - k8s/application.yaml
 - kubernetes-dashboard/application.yaml
