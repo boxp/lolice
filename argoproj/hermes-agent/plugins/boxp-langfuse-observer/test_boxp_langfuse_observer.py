@@ -1383,6 +1383,30 @@ class BodyVisibilityTest(unittest.TestCase):
                     for marker in ("MARKER_REPLY_SHORT_ASK", "MARKER_REPLY_SHORT_KEEP", "MARKER_REPLY_SHORT_NEXT"):
                         self.assertIn(marker, body)
 
+    def test_one_character_non_ascii_value_named_in_a_reply_withholds(self):
+        # A 1-character non-ASCII value ("パスワードは あ") cannot be pinned without masking that character everywhere,
+        # so, like a 1-character ASCII value, the reply's session withholds its later bodies.
+        for where in ("user", "api_response", "turn_end"):
+            for name, named in (("spaced", "パスワードは あ"), ("unspaced", "パスワードはゑです"), ("part", "パスワードは ゐの秘密")):
+                repeat = {"spaced": "あ", "unspaced": "ゑ", "part": "ゐ"}[name]
+                with self.subTest(where=where, case=name):
+                    session = "kohako-g2-reply1ch-" + where + "-" + name
+                    plugin._on_turn_start(session_id=session, turn_id="t",
+                                          user_message=(named if where == "user" else "見て") + " MARKER_ONECH_ASK")
+                    if where == "api_response":
+                        plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=[],
+                                               message_count=0, started_at=time.time())
+                        plugin._on_api_response(session_id=session, turn_id="t", api_request_id="a",
+                                                response={"assistant_message": {"content": named}}, model="m",
+                                                base_url="https://x", started_at=time.time(), ended_at=time.time())
+                    plugin._on_turn_end(session_id=session, turn_id="t",
+                                        assistant_response=named if where == "turn_end" else "ok")
+                    plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                    run_turn(session=session, turn="t2", body="next " + repeat + "ONECHLEAK", tool="todo", args={}, result="ok")
+                    body = self._payload()
+                    self.assertNotIn(repeat + "ONECHLEAK", body)
+                    self.assertIn('withheld_reason", "value": {"stringValue": "short_value"}', body)
+
     def test_encoded_text_containing_a_pinned_short_value_is_masked(self):
         # A pinned value inside a longer word that is then encoded ("xqzvy" -> eHF6dnk=) is found by decoding the run,
         # not by listing every alignment of every neighbour. Ordinary base64 next to it stays.

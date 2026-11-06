@@ -262,6 +262,8 @@ while True:
     fire_ordinary_read(f"kohako-g2-readbefore-{n}", "beforeprosevaluezz is my password", "beforeprosevaluezz")
     fire_read_then_reply(f"kohako-g2-replyrepeat-{n}", "harmless notes", "password: replyrepeatvaluezz\nfiller one\nfiller two\nreplykeepmarker\nagain replyrepeatvaluezz")
     fire_read_then_reply(f"kohako-g2-replyshort-{n}", "harmless notes", "the password is qzk\nfiller one\nreplyshortkeepmarker\nqzk\nkzq")
+    # A 1-character non-ASCII value cannot be pinned; the reply's session withholds, so the line repeating it never arrives.
+    fire_read_then_reply(f"kohako-g2-replyonech-{n}", "harmless notes", "パスワードは ゑ\nfiller one\nゑ onechleakzz")
     fire_read_then_reply(f"kohako-g2-replyencshort-{n}", "harmless notes", "the password is qzj\nfiller one\nreplyencshortkeepmarker\n" + base64.b64encode(b"xqzjy").decode())
     fire_history_reply(f"kohako-g2-historyreply-{n}")
     fire_read_then_reply(f"kohako-g2-replyja-{n}", "harmless notes", "パスワードは ないしょのことば\nfiller one\nreplyjakeepmarker\nことば")
