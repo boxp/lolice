@@ -1094,6 +1094,39 @@ class BodyVisibilityTest(unittest.TestCase):
                 self.assertNotIn("correcthorsebattery", body)
                 self.assertIn("MARKER_PLAIN_KEEP", body)
 
+    def test_value_that_is_a_scheme_or_structural_word_is_pinned(self):
+        # A password can be "bearer" or "value": a word skipped as structure beside a real value is the value alone.
+        for name, output, word in (("yaml_bearer", "password: bearer", "bearer"), ("prose_bearer", "the password is bearer", "bearer"),
+                                   ("eq_basic", "DB_PASSWORD=basic", "basic"), ("dict_negotiate", {"token": "negotiate"}, "negotiate"),
+                                   ("yaml_value", "password: value", "value"), ("prose_data", "the secret is data", "data"),
+                                   ("block_bearer", "password:\n  - bearer\n", "bearer"), ("ja_bearer", "パスワードは bearer です", "bearer"),
+                                   ("multi_bearer", "password: bearer horsestaple", "bearer")):
+            with self.subTest(name):
+                session = "kohako-g2-stopvalue-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て MARKER_STOPVALUE_BEFORE")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=output)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=word)
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                run_turn(session=session, turn="t2", body="again " + word, tool="todo", args={}, result="ok")
+                body = self._payload()
+                # Bodies only: "value" is also a key of the OTLP JSON and a word of the constant coverage text.
+                self.assertNotRegex(body, r'(?i)"langfuse\.observation\.(?:input|output)", "value": \{"stringValue": "[^"]*(?<![A-Za-z_])'
+                                    + word + r"(?![A-Za-z_])")
+                self.assertIn("MARKER_STOPVALUE_BEFORE", body)
+
+    def test_structural_word_alone_that_is_too_short_withholds(self):
+        for name, output in (("yaml_key", "password: key"), ("prose_ref", "the token is ref")):
+            with self.subTest(name):
+                session = "kohako-g2-stopshort-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="見て")
+                plugin._on_tool(session_id=session, turn_id="t", tool_call_id="c", tool_name="read_file",
+                                args={"path": "/repo/c"}, result=output)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="key ref")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._payload()
+                self.assertIn('withheld_reason", "value": {"stringValue": "short_value"}', body)
+
     def test_short_value_withholds_later_bodies(self):
         # A value under 4 characters cannot be masked wherever it appears again, so the session is withheld.
         for name, line in (("yaml", "password: abc"), ("prose", "the password is abc"), ("ja", "パスワードはabcです"),

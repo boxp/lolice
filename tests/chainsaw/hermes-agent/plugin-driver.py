@@ -146,6 +146,7 @@ while True:
     fire_ordinary_read(f"kohako-g2-readshortlater-{n}", "password: alpha qzw", "qzw")
     fire_ordinary_read(f"kohako-g2-readtokenfile-{n}", '{"refresh": "opaquefilevaluezz"}', "opaquefilevaluezz", path="/tmp/tokens.json")
     fire_ordinary_read(f"kohako-g2-readlarge-{n}", "the password is plainfarvalue\n" + "line\n" * 20 + "plainfarvalue\n" + "filler line\n" * 30000, "ok")
+    fire_ordinary_read(f"kohako-g2-readstopword-{n}", "password: negotiate", "negotiate")
     fire_ordinary_read(f"kohako-g2-readblockword-{n}", "password:\n  - firstvalue\n  - blockwordleak horse battery\n", "blockwordleak")
     fire_running_child(f"kohako-g2-runparent-{n}", f"runchild-{n}")
     fire_rewritten_history(f"kohako-g2-rewrite-{n}")
