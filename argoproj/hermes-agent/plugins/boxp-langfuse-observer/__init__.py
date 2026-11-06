@@ -662,6 +662,9 @@ def _token_values(raw):
             # Plain words carry no structure, so a structural word among them is part of the value ("password: value",
             # "password: value horsestaple"), not a key around one: it can be repeated alone.
             tokens = [t for t in words if not _secret_word_only(t) and not _REFERENCE.fullmatch(t)]
+            if not tokens:
+                # A value made of secret words alone ("password: secret") is the value itself.
+                tokens = [t for t in words if t.isascii() and _BARE_SECRET.fullmatch(t)]
         # Every word is pinned, plain or not: the model can repeat any one of a several-word value alone.
         for token in tokens:
             if not token.isascii():
@@ -791,7 +794,11 @@ def _prose_candidates(line, cut):
              and not _secret_word_only(t) and not _REFERENCE.fullmatch(t)]
     # A structural word is a candidate like any other ("the password is value horsestaple": the model can repeat
     # "value" alone), unless it is a key or an expression ("name:", data["token"]), as in _token_values.
-    return [t for t, end in words if not (_STOPWORD.fullmatch(t) and _STRUCTURE_AFTER.match(line, end))]
+    found = [t for t, end in words if not (_STOPWORD.fullmatch(t) and _STRUCTURE_AFTER.match(line, end))]
+    if not found:
+        # Nothing but secret words after the secret word ("the password is secret"): the word is the value.
+        found = [t for t, _ in matches if t.isascii() and _BARE_SECRET.fullmatch(t)]
+    return found
 
 
 def _prose_values(text):

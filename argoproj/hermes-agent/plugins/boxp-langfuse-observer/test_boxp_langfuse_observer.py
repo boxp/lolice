@@ -1428,6 +1428,8 @@ class BodyVisibilityTest(unittest.TestCase):
             "json": ('{"token": "tokenhorse-staple"}', "tokenhorse-staple"),
             "prose": ("the password is my-secret-value", "my-secret-value"),
             "upper": ("password: SECRETHORSE_STAPLE9", "SECRETHORSE_STAPLE9"),
+            "bare": ("password: secret", "secret"),
+            "bare_prose": ("the password is credential", "credential"),
         }
         for name, (line, value) in cases.items():
             for form, repeat in (("base64", b64.b64encode(value.encode()).decode()), ("hex", value.encode().hex())):
