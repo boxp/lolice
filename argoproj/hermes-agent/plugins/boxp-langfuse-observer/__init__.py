@@ -314,11 +314,34 @@ def _encoded_char(ch):
     return "(?:" + "|".join(forms) + ")"
 
 
-def _value_pattern(value):
+def _value_pattern(value, special=None):
     """Every position can start a value, so its first character is only tried at the start of a run of backslashes: the scan stays linear."""
-    chars = [_encoded_char(ch) for ch in value]
+    chars = [(special or {}).get(ch) or _encoded_char(ch) for ch in value]
     chars[0] = chars[0].replace(r"\\{1,255}", r"(?<!\\)\\+")
     return "".join(chars)
+
+
+def _encoded_forms(value):
+    """The value as the model can hand it back re-encoded: base64 and base64url at each of the 3 byte alignments (so it
+    is found inside a longer encoded run too, without the characters the neighbouring bytes share), hex in either case,
+    and reversed. Each form is matched like the value itself, in every serialized encoding."""
+    raw = value.encode("utf-8", "surrogatepass")
+    forms = set()
+    for offset in range(3):
+        start, end = -(-offset * 8 // 6), (offset + len(raw)) * 8 // 6
+        forms.add(base64.b64encode(b"\0" * offset + raw).decode("ascii")[start:end])
+    # base64url differs only in two characters, so one pattern takes both alphabets.
+    url_safe = {"+": "(?:" + _encoded_char("+") + "|-)", "/": "(?:" + _encoded_char("/") + "|_)"}
+    patterns = [_value_pattern(form, url_safe) for form in sorted(forms) if len(form) >= _MIN_PINNED and form != value]
+    if len(value) >= _MIN_PINNED and value[::-1] != value:
+        patterns.append(_value_pattern(value[::-1]))
+    return patterns + ["(?i:" + _value_pattern(raw.hex()) + ")"]  # hex digits in either case
+
+
+def _values_regex(values):
+    """Longest first, each value followed by its encoded forms."""
+    return re.compile("|".join(p for value in sorted(values, key=len, reverse=True)
+                               for p in [_value_pattern(value)] + _encoded_forms(value)))
 
 
 def _env_pattern():
@@ -327,7 +350,7 @@ def _env_pattern():
     global _env_pattern_cache
     values = _env_secrets()
     if _env_pattern_cache[0] is not values:
-        pattern = re.compile("|".join(map(_value_pattern, values))) if values else None
+        pattern = _values_regex(values) if values else None
         _env_pattern_cache = (values, pattern)
     return _env_pattern_cache[1]
 
@@ -573,7 +596,8 @@ def _assigned_value(match_text):
     return not _is_setting(name, value)
 
 
-_TOKEN_SPLIT = re.compile(r"""[\s"'`,;:=<>()\[\]{}\\]+""")
+# A JSON escape (\\n, \\t) separates words like the character it stands for, so its letter is not left as a word.
+_TOKEN_SPLIT = re.compile(r"""(?:[\s"'`,;:=<>()\[\]{}]|\\+[nrt]?)+""")
 _STRIP = re.compile(r"""^(?:["'`]|\\+["'nrt]?)+|(?:["'`,;]|\\+["'nrt]?)+$""")
 # Structural words (keys of a JSON/YAML secret reference, a URL scheme, a literal) are skipped beside a real value, but a
 # value made of them alone is the value itself ("password: value"). Auth scheme words (Basic, Bearer) are never skipped:
@@ -942,8 +966,7 @@ def _values_pattern(values):
     if not values:
         return None
     if _values_pattern_cache[0] != values:
-        ordered = sorted(values, key=len, reverse=True)
-        _values_pattern_cache = (values, re.compile("|".join(map(_value_pattern, ordered))))
+        _values_pattern_cache = (values, _values_regex(values))
     return _values_pattern_cache[1]
 
 
@@ -1014,12 +1037,13 @@ def _note_request(session, parent, messages):
             while len(_sessions) > _MAX_SESSIONS:
                 _sessions.popitem(last=False)
     for message in fresh:
-        if isinstance(message, dict) and message.get("role") in ("system", "developer"):
-            continue
+        # Instructions reach the model like any other text, so a value written there is pinned too. They are not tool
+        # output, so describing an environment ("Set PATH=... and HOME=...") is not a dump of it.
+        instructions = isinstance(message, dict) and message.get("role") in ("system", "developer")
         if any(_withhold(_text(args)) for _, args in _tool_calls(message)):
             _taint("sensitive_source", session, parent)
         text = _scan_text(message)
-        if _is_env_dump(text):
+        if not instructions and _is_env_dump(text):
             _taint("sensitive_source", session, parent)
         _note_evidence(session, parent, "", text)
 
@@ -1102,7 +1126,8 @@ def _on_api_request(session_id=None, turn_id=None, api_request_id=None, system_p
                     message_count=None, retry_count=None, started_at=None):
     turn = _turn(session_id, turn_id)
     messages = list(request_messages or [])
-    _note_request(turn["session"], turn["parent"], messages)
+    # The assembled system prompt is scanned as an instruction message, once per session while it stays the same.
+    _note_request(turn["session"], turn["parent"], ([{"role": "system", "content": system_prompt}] if system_prompt else []) + messages)
     tainted = _tainted(turn["session"])
     first_request = not turn.get("requested")
     turn["requested"] = True
