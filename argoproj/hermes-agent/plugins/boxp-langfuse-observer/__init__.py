@@ -164,7 +164,7 @@ _FIELD_ONLY = {"assignment", "entropy", "data_uri", "env_entry", "flag", "cli_pa
 # A hit of one of these in a tool result means the model saw a credential: later bodies of the session are withheld.
 # A secret word alone (secret_line), a high-entropy string or an image is not such evidence.
 # Only shapes that are credentials by themselves count. Name-based kinds (assignment, env entry, flag, cli password,
-# XML element) mask the value in place but are no evidence: they match ordinary code and logs such as
+# XML element) mask the value in place and pin it (_named_values) but are no evidence: they match ordinary code and logs such as
 # TOKEN_FILE=/work/x or credentials: 'same-origin', which withheld whole sessions in production (BOXP-428).
 _EXPOSURE_KINDS = {"private_key", "header", "url_credentials", "jwt", "provider_key", "aws_key", "google_key",
                    "telegram", "bearer", "env"}
@@ -522,9 +522,39 @@ def _first_value(text):
     return match.group(0).strip() if match else ""
 
 
+_TAG_CLOSE = re.compile(_GT, re.I)
+_ELEMENT_CLOSE = re.compile(r"(?is)^(.*)" + _LT + r"\\*/[\w:.-]+\s*" + _GT + r"$")
+_ELEMENT_SPLIT = re.compile(r"(?i)" + _LT + r"[^<>&\\]{0,256}?" + _GT + r"|\r?\n|\\+[nrt]")
+
+
+def _element_values(raw):
+    # Text inside an element whose tag names a secret (<password>x</password>, encoded tags too). The element is
+    # masked in place; its text is pinned like an assignment value so a bare restatement is masked as well. Child
+    # tags and line breaks separate values; a self-closing tag names nothing.
+    closer = _TAG_CLOSE.search(raw)
+    if not closer or re.search(r"[/\\]\s*$", raw[:closer.start()]):
+        return []
+    inner = raw[closer.end():]
+    closing = _ELEMENT_CLOSE.match(inner)
+    if closing:
+        inner = closing.group(1)
+    values = []
+    for segment in _ELEMENT_SPLIT.split(inner):
+        value = re.sub(r"^(?:\\*[\"'])+|(?:\\*[\"'])+$", "", segment.strip()).strip()
+        if value:
+            values.append(value)
+    return values
+
+
 def _named_values(text):
     text = _PLACEHOLDER.sub("", text)
     found = set()
+    for match in _SECRET_ELEMENT.finditer(text):
+        for value in _element_values(match.group(0)):
+            if not _REFERENCE.fullmatch(value):
+                found.add(value)
+                if len(found) > 64:
+                    return {v for v in found if 4 <= len(v) <= 256}, True
     for kind, pattern in _PATTERNS:
         if kind not in _PIN_KINDS:
             continue

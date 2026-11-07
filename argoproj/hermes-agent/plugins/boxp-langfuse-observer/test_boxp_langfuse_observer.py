@@ -101,7 +101,9 @@ class ObserverTest(unittest.TestCase):
         value = "hunterhorsebattery"
         for result in ("password: " + value, "password: '" + value + "'", '{"api_key": "' + value + '"}',
                        "--token " + value, "curl -u admin:" + value,
-                       '{"name": "APP_SECRET", "value": "' + value + '"}', "secret: |\n  " + value):
+                       '{"name": "APP_SECRET", "value": "' + value + '"}', "secret: |\n  " + value,
+                       "<password>" + value + "</password>", '<config><db_password type="x">\n  ' + value + "\n</db_password></config>",
+                       "&lt;apiToken&gt;" + value + "&lt;/apiToken&gt;"):
             with self.subTest(result=result):
                 session = "kohako-g2-" + str(abs(hash(result)))
                 plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
@@ -151,6 +153,14 @@ class ObserverTest(unittest.TestCase):
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
         self.assertNotIn("laterbodymarker", bodies())
         self.assertEqual(plugin._tainted(session), "known_format_in_tool_output")
+
+    def test_named_values_in_xml_elements(self):
+        self.assertEqual(plugin._named_values("<password>quietmeadowstone</password>"), ({"quietmeadowstone"}, False))
+        self.assertEqual(plugin._named_values('{"output":"\\u003cpassword\\u003equietmeadowstone\\u003c/password\\u003e"}'),
+                         ({"quietmeadowstone"}, False))
+        self.assertEqual(plugin._named_values("<secret><value>outerkeyvalue</value></secret>"), ({"outerkeyvalue"}, False))
+        self.assertTrue(plugin._named_values("<password>abc</password>")[1])
+        self.assertEqual(plugin._named_values("<password>${DB_PASSWORD}</password> <password/>"), (set(), False))
 
     def test_named_values_skip_references_and_settings(self):
         for text in ("password: $VAR", "password: ${VAR}", "password: [REDACTED:assignment]", "AUTH_ENABLED=false"):
