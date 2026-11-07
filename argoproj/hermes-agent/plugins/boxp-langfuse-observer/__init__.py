@@ -1144,7 +1144,14 @@ def _env_access(text):
     for match in _ENV_ACCESSOR.finditer(text):
         after = text[match.end():match.end() + 200]
         if re.match(r'^\s*\.copy\s*\(\s*\)', after):
-            continue
+            # env = os.environ.copy() / run(cmd, env=os.environ.copy()) hands a copy to a child process without
+            # printing it; print(os.environ.copy()) or any other use of the copy is a dump.
+            line_start = text.rfind('\n', 0, match.start()) + 1
+            before = text[line_start:match.start()]
+            if (re.match(r'^\s*\.copy\s*\(\s*\)\s*(?:[,)\n;#]|$)', after)
+                    and re.search(r'(?:^|[^=!<>])=\s*$', before) and not _PRINT_CALL.search(before)):
+                continue
+            return True
         single = _ENV_SINGLE.match(after)
         if not single:
             return True

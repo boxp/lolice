@@ -112,11 +112,15 @@ class ObserverTest(unittest.TestCase):
             {'path': '/tmp/x.md', 'content': 'cat ~/.kube/config'}, {'goal': 'read .env and print the token'},
             {'cmd': ['bash', '-lc', 'grep -rn token src']}, {'command': 'echo the ID token is checked'},
             {'code': "print(os.environ.get('LAYOUT'))"},
+            {'command': "python3 - <<'EOF'\nimport os, subprocess\nenv = os.environ.copy()\nenv['LANG'] = 'C'\nsubprocess.run(['make'], env=os.environ.copy())\nEOF"},
         ]
         sources = [{'command': s} for s in [
             'cat .env', "bash -lc 'cat ~/.kube/config'", 'kubectl get secret x -o yaml | base64 -d',
             'env | grep -i grafana', 'printenv', 'export', 'set', 'declare -p',
             "python3 - <<'EOF'\nimport os\nprint(dict(os.environ))\nEOF",
+            "python3 -c 'import os; print(os.environ.copy())'",
+            "python3 - <<'EOF'\nimport os, json\nprint(json.dumps(dict(os.environ.copy())))\nEOF",
+            "python3 -c 'import os; x = os.environ.copy().items(); print(list(x))'",
             'python3 -c "import os; print(os.environ[\'GITHUB_TOKEN\'])"',
             "node -e 'console.log(JSON.stringify(process.env))'", 'X=$(gh auth token) cmd',
             'echo "$(cat .env)"', 'git commit -m "$(cat ~/.netrc)"', 'cat mytoken', 'head < access_token',
