@@ -207,7 +207,10 @@ class ObserverTest(unittest.TestCase):
                               ("<password>pine&lt;hollowgate</password>", "pine<hollowgate"),
                               ('{"password": "amber\\u0026willowpond"}', "amber&willowpond"),
                               ('password: "hunter\\"horsefield"', 'hunter"horsefield'),
-                              ('{"output": "password: \\"maple\\\\\\"brookstone\\""}', 'maple"brookstone')):
+                              ('{"output": "password: \\"maple\\\\\\"brookstone\\""}', 'maple"brookstone'),
+                              ("password: \\mylakeviewpine", "\\mylakeviewpine"),
+                              ('{"output": "password: \\\\coldbackslashpine\\nnext"}', "\\coldbackslashpine"),
+                              ("password: amber\\slashgrove", "amber\\slashgrove")):
             with self.subTest(result=result):
                 session = "kohako-g2-decoded-" + str(abs(hash(result)))
                 plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
@@ -225,6 +228,13 @@ class ObserverTest(unittest.TestCase):
         self.assertEqual(plugin._named_values("password: 'it\\'s-quietpond'"), ({"it\\'s-quietpond", "it's-quietpond"}, False))
         self.assertEqual(plugin._named_values('password: "hunterhorse" next: "x"'), ({"hunterhorse"}, False))
         self.assertEqual(plugin._named_values('{"password": "hunterhorse", "note": "a\\"b"}'), ({"hunterhorse"}, False))
+
+    def test_named_values_with_backslashes(self):
+        # A backslash other than a quote/line escape is part of an unquoted value, including at its start.
+        self.assertEqual(plugin._named_values("password: \\mysecret123"), ({"\\mysecret123"}, False))
+        self.assertEqual(plugin._named_values('{"output": "password: \\\\coldpine\\nnext"}'), ({"\\\\coldpine", "\\coldpine"}, False))
+        self.assertEqual(plugin._named_values("password: amber\\slash"), ({"amber\\slash"}, False))
+        self.assertEqual(plugin._named_values('{"output": "password: hunterhorse\\nnext"}'), ({"hunterhorse"}, False))
 
     def test_named_values_skip_references_and_settings(self):
         for text in ("password: $VAR", "password: ${VAR}", "password: [REDACTED:assignment]", "AUTH_ENABLED=false"):

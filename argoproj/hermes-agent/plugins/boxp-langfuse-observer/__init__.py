@@ -510,7 +510,9 @@ _ENTRY_VALUE_START = re.compile(r"(?i)(?<![\w-])value(?:\\*[\"'])?(?:\s|\\+[nrt]
 
 
 _OPENING_QUOTE = re.compile(_QUOTE, re.I)
-_UNQUOTED_VALUE = re.compile(r"""(?i)(?:[^\s,;}\]"'\\&]|&(?!quot|apos|\#0*(?:34|39)(?!\d)|\#x0*(?:22|27)(?![0-9a-f])))+""")
+_UNQUOTED_VALUE = re.compile(
+    r"""(?i)(?:[^\s,;}\]"'\\&]|\\\\|\\(?![nrt"'\\]|u00(?:22|27))|&(?!quot|apos|\#0*(?:34|39)(?!\d)|\#x0*(?:22|27)(?![0-9a-f])))+"""
+)
 
 
 def _first_value(text):
@@ -527,8 +529,9 @@ def _first_value(text):
         # end the value: password: "a\"b" captures a\"b (and its decoded form a"b), not a\.
         end = re.search(r"(?<!\\)" + re.escape(q), text[len(q):], re.I)
         return text[len(q):len(q) + end.start() if end else None].strip()
-    # Unquoted: stop at a quote, a backslash or an entity quote too, so a value inside serialized JSON or HTML does
-    # not take the closing quote or a \n escape with it.
+    # Unquoted: stop at a quote, an entity quote or a quote/line escape (\", \u0022, \n, \r, \t) too, so a value
+    # inside serialized JSON or HTML does not take the closing quote or a \n escape with it. Any other backslash
+    # (password: \mysecret123, its JSON form \\mysecret123, my\secret) is part of the value, not its end.
     match = _UNQUOTED_VALUE.match(text)
     return match.group(0).strip() if match else ""
 
