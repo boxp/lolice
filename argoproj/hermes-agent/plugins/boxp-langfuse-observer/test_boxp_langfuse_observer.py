@@ -112,6 +112,7 @@ class ObserverTest(unittest.TestCase):
             {'path': '/tmp/x.md', 'content': 'cat ~/.kube/config'}, {'goal': 'read .env and print the token'},
             {'cmd': ['bash', '-lc', 'grep -rn token src']}, {'command': 'echo the ID token is checked'},
             {'code': "print(os.environ.get('LAYOUT'))"},
+            {'command': "bash -c 'make'"}, {'command': 'bash -c true'}, {'command': 'grep -c token out.log'},
             {'command': "python3 - <<'EOF'\nimport os, subprocess\nenv = os.environ.copy()\nenv['LANG'] = 'C'\nsubprocess.run(['make'], env=os.environ.copy())\nEOF"},
         ]
         sources = [{'command': s} for s in [
@@ -125,7 +126,10 @@ class ObserverTest(unittest.TestCase):
             "node -e 'console.log(JSON.stringify(process.env))'", 'X=$(gh auth token) cmd',
             'echo "$(cat .env)"', 'git commit -m "$(cat ~/.netrc)"', 'cat mytoken', 'head < access_token',
             "ssh host bash <<'EOF'\ncat .env\nEOF", 'cat > /tmp/x <<EOF\nhello\nEOF\ncat .env',
-            'grep -r x src; cat secrets/db']] + [{'path': '/app/.env'}, {'path': 'mytoken'},
+            'grep -r x src; cat secrets/db',
+            "bash -c 'printenv'", 'bash -c printenv', 'sh -lc env', "bash -c 'export'", 'sudo bash -c printenv',
+            "bash -c 'cat mytoken'", 'zsh -c "bash -c printenv"']] + [{'path': '/app/.env'}, {'path': 'mytoken'},
+            {'cmd': ['bash', '-lc', 'printenv']},
             {'cmd': ['bash', '-lc', 'cat ~/.npmrc']}, {'code': "print(os.environ['GITHUB_TOKEN'])"}]
         for value in mentions:
             with self.subTest(mention=value):

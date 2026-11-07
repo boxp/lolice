@@ -1125,7 +1125,8 @@ def _executed_text(text, depth=0, code=True):
         for j in range(idx + 1, len(segment)):
             start, end, word, ws, _ = segment[j]
             prev = segment[j - 1][2]
-            if ws and re.fullmatch(r'-[A-Za-z]*[ce]', prev) and (_interpreter(program) or prev == '-c') and depth < 2:
+            # bash -c 'printenv' / sh -lc env: a one-word script of an interpreter runs too (BOXP-428 TD-12 P1)
+            if re.fullmatch(r'-[A-Za-z]*[ce]', prev) and depth < 2 and (_interpreter(program) or (ws and prev == '-c')):
                 replacement = ' ( ' + _executed_text(word, depth + 1, code) + ' ) '
             elif program in {'echo', 'printf'} or j == pattern_idx or (ws and (prev.startswith('-') or re.match(r'--?[\w-]+=', word))):
                 replacement = ' ' + ' '.join(_SUBSTITUTION.findall(text[start:end])) + ' '
