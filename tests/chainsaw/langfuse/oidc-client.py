@@ -56,8 +56,23 @@ elif command == "gateway":
     query = urllib.parse.urlencode({"targetPath": sys.argv[2]}) if len(sys.argv) > 2 else ""
     status, location, _ = call("GET", GATEWAY + "/auth/sign-in?" + query)
     result = {"status": status, "starts_at_issuer": location.startswith(ISSUER + "/"), "final": finish(location), "email": session()}
+elif command == "gateway-data":
+    # What the Next.js router fetches after router.replace("/auth/sign-in?targetPath=...") on a signed-out page.
+    build = sys.argv[2]
+    query = urllib.parse.urlencode({"targetPath": sys.argv[3]}) if len(sys.argv) > 3 else ""
+    status, _, data = call("GET", f"{GATEWAY}/_next/data/{build}/auth/sign-in.json?{query}", headers={"x-nextjs-data": "1"})
+    props = (json.loads(data or b"{}").get("pageProps") or {}) if status == 200 else {}
+    location = props.get("__N_REDIRECT") or ""
+    result = {"status": status, "starts_at_issuer": location.startswith(ISSUER + "/"), "final": finish(location), "email": session()}
+elif command == "build-id":
+    # The id the deployed web build puts in its pages, read from the real sign-in page.
+    page = call("GET", WEB + "/auth/sign-in?error=x")[2].decode()
+    data = json.loads(page.split('id="__NEXT_DATA__" type="application/json">', 1)[1].split("</script>", 1)[0])
+    # The router puts the locale into the props path when i18n is on, as Langfuse has it.
+    result = {"build": data["buildId"] + ("/" + data["locale"] if data.get("locale") else "")}
 elif command == "gateway-status":
-    status, location, data = call(sys.argv[2], GATEWAY + sys.argv[3])
+    data_request = {"x-nextjs-data": "1"} if sys.argv[3].startswith("/_next/data/") else {}
+    status, location, data = call(sys.argv[2], GATEWAY + sys.argv[3], headers=data_request)
     result = {"status": status, "location": location, "html": b"<html" in data[:2000].lower()}
 elif command == "spoof":
     forged = {"Cf-Access-Jwt-Assertion": "forged.jwt.value", "Cf-Access-Authenticated-User-Email": os.environ["OWNER_EMAIL"],

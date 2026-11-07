@@ -224,6 +224,22 @@ oidc() {
     echo "$result" | jq -e '.email == "owner@example.invalid" and (.final | contains("evil.example") | not)' >/dev/null \
       || { echo "FAIL: gateway が外部へ戻した: $target $result" >&2; exit 1; }
   done
+  # 署名済みでない頁から入ると、Langfuse は /auth/sign-in へ client 側遷移し router が props を
+  # /_next/data/<buildId>/auth/sign-in.json に取りに来る。ここでもボタンなしで issuer へ進むこと。
+  local build
+  build="$(oidc_client build-id | jq -r .build)"
+  test -n "$build" && test "$build" != null || { echo 'FAIL: web の buildId が読めない' >&2; exit 1; }
+  result="$(oidc_client gateway-data "$build" /project/ai-ops)"
+  echo "$result" | jq -e '.status == 200 and .starts_at_issuer and .email == "owner@example.invalid" and (.final | endswith("/project/ai-ops"))' >/dev/null \
+    || { echo "FAIL: client 側遷移の sign-in でボタンなしのログインが始まらない: $result" >&2; exit 1; }
+  result="$(oidc_client gateway-data "$build" //evil.example/x)"
+  echo "$result" | jq -e '.email == "owner@example.invalid" and (.final | contains("evil.example") | not)' >/dev/null \
+    || { echo "FAIL: client 側遷移の gateway が外部へ戻した: $result" >&2; exit 1; }
+  result="$(oidc_client gateway-status GET "/_next/data/$build/auth/sign-in.json?error=OAuthCallback")"
+  echo "$result" | jq -e '.status == 200 and (.location == "")' >/dev/null \
+    || { echo "FAIL: error 付きの props 要求が本物の props を返さない: $result" >&2; exit 1; }
+  result="$(oidc_client gateway-status GET "/_next/data/$build/project.json")"
+  echo "$result" | jq -e '.status == 404' >/dev/null || { echo "FAIL: gateway が他の props を中継した: $result" >&2; exit 1; }
   oidc_client mode bad_sig >/dev/null
   result="$(oidc_client gateway)"
   oidc_client mode ok >/dev/null
