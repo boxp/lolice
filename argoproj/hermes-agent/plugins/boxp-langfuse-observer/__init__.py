@@ -155,13 +155,13 @@ _PATTERNS = [
     # A CLI password is one shell word: a quoted value runs to its matching quote (_value), so
     # sshpass -p 'apple orchard' masks and pins the whole value, not just the part before the space.
     ("cli_password", re.compile(
-        r"(?<![\w-])(?:-u|--user)[ \t=]*(?P<uq>" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]*:[^\n]*?(?<!\\)(?P=uq)")),
+        r"(?i)(?<![\w-])(?:-u|--user)[ \t=]*(?P<uq>" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]*:[^\n]*?(?<!\\)(?P=uq)")),
     ("cli_password", re.compile(
-        r"(?<![\w-])(?:-u|--user)[ \t=]*(?!" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]+:" + _value("quote", bare=r"\S+"))),
+        r"(?i)(?<![\w-])(?:-u|--user)[ \t=]*(?!" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]+:" + _value("quote", bare=r"\S+"))),
     ("cli_password", re.compile(
-        r"\b(?:mysql\w*|mariadb\w*)\b[^\n|;&]{0,512}?\s-p" + _value("quote", bare=r"\S+"))),
+        r"(?i)\b(?:mysql\w*|mariadb\w*)\b[^\n|;&]{0,512}?\s-p" + _value("quote", bare=r"\S+"))),
     ("cli_password", re.compile(
-        r"\bsshpass\b[^\n|;&]{0,512}?\s-p[ \t]*" + _value("quote", bare=r"\S+"))),
+        r"(?i)\bsshpass\b[^\n|;&]{0,512}?\s-p[ \t]*" + _value("quote", bare=r"\S+"))),
     ("assignment", re.compile(
         r"(?i)[\"']?" + _SECRET_KEY + _QUOTE + r"?" + _GAP + _SEPARATOR + _GAP
         # A YAML block scalar carries its value on the indented lines below the key.
@@ -648,8 +648,8 @@ def _named_values_raw(text):
             elif kind == "flag":
                 values = [_first_value(re.sub(r"^\S+[ \t]+", "", raw))]
             else:
-                if re.match(r"^(?:-u|--user)", raw):
-                    rest = re.sub(r"^(?:-u|--user)[ \t=]*", "", raw)
+                if re.match(r"(?i)^(?:-u|--user)", raw):
+                    rest = re.sub(r"(?i)^(?:-u|--user)[ \t=]*", "", raw)
                     if _OPENING_QUOTE.match(rest):
                         # -u 'user:pass word': the whole quoted word is user:password.
                         word = _first_value(rest)
@@ -657,7 +657,7 @@ def _named_values_raw(text):
                     else:
                         values = [_first_value(re.sub(r"^[^\s:]+:", "", rest))]
                 else:
-                    values = [_first_value(re.sub(r"(?s)^.*?\s-p[ \t]*", "", raw))]
+                    values = [_first_value(re.sub(r"(?is)^.*?\s-p[ \t]*", "", raw))]
             for value in values:
                 if value and not _REFERENCE.fullmatch(value):
                     found.add(value)

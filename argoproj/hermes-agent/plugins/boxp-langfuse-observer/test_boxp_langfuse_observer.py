@@ -254,6 +254,19 @@ class ObserverTest(unittest.TestCase):
         self.assertEqual(plugin._named_values("mysql -p && ls -p 'some dir'"), (set(), False))
         self.assertEqual(plugin._named_values("date -u +%H:%M")[0], set())
 
+    def test_named_values_in_uppercase_cli_flags(self):
+        # Regression (arch#14548 review, same rule): CLI password flags are matched case-insensitively for both
+        # masking and pinning, so `curl --USER admin:x` pins x and a later bare restatement is masked.
+        cases = [("curl --USER admin:secretvalue https://x", "secretvalue"),
+                 ("curl -U admin:lanternfield https://x", "lanternfield"),
+                 ("curl --User 'admin:copper ridge' https://x", "copper ridge"),
+                 ("SSHPASS -P marblestone ssh host", "marblestone"),
+                 ("MYSQL -h db -Pquartzvalley app", "quartzvalley")]
+        for text, value in cases:
+            with self.subTest(text=text):
+                self.assertIn(value, plugin._named_values(text)[0])
+                self.assertNotIn(value.split()[-1], plugin._redact(text)[0])
+
     def test_named_values_skip_references_and_settings(self):
         for text in ("password: $VAR", "password: ${VAR}", "password: [REDACTED:assignment]", "AUTH_ENABLED=false"):
             with self.subTest(text=text):
