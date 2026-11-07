@@ -555,7 +555,54 @@ def _element_values(raw):
     return values
 
 
+# A value captured from a serialized body keeps its escapes (password: &quot;a&amp;b&quot; captures a&amp;b), while a
+# later restatement can be the decoded text (a&b). Both are pinned: the decoded form is matched with its own escapes,
+# so pinning it covers the plain restatement and every serialization of it.
+_ENTITY_ESCAPE = re.compile(r"&(?:#0*(\d{1,7})|#[xX]0*([0-9a-fA-F]{1,6})|(amp|lt|gt|quot|apos));")
+_JSON_ESCAPE = re.compile(r"""\\(?:u([0-9a-fA-F]{4})|(["\\/bfnrt]))""")
+_ENTITY_NAMES = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
+_JSON_CHARS = {'"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+
+
+def _code_point(n):
+    return chr(n) if 1 <= n <= 0x10FFFF else None
+
+
+def _decode_entity(m):
+    if m.group(1):
+        return _code_point(int(m.group(1))) or m.group(0)
+    if m.group(2):
+        return _code_point(int(m.group(2), 16)) or m.group(0)
+    return _ENTITY_NAMES[m.group(3)]
+
+
+def _decode_json(m):
+    if m.group(1):
+        return chr(int(m.group(1), 16))
+    return _JSON_CHARS[m.group(2)]
+
+
+def _decoded_forms(value):
+    """value and its decoded forms (HTML entities and JSON escapes, up to 3 nested layers)."""
+    forms = [value]
+    for _ in range(3):
+        decoded = _JSON_ESCAPE.sub(_decode_json, _ENTITY_ESCAPE.sub(_decode_entity, value))
+        if decoded == value:
+            break
+        forms.append(decoded)
+        value = decoded
+    return forms
+
+
 def _named_values(text):
+    found, unpinned = _named_values_raw(text)
+    decoded = {form for value in found for form in _decoded_forms(value)}
+    if len(decoded) > 64:
+        return {v for v in decoded if 4 <= len(v) <= 256}, True
+    return {v for v in decoded if 4 <= len(v) <= 256}, unpinned or any(not 4 <= len(v) <= 256 for v in decoded)
+
+
+def _named_values_raw(text):
     text = _PLACEHOLDER.sub("", text)
     found = set()
     for match in _SECRET_ELEMENT.finditer(text):
@@ -563,7 +610,7 @@ def _named_values(text):
             if not _REFERENCE.fullmatch(value):
                 found.add(value)
                 if len(found) > 64:
-                    return {v for v in found if 4 <= len(v) <= 256}, True
+                    return found, True
     for kind, pattern in _PATTERNS:
         if kind not in _PIN_KINDS:
             continue
@@ -599,8 +646,8 @@ def _named_values(text):
                 if value and not _REFERENCE.fullmatch(value):
                     found.add(value)
                     if len(found) > 64:
-                        return {v for v in found if 4 <= len(v) <= 256}, True
-    return {v for v in found if 4 <= len(v) <= 256}, any(not 4 <= len(v) <= 256 for v in found)
+                        return found, True
+    return found, False
 
 
 def _lineage(session):

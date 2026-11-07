@@ -196,6 +196,27 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn("hunterhorseloft", body)
                 self.assertIn("laterreplymarker", body)
 
+    def test_named_values_include_decoded_forms(self):
+        self.assertEqual(plugin._named_values("password: &quot;hunter&amp;horse&quot;"), ({"hunter&amp;horse", "hunter&horse"}, False))
+        self.assertEqual(plugin._named_values("password: &quot;hunter&#x26;horse&quot;"), ({"hunter&#x26;horse", "hunter&horse"}, False))
+        self.assertEqual(plugin._named_values('{"password": "amber\\u0026pond"}'), ({"amber\\u0026pond", "amber&pond"}, False))
+        self.assertEqual(plugin._named_values("password: &quot;hunter&#99999999;horse&quot;"), ({"hunter&#99999999;horse"}, False))
+
+    def test_decoded_named_values_are_masked_in_replies(self):
+        for result, value in (("password: &quot;hunter&amp;horsefield&quot;", "hunter&horsefield"),
+                              ("<password>pine&lt;hollowgate</password>", "pine<hollowgate"),
+                              ('{"password": "amber\\u0026willowpond"}', "amber&willowpond")):
+            with self.subTest(result=result):
+                session = "kohako-g2-decoded-" + str(abs(hash(result)))
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="t", tool_name="terminal", args={"command": "cat notes.txt"}, result=result)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is " + value + " laterreplymarker")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = bodies()
+                self.assertNotIn(value, body)
+                self.assertNotIn(json.dumps(value)[1:-1], body)
+                self.assertIn("laterreplymarker", body)
+
     def test_named_values_skip_references_and_settings(self):
         for text in ("password: $VAR", "password: ${VAR}", "password: [REDACTED:assignment]", "AUTH_ENABLED=false"):
             with self.subTest(text=text):
