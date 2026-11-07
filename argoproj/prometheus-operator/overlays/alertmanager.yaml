@@ -15,6 +15,11 @@ spec:
   # 公開は boxp/arch の terraform/cloudflare/b0xp.io/prometheus-operator。
   # Cloudflare Access (GitHub ログイン) で保護している。
   externalUrl: https://alertmanager.b0xp.io
+  # BOXP-462: Hermes webhook route の token。/etc/alertmanager/secrets/<name>/token に
+  # マウントされ、receiver Hermes が http_headers の files: で読む
+  # (secret-store-hermes-webhook.yaml の ExternalSecret が生成)。
+  secrets:
+    - alertmanager-hermes-webhook-token
   tolerations:
     - key: lolice.io/gpu-worker
       operator: Equal
