@@ -1076,8 +1076,37 @@ def _segments(words):
         yield segment
 
 
+def _heredoc_operators(line, quote):
+    """<<TAG operators of a command line that are outside quotes, comments and backslash escapes. A quoted or
+    commented <<EOF (echo '<<EOF', echo a # <<EOF, echo \\<<EOF) is not an operator, so the lines after it are still
+    judged as commands (BOXP-428 TD-12 P0). The quote state carries over lines; a missed operator only makes its
+    body judged as commands (fail closed)."""
+    matches, i, n = [], 0, len(line)
+    while i < n:
+        c = line[i]
+        if quote:
+            if c == quote:
+                quote = None
+            elif c == '\\' and quote == '"':
+                i += 1
+        elif c in "'\"":
+            quote = c
+        elif c == '\\':
+            i += 1
+        elif c == '#' and (i == 0 or line[i - 1].isspace() or line[i - 1] in '|;&()<>'):
+            break
+        elif c == '<':
+            match = _HEREDOC.match(line, i)
+            if match:
+                matches.append(match)
+                i = match.end()
+                continue
+        i += 1
+    return matches, quote
+
+
 def _strip_heredocs(text, code):
-    out, pending = [], collections.deque()
+    out, pending, quote = [], collections.deque(), None
     for line in text.split('\n'):
         if pending:
             tag, tabs, keep, expands = pending[0]
@@ -1095,7 +1124,8 @@ def _strip_heredocs(text, code):
                 pending.popleft()
             continue
         out.append(line)
-        for match in _HEREDOC.finditer(line):
+        matches, quote = _heredoc_operators(line, quote)
+        for match in matches:
             segments = list(_segments(_shell_words(line[:match.start()])))
             words = [w[2] for w in segments[-1]] if segments else []
             runner = next((w for i, w in enumerate(words) if _interpreter(w) and

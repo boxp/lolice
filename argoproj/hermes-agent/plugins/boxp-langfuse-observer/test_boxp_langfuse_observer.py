@@ -114,6 +114,7 @@ class ObserverTest(unittest.TestCase):
             {'code': "print(os.environ.get('LAYOUT'))"},
             {'command': "cat <<'EOF'\n$(cat .env) printenv\nEOF"}, {'command': 'cat <<EOF\nread .env and printenv $(date)\nEOF'},
             {'command': "bash -c 'make'"}, {'command': 'bash -c true'}, {'command': 'grep -c token out.log'},
+            {'command': "echo '<<x'; cat <<'EOF'\ncat .env\nEOF"},
             {'command': "python3 - <<'EOF'\nimport os, subprocess\nenv = os.environ.copy()\nenv['LANG'] = 'C'\nsubprocess.run(['make'], env=os.environ.copy())\nEOF"},
         ]
         sources = [{'command': s} for s in [
@@ -135,7 +136,10 @@ class ObserverTest(unittest.TestCase):
             'env LANG=C bash -c printenv', 'env LANG=C cat mytoken', 'env -S printenv', 'env LANG=C env',
             # an unquoted heredoc body still runs command substitutions (BOXP-428 TD-12 P0)
             'cat <<EOF\n$(cat .env)\nEOF', 'cat <<EOF\nv=$(printenv)\nEOF', 'cat <<-EOF\n\t`cat mytoken`\nEOF',
-            'tee /tmp/x <<"EOF2"\nok\nEOF2\ncat <<EOF\n$(env)\nEOF']] + [{'path': '/app/.env'}, {'path': 'mytoken'},
+            'tee /tmp/x <<"EOF2"\nok\nEOF2\ncat <<EOF\n$(env)\nEOF',
+            # a quoted or commented <<EOF is not a heredoc operator, so the next lines still run (BOXP-428 TD-12 P0)
+            "echo '<<EOF'\ncat .env\nEOF", 'echo "x <<EOF"\ncat .env\nEOF', 'echo a # <<EOF\ncat .env\nEOF',
+            "printf '%s' 'a\n<<EOF'\nprintenv\nEOF", 'echo \\<<EOF\ncat .env\nEOF']] + [{'path': '/app/.env'}, {'path': 'mytoken'},
             {'cmd': ['bash', '-lc', 'printenv']},
             {'cmd': ['bash', '-lc', 'cat ~/.npmrc']}, {'code': "print(os.environ['GITHUB_TOKEN'])"}]
         for value in mentions:
