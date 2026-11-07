@@ -222,9 +222,7 @@ _ASSIGNMENT = r"""[ \t]+[A-Za-z_]\w*=(?:\\?"[^"]*"|'[^']*'|[^\s;&|)`"'\\]*)"""
 # `env NAME=value` with no command to run, or `env` with an option, prints the environment.
 _ENV_DUMP = _WORD_START + r"(?:env(?:[ \t]+-|(?:" + _ASSIGNMENT + r")*" + _WORD_END + r")|(?:set|export)" + _WORD_END + r")"
 _SENSITIVE_COMMAND = re.compile(
-    r"(?i)" + _ENV_DUMP + r"|\bprintenv\b|\bexport\s+-p\b|\b(?:declare|typeset)(?:\s+-[a-z]*[px]|" + _WORD_END + r")"
-    r"|\benviron\b|\bprocess\.env\b|\bgetenv\b|(?-i:[%$]ENV\b|\bENV(?:\.|\[))"
-    r"|\baws\b[^|;&\n]{0,512}\b(?:ssm\s+get-parameter|secretsmanager\s+get-|configure\s+(?:get|export-credentials)"
+    r"(?i)\baws\b[^|;&\n]{0,512}\b(?:ssm\s+get-parameter|secretsmanager\s+get-|configure\s+(?:get|export-credentials)"
     r"|sts\s+(?:get-session-token|assume-role\S*|get-federation-token)|ecr\s+get-login-password|iam\s+create-access-key)"
     # K0 table, part 2: commands that print a credential. The list is fixed; THREAT_MODEL.md names what it does not cover.
     r"|\bgcloud\b[^|;&\n]{0,512}\b(?:auth\s+(?:print-(?:access|identity)-token|application-default\s+print-access-token)|secrets\s+versions\s+access)"
@@ -916,6 +914,20 @@ def _pinned_text(span):
                                            ensure_ascii=False))
 
 
+# Documentation placeholders (Authorization: Bearer <token>, Bearer YOUR_API_TOKEN, postgres://user:password@db) are masked
+# in place but are no evidence that the model saw a credential (BOXP-428 TD-12).
+_PLACEHOLDER_CREDENTIAL = re.compile(
+    r"(?i)[$<{%*\[].*|x+|\.+|pass(?:word|wd|phrase)?\d?|pwd|secret|(?:api[_-]?|access[_-]?|auth[_-]?)?(?:key|token)|changeme"
+    r"|your[\w-]*|my[\w-]*pass\w*|example\w*")
+
+
+def _placeholder_credential(value):
+    # Surrounding punctuation is prose ("a bearer token."); a short lower-case word ("bearer tokens") is a word.
+    value = re.sub(r"""^["'`(\[{]+|["'`.,;:)\]}/]+$""", "", value.strip())
+    return not value or bool(_PLACEHOLDER_CREDENTIAL.fullmatch(value) or re.fullmatch(r"[A-Z_]+", value)
+                             or re.fullmatch(r"[a-z]{1,12}", value))
+
+
 def _exposure(text):
     """Kinds of known format found in text, checked before the line mask so that a value next to a secret word counts."""
     kinds = set()
@@ -923,8 +935,22 @@ def _exposure(text):
     if env_pattern and env_pattern.search(text):
         kinds.add("env")
     for kind, pattern in _PATTERNS:
-        if kind in _EXPOSURE_KINDS and pattern.search(text):
-            kinds.add(kind)
+        if kind in _EXPOSURE_KINDS:
+            for match in pattern.finditer(text):
+                value = match.group(0)
+                if kind == "header":
+                    credential = re.sub(r"(?i)^(?:bearer|basic|token|digest)\s+", "", value.split(":", 1)[-1].strip())
+                elif kind == "bearer":
+                    credential = re.sub(r"(?i)^bearer\s+", "", value)
+                elif kind == "url_credentials":
+                    password = re.search(r":([^:@]*)@$", value)
+                    credential = password.group(1) if password else ""
+                else:
+                    credential = None
+                if credential is not None and _placeholder_credential((credential.split() or [""])[0]):
+                    continue
+                kinds.add(kind)
+                break
     return kinds
 
 
@@ -973,11 +999,326 @@ def _unsafe(serialized):
     return False
 
 
-def _withhold(args_text):
-    # A cluster CLI can name the resource after any flags, or through a variable, so word order is not checked.
-    if "secret" in args_text.lower() and _CLUSTER_CLI.search(args_text):
+_PATH_KEYS = ('file_path', 'filePath', 'path', 'notebook_path', 'filename', 'file', 'target_file')
+_COMMAND_KEYS = ('command', 'cmd', 'script', 'code')
+_SHELLS = {'bash', 'sh', 'zsh', 'dash', 'ksh', 'fish'}
+_INTERPRETERS = _SHELLS | {'bb', 'node', 'deno', 'bun', 'ruby', 'perl', 'php'}
+_PATTERN_PROGRAMS = {'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack'}
+_CLUSTER_SECRET = re.compile(r'(?i)\b(?:kubectl|oc)\b[^|;&\n]{0,512}?(?<![\w.-])secrets?(?![\w-])')
+_HEREDOC = re.compile(r'''(?<!<)<<(-?)[ \t]*(['"]?)([A-Za-z_][\w-]*)\2''')
+_SUBSTITUTION = re.compile(r'\$\((?:[^()]|\([^()]*\))*\)|`[^`]*`')
+_ENV_ACCESSOR = re.compile(r'(?i)\b(?:os\.)?environ\b|\bprocess\.env\b|\bgetenv\b|(?-i:[%$]ENV\b|\bENV(?=[.\[]))')
+_ENV_SINGLE = re.compile(r'''^\s*(?:\.(?:get|setdefault|pop|fetch)\s*\(|\?\.|\.|\[|\()\s*['"]?([A-Za-z_][A-Za-z0-9_]*)''')
+_ENV_SECRET = re.compile(r'(?i)token|secret|passw|passphrase|api_?key|private_?key|credential|cookie|session|access_?key|auth')
+_PRINT_CALL = re.compile(r'(?i)\b(?:print|println|printf|puts|pp|echo|console\.(?:log|error|info|warn)|(?:sys\.)?std(?:out|err)\.write|prn|pprint)\b')
+
+
+def _interpreter(word):
+    name = _last_element(word)
+    return name in _INTERPRETERS or bool(re.fullmatch(r'python[\d.]*', name))
+
+
+def _shell_words(text):
+    """Return shell words and their source offsets, preserving whitespace inside quotes."""
+    words, i, n = [], 0, len(text)
+    while i < n:
+        if text[i] == '\n':
+            words.append((i, i + 1, '\n', False, True))
+            i += 1
+            continue
+        if text[i].isspace():
+            i += 1
+            continue
+        if text[i] == '#':
+            end = text.find('\n', i)
+            i = n if end < 0 else end
+            continue
+        if text[i] in '|;&()<>':
+            words.append((i, i + 1, text[i], False, True))
+            i += 1
+            continue
+        start, value, quote, quoted_ws = i, [], None, False
+        while i < n:
+            c = text[i]
+            if quote:
+                if c == quote:
+                    quote = None
+                elif c == '\\' and quote == '"' and i + 1 < n:
+                    i += 1
+                    value.append(text[i])
+                else:
+                    value.append(c)
+                    quoted_ws |= c.isspace()
+            elif c in "'\"":
+                quote = c
+            elif c == '\\' and i + 1 < n:
+                i += 1
+                value.append(text[i])
+            elif c.isspace() or c in '|;&()<>':
+                break
+            else:
+                value.append(c)
+            i += 1
+        words.append((start, i, ''.join(value), quoted_ws, False))
+    return words
+
+
+def _segments(words):
+    segment = []
+    for word in words:
+        if word[4]:
+            if segment:
+                yield segment
+                segment = []
+        else:
+            segment.append(word)
+    if segment:
+        yield segment
+
+
+def _heredoc_operators(line, quote):
+    """<<TAG operators of a command line that are outside quotes, comments and backslash escapes. A quoted or
+    commented <<EOF (echo '<<EOF', echo a # <<EOF, echo \\<<EOF) is not an operator, so the lines after it are still
+    judged as commands (BOXP-428 TD-12 P0). The quote state carries over lines; a missed operator only makes its
+    body judged as commands (fail closed)."""
+    matches, i, n = [], 0, len(line)
+    while i < n:
+        c = line[i]
+        if quote:
+            if c == quote:
+                quote = None
+            elif c == '\\' and quote == '"':
+                i += 1
+        elif c in "'\"":
+            quote = c
+        elif c == '\\':
+            i += 1
+        elif c == '#' and (i == 0 or line[i - 1].isspace() or line[i - 1] in '|;&()<>'):
+            break
+        elif c == '<':
+            match = _HEREDOC.match(line, i)
+            if match:
+                matches.append(match)
+                i = match.end()
+                continue
+        i += 1
+    return matches, quote
+
+
+def _strip_heredocs(text, code):
+    out, pending, quote = [], collections.deque(), None
+    for line in text.split('\n'):
+        if pending:
+            tag, tabs, keep, expands = pending[0]
+            done = (line.lstrip('\t') if tabs else line) == tag
+            if keep or done:
+                out.append(line)
+            elif expands:
+                # An unquoted delimiter (<<EOF) still runs $(...) and `...` inside the body, so cat <<EOF with
+                # $(cat .env) or $(printenv) is judged like a command (BOXP-428 TD-12 P0). Quoted (<<'EOF') bodies
+                # are literal data and stay out.
+                out.append(' ; '.join(m[2:-1] if m.startswith('$(') else m[1:-1] for m in _SUBSTITUTION.findall(line)))
+            else:
+                out.append('')
+            if done:
+                pending.popleft()
+            continue
+        out.append(line)
+        matches, quote = _heredoc_operators(line, quote)
+        for match in matches:
+            segments = list(_segments(_shell_words(line[:match.start()])))
+            words = [w[2] for w in segments[-1]] if segments else []
+            runner = next((w for i, w in enumerate(words) if _interpreter(w) and
+                           all(x.startswith('-') for x in words[i + 1:])), None)
+            pending.append((match.group(3), bool(match.group(1)), bool(runner and (code or _last_element(runner) in _SHELLS)),
+                            not match.group(2)))
+    return '\n'.join(out)
+
+
+def _program_index(words):
+    """Index of the program a segment runs. Assignments and prefix programs are skipped, and so is `env` with its
+    options and assignments when a command follows it (env LANG=C printenv runs printenv; BOXP-428 TD-12 P1). A bare
+    env, or env -S (its command is a split string), stays on env and is judged as the environment dump."""
+    i, n = 0, len(words)
+    while i < n:
+        word = words[i]
+        if re.fullmatch(r'[A-Za-z_]\w*=.*', word) or _last_element(word) in _PREFIX_PROGRAMS | {'!'}:
+            i += 1
+            continue
+        if _last_element(word) == 'env':
+            j = i + 1
+            while j < n:
+                if re.fullmatch(r'-[A-Za-z]*S.*|--split-string(?:=.*)?', words[j]):
+                    return i
+                if words[j] in {'-u', '--unset', '-C', '--chdir'}:
+                    j += 2
+                elif words[j].startswith('-') or re.fullmatch(r'[A-Za-z_]\w*=.*', words[j]):
+                    j += 1
+                else:
+                    break
+            if j >= n or (j == n - 1 and re.fullmatch(r'\d+', words[j])):  # env A=1 2>&1: a file descriptor, no command
+                return i
+            i = j
+            continue
+        return i
+    return None
+
+
+def _executed_text(text, depth=0, code=True):
+    text = _strip_heredocs(text, code)
+    edits = []
+    for segment in _segments(_shell_words(text)):
+        idx = _program_index([w[2] for w in segment])
+        if idx is None:
+            continue
+        program = _last_element(segment[idx][2])
+        pattern_idx = None
+        if program in _PATTERN_PROGRAMS:
+            consumes = {'-A', '-B', '-C', '-m', '-g', '-t', '--max-count', '--glob', '--type', '--include', '--exclude'}
+            skip = False
+            for j in range(idx + 1, len(segment)):
+                word = segment[j][2]
+                if skip:
+                    skip = False
+                    continue
+                if re.fullmatch(r'-[A-Za-z]*e|--regexp', word):
+                    pattern_idx = j + 1
+                    break
+                if word in consumes:
+                    skip = True
+                elif not word.startswith('-'):
+                    pattern_idx = j
+                    break
+        for j in range(idx + 1, len(segment)):
+            start, end, word, ws, _ = segment[j]
+            prev = segment[j - 1][2]
+            # bash -c 'printenv' / sh -lc env: a one-word script of an interpreter runs too (BOXP-428 TD-12 P1)
+            if re.fullmatch(r'-[A-Za-z]*[ce]', prev) and depth < 2 and (_interpreter(program) or (ws and prev == '-c')):
+                replacement = ' ( ' + _executed_text(word, depth + 1, code) + ' ) '
+            elif program in {'echo', 'printf'} or j == pattern_idx or (ws and (prev.startswith('-') or re.match(r'--?[\w-]+=', word))):
+                replacement = ' ' + ' '.join(_SUBSTITUTION.findall(text[start:end])) + ' '
+            else:
+                continue
+            edits.append((start, end, replacement))
+    out, pos = [], 0
+    for start, end, replacement in edits:
+        out.extend((text[pos:start], replacement))
+        pos = end
+    out.append(text[pos:])
+    return ''.join(out)
+
+
+def _env_access(text):
+    for match in _ENV_ACCESSOR.finditer(text):
+        after = text[match.end():match.end() + 200]
+        if re.match(r'^\s*\.copy\s*\(\s*\)', after):
+            # env = os.environ.copy() / run(cmd, env=os.environ.copy()) hands a copy to a child process without
+            # printing it; print(os.environ.copy()) or any other use of the copy is a dump.
+            line_start = text.rfind('\n', 0, match.start()) + 1
+            before = text[line_start:match.start()]
+            if (re.match(r'^\s*\.copy\s*\(\s*\)\s*(?:[,)\n;#]|$)', after)
+                    and re.search(r'(?:^|[^=!<>])=\s*$', before) and not _PRINT_CALL.search(before)):
+                continue
+            return True
+        single = _ENV_SINGLE.match(after)
+        if not single:
+            return True
+        name = single.group(1)
+        if name in {'items', 'keys', 'values', 'entries', 'toJSON', 'to_h', 'to_a', 'each'}:
+            return True
+        line_start = text.rfind('\n', 0, match.start()) + 1
+        if _ENV_SECRET.search(name) and _PRINT_CALL.search(text[line_start:match.start()]):
+            return True
+    return False
+
+
+def _words_env(words, depth=0):
+    idx = _program_index(words)
+    if idx is None:
+        return False
+    program, args = _last_element(words[idx]), words[idx + 1:]
+    if program == 'printenv':
         return True
-    return bool(_SENSITIVE_PATH.search(args_text) or _SENSITIVE_COMMAND.search(args_text) or _reads_token_file(args_text))
+    if program in {'set', 'export', 'declare', 'typeset'} and (not args or any(re.fullmatch(r'-[A-Za-z]*[px]', x) for x in args)):
+        return True
+    if program in {'kubectl', 'oc'} and '--' in args:
+        # kubectl exec pod -- printenv GITHUB_TOKEN / -- env LANG=C printenv: the remote command is judged like a
+        # local one (BOXP-428 TD-12 P0).
+        remote = args[args.index('--') + 1:]
+        return bool(remote) and depth < 4 and _words_env(remote, depth + 1)
+    if depth and program in _SHELLS:
+        # kubectl exec pod -- sh -c 'printenv': the remote shell's script is judged too
+        for i, word in enumerate(args[:-1]):
+            if re.fullmatch(r'-[A-Za-z]*c', word):
+                return _segment_env(args[i + 1], depth + 1)
+    if program == 'env':
+        if args and re.fullmatch(r'\d+', args[-1]):
+            args = args[:-1]
+        i = 0
+        while i < len(args):
+            if re.fullmatch(r'-[A-Za-z]*S.*|--split-string(?:=.*)?', args[i]):
+                return True
+            if args[i] in {'-u', '--unset', '-C', '--chdir'}:
+                i += 2
+            elif args[i].startswith('-') or re.fullmatch(r'[A-Za-z_]\w*=.*', args[i]):
+                i += 1
+            else:
+                break
+        if i >= len(args):
+            return True
+    return False
+
+
+def _segment_env(text, depth=0):
+    if depth > 4:
+        return True
+    return any(_words_env([w[2] for w in seg], depth) for seg in _segments(_shell_words(text)))
+
+
+def _command_source(command):
+    if len(command) > 256 * 1024 or command.count('<<') > 4096:
+        return True
+    text = _executed_text(command)
+    shell = _executed_text(command, code=False)
+    return bool(_SENSITIVE_PATH.search(text) or _SENSITIVE_COMMAND.search(text) or _CLUSTER_SECRET.search(text)
+                or _env_access(text) or _segment_env(shell) or _reads_token_file(shell))
+
+
+def _path_source(path):
+    path = str(path)
+    return bool(_SENSITIVE_PATH.search(' ' + path) or _TOKEN_WORD.fullmatch(_last_element(path)))
+
+
+def _withhold(args_text):
+    try:
+        try:
+            args = json.loads(args_text)
+        except (ValueError, TypeError):
+            if args_text.lstrip().startswith('{'):
+                return bool(_SENSITIVE_PATH.search(args_text) or _SENSITIVE_COMMAND.search(args_text)
+                            or ('secret' in args_text.lower() and _CLUSTER_CLI.search(args_text)) or _reads_token_file(args_text)
+                            or re.search(r'(?i)\benviron\b|\bprocess\.env\b|\bgetenv\b|\bprintenv\b|(?-i:[%$]ENV\b|\bENV(?:\.|\[))', args_text)
+                            or _env_access(args_text) or _segment_env(args_text))
+            args = args_text
+        if isinstance(args, dict):
+            for key in _PATH_KEYS:
+                if key in args and args[key] is not None and _path_source(args[key]):
+                    return True
+            for key in _COMMAND_KEYS:
+                if key not in args or args[key] is None:
+                    continue
+                command = args[key]
+                if isinstance(command, list):
+                    command = [str(x) for x in command]
+                    flag = next((i for i, w in enumerate(command) if re.fullmatch(r'-[A-Za-z]*[ce]', w)), None)
+                    command = command[flag + 1] if command and _interpreter(command[0]) and flag is not None and flag + 1 < len(command) else ' '.join(shlex.quote(x) for x in command)
+                if _command_source(str(command)):
+                    return True
+            return False
+        text = str(args)
+        return _command_source(text) or (not re.search(r'\s', text.strip()) and _path_source(text.strip()))
+    except (ValueError, TypeError, RecursionError):
+        return True
 
 
 def _last_element(word):
@@ -1018,14 +1359,9 @@ def _command_reads_token_file(command, depth=0):
     if current:
         segments.append(current)
     for segment in segments:
-        program, operands = None, []
-        for index, word in enumerate(segment):
-            if program is None:
-                if re.fullmatch(r"[A-Za-z_]\w*=.*", word) or _last_element(word) in _PREFIX_PROGRAMS:
-                    continue
-                program = _last_element(word)
-                continue
-            operands.append((index, word))
+        start = _program_index(segment)
+        program = _last_element(segment[start]) if start is not None else None
+        operands = [(index, segment[index]) for index in range(start + 1, len(segment))] if start is not None else []
         if program is None:
             continue
         # `< file` is read by any program, so it is checked before the program is classified.

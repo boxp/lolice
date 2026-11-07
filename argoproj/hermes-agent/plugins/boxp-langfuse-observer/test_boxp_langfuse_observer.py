@@ -97,6 +97,84 @@ class ObserverTest(unittest.TestCase):
         plugin._creds = ("pk-lf-" + "test" * 4, "sk-lf-" + "test" * 4)
         plugin._secret_values = None
 
+    def test_td12_sources_and_mentions(self):
+        mentions = [
+            {'command': "kubectl logs -n x pod | grep -viE 'authorization|token|secret|key=' | tail"},
+            {'command': "python3 /opt/x/delegate.py run <<'EOF'\n.env kubectl get secret printenv\nEOF"},
+            {'command': 'bb task-board.bb append-note X --note "ID token .env kubectl get secret printenv"'},
+            {'command': "git commit -m 'stop reading .env and gh auth token in tests'"},
+            {'command': 'grep -c -i token out.log'}, {'command': "grep -il 'token\\|bearer' a.json"},
+            {'command': "rg -n '\"op\": \"set\"' src"},
+            {'command': "python3 - <<'EOF'\nimport os\nlayout = os.environ.get('LAYOUT', '/tmp/x')\nc = Client(token=os.environ['MCP_TOKEN'])\nchanges = [{'op': 'set'}]\nEOF"},
+            {'command': 'node -e "const H = process.env.H || \'http://x\'"'},
+            {'command': '/usr/bin/env python3 x.py'}, {'command': 'env LANG=C sort a.txt'}, {'command': 'env -u HOME make test'}, {'command': 'set -e; make'}, {'command': 'kubectl exec pod -- ls /app'}, {'command': "kubectl exec pod -- sh -c 'make test'"},
+            {'path': '/tmp/notes.md', 'old_string': 'a', 'new_string': 'the token is in .env; run printenv; kubectl get secret'},
+            {'path': '/tmp/x.md', 'content': 'cat ~/.kube/config'}, {'goal': 'read .env and print the token'},
+            {'cmd': ['bash', '-lc', 'grep -rn token src']}, {'command': 'echo the ID token is checked'},
+            {'code': "print(os.environ.get('LAYOUT'))"},
+            {'command': "cat <<'EOF'\n$(cat .env) printenv\nEOF"}, {'command': 'cat <<EOF\nread .env and printenv $(date)\nEOF'},
+            {'command': "bash -c 'make'"}, {'command': 'bash -c true'}, {'command': 'grep -c token out.log'},
+            {'command': "echo '<<x'; cat <<'EOF'\ncat .env\nEOF"},
+            {'command': "python3 - <<'EOF'\nimport os, subprocess\nenv = os.environ.copy()\nenv['LANG'] = 'C'\nsubprocess.run(['make'], env=os.environ.copy())\nEOF"},
+        ]
+        sources = [{'command': s} for s in [
+            'cat .env', "bash -lc 'cat ~/.kube/config'", 'kubectl get secret x -o yaml | base64 -d',
+            'env | grep -i grafana', 'printenv', 'export', 'set', 'declare -p',
+            "python3 - <<'EOF'\nimport os\nprint(dict(os.environ))\nEOF",
+            "python3 -c 'import os; print(os.environ.copy())'",
+            "python3 - <<'EOF'\nimport os, json\nprint(json.dumps(dict(os.environ.copy())))\nEOF",
+            "python3 -c 'import os; x = os.environ.copy().items(); print(list(x))'",
+            'python3 -c "import os; print(os.environ[\'GITHUB_TOKEN\'])"',
+            "node -e 'console.log(JSON.stringify(process.env))'", 'X=$(gh auth token) cmd',
+            'echo "$(cat .env)"', 'git commit -m "$(cat ~/.netrc)"', 'cat mytoken', 'head < access_token',
+            "ssh host bash <<'EOF'\ncat .env\nEOF", 'cat > /tmp/x <<EOF\nhello\nEOF\ncat .env',
+            'grep -r x src; cat secrets/db',
+            "bash -c 'printenv'", 'bash -c printenv', 'sh -lc env', "bash -c 'export'", 'sudo bash -c printenv',
+            "bash -c 'cat mytoken'", 'zsh -c "bash -c printenv"',
+            # env with assignments/options before the command runs that command (BOXP-428 TD-12 P1)
+            'env LANG=C printenv', 'env -u HOME printenv', 'env -i LANG=C printenv PATH', 'sudo env LANG=C printenv',
+            'env LANG=C bash -c printenv', 'env LANG=C cat mytoken', 'env -S printenv', 'env LANG=C env',
+            # an unquoted heredoc body still runs command substitutions (BOXP-428 TD-12 P0)
+            'cat <<EOF\n$(cat .env)\nEOF', 'cat <<EOF\nv=$(printenv)\nEOF', 'cat <<-EOF\n\t`cat mytoken`\nEOF',
+            'tee /tmp/x <<"EOF2"\nok\nEOF2\ncat <<EOF\n$(env)\nEOF',
+            # a quoted or commented <<EOF is not a heredoc operator, so the next lines still run (BOXP-428 TD-12 P0)
+            "echo '<<EOF'\ncat .env\nEOF", 'echo "x <<EOF"\ncat .env\nEOF', 'echo a # <<EOF\ncat .env\nEOF',
+            "printf '%s' 'a\n<<EOF'\nprintenv\nEOF", 'echo \\<<EOF\ncat .env\nEOF']] + [{'path': '/app/.env'}, {'path': 'mytoken'},
+            {'cmd': ['bash', '-lc', 'printenv']},
+            {'cmd': ['bash', '-lc', 'cat ~/.npmrc']}, {'code': "print(os.environ['GITHUB_TOKEN'])"}]
+        for value in mentions:
+            with self.subTest(mention=value):
+                self.assertFalse(plugin._withhold(json.dumps(value)))
+        for value in sources:
+            with self.subTest(source=value):
+                self.assertTrue(plugin._withhold(json.dumps(value)))
+
+    def test_td12_documentation_placeholders(self):
+        real = 'abcd1234' + 'efgh5678' + 'ijkl9012'
+        for i, result in enumerate(['Authorization: Bearer <token>\nBearer YOUR_API_TOKEN\npostgres://user:password@db/app',
+                                    'Authorization: Bearer ' + real, 'postgres://app:' + real + '@db/app']):
+            with self.subTest(i=i):
+                session = 'kohako-g2-td12-doc-' + str(i)
+                self._value_only_reply(session, 'read_file', {'path': '/tmp/a'}, result=result)
+                body = self._bodies()
+                self.assertNotIn(real, body)
+                self.assertEqual(i == 0, 'plainconfigvalue' in body)
+
+    def test_td12_continued_session(self):
+        for i, command in enumerate(['kubectl logs pod | grep -viE "authorization|token|secret"', 'cat /app/.env']):
+            with self.subTest(command=command):
+                session = 'kohako-g2-td12-continued-' + str(i)
+                plugin._on_turn_start(session_id=session, turn_id='t', user_message='td12requestmarker')
+                plugin._on_tool(session_id=session, turn_id='t', tool_call_id='c1', tool_name='terminal', args={'command': command}, result='td12tooloutputmarker')
+                plugin._on_tool(session_id=session, turn_id='t', tool_call_id='c2', tool_name='read_file', args={'path': '/work/README.md'}, result='td12readmemarker')
+                plugin._on_turn_end(session_id=session, turn_id='t', assistant_response='firstreply')
+                plugin._on_session_end(session_id=session, turn_id='t', completed=True)
+                run_turn(session=session, turn='t2', body='td12nextturnmarker', tool='todo', args={}, result='td12replymarker')
+                body = self._bodies()
+                self.assertIn('td12requestmarker', body)
+                for marker in ('td12tooloutputmarker', 'td12readmemarker', 'td12nextturnmarker', 'td12replymarker'):
+                    self.assertEqual(i == 0, marker in body, marker)
+
     def test_named_value_restatements(self):
         value = "hunterhorsebattery"
         for result in ("password: " + value, "password: '" + value + "'", '{"api_key": "' + value + '"}',
@@ -886,7 +964,9 @@ class ObserverTest(unittest.TestCase):
 
     def test_environment_dumps_are_withheld_with_any_arguments(self):
         for command in ("env LANG=C", "env LANG=C | grep FOO", "env A=1 B='x y' > /tmp/x", "env -i", "env -u HOME", "env --null",
-                        "/usr/bin/env LANG=C", "sudo env LANG=C", "kubectl exec pod -- env A=1", "ls\nenv LANG=C\necho done",
+                        "/usr/bin/env LANG=C", "sudo env LANG=C", "kubectl exec pod -- env A=1", "kubectl exec pod -- printenv GITHUB_TOKEN", "oc exec pod -- printenv",
+                        "kubectl exec -n ns pod -c app -- env LANG=C printenv", "kubectl exec pod -- sh -c 'printenv'",
+                        "kubectl exec pod -- export", "ls\nenv LANG=C\necho done",
                         "echo $(env LANG=C)", "(env LANG=C)", "env A=1 2>&1", "bash -c \"env A=1\"", "env A=1 # note", "python3 -c \"print(__import__('os').environ)\"", "set", "(set -o posix; set)", "export", "declare -p",
                         "typeset -x", "awk 'BEGIN{for(k in ENVIRON)print k}'", "perl -e 'print %ENV'", "ruby -e 'p ENV.to_h'"):
             with self.subTest(command):

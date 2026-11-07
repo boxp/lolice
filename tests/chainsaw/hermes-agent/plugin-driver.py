@@ -70,6 +70,18 @@ def fire_harmless_tool(session, tool, args):
     hooks["post_llm_call"](session_id=session, turn_id="next", assistant_response="harmlessnextreplymarker")
     hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
 
+def fire_mention(session, tool, args, tag):
+    # BOXP-428 TD-12 positive control: a tool that only mentions a source (a grep filter, written prose, one ordinary
+    # environment variable) is not a known source; the reply and the next turn stay readable.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="hello")
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name=tool, args=args, result="ok")
+    hooks["post_llm_call"](**common, assistant_response=f"td12{tag}replymarker")
+    hooks["on_session_end"](**common, completed=True)
+    hooks["pre_llm_call"](session_id=session, turn_id="next", user_message=f"td12{tag}nextmarker")
+    hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
+
 def fire_harmless_lineage(parent, child):
     # Positive control: a parent that used terminal delegates; the child's request and the parent's summary are sent.
     hooks = ctx.hooks
@@ -161,6 +173,9 @@ while True:
     fire_harmless_tool(f"kohako-g2-terminal-{n}", "terminal", {"command": "ls -la /tmp"})
     fire_harmless_tool(f"kohako-g2-read-{n}", "read_file", {"path": "/tmp/notes.txt"})
     fire_harmless_tool(f"kohako-g2-unknown-{n}", "a_tool_added_later", {"query": "the token refresh flow"})
+    fire_mention(f"kohako-g2-grepfilter-{n}", "terminal", {"command": "kubectl logs pod --since=1h | grep -viE 'authorization|token|secret|key=' | tail"}, "grepfilter")
+    fire_mention(f"kohako-g2-prose-write-{n}", "write_file", {"path": "/tmp/notes.md", "content": "the ID token is checked; never cat .env or run printenv"}, "prosewrite")
+    fire_mention(f"kohako-g2-oneenv-{n}", "execute_code", {"code": "import os\nlayout = os.environ.get('LAYOUT', '/tmp/x')\nprint(layout)"}, "oneenv")
     fire_harmless_lineage(f"tg-lineage-{n}", f"subagent-lineage-{n}")
     fire_known_format_in_output(f"kohako-g2-format-{n}")
     fire_name_only_in_output(f"kohako-g2-nameonly-{n}")
