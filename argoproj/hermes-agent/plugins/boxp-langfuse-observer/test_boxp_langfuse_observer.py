@@ -97,6 +97,65 @@ class ObserverTest(unittest.TestCase):
         plugin._creds = ("pk-lf-" + "test" * 4, "sk-lf-" + "test" * 4)
         plugin._secret_values = None
 
+    def test_td12_sources_and_mentions(self):
+        mentions = [
+            {'command': "kubectl logs -n x pod | grep -viE 'authorization|token|secret|key=' | tail"},
+            {'command': "python3 /opt/x/delegate.py run <<'EOF'\n.env kubectl get secret printenv\nEOF"},
+            {'command': 'bb task-board.bb append-note X --note "ID token .env kubectl get secret printenv"'},
+            {'command': "git commit -m 'stop reading .env and gh auth token in tests'"},
+            {'command': 'grep -c -i token out.log'}, {'command': "grep -il 'token\\|bearer' a.json"},
+            {'command': "rg -n '\"op\": \"set\"' src"},
+            {'command': "python3 - <<'EOF'\nimport os\nlayout = os.environ.get('LAYOUT', '/tmp/x')\nc = Client(token=os.environ['MCP_TOKEN'])\nchanges = [{'op': 'set'}]\nEOF"},
+            {'command': 'node -e "const H = process.env.H || \'http://x\'"'},
+            {'command': '/usr/bin/env python3 x.py'}, {'command': 'env LANG=C sort a.txt'}, {'command': 'set -e; make'},
+            {'path': '/tmp/notes.md', 'old_string': 'a', 'new_string': 'the token is in .env; run printenv; kubectl get secret'},
+            {'path': '/tmp/x.md', 'content': 'cat ~/.kube/config'}, {'goal': 'read .env and print the token'},
+            {'cmd': ['bash', '-lc', 'grep -rn token src']}, {'command': 'echo the ID token is checked'},
+            {'code': "print(os.environ.get('LAYOUT'))"},
+        ]
+        sources = [{'command': s} for s in [
+            'cat .env', "bash -lc 'cat ~/.kube/config'", 'kubectl get secret x -o yaml | base64 -d',
+            'env | grep -i grafana', 'printenv', 'export', 'set', 'declare -p',
+            "python3 - <<'EOF'\nimport os\nprint(dict(os.environ))\nEOF",
+            'python3 -c "import os; print(os.environ[\'GITHUB_TOKEN\'])"',
+            "node -e 'console.log(JSON.stringify(process.env))'", 'X=$(gh auth token) cmd',
+            'echo "$(cat .env)"', 'git commit -m "$(cat ~/.netrc)"', 'cat mytoken', 'head < access_token',
+            "ssh host bash <<'EOF'\ncat .env\nEOF", 'cat > /tmp/x <<EOF\nhello\nEOF\ncat .env',
+            'grep -r x src; cat secrets/db']] + [{'path': '/app/.env'}, {'path': 'mytoken'},
+            {'cmd': ['bash', '-lc', 'cat ~/.npmrc']}, {'code': "print(os.environ['GITHUB_TOKEN'])"}]
+        for value in mentions:
+            with self.subTest(mention=value):
+                self.assertFalse(plugin._withhold(json.dumps(value)))
+        for value in sources:
+            with self.subTest(source=value):
+                self.assertTrue(plugin._withhold(json.dumps(value)))
+
+    def test_td12_documentation_placeholders(self):
+        real = 'abcd1234' + 'efgh5678' + 'ijkl9012'
+        for i, result in enumerate(['Authorization: Bearer <token>\nBearer YOUR_API_TOKEN\npostgres://user:password@db/app',
+                                    'Authorization: Bearer ' + real, 'postgres://app:' + real + '@db/app']):
+            with self.subTest(i=i):
+                session = 'kohako-g2-td12-doc-' + str(i)
+                self._value_only_reply(session, 'read_file', {'path': '/tmp/a'}, result=result)
+                body = self._bodies()
+                self.assertNotIn(real, body)
+                self.assertEqual(i == 0, 'plainconfigvalue' in body)
+
+    def test_td12_continued_session(self):
+        for i, command in enumerate(['kubectl logs pod | grep -viE "authorization|token|secret"', 'cat /app/.env']):
+            with self.subTest(command=command):
+                session = 'kohako-g2-td12-continued-' + str(i)
+                plugin._on_turn_start(session_id=session, turn_id='t', user_message='td12requestmarker')
+                plugin._on_tool(session_id=session, turn_id='t', tool_call_id='c1', tool_name='terminal', args={'command': command}, result='td12tooloutputmarker')
+                plugin._on_tool(session_id=session, turn_id='t', tool_call_id='c2', tool_name='read_file', args={'path': '/work/README.md'}, result='td12readmemarker')
+                plugin._on_turn_end(session_id=session, turn_id='t', assistant_response='firstreply')
+                plugin._on_session_end(session_id=session, turn_id='t', completed=True)
+                run_turn(session=session, turn='t2', body='td12nextturnmarker', tool='todo', args={}, result='td12replymarker')
+                body = self._bodies()
+                self.assertIn('td12requestmarker', body)
+                for marker in ('td12tooloutputmarker', 'td12readmemarker', 'td12nextturnmarker', 'td12replymarker'):
+                    self.assertEqual(i == 0, marker in body, marker)
+
     def test_named_value_restatements(self):
         value = "hunterhorsebattery"
         for result in ("password: " + value, "password: '" + value + "'", '{"api_key": "' + value + '"}',
@@ -1128,7 +1187,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_known_format_in_a_tool_result_masks_it_and_withholds_later_bodies(self):
         # The model saw a credential-shaped value: it is masked and what follows in the session is withheld.
-        for result in ("Authorization: Bearer " + "plainword" + "value1", "url: postgres://app:" + "plainwordvalue@db/x",
+        for result in ("Authorization: Bearer " + "plainword" + "value123", "url: postgres://app:" + "plainwordvalue@db/x",
                        "key: " + "ghp_" + "plainwordvalue"):
             with self.subTest(result):
                 session = "kohako-g2-fmt-" + str(abs(hash(str(result))))
@@ -1226,7 +1285,7 @@ class ObserverTest(unittest.TestCase):
             "chat_args": {"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]},
             "anthropic_args": {"role": "assistant", "content": [{"type": "tool_use", "name": "read_file", "input": {"path": "/a/.env"}}]},
             "responses_args": {"type": "function_call", "name": "terminal", "arguments": '{"command": "kubectl get secret x -o yaml"}'},
-            "format_in_result": {"role": "tool", "content": "Authorization: Bearer " + "plainword" + "value9"},
+            "format_in_result": {"role": "tool", "content": "Authorization: Bearer " + "plainword" + "value999"},
             "anthropic_result": {"role": "user", "content": [{"type": "tool_result", "content": "key: ghp_" + "plainwordvalue"}]},
             "responses_result": {"type": "function_call_output", "output": "PATH=/usr/bin\nHOME=/root\nOPAQUE=plainwordvalue"},
         }
