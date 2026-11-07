@@ -236,6 +236,24 @@ class ObserverTest(unittest.TestCase):
         self.assertEqual(plugin._named_values("password: amber\\slash"), ({"amber\\slash"}, False))
         self.assertEqual(plugin._named_values('{"output": "password: hunterhorse\\nnext"}'), ({"hunterhorse"}, False))
 
+    def test_named_values_in_quoted_cli_passwords(self):
+        # Regression (arch#14548 review, same rule): a quoted CLI password with spaces is one shell word, so the
+        # whole value is pinned and masked in place, not only the part before the space.
+        cases = [("sshpass -p 'apple orchard' ssh host", "apple orchard"),
+                 ('sshpass -p "pear grove stone" ssh host', "pear grove stone"),
+                 ("mysql -h db -p'long meadow pass' app", "long meadow pass"),
+                 ('mysql -h db -p"river bend" app', "river bend"),
+                 ("curl -u admin:'quiet harbor' https://x", "quiet harbor"),
+                 ("curl -u 'admin:cedar hollow' https://x", "cedar hollow"),
+                 ('curl --user "admin:amber cove" https://x', "amber cove"),
+                 ('{"command":"sshpass -p \\"birch lane\\" ssh host"}', "birch lane")]
+        for text, value in cases:
+            with self.subTest(text=text):
+                self.assertIn(value, plugin._named_values(text)[0])
+                self.assertNotIn(value.split()[-1], plugin._redact(text)[0])
+        self.assertEqual(plugin._named_values("mysql -p && ls -p 'some dir'"), (set(), False))
+        self.assertEqual(plugin._named_values("date -u +%H:%M")[0], set())
+
     def test_named_values_skip_references_and_settings(self):
         for text in ("password: $VAR", "password: ${VAR}", "password: [REDACTED:assignment]", "AUTH_ENABLED=false"):
             with self.subTest(text=text):
