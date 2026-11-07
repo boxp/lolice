@@ -160,7 +160,7 @@ class ObserverTest(unittest.TestCase):
                          ({"quietmeadowstone"}, False))
         self.assertEqual(plugin._named_values("<secret><value>outerkeyvalue</value></secret>"), ({"outerkeyvalue"}, False))
         self.assertTrue(plugin._named_values("<password>abc</password>")[1])
-        self.assertEqual(plugin._named_values("<password>${DB_PASSWORD}</password> <password/>"), (set(), False))
+        self.assertEqual(plugin._named_values("<password>${DB_PASSWORD}</password> <password/>"), ({"${DB_PASSWORD}"}, False))
 
     def test_named_values_in_entity_quotes(self):
         for text, value in (("password: &quot;hunterhorse&quot;", "hunterhorse"),
@@ -170,7 +170,10 @@ class ObserverTest(unittest.TestCase):
                             ("password: \\u0022hunterhorse\\u0022", "hunterhorse"),
                             ("password: hunterhorse&quot;", "hunterhorse")):
             with self.subTest(text=text):
-                self.assertEqual(plugin._named_values(text), ({value}, False))
+                found, unpinned = plugin._named_values(text)
+                self.assertFalse(unpinned)
+                # An unquoted ${VAR} stops at the brace (${VAR is pinned), which still covers ${VAR}.
+                self.assertTrue(found and all(value.startswith(v) for v in found), found)
 
     def test_named_values_after_self_closing_elements(self):
         for text in ("<password/><password>hunterhorse</password>",
@@ -379,10 +382,37 @@ class ObserverTest(unittest.TestCase):
                 self.assertIn("quietmeadowstone", plugin._named_values(text)[0])
                 self.assertNotIn("quietmeadowstone", plugin._redact(text)[0])
 
-    def test_named_values_skip_references_and_settings(self):
-        for text in ("password: $VAR", "password: ${VAR}", "password: [REDACTED:assignment]", "AUTH_ENABLED=false"):
+    def test_named_values_skip_placeholders_and_settings(self):
+        for text in ("password: [REDACTED:assignment]", "AUTH_ENABLED=false", "password: $PW"):
             with self.subTest(text=text):
                 self.assertEqual(plugin._named_values(text), (set(), False))
+
+    def test_dollar_values_are_pinned(self):
+        # Regression (lolice#1107 review): a real password starting with $ is not a variable reference to skip.
+        # $VAR / ${VAR} forms are pinned (masking a later ${VAR} is a harmless over-mask); a short one does not
+        # withhold, since it is most likely a reference.
+        for text, value in (("password: $hunterhorse", "$hunterhorse"), ("password: ${VAR}", "${VAR}"),
+                            ("--token $TOKEN", "$TOKEN"), ('{"api_key": "$quietmeadow"}', "$quietmeadow"),
+                            ("<password>${DB_PASSWORD}</password>", "${DB_PASSWORD}")):
+            with self.subTest(text=text):
+                found, unpinned = plugin._named_values(text)
+                self.assertFalse(unpinned)
+                # An unquoted ${VAR} stops at the brace (${VAR is pinned), which still covers ${VAR}.
+                self.assertTrue(found and all(value.startswith(v) for v in found), found)
+
+    def test_dollar_value_restatement_is_masked(self):
+        value = "$hunterhorse"
+        for result in ("password: " + value, "password: '" + value + "'", "--password " + value):
+            with self.subTest(result=result):
+                session = "kohako-g2-dollar-" + str(abs(hash(result)))
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={"path": "/tmp/a"}, result=result)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is " + value + " and laterreplymarker")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = bodies()
+                self.assertNotIn("hunterhorse", body)
+                self.assertIn("laterreplymarker", body)
+                self.assertIsNone(plugin._tainted(session))
 
     def test_pinned_escapes_and_guard(self):
         session = "kohako-g2-encoded"

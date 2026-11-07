@@ -515,7 +515,11 @@ def _mask_secret_lines(text):
 
 
 _PIN_KINDS = {"assignment", "env_entry", "flag", "cli_password"}
-_REFERENCE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\[REDACTED:[a-z_-]+\]", re.I)
+# A redaction placeholder is never a value. A $VAR / ${VAR} form may be a variable reference or a real password
+# that starts with $ (password: $hunterhorse): it is pinned like any value (masking a later ${VAR} is a harmless
+# over-mask), but when it is too short to pin it does not withhold, since it is most likely a reference.
+_REFERENCE = re.compile(r"\[REDACTED:[a-z_-]+\]", re.I)
+_VARIABLE_LIKE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 _NAME_SEPARATOR = re.compile(r"(?s)^(.*?)(?:[:=]|\\+u00(?:3[aA]|3[dD]))")
 # The value key takes every serialized quote form (&quot;value&quot;:, \u0022value\u0022:), as _entry_key does.
 _ENTRY_VALUE_START = re.compile(r"(?i)" + _entry_key("value"))
@@ -683,7 +687,8 @@ def _named_values(text):
     decoded = {form for value in found for form in _decoded_forms(value)}
     if len(decoded) > 64:
         return {v for v in decoded if 4 <= len(v) <= 256}, True
-    return {v for v in decoded if 4 <= len(v) <= 256}, unpinned or any(not 4 <= len(v) <= 256 for v in decoded)
+    return {v for v in decoded if 4 <= len(v) <= 256}, unpinned or any(
+        not 4 <= len(v) <= 256 and not _VARIABLE_LIKE.fullmatch(v) for v in decoded)
 
 
 def _reversed_entry_values(text):
