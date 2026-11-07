@@ -696,7 +696,7 @@ def _named_values(text):
     if len(decoded) > 64:
         return {v for v in decoded if 4 <= len(v) <= 256}, True
     return {v for v in decoded if 4 <= len(v) <= 256}, unpinned or any(
-        not 4 <= len(v) <= 256 and not _VARIABLE_LIKE.fullmatch(v) for v in decoded)
+        not 4 <= len(v) <= 256 and not (len(v) < 4 and _VARIABLE_LIKE.fullmatch(v)) for v in decoded)
 
 
 def _reversed_entry_values(text):

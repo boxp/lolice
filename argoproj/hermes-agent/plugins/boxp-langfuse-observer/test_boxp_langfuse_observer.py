@@ -427,6 +427,14 @@ class ObserverTest(unittest.TestCase):
                 # An unquoted ${VAR} stops at the brace (${VAR is pinned), which still covers ${VAR}.
                 self.assertTrue(found and all(value.startswith(v) for v in found), found)
 
+    def test_long_dollar_value_withholds(self):
+        # Regression (lolice#1107 review): a $-prefixed value past the pin length limit is not exempt as a
+        # variable reference; it cannot be pinned, so the field reports unpinned (withheld) like any long value.
+        for text in ("password: $" + "a" * 300, "password: ${" + "b" * 300 + "}"):
+            with self.subTest(text=text[:20]):
+                self.assertTrue(plugin._named_values(text)[1])
+        self.assertEqual(plugin._named_values("password: $PW"), (set(), False))
+
     def test_dollar_value_restatement_is_masked(self):
         value = "$hunterhorse"
         for result in ("password: " + value, "password: '" + value + "'", "--password " + value):
