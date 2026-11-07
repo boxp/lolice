@@ -1,0 +1,28 @@
+# BOXP-462: lets the ESO SecretStore in monitoring read exactly one Secret
+# (the Alertmanager webhook token) from this namespace. No list/watch, no other Secret.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: alertmanager-webhook-secret-reader
+  namespace: hermes-agent
+rules:
+  - apiGroups: [""]
+    resources:
+      - secrets
+    resourceNames:
+      - hermes-agent-alertmanager-webhook
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: alertmanager-webhook-secret-reader
+  namespace: hermes-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: alertmanager-webhook-secret-reader
+subjects:
+  - kind: ServiceAccount
+    name: hermes-webhook-token-reader
+    namespace: monitoring

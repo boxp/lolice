@@ -19,6 +19,8 @@ spec:
         # whenever task_board_webhook_route.json changes so Argo CD rolls
         # the Pod and the new route definition takes effect.
         boxp.io/task-board-webhook-route-revision: "2026-10-22T14:10Z-marker-fallback"
+        # BOXP-462: bump when alertmanager_webhook_route.json / alertmanager_relay.* change.
+        boxp.io/alertmanager-webhook-route-revision: "2026-11-08-v1"
     spec:
       automountServiceAccountToken: false
       nodeSelector:
@@ -72,6 +74,19 @@ spec:
                   except Exception:
                       subs = {}
               subs.update(managed)
+              # BOXP-462: Alertmanager relay route. Its token is the route's own
+              # secret (not the task-board WEBHOOK_SECRET) and comes only from the
+              # Secret env; without it the route is registered disabled (fail closed).
+              with open("/bootstrap/alertmanager_webhook_route.json") as fh:
+                  am = json.load(fh)
+              am_secret = os.environ.get("ALERTMANAGER_WEBHOOK_SECRET", "").strip()
+              for route in am.values():
+                  if am_secret:
+                      route["secret"] = am_secret
+                  else:
+                      route["enabled"] = False
+                      print("[bootstrap] WARNING alertmanager webhook secret missing; route disabled")
+              subs.update(am)
               tmp = path + ".tmp"
               with open(tmp, "w") as fh:
                   json.dump(subs, fh, ensure_ascii=False, indent=2)
@@ -295,6 +310,12 @@ spec:
                 chmod 0600 /opt/data/.env
                 echo "[bootstrap] removed auto-generated API_SERVER_KEY from .env (managed key comes from env)"
               fi
+              # BOXP-462: Alertmanager relay formatter (deliver_only route, no LLM).
+              cp /bootstrap/alertmanager_relay.sh /opt/data/scripts/alertmanager_relay.sh
+              cp /bootstrap/alertmanager_relay.clj /opt/data/scripts/alertmanager_relay.clj
+              chmod 0755 /opt/data/scripts/alertmanager_relay.sh
+              chmod 0644 /opt/data/scripts/alertmanager_relay.clj
+              chown 1000:10000 /opt/data/scripts/alertmanager_relay.sh /opt/data/scripts/alertmanager_relay.clj
               cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
               chmod 0755 /opt/data/scripts/quiet_gate.sh
               chown 1000:10000 /opt/data/scripts/quiet_gate.sh
@@ -329,6 +350,14 @@ spec:
                 /opt/data/Documents \
                 /opt/data/Documents/obsidian-headless \
                 /opt/data/Documents/obsidian-headless/BOXP
+          env:
+            # BOXP-462: token for the `alertmanager` webhook route only.
+            - name: ALERTMANAGER_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-alertmanager-webhook
+                  key: password
+                  optional: true
           securityContext:
             runAsUser: 0
             runAsGroup: 0

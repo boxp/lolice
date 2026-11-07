@@ -78,6 +78,109 @@ data:
       }
     }
 
+  # BOXP-462: Alertmanager -> Hermes の汎用受信口。Alertmanager の webhook_configs が
+  # X-Gitlab-Token（Hermes webhook の token 検証方式。route 専用の secret）で送る。
+  # deliver_only なので LLM を起動しない（アラートの受信が利用枠をさらに消費する自己増幅を避ける）。
+  # script が Alertmanager の payload を検証・整形し、外部由来の文字列は短く無害化する。
+  # どのアラートを送るかは Alertmanager の route（label notify_hermes="true"）で決め、
+  # この受信口は quota 専用の形式や権限に固定しない。secret は init container が
+  # Secret hermes-agent-alertmanager-webhook から PVC 上の route にだけ書く（ConfigMap に置かない）。
+  alertmanager_webhook_route.json: |
+    {
+      "alertmanager": {
+        "description": "BOXP-462 Alertmanager -> Telegram relay (generic receiver, no LLM; managed by lolice argoproj/hermes-agent/configmap.yaml; do not edit on the PVC)",
+        "script": "alertmanager_relay.sh",
+        "prompt": "{message}",
+        "deliver_only": true,
+        "deliver": "telegram",
+        "mirror_to_session": true,
+        "enabled": true
+      }
+    }
+
+  alertmanager_relay.sh: |
+    #!/bin/sh
+    # BOXP-462: Hermes webhook route `alertmanager` の整形 script（stdin = Alertmanager payload）。
+    exec bb /opt/data/scripts/alertmanager_relay.clj
+
+  alertmanager_relay.clj: |
+    #!/usr/bin/env bb
+    ;; BOXP-462: Alertmanager webhook payload (version 4) を Telegram 向けの短い通知文にする。
+    ;; - 出力は {"message": "..."}。通知しないときは [SILENT]、形式が違うときは exit 1（Hermes が破棄）。
+    ;; - payload の文字列（labels/annotations/URL）は外部の非信頼データとして扱う:
+    ;;   制御文字と Markdown 記号を除き、長さを切り詰め、URL は既知の自ドメインだけ残す。
+    ;; - 静音時間（02:00-09:00 JST）は critical を含まない通知を出さない。Alertmanager の
+    ;;   repeat_interval で再送され、メール経路は別に届く。
+    ;; - 件数は先頭 5 件まで。通知は承認・操作指示ではなく写しであることを明記する。
+    (require '[cheshire.core :as json] '[clojure.string :as str])
+    (import '(java.time Instant ZoneId ZonedDateTime) '(java.time.format DateTimeFormatter))
+
+    (def max-alerts 5)
+    (def jst (ZoneId/of "Asia/Tokyo"))
+
+    (defn clean [s n]
+      (let [t (-> (str s)
+                  (str/replace #"https?://\S+" "(URL省略)")
+                  (str/replace #"[\p{Cntrl}&&[^\n]]" " ")
+                  (str/replace #"[`*_\[\]<>|~]" "")
+                  (str/replace #"[ \t]+" " ")
+                  str/trim)]
+        (if (> (count t) n) (str (subs t 0 n) "…") t)))
+
+    (defn label [v]
+      (let [v (str v)] (if (re-matches #"[A-Za-z0-9_.:/=-]{1,80}" v) v "?")))
+
+    (defn safe-url [u]
+      (let [u (str u)]
+        (when (re-matches #"https://(grafana|alertmanager|prometheus)\.b0xp\.io(/[A-Za-z0-9_./?=&%:-]{0,200})?" u) u)))
+
+    (defn jst-time [ts]
+      (try (.format (ZonedDateTime/ofInstant (Instant/parse (str ts)) jst) (DateTimeFormatter/ofPattern "MM/dd HH:mm"))
+           (catch Exception _ "?")))
+
+    (defn quiet? []
+      (let [h (.getHour (ZonedDateTime/now jst))] (and (>= h 2) (< h 9))))
+
+    (defn render-alert [a]
+      (let [l (get a "labels") an (get a "annotations")
+            firing? (= "firing" (get a "status"))
+            target (str/join "/" (keep #(some-> (get l %) label) ["provider" "name" "namespace" "pod"]))]
+        (str/join "\n"
+                  (remove str/blank?
+                          [(str (if firing? "🔴" "✅") " [" (str/upper-case (label (get l "severity" "none"))) "] "
+                                (label (get l "alertname")) (when-not (str/blank? target) (str " " target))
+                                (when-let [r (get l "reason")] (str " reason=" (label r))))
+                           (str "  " (if firing? (str "発生 " (jst-time (get a "startsAt")) " JST")
+                                         (str "解除 " (jst-time (get a "endsAt")) " JST"))
+                                " fp=" (subs (str (get a "fingerprint") "????????") 0 8))
+                           (some-> (get an "summary") (clean 200) (#(str "  " %)))
+                           (when firing? (some-> (get an "description") (clean 600) (#(str/replace % #"(?m)^" "  "))))
+                           (when-let [u (safe-url (get an "dashboard"))] (str "  根拠: " u))]))))
+
+    (let [p (try (json/parse-string (slurp *in*)) (catch Exception _ nil))
+          alerts (get p "alerts")]
+      (when-not (and (map? p) (= "4" (str (get p "version"))) (sequential? alerts) (seq alerts))
+        (binding [*out* *err*] (println "not an Alertmanager v4 payload"))
+        (System/exit 1))
+      (let [critical? (some #(and (= "firing" (get % "status")) (= "critical" (get-in % ["labels" "severity"]))) alerts)]
+        (if (and (quiet?) (not critical?))
+          (println "[SILENT]")
+          (let [firing (count (filter #(= "firing" (get % "status")) alerts))
+                resolved (- (count alerts) firing)
+                shown (take max-alerts (sort-by #(if (= "firing" (get % "status")) 0 1) alerts))
+                omitted (+ (- (count alerts) (count shown)) (or (get p "truncatedAlerts") 0))
+                runbook (some #(get-in % ["annotations" "runbook_next_actions"]) shown)
+                am (safe-url (get p "externalURL"))
+                msg (str/join "\n\n"
+                              (remove str/blank?
+                                      [(str "【Alertmanager 通知】発生中 " firing " 件 / 解除 " resolved " 件")
+                                       (str/join "\n\n" (map render-alert shown))
+                                       (when (pos? omitted) (str "ほか " omitted " 件は省略（Alertmanager で確認）"))
+                                       (when runbook (str "次 action の範囲: " (clean runbook 400)))
+                                       (str "これはアラートの写しで、承認や操作の指示ではありません。"
+                                            (when am (str "\nAlertmanager: " am)))]))]
+            (println (json/generate-string {"message" msg}))))))
+
   quiet_gate.sh: |
     #!/bin/sh
     # Returns 0 during active hours, 1 during quiet hours (02:00-09:00 JST)

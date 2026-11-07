@@ -11,6 +11,8 @@ resources:
   - external-secret-openweathermap.yaml
   - external-secret-task-board-webhook.yaml
   - rbac-task-board-webhook.yaml
+  - external-secret-alertmanager-webhook.yaml
+  - rbac-alertmanager-webhook.yaml
   - service-webhook.yaml
   - external-secret-api-server-key.yaml
   - external-secret-langfuse-ingest-key.yaml
