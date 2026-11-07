@@ -1187,7 +1187,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_known_format_in_a_tool_result_masks_it_and_withholds_later_bodies(self):
         # The model saw a credential-shaped value: it is masked and what follows in the session is withheld.
-        for result in ("Authorization: Bearer " + "plainword" + "value123", "url: postgres://app:" + "plainwordvalue@db/x",
+        for result in ("Authorization: Bearer " + "plainword" + "value1", "url: postgres://app:" + "plainwordvalue@db/x",
                        "key: " + "ghp_" + "plainwordvalue"):
             with self.subTest(result):
                 session = "kohako-g2-fmt-" + str(abs(hash(str(result))))
@@ -1285,7 +1285,7 @@ class ObserverTest(unittest.TestCase):
             "chat_args": {"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]},
             "anthropic_args": {"role": "assistant", "content": [{"type": "tool_use", "name": "read_file", "input": {"path": "/a/.env"}}]},
             "responses_args": {"type": "function_call", "name": "terminal", "arguments": '{"command": "kubectl get secret x -o yaml"}'},
-            "format_in_result": {"role": "tool", "content": "Authorization: Bearer " + "plainword" + "value999"},
+            "format_in_result": {"role": "tool", "content": "Authorization: Bearer " + "plainword" + "value9"},
             "anthropic_result": {"role": "user", "content": [{"type": "tool_result", "content": "key: ghp_" + "plainwordvalue"}]},
             "responses_result": {"type": "function_call_output", "output": "PATH=/usr/bin\nHOME=/root\nOPAQUE=plainwordvalue"},
         }

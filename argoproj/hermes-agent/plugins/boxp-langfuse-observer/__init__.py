@@ -914,6 +914,20 @@ def _pinned_text(span):
                                            ensure_ascii=False))
 
 
+# Documentation placeholders (Authorization: Bearer <token>, Bearer YOUR_API_TOKEN, postgres://user:password@db) are masked
+# in place but are no evidence that the model saw a credential (BOXP-428 TD-12).
+_PLACEHOLDER_CREDENTIAL = re.compile(
+    r"(?i)[$<{%*\[].*|x+|\.+|pass(?:word|wd|phrase)?\d?|pwd|secret|(?:api[_-]?|access[_-]?|auth[_-]?)?(?:key|token)|changeme"
+    r"|your[\w-]*|my[\w-]*pass\w*|example\w*")
+
+
+def _placeholder_credential(value):
+    # Surrounding punctuation is prose ("a bearer token."); a short lower-case word ("bearer tokens") is a word.
+    value = re.sub(r"""^["'`(\[{]+|["'`.,;:)\]}/]+$""", "", value.strip())
+    return not value or bool(_PLACEHOLDER_CREDENTIAL.fullmatch(value) or re.fullmatch(r"[A-Z_]+", value)
+                             or re.fullmatch(r"[a-z]{1,12}", value))
+
+
 def _exposure(text):
     """Kinds of known format found in text, checked before the line mask so that a value next to a secret word counts."""
     kinds = set()
@@ -924,15 +938,17 @@ def _exposure(text):
         if kind in _EXPOSURE_KINDS:
             for match in pattern.finditer(text):
                 value = match.group(0)
-                if kind in {"header", "bearer"}:
-                    value = value.split(":", 1)[-1] if kind == "header" else re.sub(r"(?i)^bearer\s+", "", value)
-                    if not any(re.search(r"[A-Za-z]", run) and re.search(r"\d", run)
-                               for run in re.findall(r"[A-Za-z0-9._~+/=-]{16,}", value)):
-                        continue
+                if kind == "header":
+                    credential = re.sub(r"(?i)^(?:bearer|basic|token|digest)\s+", "", value.split(":", 1)[-1].strip())
+                elif kind == "bearer":
+                    credential = re.sub(r"(?i)^bearer\s+", "", value)
                 elif kind == "url_credentials":
                     password = re.search(r":([^:@]*)@$", value)
-                    if password and re.fullmatch(r"(?i)[$<{%*\[].*|x+|\.+|pass(?:word|wd|phrase)?\d?|pwd|secret|token|changeme|your[\w-]*|my[\w-]*pass\w*|example\w*", password.group(1)):
-                        continue
+                    credential = password.group(1) if password else ""
+                else:
+                    credential = None
+                if credential is not None and _placeholder_credential((credential.split() or [""])[0]):
+                    continue
                 kinds.add(kind)
                 break
     return kinds
