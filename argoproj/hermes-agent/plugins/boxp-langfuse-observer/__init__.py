@@ -16,17 +16,24 @@ environment dump (_SENSITIVE_PATH, _SENSITIVE_COMMAND, _is_env_dump) sends neith
 its result, and the session and its delegating parent and children send no later body. The tables
 are fixed lists and end here; a spelling of the same command that escapes them is an accepted gap.
 K1 known formats: every string goes through redact() (_PATTERNS, element, assignment, the whole line
-around a secret word and the lines next to it) before it leaves this process, and the serialized
-batch is scanned again (_unsafe) before sending; a hit there drops the span. When a tool result
-carried a known format, later bodies of the session are withheld too (_EXPOSURE_KINDS), because the
-model can repeat the value in a form the patterns do not know.
-Not guaranteed: a plain value without a secret word or known format near it, an unknown transform
-(base32, rot13, gzip...), or a value the model repeats far from its source. The Owner accepted these
-for a self-hosted Langfuse behind Owner-only Access with short retention. Nothing here pins values
-or enumerates transforms to close that gap; adding such rules is out of this contract.
+around a secret word and the lines next to it) before it is queued, and the serialized batch is
+scanned again (_unsafe) before sending; a hit there drops the span. When a tool result carried a
+credential-shaped known format (_EXPOSURE_KINDS: private key, header, URL credentials, JWT, bearer,
+provider/cloud keys, this process's environment values), later bodies of the session are withheld
+too. A name-based hit (assignment, env entry, flag, cli password) does not withhold: the value it
+names (4..256 characters, _named_values) is pinned to the session lineage and masked in every field
+of its turns, escapes included, and the final guard rejects a span that still holds it, so a bare
+restatement in a later reply is not sent. A value that cannot be pinned (shorter, longer, or more
+than 64 in one text) in a tool result withholds the lineage; over 256 pinned values per lineage
+withholds it too (pinned_values_over_limit).
+Not guaranteed: a plain value without a secret word or known format near it, a transformed or partial
+restatement (base64, reversal...), a restatement in an unrelated session, and a short named value in a
+prompt or reply. The Owner accepted these for a self-hosted Langfuse behind Owner-only Access with
+short retention.
 
-State: a session's withholding reason is kept in memory (_sessions, bounded, oldest evicted) and
-reaches a delegated child at its start and a delegating parent when the child reports. History that
+State: a session's withholding reason and pinned values are kept in memory (_sessions, _pins, bounded,
+oldest evicted). A session reads them through its recorded parents (_parents), and a reason or a value
+found in a child reaches its ancestors at once. History that
 this process did not observe is scanned for the same K0 evidence and K1 formats in tool results; a
 tool name in it, or the fact that it was not observed, withholds nothing.
 
@@ -80,7 +87,7 @@ _MAX_SCANNED_HASHES = 2048
 
 # A value can sit inside serialized text at any depth, so a quote can carry escapes. A value ends at
 # a quote of its own depth, and one that never closes runs to the end of the line.
-_QUOTE = r"""(?:\\*["']|\\+u00(?:22|27)|&quot;|&\#0*(?:34|39);|&\#x0*(?:22|27);)"""
+_QUOTE = r"""(?:\\*["']|\\+u00(?:22|27)|&quot;|&apos;|&\#0*(?:34|39);|&\#x0*(?:22|27);)"""
 _GAP = r"""(?:\s|\\+[nrt])*"""
 _SEPARATOR = r"""(?:[:=]|\\+u00(?:3[aA]|3[dD]))"""
 _SECRET_WORD = (
@@ -101,6 +108,9 @@ _GT = r"(?:>|&gt;|&\#0*62;|&\#x0*3[eE];|\\+u003[eE])"
 # An element takes everything up to its closing tag, or the rest of the text when there is none.
 _SECRET_ELEMENT = re.compile(
     r"(?is)" + _LT + r"(?P<tag>[\w:.-]{0,64}" + _LOOSE_WORD + r"[\w:.-]{0,64})(?=[\s/>&\\])"
+    # A self-closing opening tag (within 512 characters) starts no element, so <password/><password>x</password>
+    # yields the second one; a longer opening tag is treated as an element (fail closed).
+    + r"(?!(?:(?!" + _GT + r").){0,512}?[/\\]\s*" + _GT + r")"
     + r".*?(?:" + _LT + r"\\*/(?P=tag)\s*" + _GT + r"|\Z)")
 
 
@@ -111,10 +121,18 @@ def _value(group, limit="", bare=r"[^\s,;}\]]+"):
             + ("" if limit else r"|[^\n]*") + r")|" + bare + ")")
 
 
+# A key may follow a \u0022 quote escape (\u0022value\u0022:), whose last character is a word character.
+_KEY_START = r"(?:(?<![\w-])|(?<=\\u00(?:22|27)))"
+
+
 def _entry_key(name):
-    return r"(?<![\w-])" + name + _QUOTE + r"?" + _GAP + r"[:=]" + _GAP
+    return _KEY_START + name + _QUOTE + r"?" + _GAP + r"[:=]" + _GAP
 
 
+
+# One unquoted shell word, whose spaces may be escaped (apple\ orchard, apple\\ orchard in JSON). A backslash run
+# is tried as an escape only from its start, so a long run stays linear.
+_SHELL_WORD = r"(?:(?<!\\)\\++[ \t]|\S)++"
 
 _SECRET_NAME = re.compile(
     r"(?i)(password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth(?!ors?(?![a-z]))|(?<![a-z])pass(?![a-z]))")
@@ -141,11 +159,18 @@ _PATTERNS = [
     ("env_entry", re.compile(
         r"(?i)" + _entry_key("value") + _value("quote", r"{0,4096}?") + _ENTRY_GAP + _QUOTE + r"?"
         + _entry_key("name") + _QUOTE + r"?" + _SECRET_KEY)),
-    ("flag", re.compile(r"(?i)(?<![\w-])--?" + _SECRET_KEY + r"[ \t]+(?!-)" + _value("quote", bare=r"\S+"))),
+    ("flag", re.compile(r"(?i)(?<![\w-])--?" + _SECRET_KEY + r"[ \t]+(?!-)" + _value("quote", bare=_SHELL_WORD))),
+    # A CLI password is one shell word: a quoted value runs to its matching quote (_value), so
+    # sshpass -p 'apple orchard' masks and pins the whole value, not just the part before the space. A quote that
+    # never closes (-u 'admin:apple orchard) runs to the end of the line.
     ("cli_password", re.compile(
-        r"(?<![\w-])(?:-u|--user)[ \t=]*(?!\d+:\d+\b)[^\s:]+:\S+"
-        r"|\b(?:mysql\w*|mariadb\w*)\b[^\n|;&]{0,512}?\s-p\S+"
-        r"|\bsshpass\b[^\n|;&]{0,512}?\s-p[ \t]*\S+")),
+        r"(?i)(?<![\w-])(?:-u|--user)[ \t=]*(?P<uq>" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]*:(?:[^\n]*?(?<!\\)(?P=uq)|[^\n]*)")),
+    ("cli_password", re.compile(
+        r"(?i)(?<![\w-])(?:-u|--user)[ \t=]*(?!" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]+:" + _value("quote", bare=_SHELL_WORD))),
+    ("cli_password", re.compile(
+        r"(?i)\b(?:mysql\w*|mariadb\w*)\b[^\n|;&]{0,512}?\s-p" + _value("quote", bare=_SHELL_WORD))),
+    ("cli_password", re.compile(
+        r"(?i)\bsshpass\b[^\n|;&]{0,512}?\s-p[ \t]*" + _value("quote", bare=_SHELL_WORD))),
     ("assignment", re.compile(
         r"(?i)[\"']?" + _SECRET_KEY + _QUOTE + r"?" + _GAP + _SEPARATOR + _GAP
         # A YAML block scalar carries its value on the indented lines below the key.
@@ -156,7 +181,11 @@ _PATTERNS = [
 _FIELD_ONLY = {"assignment", "entropy", "data_uri", "env_entry", "flag", "cli_password"}
 # A hit of one of these in a tool result means the model saw a credential: later bodies of the session are withheld.
 # A secret word alone (secret_line), a high-entropy string or an image is not such evidence.
-_EXPOSURE_KINDS = {kind for kind, _ in _PATTERNS} - {"entropy", "data_uri"} | {"env", "element"}
+# Only shapes that are credentials by themselves count. Name-based kinds (assignment, env entry, flag, cli password,
+# XML element) mask the value in place and pin it (_named_values) but are no evidence: they match ordinary code and logs such as
+# TOKEN_FILE=/work/x or credentials: 'same-origin', which withheld whole sessions in production (BOXP-428).
+_EXPOSURE_KINDS = {"private_key", "header", "url_credentials", "jwt", "provider_key", "aws_key", "google_key",
+                   "telegram", "bearer", "env"}
 # A secret key whose value spans several tokens or lines: a list, a map, a shell array, a YAML block.
 _STRUCTURED_KEY = re.compile(
     r"(?i)(?:" + _entry_key("name") + _QUOTE + r"?" + _SECRET_KEY + _QUOTE + r"?" + _ENTRY_GAP + _QUOTE + r"?" + _entry_key("value")
@@ -224,6 +253,8 @@ _ENV_OUTPUT = [re.compile(r"(?:^|[^A-Za-z0-9_]|\\[nrt]|\\u0000)" + name + "=") f
 _lock = threading.Lock()
 _turns = {}
 _sessions = collections.OrderedDict()  # session id -> why its bodies are withheld, or None
+_pins = collections.OrderedDict()  # session -> distinct named values
+_parents = collections.OrderedDict()  # session -> parent
 _delegated = collections.OrderedDict()  # session ids started by delegation
 _scanned = collections.OrderedDict()  # session id -> digests of history tool messages already scanned
 _seen_prompts = {}
@@ -487,14 +518,410 @@ def _mask_secret_lines(text):
     return "".join(parts)
 
 
+_PIN_KINDS = {"assignment", "env_entry", "flag", "cli_password"}
+# A redaction placeholder is never a value. A $VAR / ${VAR} form may be a variable reference or a real password
+# that starts with $ (password: $hunterhorse): it is pinned like any value (masking a later ${VAR} is a harmless
+# over-mask), but when it is too short to pin it does not withhold, since it is most likely a reference.
+_REFERENCE = re.compile(r"\[REDACTED:[a-z_-]+\]", re.I)
+_VARIABLE_LIKE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
+_NAME_SEPARATOR = re.compile(r"(?s)^(.*?)(?:[:=]|\\+u00(?:3[aA]|3[dD]))")
+# The value key takes every serialized quote form (&quot;value&quot;:, \u0022value\u0022:), as _entry_key does.
+_ENTRY_VALUE_START = re.compile(r"(?i)" + _entry_key("value"))
+
+
+_OPENING_QUOTE = re.compile(_QUOTE, re.I)
+_UNQUOTED_CHARS = (
+    r"""[^\s,;}\]"'\\&]|\\\\|\\(?![nrt"'\\]|u00(?:22|27))|&(?!quot|apos|\#0*(?:34|39)(?!\d)|\#x0*(?:22|27)(?![0-9a-f]))"""
+)
+_UNQUOTED_VALUE = re.compile(r"(?i)(?:" + _UNQUOTED_CHARS + r")+")
+# A CLI password or flag value is a shell word: an escaped space (apple\\ orchard) does not end it.
+_UNQUOTED_SHELL_VALUE = re.compile(r"(?i)(?:(?<!\\)\\++[ \t]|" + _UNQUOTED_CHARS + r")++")
+_ESCAPED_SPACE = re.compile(r"(?<!\\)\\++([ \t])")
+
+
+def _closing_quote(text, q):
+    """Index in text where the value opened by quote token q ends, or None when it never closes.
+
+    A quote is escaped by the backslash run before it. A plain quote (n backslashes in q, n=0 at the top level, 1 for
+    \\" inside a JSON string, 3 a layer deeper) closes when that run is a multiple of 2*(n+1): each backslash of the
+    value is written as n+1 backslashes at that depth, and an escaped quote adds an odd count of them. Other quote
+    forms (\\u0022, &quot;) close after an even run. The value keeps the escaped backslashes: "hunterhorse\\\\"
+    ends after hunterhorse\\\\ (decoded hunterhorse\\).
+    """
+    plain = re.fullmatch(r"(\\*)[\"']", q)
+    unit = 2 * (len(plain.group(1)) + 1) if plain else 2
+    for m in re.finditer(r"(?<!\\)(\\*)" + re.escape(q), text, re.I):
+        if len(m.group(1)) % unit == 0:
+            return m.start() + len(m.group(1))
+    return None
+
+
+def _shell_values(text):
+    """A CLI password or flag value as written and, when it escapes spaces, as the shell decodes it (apple orchard)."""
+    stripped = text.lstrip()
+    if _OPENING_QUOTE.match(stripped) or _PLACEHOLDER.match(stripped):
+        return [_first_value(text)]
+    match = _UNQUOTED_SHELL_VALUE.match(stripped)
+    word = match.group(0).strip() if match else ""
+    decoded = _ESCAPED_SPACE.sub(r"\1", word)
+    return [word, decoded] if decoded != word else [word]
+
+
+def _first_value(text):
+    text = text.lstrip()
+    placeholder = _PLACEHOLDER.match(text)
+    if placeholder:
+        return placeholder.group(0)
+    # Quotes include their serialized forms (\\", \\u0022, &quot;, &#34;, &#x22;, &apos;) as the in-place mask
+    # (_QUOTE) matches them: the value ends at the same quote token.
+    quote = _OPENING_QUOTE.match(text)
+    if quote:
+        q = quote.group(0)
+        # A quote token preceded by an escaping backslash run does not end the value (password: "a\"b" captures a\"b
+        # and its decoded form a"b), while one preceded by escaped backslashes does (password: "hunterhorse\\"
+        # captures hunterhorse\\ and its decoded form hunterhorse\).
+        end = _closing_quote(text[len(q):], q)
+        return text[len(q):len(q) + end if end is not None else None].strip()
+    # Unquoted: stop at a quote, an entity quote or a quote/line escape (\", \u0022, \n, \r, \t) too, so a value
+    # inside serialized JSON or HTML does not take the closing quote or a \n escape with it. Any other backslash
+    # (password: \mysecret123, its JSON form \\mysecret123, my\secret) is part of the value, not its end.
+    match = _UNQUOTED_VALUE.match(text)
+    return match.group(0).strip() if match else ""
+
+
+_TAG_CLOSE = re.compile(_GT, re.I)
+_ELEMENT_CLOSE = re.compile(r"(?is)^(.*)" + _LT + r"\\*/[\w:.-]+\s*" + _GT + r"$")
+_ELEMENT_SPLIT = re.compile(r"(?i)" + _LT + r"[^<>&\\]{0,256}?" + _GT + r"|\r?\n|\\+[nrt]")
+
+
+def _element_values(raw):
+    # Text inside an element whose tag names a secret (<password>x</password>, encoded tags too). The element is
+    # masked in place; its text is pinned like an assignment value so a bare restatement is masked as well. Child
+    # tags and line breaks separate values; a self-closing tag names nothing.
+    closer = _TAG_CLOSE.search(raw)
+    if not closer or (closer.start() <= 512 and re.search(r"[/\\]\s*$", raw[:closer.start()])):
+        return []
+    inner = raw[closer.end():]
+    closing = _ELEMENT_CLOSE.match(inner)
+    if closing:
+        inner = closing.group(1)
+    values = []
+    for segment in _ELEMENT_SPLIT.split(inner):
+        value = re.sub(r"^(?:\\*[\"'])+|(?:\\*[\"'])+$", "", segment.strip()).strip()
+        if value:
+            values.append(value)
+    return values
+
+
+# A value captured from a serialized body keeps its escapes (password: &quot;a&amp;b&quot; captures a&amp;b), while a
+# later restatement can be the decoded text (a&b). Both are pinned: the decoded form is matched with its own escapes,
+# so pinning it covers the plain restatement and every serialization of it.
+_ENTITY_ESCAPE = re.compile(r"&(?:#0*(\d{1,7})|#[xX]0*([0-9a-fA-F]{1,6})|(amp|lt|gt|quot|apos));")
+_JSON_ESCAPE = re.compile(r"""\\(?:u([0-9a-fA-F]{4})|(["'\\/bfnrt]))""")
+_ENTITY_NAMES = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
+_JSON_CHARS = {'"': '"', "'": "'", "\\": "\\", "/": "/", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
+
+
+def _code_point(n):
+    return chr(n) if 1 <= n <= 0x10FFFF else None
+
+
+def _decode_entity(m):
+    if m.group(1):
+        return _code_point(int(m.group(1))) or m.group(0)
+    if m.group(2):
+        return _code_point(int(m.group(2), 16)) or m.group(0)
+    return _ENTITY_NAMES[m.group(3)]
+
+
+def _decode_json(m):
+    if m.group(1):
+        return chr(int(m.group(1), 16))
+    return _JSON_CHARS[m.group(2)]
+
+
+def _join_surrogates(text):
+    # JSON writes a non-BMP character as a surrogate pair (\ud83d\ude00); the decoded form joins the pair into the
+    # character (U+1F600) a restatement uses. A lone surrogate stays as it is.
+    if not any("\ud800" <= ch <= "\udfff" for ch in text):
+        return text
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
+
+
+def _decoded_forms(value):
+    """value and its decoded forms (HTML entities and JSON escapes, up to 3 nested layers)."""
+    forms = [value]
+    for _ in range(3):
+        decoded = _join_surrogates(_JSON_ESCAPE.sub(_decode_json, _ENTITY_ESCAPE.sub(_decode_entity, value)))
+        if decoded == value:
+            break
+        forms.append(decoded)
+        value = decoded
+    return forms
+
+
+# A list or object value (password: [a, b], token: {primary: a}) is masked in place as a whole (_mask_structured);
+# each element is pinned too. Quoted elements keep their commas; a key followed by : or = names, not a value.
+_COLLECTION_GAP = re.compile(r"(?:[\s,;\[\]{}()]++|\\++[nrt](?![A-Za-z0-9]))++")
+_KEY_SEPARATOR = re.compile(r"\s*(?:[:=]|\\+u00(?:3[aA]|3[dD]))")
+
+
+def _collection_values(text):
+    is_object = text.lstrip().startswith("{")
+    values, tokens = [], 0
+    while True:
+        gap = _COLLECTION_GAP.match(text)
+        if gap:
+            text = text[gap.end():]
+        if not text.strip() or len(values) > 64:
+            return values
+        if tokens > 256:
+            # Past 256 tokens (mostly keys) the rest is one value, which unpins it when long (fail closed).
+            values.append(text)
+            return values
+        tokens += 1
+        quote = _OPENING_QUOTE.match(text)
+        value = _first_value(text)
+        if quote:
+            q = quote.group(0)
+            closed = _closing_quote(text[len(q):], q)
+            consumed = len(q) + closed + len(q) if closed is not None else len(text)
+        else:
+            value = re.split(r"[\[\]{}()]", value, maxsplit=1)[0]
+            consumed = len(value)
+        consumed = max(1, min(consumed, len(text)))
+        text = text[consumed:]
+        separator = _KEY_SEPARATOR.match(text)
+        if separator:
+            text = text[separator.end():]
+            continue
+        if not quote and re.search(r"[:=]$", value):
+            continue
+        if not quote:
+            # key:value with no space after the separator. Inside an object only the value is a value; in a list
+            # ([{primary:a}], [a:b]) the token may be an object nested in the list or a literal, so pin both.
+            pair = re.match(r"^[\w.-]+[:=](.+)$", value)
+            if pair:
+                if not is_object and value.strip():
+                    values.append(value.strip())
+                value = pair.group(1)
+        if value.strip():
+            values.append(value.strip())
+
+
+def _named_values(text):
+    found, unpinned = _named_values_raw(text)
+    decoded = {form for value in found for form in _decoded_forms(value)}
+    if len(decoded) > 64:
+        return {v for v in decoded if 4 <= len(v) <= 256}, True
+    return {v for v in decoded if 4 <= len(v) <= 256}, unpinned or any(
+        not 4 <= len(v) <= 256 and not (len(v) < 4 and _VARIABLE_LIKE.fullmatch(v)) for v in decoded)
+
+
+def _reversed_entry_values(text):
+    """Elements of list/object values placed before a secret name ({"value": [a, b], "name": "API_SECRET"}), as
+    _mask_reversed_entries masks them in place. Bounded by the same limits; past them the field is withheld."""
+    values = []
+    position = 0
+    for scanned, match in enumerate(_ENTRY_VALUE.finditer(text)):
+        if scanned >= _MAX_REVERSED_ENTRIES:
+            break
+        if match.start() < position:
+            continue
+        end = _bracket_end(text, match.end(), match.end() + _MAX_REVERSED_VALUE)
+        if _ENTRY_NAME_AFTER.match(text, end) is None:
+            continue
+        values.extend(_collection_values(text[match.end():end]))
+        position = end
+    return values
+
+
+def _named_values_raw(text):
+    text = _PLACEHOLDER.sub("", text)
+    found = set()
+    for match in _SECRET_ELEMENT.finditer(text):
+        for value in _element_values(match.group(0)):
+            if not _REFERENCE.fullmatch(value):
+                found.add(value)
+                if len(found) > 64:
+                    return found, True
+    for value in _reversed_entry_values(text):
+        if value and not _REFERENCE.fullmatch(value):
+            found.add(value)
+            if len(found) > 64:
+                return found, True
+    for kind, pattern in _PATTERNS:
+        if kind not in _PIN_KINDS:
+            continue
+        covered = 0
+        for match in pattern.finditer(text):
+            raw = match.group(0)
+            values = []
+            if kind == "assignment":
+                if match.start() < covered:
+                    # Inside a list/object value already scanned below: its elements are pinned there, and skipping
+                    # keeps unclosed brackets (password: [password: [ ...) linear.
+                    continue
+                sep = _NAME_SEPARATOR.match(raw)
+                if not sep:
+                    continue
+                name = re.sub(r"[\"'\\\s]", "", sep.group(1))
+                tail = raw[sep.end():]
+                position = match.start() + sep.end()
+                while position < len(text) and text[position] in " \t":
+                    position += 1
+                if position < len(text) and text[position] in "[{(":
+                    # The value runs to the matching close (or the end of text, fail closed), as _mask_structured
+                    # masks it.
+                    covered = max(match.end(), _bracket_end(text, position))
+                    values = _collection_values(text[position:covered])
+                elif re.match(r"\s*[|>]", tail):
+                    values = [line.strip() for line in _LINE_BREAK.split(tail)[1:]]
+                    values = [_first_value(v) if re.match(r"\\*[\"']", v) else v for v in values]
+                else:
+                    value = _first_value(tail)
+                    if not _is_setting(name, value):
+                        values = [value]
+            elif kind == "env_entry":
+                if match.start() < covered:
+                    continue
+                entry = _ENTRY_VALUE_START.search(raw)
+                if entry:
+                    position = match.start() + entry.end()
+                    while position < len(text) and text[position] in " \t":
+                        position += 1
+                    if position < len(text) and text[position] in "[{(":
+                        # "value": ["a", "b"]: the value runs to the matching close (or the end of text, fail
+                        # closed), as _mask_structured masks it, and every element is pinned.
+                        covered = max(match.end(), _bracket_end(text, position))
+                        values = _collection_values(text[position:covered])
+                    else:
+                        values = [_first_value(raw[entry.end():])]
+            elif kind == "flag":
+                if match.start() < covered:
+                    continue
+                head = re.match(r"^\S+[ \t]+", raw)
+                tail = raw[head.end():] if head else raw
+                position = match.start() + (head.end() if head else 0)
+                if position < len(text) and text[position] in "[{(":
+                    # --password [a, b]: like an assignment, the value runs to the matching close (or the end of
+                    # text, fail closed), as _mask_structured masks it, and every element is pinned.
+                    covered = max(match.end(), _bracket_end(text, position))
+                    values = _collection_values(text[position:covered])
+                else:
+                    values = _shell_values(tail)
+            else:
+                if re.match(r"(?i)^(?:-u|--user)", raw):
+                    rest = re.sub(r"(?i)^(?:-u|--user)[ \t=]*", "", raw)
+                    if _OPENING_QUOTE.match(rest):
+                        # -u 'user:pass word': the whole quoted word is user:password.
+                        word = _first_value(rest)
+                        values = [word.split(":", 1)[1]] if ":" in word else []
+                    else:
+                        values = _shell_values(re.sub(r"^[^\s:]+:", "", rest))
+                else:
+                    values = _shell_values(re.sub(r"(?is)^.*?\s-p[ \t]*", "", raw))
+            for value in values:
+                if value and not _REFERENCE.fullmatch(value):
+                    found.add(value)
+                    if len(found) > 64:
+                        return found, True
+    return found, False
+
+
+def _lineage(session):
+    seen = set()
+    while session and session not in seen:
+        seen.add(session)
+        session = _parents.get(session)
+    return seen
+
+
+def _link_parent(session, parent):
+    if session and parent:
+        with _lock:
+            _parents[str(session)] = str(parent)
+            _parents.move_to_end(str(session))
+            while len(_parents) > _MAX_SESSIONS:
+                _parents.popitem(last=False)
+
+
+_pinned_digests = collections.OrderedDict()  # (session, digest) of bodies already pinned: history is resent on every request
+
+
+def _pin_body(session, parent, body):
+    _link_parent(session, parent)
+    text = _text(body)
+    if not text:
+        return False
+    key = (str(session or ""), hashlib.sha256(text.encode("utf-8", "replace")).hexdigest())
+    with _lock:
+        if key in _pinned_digests:
+            unpinned, pinned = _pinned_digests[key]
+            if not pinned or key[0] in _pins:
+                _pinned_digests.move_to_end(key)
+                return unpinned
+            del _pinned_digests[key]
+    values, unpinned = _named_values(text)
+    if values:
+        overflow = False
+        with _lock:
+            for node in _lineage(str(session or "")):
+                current = _pins.setdefault(node, set())
+                current.update(values)
+                if len(current) > 256:
+                    overflow = True
+                    current.clear()
+                _pins.move_to_end(node)
+            while len(_pins) > _MAX_SESSIONS:
+                evicted, _ = _pins.popitem(last=False)
+                # The digest cache says "already pinned" only while the pins exist: once a session's pins are evicted,
+                # its cached digests are dropped so a resent history pins its values again.
+                for cached in [k for k in _pinned_digests if k[0] == evicted]:
+                    del _pinned_digests[cached]
+        if overflow:
+            _taint("pinned_values_over_limit", *_lineage(str(session or "")))
+    with _lock:
+        _pinned_digests[key] = (unpinned, bool(values))
+        while len(_pinned_digests) > 8 * _MAX_SESSIONS:
+            _pinned_digests.popitem(last=False)
+    return unpinned
+
+
+def _pin_pattern(session):
+    with _lock:
+        values = set().union(*(_pins.get(node, set()) for node in _lineage(str(session or ""))))
+    return re.compile("|".join(map(_value_pattern, sorted(values, key=len, reverse=True)))) if values else None
+
+
+def _mask_value(value, pattern):
+    if isinstance(value, str):
+        return pattern.sub("[REDACTED:pinned]", value)
+    if isinstance(value, list):
+        return [_mask_value(item, pattern) for item in value]
+    if isinstance(value, dict):
+        return {key: _mask_value(item, pattern) for key, item in value.items()}
+    return value
+
+
+def _mask_pins(spans, pattern):
+    """Mask the span name and attribute values only: ids, times and attribute keys are the exporter's own."""
+    return [{**span, "name": _mask_value(span.get("name"), pattern),
+             "attributes": [{**a, "value": _mask_value(a.get("value"), pattern)} for a in span.get("attributes", [])]}
+            for span in spans]
+
+
+def _pinned_text(span):
+    return _PLACEHOLDER.sub("", json.dumps([span.get("name"), [a.get("value") for a in span.get("attributes", [])]],
+                                           ensure_ascii=False))
+
+
 def _exposure(text):
     """Kinds of known format found in text, checked before the line mask so that a value next to a secret word counts."""
     kinds = set()
     env_pattern = _env_pattern()
     if env_pattern and env_pattern.search(text):
         kinds.add("env")
-    if _SECRET_ELEMENT.search(text):
-        kinds.add("element")
     for kind, pattern in _PATTERNS:
         if kind in _EXPOSURE_KINDS and pattern.search(text):
             kinds.add(kind)
@@ -688,16 +1115,16 @@ def _add(turn, span):
 def _tainted(session):
     """The reason this session's bodies are withheld, or None."""
     with _lock:
-        return _sessions.get(str(session or ""))
+        return next((_sessions[node] for node in _lineage(str(session or "")) if _sessions.get(node)), None)
 
 
 def _taint(reason, *sessions):
     """Withhold later bodies of these sessions. The first reason is kept; it names the evidence, not the latest event."""
     with _lock:
         for session in sessions:
-            if session:
-                _sessions[str(session)] = _sessions.get(str(session)) or reason
-                _sessions.move_to_end(str(session))
+            for node in _lineage(str(session or "")):
+                _sessions[node] = _sessions.get(node) or reason
+                _sessions.move_to_end(node)
         while len(_sessions) > _MAX_SESSIONS:
             _sessions.popitem(last=False)
 
@@ -747,7 +1174,7 @@ def _evidence(args_text, result_text):
         return "unscanned_output"
     if _is_env_dump(result_text):
         return "env_dump"
-    if _exposure(result_text):
+    if _exposure(result_text) or _named_values(result_text)[1]:
         return "known_format_in_tool_output"
     return None
 
@@ -818,6 +1245,7 @@ def _guarded(fn):
 @_guarded
 def _on_turn_start(session_id=None, turn_id=None, user_message=None, model=None, platform=None, parent_session_id=None):
     turn = _turn(session_id, turn_id)
+    _pin_body(turn["session"], parent_session_id, user_message)
     _note_tickets(turn, user_message)
     if str(parent_session_id or "") in _delegated:  # rotation of a delegated session keeps it delegated
         _note_delegated(turn["session"])
@@ -834,6 +1262,9 @@ def _on_api_request(session_id=None, turn_id=None, api_request_id=None, system_p
                     message_count=None, retry_count=None, started_at=None):
     turn = _turn(session_id, turn_id)
     messages = list(request_messages or [])
+    _pin_body(turn["session"], turn["parent"], system_prompt)
+    for message in messages:
+        _pin_body(turn["session"], turn["parent"], message)
     _note_request(turn["session"], turn["parent"], messages)
     tainted = _tainted(turn["session"])
     first_request = not turn.get("requested")
@@ -862,6 +1293,7 @@ def _on_api_response(session_id=None, turn_id=None, api_request_id=None, respons
     turn = _turn(session_id, turn_id)
     with _lock:
         req = turn.get("requests", {}).pop(str(api_request_id), {})
+    _pin_body(turn["session"], turn["parent"], response)
     message = (response or {}).get("assistant_message") if isinstance(response, dict) else None
     output = _WITHHELD_SESSION if _tainted(turn["session"]) else _message_view({"role": "assistant", **message}) if isinstance(message, dict) else None
     location = "local" if "local-llm" in str(base_url or "") or "llama" in str(base_url or "") else "cloud"
@@ -893,6 +1325,8 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
     _note_tickets(turn, args)
     _note_tickets(turn, result)
     args_text, result_text = _text(args), _text(result)
+    _pin_body(turn["session"], turn["parent"], args)
+    _pin_body(turn["session"], turn["parent"], result)
     already = _tainted(turn["session"])
     reason = _evidence(args_text, result_text)
     if reason:
@@ -926,6 +1360,8 @@ def _on_compaction(session_id=None, turn_id=None, before_tokens=None, after_toke
 def _on_subagent_start(parent_session_id=None, parent_turn_id=None, parent_subagent_id=None, child_session_id=None,
                        child_subagent_id=None, child_role=None, child_goal=None):
     if child_session_id:
+        _link_parent(child_session_id, parent_session_id)
+        _pin_body(child_session_id, parent_session_id, child_goal)
         _note_delegated(child_session_id)
 
 
@@ -934,6 +1370,7 @@ def _on_subagent(parent_session_id=None, parent_turn_id=None, child_session_id=N
                  child_status=None, duration_ms=None):
     turn = _turn(parent_session_id, parent_turn_id)
     turn["delegated"] = True
+    _pin_body(child_session_id or turn["session"], turn["session"] if child_session_id else turn["parent"], child_summary)
     _note_tickets(turn, child_summary)
     reason = _tainted(child_session_id)
     if reason:
@@ -949,6 +1386,7 @@ def _on_subagent(parent_session_id=None, parent_turn_id=None, child_session_id=N
 @_guarded
 def _on_turn_end(session_id=None, turn_id=None, assistant_response=None):
     turn = _turn(session_id, turn_id)
+    _pin_body(turn["session"], turn["parent"], assistant_response)
     _note_tickets(turn, assistant_response)
     turn["output"] = _WITHHELD_SESSION if _tainted(turn["session"]) else assistant_response
 
@@ -969,7 +1407,11 @@ def _on_session_end(session_id=None, turn_id=None, completed=None, failed=None, 
         _count("turns_out_of_scope")
         return
     # Masked here, in the hook: the queue never holds a body that has not been through redact() and the final guard.
-    bodies = list(guarded_payloads(build_spans(turn)))
+    pattern = _pin_pattern(turn["session"])
+    spans = build_spans(turn)
+    if pattern:
+        spans = _mask_pins(spans, pattern)
+    bodies = list(guarded_payloads(spans, pattern))
     try:
         _queue.put_nowait(bodies)
     except queue.Full:
@@ -1108,14 +1550,16 @@ def batches(spans):
         yield current
 
 
-def guarded_payloads(spans):
+def guarded_payloads(spans, pinned_pattern=None):
     """Yield only payloads that pass the final guard; a failing span is dropped alone."""
+    def pinned(span):
+        return bool(pinned_pattern and pinned_pattern.search(_pinned_text(span)))
     for batch in batches(spans):
         body = _payload(batch)
-        if not _unsafe(body):
+        if not _unsafe(body) and not any(pinned(s) for s in batch):
             yield body
             continue
-        kept = [s for s in batch if not _unsafe(json.dumps(s, ensure_ascii=False))]
+        kept = [s for s in batch if not _unsafe(json.dumps(s, ensure_ascii=False)) and not pinned(s)]
         _count("spans_dropped_secret_guard", len(batch) - len(kept))
         if kept:
             body = _payload(kept)
