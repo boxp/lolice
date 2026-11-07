@@ -320,6 +320,8 @@ class ObserverTest(unittest.TestCase):
                      {"path": "/etc/app/private.key"}, {"path": "/etc/ssl/server.pem"}, {"path": "/home/x/keystore.p12"}, {"path": "/home/x/.ssh/id_ecdsa_sk"},
                      {"path": "/home/x/.gnupg/secring.gpg"}, {"path": "/var/lib/app/tokens.json"}, {"path": "/var/lib/app/refresh_token.txt"},
                      {"path": "/tmp/tokens"}, {"path": "/var/lib/app/tokens/current"},
+                     # id_*: any SSH-style key name, not only the four algorithms spelled out before
+                     {"path": "/backup/id_xmss"}, {"command": "cat /tmp/id_ed448_sk"}, {"command": "cat id_rsa"}, {"path": "/home/x/keys/id_falcon-sk"},
                      {"command": "cat ~/.kube/config"}, {"command": "gcloud auth print-access-token"}, {"command": "gcloud auth application-default print-access-token"},
                      {"command": "az account get-access-token --resource x"}, {"command": "aws sts get-session-token"}, {"command": "aws ecr get-login-password --region x"},
                      {"command": "kubectl -n foo create token sa-x"}, {"command": "oc whoami -t"}, {"command": "vault read secret/x"}, {"command": "vault kv get kv/x"},
@@ -333,7 +335,8 @@ class ObserverTest(unittest.TestCase):
 
     def test_words_that_look_like_the_table_are_not_withheld(self):
         for args in ({"path": "/a/keyboard.md"}, {"path": "/a/api-keys.md"}, {"path": "/a/keymap.py"}, {"path": "/a/package.json"}, {"path": "/a/.bashrc"},
-                     {"path": "/a/kube-config.md"}, {"path": "/a/.kubeignore"}, {"command": "ls ~/.config"}, {"command": "gcloud auth list"},
+                     {"path": "/a/kube-config.md"}, {"path": "/a/.kubeignore"}, {"path": "/a/user_id_map.json"},
+                     {"command": "grep -rn id_12345 src"}, {"query": "the session_id_format"}, {"command": "ls ~/.config"}, {"command": "gcloud auth list"},
                      {"command": "az account show"}, {"command": "aws sts get-caller-identity"}, {"command": "oc whoami"}, {"command": "vault status"},
                      {"command": "kubectl get pods -n foo"}, {"command": "git commit -m 'count tokens per request'"},
                      {"command": "codex exec --max-output-tokens 5 x"}, {"model_settings": {"max_output_tokens": 5}}, {"query": "the token refresh flow"}):
