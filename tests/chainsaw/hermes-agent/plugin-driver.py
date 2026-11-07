@@ -85,16 +85,29 @@ def fire_harmless_lineage(parent, child):
     hooks["on_session_end"](session_id=parent, turn_id="turn", completed=True)
 
 def fire_known_format_in_output(session):
-    # A tool result with a known format: its line is masked, and the reply that repeats the value is withheld.
+    # A tool result with a credential-shaped known format: it is masked, and the reply that repeats the value is withheld.
     hooks = ctx.hooks
     common = {"session_id": session, "turn_id": "turn"}
     hooks["pre_llm_call"](**common, user_message="hello")
     hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args={"command": "cat app.yaml"},
-                            result="host: db\npassword: plainformatvalue\nneighbour\nkeptdistantmarker")
+                            result="host: db\nAuthorization: Bearer plainformatvalue\nneighbour\nkeptdistantmarker")
     hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "plainformatvalue"}})
     hooks["post_llm_call"](**common, assistant_response="plainformatvalue")
     hooks["on_session_end"](**common, completed=True)
     hooks["pre_llm_call"](session_id=session, turn_id="next", user_message="plainformatvalue")
+    hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
+
+def fire_name_only_in_output(session):
+    # Ordinary code that names a secret, and a secret-name assignment: the value is masked in place, and the replies
+    # and the next turn stay readable (BOXP-428 production regression: these withheld whole sessions).
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="hello")
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="read_file", args={"path": "/src/app.ts"},
+                            result="fetch(url, { credentials: 'same-origin' })\nTOKEN_FILE=/work/state\n\n\n\npassword: plainnamedvalue")
+    hooks["post_llm_call"](**common, assistant_response="nameonlyreplymarker")
+    hooks["on_session_end"](**common, completed=True)
+    hooks["pre_llm_call"](session_id=session, turn_id="next", user_message="nameonlynextmarker")
     hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
 
 def fire_known_source_table(session, args):
@@ -150,6 +163,7 @@ while True:
     fire_harmless_tool(f"kohako-g2-unknown-{n}", "a_tool_added_later", {"query": "the token refresh flow"})
     fire_harmless_lineage(f"tg-lineage-{n}", f"subagent-lineage-{n}")
     fire_known_format_in_output(f"kohako-g2-format-{n}")
+    fire_name_only_in_output(f"kohako-g2-nameonly-{n}")
     fire_known_source_table(f"kohako-g2-kube-config-{n}", {"command": "cat ~/.kube/config"})
     fire_known_source_table(f"kohako-g2-pem-{n}", {"command": "cat /etc/ssl/server.pem"})
     fire_known_source_table(f"kohako-g2-gcloud-{n}", {"command": "gcloud auth print-access-token"})

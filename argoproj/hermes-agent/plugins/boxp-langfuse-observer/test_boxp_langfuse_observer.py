@@ -734,9 +734,9 @@ class ObserverTest(unittest.TestCase):
         self.assertNotIn('"withheld_', body)
 
     def test_known_format_in_a_tool_result_masks_it_and_withholds_later_bodies(self):
-        # The model saw a credential: the line is masked and what follows in the session is withheld.
-        for result in ("host: db\npassword: plainwordvalue\nport: 5432", {"output": '{"api_key":"plainwordvalue"}'},
-                       "<password>plainwordvalue</password>", "Authorization: Bearer " + "plainword" + "value1"):
+        # The model saw a credential-shaped value: it is masked and what follows in the session is withheld.
+        for result in ("Authorization: Bearer " + "plainword" + "value1", "url: postgres://app:" + "plainwordvalue@db/x",
+                       "key: " + "ghp_" + "plainwordvalue"):
             with self.subTest(result):
                 session = "kohako-g2-fmt-" + str(abs(hash(str(result))))
                 self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
@@ -746,6 +746,33 @@ class ObserverTest(unittest.TestCase):
                 self.assertIn("withheld_after_known_format_in_tool_output", body)
                 run_turn(session=session, turn="t2", body="plainwordvalue", tool="todo", args={}, result="ok")
                 self.assertNotIn("plainwordvalue", self._bodies())
+
+    def test_a_name_based_hit_masks_in_place_and_keeps_later_bodies(self):
+        # A secret name with a value is masked where it is, but is no evidence: ordinary code and logs match it too.
+        # A bare restatement of the masked value elsewhere is the accepted residual (THREAT_MODEL.md 2).
+        for result in ("host: db\npassword: plainwordvalue\nport: 5432", {"output": '{"api_key":"plainwordvalue"}'},
+                       "<password>plainwordvalue</password>", "mytool --password plainwordvalue"):
+            with self.subTest(result):
+                session = "kohako-g2-name-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                body = self._bodies()
+                self.assertNotIn("plainwordvalue", body)  # masked in the tool result
+                self.assertIn("cat app.yaml", body)
+                self.assertIn("masked_known_format", body)
+                self.assertNotIn("withheld_after_known_format_in_tool_output", body)
+                self.assertIn("plainconfigvalue", body)  # the reply after the tool stays readable
+
+    def test_ordinary_code_naming_a_secret_does_not_withhold(self):
+        # Regression (production 2026-11-07): these withheld every later body of the session.
+        for result in ("TOKEN_FILE=/work/.cache/state", "token = os.environ['API']", "fetch(url, { credentials: 'same-origin' })",
+                       "PASS: disk check", "mytool --token $TOKEN run"):
+            with self.subTest(result):
+                session = "kohako-g2-code-" + str(abs(hash(result)))
+                self._value_only_reply(session, "read_file", {"path": "/src/app.py"}, result=result)
+                self.assertIsNone(plugin._tainted(session))
+                body = self._bodies()
+                self.assertIn("plainconfigvalue", body)
+                self.assertNotIn("withheld_after_", body)
 
     def test_a_secret_word_alone_in_a_tool_result_does_not_withhold(self):
         self._value_only_reply("kohako-g2-word", "terminal", {"command": "cat README.md"},
@@ -806,8 +833,8 @@ class ObserverTest(unittest.TestCase):
             "chat_args": {"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]},
             "anthropic_args": {"role": "assistant", "content": [{"type": "tool_use", "name": "read_file", "input": {"path": "/a/.env"}}]},
             "responses_args": {"type": "function_call", "name": "terminal", "arguments": '{"command": "kubectl get secret x -o yaml"}'},
-            "format_in_result": {"role": "tool", "content": "api_key=" + "plainword" + "value9"},
-            "anthropic_result": {"role": "user", "content": [{"type": "tool_result", "content": "<password>plainwordvalue</password>"}]},
+            "format_in_result": {"role": "tool", "content": "Authorization: Bearer " + "plainword" + "value9"},
+            "anthropic_result": {"role": "user", "content": [{"type": "tool_result", "content": "key: ghp_" + "plainwordvalue"}]},
             "responses_result": {"type": "function_call_output", "output": "PATH=/usr/bin\nHOME=/root\nOPAQUE=plainwordvalue"},
         }
         for name, shape in shapes.items():
