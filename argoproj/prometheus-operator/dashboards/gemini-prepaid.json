@@ -120,7 +120,7 @@
       "id": 3,
       "type": "stat",
       "title": "推計残額",
-      "description": "記録済み利用分を引いた残額。US$5 は Studio 初回試験上限。",
+      "description": "記録済み利用分を引いた残額。US$5 は Studio 初回試験上限。 通貨ごとに単位を分けて表示し、赤/橙の閾値 (US$5/US$10) は USD 基準のときのみ適用する。JPY/EUR は為替換算せず色分けしない。",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -133,9 +133,42 @@
       },
       "targets": [
         {
-          "expr": "ai_prepaid_balance_estimated_remaining{job=\"codex-workspace-ai-ops-metrics\"}",
-          "refId": "A",
-          "legendFormat": "推計",
+          "expr": "ai_prepaid_balance_estimated_remaining{job=\"codex-workspace-ai-ops-metrics\",currency=\"USD\"}",
+          "refId": "U",
+          "legendFormat": "推計 US$",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false
+        },
+        {
+          "expr": "ai_prepaid_balance_estimated_remaining{job=\"codex-workspace-ai-ops-metrics\",currency=\"JPY\"}",
+          "refId": "J",
+          "legendFormat": "推計 円",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false
+        },
+        {
+          "expr": "ai_prepaid_balance_estimated_remaining{job=\"codex-workspace-ai-ops-metrics\",currency=\"EUR\"}",
+          "refId": "E",
+          "legendFormat": "推計 EUR",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false
+        },
+        {
+          "expr": "ai_prepaid_balance_estimated_remaining{job=\"codex-workspace-ai-ops-metrics\",currency=\"other\"}",
+          "refId": "O",
+          "legendFormat": "推計 他通貨(単位不明)",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -146,28 +179,125 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "none",
           "noValue": "推計不可 (状態を参照)",
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "blue",
                 "value": null
-              },
-              {
-                "color": "orange",
-                "value": 5
-              },
-              {
-                "color": "green",
-                "value": 10
               }
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "U"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 5
+                    },
+                    {
+                      "color": "green",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "J"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyJPY"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "O"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -198,9 +328,42 @@
       },
       "targets": [
         {
-          "expr": "ai_prepaid_baseline_amount{job=\"codex-workspace-ai-ops-metrics\"}",
-          "refId": "A",
-          "legendFormat": "基準",
+          "expr": "ai_prepaid_baseline_amount{job=\"codex-workspace-ai-ops-metrics\",currency=\"USD\"}",
+          "refId": "U",
+          "legendFormat": "基準 US$",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false
+        },
+        {
+          "expr": "ai_prepaid_baseline_amount{job=\"codex-workspace-ai-ops-metrics\",currency=\"JPY\"}",
+          "refId": "J",
+          "legendFormat": "基準 円",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false
+        },
+        {
+          "expr": "ai_prepaid_baseline_amount{job=\"codex-workspace-ai-ops-metrics\",currency=\"EUR\"}",
+          "refId": "E",
+          "legendFormat": "基準 EUR",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false
+        },
+        {
+          "expr": "ai_prepaid_baseline_amount{job=\"codex-workspace-ai-ops-metrics\",currency=\"other\"}",
+          "refId": "O",
+          "legendFormat": "基準 他通貨(単位不明)",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -211,7 +374,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "none",
           "noValue": "未設定",
           "mappings": [],
           "thresholds": {
@@ -224,7 +387,104 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "U"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "J"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyJPY"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "O"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -456,9 +716,42 @@
       },
       "targets": [
         {
-          "expr": "sum by (basis) (ai_prepaid_tracked_usage_since_baseline{job=\"codex-workspace-ai-ops-metrics\"})",
-          "refId": "A",
-          "legendFormat": "{{basis}}",
+          "expr": "sum by (basis) (ai_prepaid_tracked_usage_since_baseline{job=\"codex-workspace-ai-ops-metrics\",currency=\"USD\"})",
+          "refId": "U",
+          "legendFormat": "{{basis}} US$",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false
+        },
+        {
+          "expr": "sum by (basis) (ai_prepaid_tracked_usage_since_baseline{job=\"codex-workspace-ai-ops-metrics\",currency=\"JPY\"})",
+          "refId": "J",
+          "legendFormat": "{{basis}} 円",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false
+        },
+        {
+          "expr": "sum by (basis) (ai_prepaid_tracked_usage_since_baseline{job=\"codex-workspace-ai-ops-metrics\",currency=\"EUR\"})",
+          "refId": "E",
+          "legendFormat": "{{basis}} EUR",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "instant": true,
+          "range": false
+        },
+        {
+          "expr": "sum by (basis) (ai_prepaid_tracked_usage_since_baseline{job=\"codex-workspace-ai-ops-metrics\",currency=\"other\"})",
+          "refId": "O",
+          "legendFormat": "{{basis}} 他通貨(単位不明)",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -469,7 +762,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "none",
           "noValue": "未取得",
           "mappings": [],
           "thresholds": {
@@ -482,7 +775,104 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "U"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "J"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyJPY"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "O"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -741,18 +1131,72 @@
       },
       "targets": [
         {
-          "expr": "ai_prepaid_balance_estimated_remaining{job=\"codex-workspace-ai-ops-metrics\"}",
-          "refId": "A",
-          "legendFormat": "推計残額",
+          "expr": "ai_prepaid_balance_estimated_remaining{job=\"codex-workspace-ai-ops-metrics\",currency=\"USD\"}",
+          "refId": "U",
+          "legendFormat": "推計 US$",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           }
         },
         {
-          "expr": "ai_prepaid_baseline_amount{job=\"codex-workspace-ai-ops-metrics\"}",
-          "refId": "B",
-          "legendFormat": "基準残高",
+          "expr": "ai_prepaid_balance_estimated_remaining{job=\"codex-workspace-ai-ops-metrics\",currency=\"JPY\"}",
+          "refId": "J",
+          "legendFormat": "推計 円",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        },
+        {
+          "expr": "ai_prepaid_balance_estimated_remaining{job=\"codex-workspace-ai-ops-metrics\",currency=\"EUR\"}",
+          "refId": "E",
+          "legendFormat": "推計 EUR",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        },
+        {
+          "expr": "ai_prepaid_balance_estimated_remaining{job=\"codex-workspace-ai-ops-metrics\",currency=\"other\"}",
+          "refId": "O",
+          "legendFormat": "推計 他通貨(単位不明)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        },
+        {
+          "expr": "ai_prepaid_baseline_amount{job=\"codex-workspace-ai-ops-metrics\",currency=\"USD\"}",
+          "refId": "BU",
+          "legendFormat": "基準 US$",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        },
+        {
+          "expr": "ai_prepaid_baseline_amount{job=\"codex-workspace-ai-ops-metrics\",currency=\"JPY\"}",
+          "refId": "BJ",
+          "legendFormat": "基準 円",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        },
+        {
+          "expr": "ai_prepaid_baseline_amount{job=\"codex-workspace-ai-ops-metrics\",currency=\"EUR\"}",
+          "refId": "BE",
+          "legendFormat": "基準 EUR",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          }
+        },
+        {
+          "expr": "ai_prepaid_baseline_amount{job=\"codex-workspace-ai-ops-metrics\",currency=\"other\"}",
+          "refId": "BO",
+          "legendFormat": "基準 他通貨(単位不明)",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -761,7 +1205,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD",
+          "unit": "none",
           "noValue": "未取得",
           "mappings": [],
           "thresholds": {
@@ -774,7 +1218,104 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "U"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "BU"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "J"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyJPY"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "BJ"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyJPY"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "BE"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "O"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "BO"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          }
+        ]
       },
       "options": {}
     }
