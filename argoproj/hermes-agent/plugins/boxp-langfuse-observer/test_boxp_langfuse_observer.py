@@ -267,6 +267,27 @@ class ObserverTest(unittest.TestCase):
                 self.assertIn(value, plugin._named_values(text)[0])
                 self.assertNotIn(value.split()[-1], plugin._redact(text)[0])
 
+    def test_named_values_in_list_and_object_values(self):
+        # Regression (arch#14548 review, same rule): a list or object value (password: [a, b], token: {primary: a})
+        # is masked in place as a whole, so every element is pinned too, not only the text up to the first delimiter.
+        cases = [("password: [hunterhorse, meadowlake]", ["hunterhorse", "meadowlake"]),
+                 ("password = [\"hunterhorse\", 'meadowlake']", ["hunterhorse", "meadowlake"]),
+                 ('{"api_key": ["hunterhorse", "meadowlake"]}', ["hunterhorse", "meadowlake"]),
+                 ("secret: {primary: hunterhorse, backup: meadowlake}", ["hunterhorse", "meadowlake"]),
+                 ('{\\"token\\": [\\"hunterhorse\\", \\"mead,owlake\\"]}', ["hunterhorse", "mead,owlake"]),
+                 ("password: [[hunterhorse], (meadowlake)]", ["hunterhorse", "meadowlake"]),
+                 ("password: [hunterhorse, meadowlake", ["hunterhorse", "meadowlake"])]
+        for text, values in cases:
+            with self.subTest(text=text):
+                found = plugin._named_values(text)[0]
+                for value in values:
+                    self.assertIn(value, found)
+                    self.assertNotIn(value, plugin._redact(text)[0])
+                self.assertFalse(any(v.startswith("[") for v in found))
+        found = plugin._named_values("secret: {primary: hunterhorse, backup: meadowlake}")[0]
+        self.assertFalse({"primary", "backup"} & found)
+        self.assertTrue(plugin._named_values("password: [hunterhorse, ab]")[1])
+
     def test_named_values_in_uppercase_cli_flags(self):
         # Regression (arch#14548 review, same rule): CLI password flags are matched case-insensitively for both
         # masking and pinning, so `curl --USER admin:x` pins x and a later bare restatement is masked.

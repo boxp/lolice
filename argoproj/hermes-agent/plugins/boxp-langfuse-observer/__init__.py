@@ -611,6 +611,51 @@ def _decoded_forms(value):
     return forms
 
 
+# A list or object value (password: [a, b], token: {primary: a}) is masked in place as a whole (_mask_structured);
+# each element is pinned too. Quoted elements keep their commas; a key followed by : or = names, not a value.
+_COLLECTION_GAP = re.compile(r"(?:[\s,;\[\]{}()]++|\\++[nrt](?![A-Za-z0-9]))++")
+_KEY_SEPARATOR = re.compile(r"\s*(?:[:=]|\\+u00(?:3[aA]|3[dD]))")
+
+
+def _collection_values(text):
+    is_object = text.lstrip().startswith("{")
+    values, tokens = [], 0
+    while True:
+        gap = _COLLECTION_GAP.match(text)
+        if gap:
+            text = text[gap.end():]
+        if not text.strip() or len(values) > 64:
+            return values
+        if tokens > 256:
+            # Past 256 tokens (mostly keys) the rest is one value, which unpins it when long (fail closed).
+            values.append(text)
+            return values
+        tokens += 1
+        quote = _OPENING_QUOTE.match(text)
+        value = _first_value(text)
+        if quote:
+            q = quote.group(0)
+            closed = re.search(r"(?<!\\)" + re.escape(q), text[len(q):], re.I)
+            consumed = len(q) + closed.end() if closed else len(text)
+        else:
+            value = re.split(r"[\[\]{}()]", value, maxsplit=1)[0]
+            consumed = len(value)
+        consumed = max(1, min(consumed, len(text)))
+        text = text[consumed:]
+        separator = _KEY_SEPARATOR.match(text)
+        if separator:
+            text = text[separator.end():]
+            continue
+        if not quote and re.search(r"[:=]$", value):
+            continue
+        if not quote and is_object:
+            pair = re.match(r"^[\w.-]+[:=](.+)$", value)
+            if pair:
+                value = pair.group(1)
+        if value.strip():
+            values.append(value.strip())
+
+
 def _named_values(text):
     found, unpinned = _named_values_raw(text)
     decoded = {form for value in found for form in _decoded_forms(value)}
@@ -631,16 +676,29 @@ def _named_values_raw(text):
     for kind, pattern in _PATTERNS:
         if kind not in _PIN_KINDS:
             continue
+        covered = 0
         for match in pattern.finditer(text):
             raw = match.group(0)
             values = []
             if kind == "assignment":
+                if match.start() < covered:
+                    # Inside a list/object value already scanned below: its elements are pinned there, and skipping
+                    # keeps unclosed brackets (password: [password: [ ...) linear.
+                    continue
                 sep = _NAME_SEPARATOR.match(raw)
                 if not sep:
                     continue
                 name = re.sub(r"[\"'\\\s]", "", sep.group(1))
                 tail = raw[sep.end():]
-                if re.match(r"\s*[|>]", tail):
+                position = match.start() + sep.end()
+                while position < len(text) and text[position] in " \t":
+                    position += 1
+                if position < len(text) and text[position] in "[{(":
+                    # The value runs to the matching close (or the end of text, fail closed), as _mask_structured
+                    # masks it.
+                    covered = max(match.end(), _bracket_end(text, position))
+                    values = _collection_values(text[position:covered])
+                elif re.match(r"\s*[|>]", tail):
                     values = [line.strip() for line in _LINE_BREAK.split(tail)[1:]]
                     values = [_first_value(v) if re.match(r"\\*[\"']", v) else v for v in values]
                 else:
