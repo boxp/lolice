@@ -157,9 +157,10 @@ _PATTERNS = [
         + _entry_key("name") + _QUOTE + r"?" + _SECRET_KEY)),
     ("flag", re.compile(r"(?i)(?<![\w-])--?" + _SECRET_KEY + r"[ \t]+(?!-)" + _value("quote", bare=r"\S+"))),
     # A CLI password is one shell word: a quoted value runs to its matching quote (_value), so
-    # sshpass -p 'apple orchard' masks and pins the whole value, not just the part before the space.
+    # sshpass -p 'apple orchard' masks and pins the whole value, not just the part before the space. A quote that
+    # never closes (-u 'admin:apple orchard) runs to the end of the line.
     ("cli_password", re.compile(
-        r"(?i)(?<![\w-])(?:-u|--user)[ \t=]*(?P<uq>" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]*:[^\n]*?(?<!\\)(?P=uq)")),
+        r"(?i)(?<![\w-])(?:-u|--user)[ \t=]*(?P<uq>" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]*:(?:[^\n]*?(?<!\\)(?P=uq)|[^\n]*)")),
     ("cli_password", re.compile(
         r"(?i)(?<![\w-])(?:-u|--user)[ \t=]*(?!" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]+:" + _value("quote", bare=r"\S+"))),
     ("cli_password", re.compile(
