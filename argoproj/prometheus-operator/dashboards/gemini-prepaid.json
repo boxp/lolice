@@ -40,7 +40,7 @@
       "description": "実残高と推計の違い",
       "options": {
         "mode": "markdown",
-        "content": "実残高は Google 公式 API がないため自動取得できません（AI Studio Billing タブのみ）。\n\n推計残額 = Owner 確認の基準残高 − 当環境で記録した Gemini 利用推計。他 client・他 project の消費、約10分〜1日の課金遅延、失効（購入12か月）、購入・付与、価格改定は反映されません。未取得を 0 や十分とは読まないでください。BOXP-462 の subscription 予測とは別指標です。"
+        "content": "実残高は Google 公式 API がないため自動取得できません（AI Studio Billing タブのみ）。\n\n推計残額 = Owner 確認の基準残高 − 当環境で記録した Gemini 利用推計。他 client・他 project の消費、約10分〜1日の課金遅延、失効（購入12か月）、購入・付与、価格改定は反映されません。利用記録元（Studio 等）が基準時刻以前から全呼出しを記録していると coverage.json で宣言するまでは推計残額を出しません（状態「利用記録の網羅未確認」）。未取得を 0 や十分とは読まないでください。BOXP-462 の subscription 予測とは別指標です。"
       },
       "gridPos": {
         "x": 0,
@@ -644,6 +644,17 @@
           "instant": true,
           "range": false,
           "legendFormat": "usage_ledger_missing"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(ai_prepaid_estimate_state{job=\"codex-workspace-ai-ops-metrics\",state=\"usage_coverage_unconfirmed\"} == 1) * 7",
+          "refId": "G",
+          "instant": true,
+          "range": false,
+          "legendFormat": "usage_coverage_unconfirmed"
         }
       ],
       "fieldConfig": {
@@ -671,6 +682,9 @@
                 },
                 "6": {
                   "text": "ledger未作成/読取不可"
+                },
+                "7": {
+                  "text": "利用記録の網羅未確認"
                 }
               }
             }

@@ -29,7 +29,7 @@ jq -c '.[] | select(.kind == "Deployment") |
      spec: {automountServiceAccountToken: false, securityContext: {fsGroup: 1000},
        containers: [$container], volumes: [$volume, {name: "home", emptyDir: {}}],
        initContainers: [{name: "stub-metrics", image: $container.image,
-         command: ["python", "-c", "import os; p=os.environ[\"AI_OPS_METRICS_FILE\"]; os.makedirs(os.path.dirname(p), exist_ok=True); open(p, \"w\").write(\"ai_ops_stub_metric 1\\n\"); d=os.environ[\"AI_PREPAID_DIR\"]; os.makedirs(d, exist_ok=True); import json; json.dump(dict(schema=\"gemini-prepaid-baseline/v1\", amount=10, currency=\"USD\", observed_at=\"2026-01-01T00:00:00Z\", source=\"ai_studio_ui_owner\"), open(d+\"/baseline.json\", \"w\")); open(d+\"/usage.jsonl\", \"w\").write(\"\")"],
+         command: ["python", "-c", "import os; p=os.environ[\"AI_OPS_METRICS_FILE\"]; os.makedirs(os.path.dirname(p), exist_ok=True); open(p, \"w\").write(\"ai_ops_stub_metric 1\\n\"); d=os.environ[\"AI_PREPAID_DIR\"]; os.makedirs(d, exist_ok=True); import json; json.dump(dict(schema=\"gemini-prepaid-baseline/v1\", amount=10, currency=\"USD\", observed_at=\"2026-01-01T00:00:00Z\", source=\"ai_studio_ui_owner\"), open(d+\"/baseline.json\", \"w\")); json.dump(dict(schema=\"gemini-prepaid-coverage/v1\", clients=[\"chainsaw\"], recording_since=\"2026-01-01T00:00:00Z\"), open(d+\"/coverage.json\", \"w\")); open(d+\"/usage.jsonl\", \"w\").write(\"\")"],
          env: [{name: "AI_OPS_METRICS_FILE", value: $path}, {name: "AI_PREPAID_DIR", value: $prepaid}], securityContext: $container.securityContext,
          volumeMounts: [{name: "home", mountPath: "/home/boxp"}]}]}}}}' "$tmp/docs.json"
 

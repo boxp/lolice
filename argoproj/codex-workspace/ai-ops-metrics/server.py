@@ -98,6 +98,23 @@ def prepaid_metrics(directory):
         baseline = (amount, currency, source, observed)
     except (ValueError, TypeError, OverflowError, UnicodeError, OSError, RecursionError):
         pass
+    # The ledger only covers usage if a producer attests that it records every call
+    # since (at or before) the baseline. An empty ledger without that attestation is
+    # "usage not tracked", never zero usage.
+    data, oversized, coverage_readable = prepaid_read(os.path.join(directory, "coverage.json"))
+    covered = False
+    try:
+        if coverage_readable and not oversized:
+            obj = json.loads(data)
+            if not isinstance(obj, dict) or obj.get("schema") != "gemini-prepaid-coverage/v1":
+                raise ValueError("invalid schema")
+            clients = obj.get("clients")
+            if not isinstance(clients, list) or not clients or not all(isinstance(c, str) and c for c in clients):
+                raise ValueError("invalid clients")
+            since = prepaid_timestamp(obj.get("recording_since"), utc_only=True)
+            covered = baseline is not None and since <= baseline[3]
+    except (ValueError, TypeError, OverflowError, UnicodeError, OSError, RecursionError):
+        covered = False
     data, oversized, ledger_present = prepaid_read(os.path.join(directory, "usage.jsonl"))
     invalid = int(oversized)
     totals = {"estimate": 0.0, "actual": 0.0}
@@ -128,7 +145,8 @@ def prepaid_metrics(directory):
     state = ("baseline_missing" if not readable and not os.path.exists(os.path.join(directory, "baseline.json")) else
              "baseline_invalid" if not baseline else
              # An absent/unreadable ledger is "unknown usage", never zero usage.
-             "usage_ledger_missing" if not ledger_present else "currency_mismatch" if mismatch else
+             "usage_ledger_missing" if not ledger_present else
+             "usage_coverage_unconfirmed" if not covered else "currency_mismatch" if mismatch else
              "usage_ledger_invalid" if invalid else "ok")
     # Google provides no official API for the actual prepaid balance.
     metric("ai_prepaid_balance_actual_state", "Availability of the actual prepaid balance.", [(scope + ',state="unsupported"', 1)])
@@ -137,12 +155,13 @@ def prepaid_metrics(directory):
     metric("ai_prepaid_baseline_amount", "Owner observed baseline amount.", [(scope + f',currency="{currency_label}",source="{label(baseline[2], {"ai_studio_ui_owner"})}"', baseline[0])] if baseline else [])
     metric("ai_prepaid_baseline_observed_timestamp_seconds", "Baseline observation timestamp.", [(provider, baseline[3])] if baseline else [])
     metric("ai_prepaid_usage_ledger_present", "Whether the usage ledger is readable.", [(provider, int(ledger_present))])
+    metric("ai_prepaid_usage_coverage_confirmed", "Whether a producer attests the ledger covers all usage since the baseline.", [(provider, int(covered))])
     metric("ai_prepaid_usage_ledger_invalid_lines", "Number of invalid usage ledger lines.", [(provider, invalid)])
     metric("ai_prepaid_tracked_usage_since_baseline", "Tracked usage after the baseline by basis.", [(provider + f',currency="{currency_label}",basis="{basis}"', total) for basis, total in totals.items()] if baseline and ledger_present else [])
     metric("ai_prepaid_tracked_usage_events_since_baseline", "Number of valid events after the baseline.", [(provider, count)] if baseline and ledger_present else [])
     metric("ai_prepaid_usage_last_event_timestamp_seconds", "Latest valid usage event timestamp.", [(provider, last)] if last is not None else [])
     metric("ai_prepaid_balance_estimated_remaining", "Estimated remaining balance.", [(scope + f',currency="{currency_label}"', baseline[0] - sum(totals.values()))] if state == "ok" else [])
-    metric("ai_prepaid_estimate_state", "One-hot estimate state.", [(provider + f',state="{s}"', int(state == s)) for s in ("ok", "baseline_missing", "baseline_invalid", "usage_ledger_missing", "usage_ledger_invalid", "currency_mismatch")])
+    metric("ai_prepaid_estimate_state", "One-hot estimate state.", [(provider + f',state="{s}"', int(state == s)) for s in ("ok", "baseline_missing", "baseline_invalid", "usage_ledger_missing", "usage_ledger_invalid", "currency_mismatch", "usage_coverage_unconfirmed")])
     metric("ai_prepaid_metrics_generated_timestamp_seconds", "Collector generation timestamp.", [(provider, time.time())])
     return ("\n".join(lines) + "\n").encode()
 

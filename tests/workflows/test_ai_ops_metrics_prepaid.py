@@ -20,8 +20,10 @@ class PrepaidTest(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.baseline = dict(schema='gemini-prepaid-baseline/v1', amount=10, currency='USD', observed_at='2026-01-01T00:00:00Z', source='ai_studio_ui_owner')
 
-    def write_baseline(self):
+    def write_baseline(self, coverage='2026-01-01T00:00:00Z'):
         (self.root / 'baseline.json').write_text(json.dumps(self.baseline))
+        if coverage:
+            (self.root / 'coverage.json').write_text(json.dumps(dict(schema='gemini-prepaid-coverage/v1', clients=['kohako_studio'], recording_since=coverage)))
 
     def event(self, ts, cost, **kw):
         return dict(ts=ts, estimated_cost=cost, currency='USD', basis='estimate', client='SECRET_CLIENT', model='SECRET_MODEL', **kw)
@@ -61,6 +63,21 @@ class PrepaidTest(unittest.TestCase):
         self.state(out, 'usage_ledger_missing')
         self.assertNotIn('ai_prepaid_balance_estimated_remaining{', out)
 
+    def test_empty_ledger_without_coverage_is_not_zero_usage(self):
+        self.write_baseline(coverage=None)
+        (self.root / 'usage.jsonl').write_text('')
+        out = self.output()
+        self.state(out, 'usage_coverage_unconfirmed')
+        self.assertIn('ai_prepaid_usage_coverage_confirmed{provider="gemini_api"} 0', out)
+        self.assertNotIn('ai_prepaid_balance_estimated_remaining{', out)
+
+    def test_coverage_after_baseline_is_unconfirmed(self):
+        self.write_baseline(coverage='2026-01-01T00:00:01Z')
+        (self.root / 'usage.jsonl').write_text('')
+        self.state(self.output(), 'usage_coverage_unconfirmed')
+        (self.root / 'coverage.json').write_text('{"schema":"gemini-prepaid-coverage/v1","clients":[],"recording_since":"2025-01-01T00:00:00Z"}')
+        self.state(self.output(), 'usage_coverage_unconfirmed')
+
     def test_empty_ledger_and_negative(self):
         self.baseline['amount'] = -2
         self.write_baseline()
@@ -68,6 +85,7 @@ class PrepaidTest(unittest.TestCase):
         out = self.output()
         self.state(out, 'ok')
         self.assertIn('ai_prepaid_usage_ledger_present{provider="gemini_api"} 1', out)
+        self.assertIn('ai_prepaid_usage_coverage_confirmed{provider="gemini_api"} 1', out)
         self.assertIn('currency="USD"} -2.0', out)
         self.assertIn('basis="actual"} 0.0', out)
 

@@ -22,7 +22,7 @@ BOXP-462 の subscription 指標とは**別ファイル・別 prefix**（`ai_pre
 2. **基準残高**: Owner が AI Studio Billing タブで確認した金額・通貨・確認時刻（`baseline.json`）。
 3. **推計残額**: 基準残高 −（基準時刻より後に当環境の client が `usage.jsonl` に記録した Gemini 利用費の推計）。
    当環境外の消費・課金遅延・失効・購入は反映されないので「推計」と明示する。
-4. **状態**: 基準未設定・基準不正・ledger 未作成/読取不可・ledger 不正・通貨不一致を one-hot の state で区別する。未取得を 0 や十分な残高として扱わない。
+4. **状態**: 基準未設定・基準不正・ledger 未作成/読取不可・利用記録の網羅未確認・ledger 不正・通貨不一致を one-hot の state で区別する。未取得を 0 や十分な残高として扱わない。
 5. **鮮度**: 基準の確認時刻からの経過、ledger の最終記録時刻、生成時刻。
 
 入力ファイル（`/home/boxp/.codex-task-board/ai-ops/gemini-prepaid/`、非秘密、本文/明細/キーは書かない）:
@@ -30,7 +30,11 @@ BOXP-462 の subscription 指標とは**別ファイル・別 prefix**（`ai_pre
 - `baseline.json`: `{"schema":"gemini-prepaid-baseline/v1","amount":12.34,"currency":"USD","observed_at":"2026-11-07T18:40:00Z","source":"ai_studio_ui_owner"}`
   購入・付与・失効があったら Owner が AI Studio で再確認した値で置き換える。
 - `usage.jsonl`: 1 行 1 呼出し。`{"ts":"...","client":"kohako_studio","model":"gemini-...","estimated_cost":0.13,"currency":"USD","basis":"estimate"}`
-  441 の Studio 試験 ledger から記録する。
+  記録処理は lolice 外（BOXP-441 の Studio 試験 ledger 側）で接続する。本 PR は writer を含まない。
+- `coverage.json`: `{"schema":"gemini-prepaid-coverage/v1","clients":["kohako_studio"],"recording_since":"...Z"}`。
+  writer を接続した client が「この時刻以降の全呼出しを usage.jsonl に記録する」と宣言する。
+  これが無い、または `recording_since` が基準の確認時刻より後なら state `usage_coverage_unconfirmed` とし推計残額を出さない
+  （writer 未接続のまま空 ledger で ok になり、利用を差し引かない残額を表示するのを防ぐ）。
 
 Grafana dashboard `gemini-prepaid`（`AI / Gemini API 前払い残高`）を新設し、実残高・基準・推計・状態・鮮度・限界の注記を分けて表示する。
 既存 `ai-ops-quality` と 462 の forecast rule とは別ファイル。
