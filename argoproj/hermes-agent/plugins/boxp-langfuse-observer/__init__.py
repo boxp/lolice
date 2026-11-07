@@ -666,9 +666,13 @@ def _collection_values(text):
             continue
         if not quote and re.search(r"[:=]$", value):
             continue
-        if not quote and is_object:
+        if not quote:
+            # key:value with no space after the separator. Inside an object only the value is a value; in a list
+            # ([{primary:a}], [a:b]) the token may be an object nested in the list or a literal, so pin both.
             pair = re.match(r"^[\w.-]+[:=](.+)$", value)
             if pair:
+                if not is_object and value.strip():
+                    values.append(value.strip())
                 value = pair.group(1)
         if value.strip():
             values.append(value.strip())

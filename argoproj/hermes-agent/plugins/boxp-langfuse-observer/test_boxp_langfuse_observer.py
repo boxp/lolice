@@ -317,6 +317,16 @@ class ObserverTest(unittest.TestCase):
         found = plugin._named_values("secret: {primary: hunterhorse, backup: meadowlake}")[0]
         self.assertFalse({"primary", "backup"} & found)
         self.assertTrue(plugin._named_values("password: [hunterhorse, ab]")[1])
+        # Regression (lolice#1107 review): an object nested in a list ([{primary:a}]) with no space after the
+        # colon pins the value itself, not only key:value as one token.
+        for text in ["password: [{primary:hunterhorse}]", "password: [{primary=hunterhorse}, {backup:meadowlake}]",
+                     "app --token [{primary:hunterhorse}]", "password: [({primary:hunterhorse})]"]:
+            with self.subTest(text=text):
+                found = plugin._named_values(text)[0]
+                self.assertIn("hunterhorse", found)
+                self.assertNotIn("primary", found)
+                self.assertNotIn("hunterhorse", plugin._redact(text)[0])
+        self.assertIn("meadowlake", plugin._named_values("password: [{primary=hunterhorse}, {backup:meadowlake}]")[0])
 
     def test_named_values_in_env_entry_list_and_object_values(self):
         # Regression (arch#14548 review, same rule): an env entry whose value is a list or object
