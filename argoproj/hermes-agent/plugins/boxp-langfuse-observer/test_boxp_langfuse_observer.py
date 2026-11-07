@@ -205,7 +205,9 @@ class ObserverTest(unittest.TestCase):
     def test_decoded_named_values_are_masked_in_replies(self):
         for result, value in (("password: &quot;hunter&amp;horsefield&quot;", "hunter&horsefield"),
                               ("<password>pine&lt;hollowgate</password>", "pine<hollowgate"),
-                              ('{"password": "amber\\u0026willowpond"}', "amber&willowpond")):
+                              ('{"password": "amber\\u0026willowpond"}', "amber&willowpond"),
+                              ('password: "hunter\\"horsefield"', 'hunter"horsefield'),
+                              ('{"output": "password: \\"maple\\\\\\"brookstone\\""}', 'maple"brookstone')):
             with self.subTest(result=result):
                 session = "kohako-g2-decoded-" + str(abs(hash(result)))
                 plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
@@ -216,6 +218,13 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn(value, body)
                 self.assertNotIn(json.dumps(value)[1:-1], body)
                 self.assertIn("laterreplymarker", body)
+
+    def test_named_values_with_escaped_quotes(self):
+        # An escaped quote inside a quoted value does not end it (the in-place mask's (?<!\\) rule).
+        self.assertEqual(plugin._named_values('password: "hunter\\"horsefield"'), ({'hunter\\"horsefield', 'hunter"horsefield'}, False))
+        self.assertEqual(plugin._named_values("password: 'it\\'s-quietpond'"), ({"it\\'s-quietpond", "it's-quietpond"}, False))
+        self.assertEqual(plugin._named_values('password: "hunterhorse" next: "x"'), ({"hunterhorse"}, False))
+        self.assertEqual(plugin._named_values('{"password": "hunterhorse", "note": "a\\"b"}'), ({"hunterhorse"}, False))
 
     def test_named_values_skip_references_and_settings(self):
         for text in ("password: $VAR", "password: ${VAR}", "password: [REDACTED:assignment]", "AUTH_ENABLED=false"):
