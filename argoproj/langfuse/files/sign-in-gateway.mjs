@@ -41,10 +41,15 @@ async function startLogin(query) {
   };
 }
 
-// A failed login comes back with ?error=. The real page shows it, so a failure cannot become a redirect loop.
+// A failed login comes back with ?error=. The real page (or its props) shows it, so a failure cannot become a redirect loop.
 async function showSignInPage(req, res, url) {
   const page = await fetch(web + url.pathname + url.search, {
-    headers: { accept: req.headers.accept ?? "text/html", cookie: req.headers.cookie ?? "" },
+    headers: {
+      accept: req.headers.accept ?? "text/html",
+      cookie: req.headers.cookie ?? "",
+      // Next.js answers a props request only when the router marks it as one.
+      ...(req.headers["x-nextjs-data"] ? { "x-nextjs-data": req.headers["x-nextjs-data"] } : {}),
+    },
     redirect: "manual",
   });
   const headers = { "content-type": page.headers.get("content-type") ?? "text/html" };

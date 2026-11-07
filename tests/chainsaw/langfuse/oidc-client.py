@@ -69,7 +69,8 @@ elif command == "build-id":
     page = call("GET", WEB + "/auth/sign-in?error=x")[2].decode()
     result = {"build": json.loads(page.split('id="__NEXT_DATA__" type="application/json">', 1)[1].split("</script>", 1)[0])["buildId"]}
 elif command == "gateway-status":
-    status, location, data = call(sys.argv[2], GATEWAY + sys.argv[3])
+    data_request = {"x-nextjs-data": "1"} if sys.argv[3].startswith("/_next/data/") else {}
+    status, location, data = call(sys.argv[2], GATEWAY + sys.argv[3], headers=data_request)
     result = {"status": status, "location": location, "html": b"<html" in data[:2000].lower()}
 elif command == "spoof":
     forged = {"Cf-Access-Jwt-Assertion": "forged.jwt.value", "Cf-Access-Authenticated-User-Email": os.environ["OWNER_EMAIL"],
