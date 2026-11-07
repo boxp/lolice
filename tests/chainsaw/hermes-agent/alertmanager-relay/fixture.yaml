@@ -30,10 +30,17 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/am
+            # Same path as the Alertmanager CR `spec.secrets` mount in production.
+            - name: hermes-token
+              mountPath: /etc/alertmanager/secrets/alertmanager-hermes-webhook-token
+              readOnly: true
       volumes:
         - name: config
           secret:
             secretName: alertmanager-config
+        - name: hermes-token
+          secret:
+            secretName: alertmanager-hermes-webhook-token
 ---
 apiVersion: apps/v1
 kind: Deployment

@@ -29,6 +29,6 @@ kubectl port-forward svc/grafana -n monitoring 3000:3000
 
 ### Hermes への転送
 
-Alertmanager は label `notify_hermes="true"` を持つアラートの写しを Hermes の webhook route `alertmanager` へ送ります（`continue: true` なので既存のメール経路はそのまま）。route は deliver_only で LLM を起動せず、`alertmanager_relay.clj` が payload を検証・無害化して Telegram へ短く届けます。認証は route 専用 token を `X-Gitlab-Token` で送る方式で、token は hermes-agent namespace で生成し、monitoring の SecretStore `hermes-webhook-token` が 1 つの Secret だけ読みます。通知済みの記録は Alertmanager の PVC（nflog）に残ります。静音時間（02:00-09:00 JST）は critical を含まない通知を出さず、`repeat_interval: 6h` で再送されます。
+Alertmanager は label `notify_hermes="true"` を持つアラートの写しを Hermes の webhook route `alertmanager` へ送ります（`continue: true` なので既存のメール経路はそのまま）。route は deliver_only で LLM を起動せず、`alertmanager_relay.clj` が payload を検証・無害化して Telegram へ短く届けます。認証は route 専用 token を `X-Gitlab-Token` で送る方式で、token は hermes-agent namespace で生成し、monitoring の SecretStore `hermes-webhook-token` が 1 つの Secret だけ読んで monitoring の Secret `alertmanager-hermes-webhook-token` に写し、Alertmanager CR の `spec.secrets` でマウントしたファイルを `http_headers` の `files:` で読みます（`secrets:` は prometheus-operator が設定を再生成するときに `<secret>` へ置き換えるため使えません）。通知済みの記録は Alertmanager の PVC（nflog）に残ります。静音時間（02:00-09:00 JST）は critical を含まない通知を出さず、`repeat_interval: 6h` で再送されます。
 
 テストは `tests/run-promtool-tests.sh`（ルール）と `tests/chainsaw/hermes-agent/alertmanager-relay`（kind 上の Alertmanager → 受信口 → 整形）です。

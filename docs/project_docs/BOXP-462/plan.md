@@ -31,3 +31,9 @@
 - amtool check-config / routes test。
 - Chainsaw: `tests/chainsaw/hermes-agent/alertmanager-relay`（本番の Alertmanager 設定テンプレートと relay script を使い、token 付きで notify_hermes のアラートだけが届くこと、整形結果、不正 payload の破棄）。
 - 配備後: 実ルール読込・記録値・発火、ESO 同期、Alertmanager の receiver 設定、Hermes route 登録、明示テストアラートでの受領・解除・dedup、通知失敗時のメール経路、再起動後の復帰を個別に readback。
+
+## 配備後の修正（2026-11-07）
+
+- 実発火した warning 2 件の Hermes への送信が `Invalid signature for route alertmanager` で失敗（Alertmanager の webhook failed=2）。
+- 原因: prometheus-operator（v0.94.1）は `configSecret` の設定を読み込んで再生成するが、`http_headers` は prometheus/common の `Secret` 型で、`MarshalSecretValue` を有効にしていないため `secrets:` の値が `<secret>` に置き換わる。Chainsaw は素の Alertmanager に設定を直接渡しており operator を通らないため検出できなかった。
+- 修正: token を monitoring の Secret `alertmanager-hermes-webhook-token`（ESO、同じ SecretStore）に写し、Alertmanager CR の `spec.secrets` でマウントして `files:` で読む。Chainsaw も同じパスにマウントし、`http_headers.secrets` を使っていたら失敗する検査を追加。
