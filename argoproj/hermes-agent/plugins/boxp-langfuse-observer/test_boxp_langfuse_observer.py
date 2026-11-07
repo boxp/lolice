@@ -89,10 +89,93 @@ class ObserverTest(unittest.TestCase):
         plugin._turns.clear()
         plugin._stats.clear()
         plugin._sessions.clear()
+        getattr(plugin, "_pins", {}).clear()
+        getattr(plugin, "_parents", {}).clear()
+        getattr(plugin, "_pinned_digests", {}).clear()
         plugin._delegated.clear()
         getattr(plugin, "_scanned", {}).clear()
         plugin._creds = ("pk-lf-" + "test" * 4, "sk-lf-" + "test" * 4)
         plugin._secret_values = None
+
+    def test_named_value_restatements(self):
+        value = "hunterhorsebattery"
+        for result in ("password: " + value, "password: '" + value + "'", '{"api_key": "' + value + '"}',
+                       "--token " + value, "curl -u admin:" + value,
+                       '{"name": "APP_SECRET", "value": "' + value + '"}', "secret: |\n  " + value):
+            with self.subTest(result=result):
+                session = "kohako-g2-" + str(abs(hash(result)))
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={"path": "/tmp/a"}, result=result)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is " + value + " and laterreplymarker")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = bodies()
+                self.assertNotIn(value, body)
+                self.assertIn("laterreplymarker", body)
+
+    def test_named_value_from_a_structured_body(self):
+        value = "hunterhorsebattery"
+        for args, result in (({"path": "/tmp/a"}, {"output": "password: " + value + "\nnext line"}),
+                             ({"command": "mysql -p" + value}, "ok")):
+            with self.subTest(args=args, result=result):
+                session = "kohako-g2-structured-" + str(abs(hash(str(args))))
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="t", tool_name="terminal", args=args, result=result)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=value + " laterreplymarker")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = bodies()
+                self.assertNotIn(value, body)
+                self.assertIn("laterreplymarker", body)
+
+    def test_pins_leave_ids_and_keys_alone(self):
+        spans = [{"traceId": "abcd1234", "spanId": "1234", "name": "x 1234",
+                  "attributes": [{"key": "langfuse.observation.input", "value": {"stringValue": "1234 here"}}]}]
+        masked = plugin._mask_pins(spans, plugin.re.compile("1234|input"))
+        self.assertEqual(masked[0]["traceId"], "abcd1234")
+        self.assertEqual(masked[0]["spanId"], "1234")
+        self.assertEqual(masked[0]["attributes"][0]["key"], "langfuse.observation.input")
+        self.assertNotIn("1234", json.dumps([masked[0]["name"], masked[0]["attributes"][0]["value"]]))
+
+    def test_parent_pinned_value_masks_child(self):
+        plugin._on_turn_start(session_id="kohako-g2-parent", turn_id="t", user_message="password: hunterhorsebattery")
+        plugin._on_subagent_start(parent_session_id="kohako-g2-parent", child_session_id="kohako-g2-child")
+        plugin._on_turn_start(session_id="kohako-g2-child", turn_id="t", parent_session_id="kohako-g2-parent", user_message="hunterhorsebattery childmarker")
+        plugin._on_turn_end(session_id="kohako-g2-child", turn_id="t", assistant_response="hunterhorsebattery childmarker")
+        plugin._on_session_end(session_id="kohako-g2-child", turn_id="t", completed=True)
+        self.assertNotIn("hunterhorsebattery", bodies())
+
+    def test_short_tool_value_withholds(self):
+        session = "kohako-g2-short"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: q7z")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="laterbodymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        self.assertNotIn("laterbodymarker", bodies())
+        self.assertEqual(plugin._tainted(session), "known_format_in_tool_output")
+
+    def test_named_values_skip_references_and_settings(self):
+        for text in ("password: $VAR", "password: ${VAR}", "password: [REDACTED:assignment]", "AUTH_ENABLED=false"):
+            with self.subTest(text=text):
+                self.assertEqual(plugin._named_values(text), (set(), False))
+
+    def test_pinned_escapes_and_guard(self):
+        session = "kohako-g2-encoded"
+        value = "hunterhorsebattery"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="password: " + value)
+        encoded = "%68unterhorsebattery " + "&#104;unterhorsebattery " + "\\u0068unterhorsebattery"
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response=encoded + " keptmarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = bodies()
+        self.assertIn("keptmarker", body)
+        for marker in ("%68unterhorsebattery", "&#104;unterhorsebattery", "u0068unterhorsebattery"):
+            self.assertNotIn(marker, body)
+        self.assertEqual(list(plugin.guarded_payloads([{"name": value}], plugin._pin_pattern(session))), [])
+
+    def test_pinned_limit_withholds(self):
+        session = "kohako-g2-limit"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        for i in range(257):
+            plugin._pin_body(session, None, "password: uniquevalue%03d" % i)
+        self.assertEqual(plugin._tainted(session), "pinned_values_over_limit")
 
     def test_hook_callbacks_declare_no_kwargs_and_no_history(self):
         ctx = Ctx()

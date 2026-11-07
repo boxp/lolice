@@ -105,7 +105,7 @@ def fire_name_only_in_output(session):
     hooks["pre_llm_call"](**common, user_message="hello")
     hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="read_file", args={"path": "/src/app.ts"},
                             result="fetch(url, { credentials: 'same-origin' })\nTOKEN_FILE=/work/state\n\n\n\npassword: plainnamedvalue")
-    hooks["post_llm_call"](**common, assistant_response="nameonlyreplymarker")
+    hooks["post_llm_call"](**common, assistant_response="plainnamedvalue nameonlyreplymarker")
     hooks["on_session_end"](**common, completed=True)
     hooks["pre_llm_call"](session_id=session, turn_id="next", user_message="nameonlynextmarker")
     hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
