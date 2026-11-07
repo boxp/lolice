@@ -664,6 +664,24 @@ def _named_values(text):
     return {v for v in decoded if 4 <= len(v) <= 256}, unpinned or any(not 4 <= len(v) <= 256 for v in decoded)
 
 
+def _reversed_entry_values(text):
+    """Elements of list/object values placed before a secret name ({"value": [a, b], "name": "API_SECRET"}), as
+    _mask_reversed_entries masks them in place. Bounded by the same limits; past them the field is withheld."""
+    values = []
+    position = 0
+    for scanned, match in enumerate(_ENTRY_VALUE.finditer(text)):
+        if scanned >= _MAX_REVERSED_ENTRIES:
+            break
+        if match.start() < position:
+            continue
+        end = _bracket_end(text, match.end(), match.end() + _MAX_REVERSED_VALUE)
+        if _ENTRY_NAME_AFTER.match(text, end) is None:
+            continue
+        values.extend(_collection_values(text[match.end():end]))
+        position = end
+    return values
+
+
 def _named_values_raw(text):
     text = _PLACEHOLDER.sub("", text)
     found = set()
@@ -673,6 +691,11 @@ def _named_values_raw(text):
                 found.add(value)
                 if len(found) > 64:
                     return found, True
+    for value in _reversed_entry_values(text):
+        if value and not _REFERENCE.fullmatch(value):
+            found.add(value)
+            if len(found) > 64:
+                return found, True
     for kind, pattern in _PATTERNS:
         if kind not in _PIN_KINDS:
             continue
@@ -706,9 +729,20 @@ def _named_values_raw(text):
                     if not _is_setting(name, value):
                         values = [value]
             elif kind == "env_entry":
+                if match.start() < covered:
+                    continue
                 entry = _ENTRY_VALUE_START.search(raw)
                 if entry:
-                    values = [_first_value(raw[entry.end():])]
+                    position = match.start() + entry.end()
+                    while position < len(text) and text[position] in " \t":
+                        position += 1
+                    if position < len(text) and text[position] in "[{(":
+                        # "value": ["a", "b"]: the value runs to the matching close (or the end of text, fail
+                        # closed), as _mask_structured masks it, and every element is pinned.
+                        covered = max(match.end(), _bracket_end(text, position))
+                        values = _collection_values(text[position:covered])
+                    else:
+                        values = [_first_value(raw[entry.end():])]
             elif kind == "flag":
                 if match.start() < covered:
                     continue

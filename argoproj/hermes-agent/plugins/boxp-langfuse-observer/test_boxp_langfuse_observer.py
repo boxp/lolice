@@ -293,6 +293,30 @@ class ObserverTest(unittest.TestCase):
         self.assertFalse({"primary", "backup"} & found)
         self.assertTrue(plugin._named_values("password: [hunterhorse, ab]")[1])
 
+    def test_named_values_in_env_entry_list_and_object_values(self):
+        # Regression (arch#14548 review, same rule): an env entry whose value is a list or object
+        # ({"name":"API_SECRET","value":["a","b"]}, either key order) is masked in place as a whole, so every element is
+        # pinned too, not only the text up to the first delimiter.
+        cases = ['{"name":"API_SECRET","value":["hunterhorse","meadowlake"]}',
+                 '{"name": "DB_PASSWORD", "value": [hunterhorse, meadowlake]}',
+                 '{"name":"API_TOKEN","value":{"primary":"hunterhorse","backup":"meadowlake"}}',
+                 '{\\"name\\":\\"API_SECRET\\",\\"value\\":[\\"hunterhorse\\",\\"meadowlake\\"]}',
+                 '{&quot;name&quot;:&quot;API_SECRET&quot;,&quot;value&quot;:[&quot;hunterhorse&quot;,&quot;meadowlake&quot;]}',
+                 '{"name":"API_SECRET","value":["hunterhorse","meadowlake"',
+                 '{"value":["hunterhorse","meadowlake"],"name":"API_SECRET"}',
+                 '{"value": {"primary": "hunterhorse", "backup": "meadowlake"}, "name": "DB_PASSWORD"}']
+        for text in cases:
+            with self.subTest(text=text):
+                found = plugin._named_values(text)[0]
+                for value in ["hunterhorse", "meadowlake"]:
+                    self.assertIn(value, found)
+                    self.assertNotIn(value, plugin._redact(text)[0])
+                self.assertFalse(any(v.startswith("[") for v in found))
+                self.assertFalse({"primary", "backup"} & found)
+        self.assertTrue(plugin._named_values('{"name":"API_SECRET","value":["hunterhorse","ab"]}')[1])
+        self.assertTrue(plugin._named_values('{"value":["hunterhorse","ab"],"name":"API_SECRET"}')[1])
+        self.assertFalse(plugin._named_values('{"name":"PATH_LIST","value":["alphabeta","gammadelta"]}')[0])
+
     def test_named_values_in_uppercase_cli_flags(self):
         # Regression (arch#14548 review, same rule): CLI password flags are matched case-insensitively for both
         # masking and pinning, so `curl --USER admin:x` pins x and a later bare restatement is masked.
