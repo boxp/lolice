@@ -130,6 +130,10 @@ def _entry_key(name):
 
 
 
+# One unquoted shell word, whose spaces may be escaped (apple\ orchard, apple\\ orchard in JSON). A backslash run
+# is tried as an escape only from its start, so a long run stays linear.
+_SHELL_WORD = r"(?:(?<!\\)\\++[ \t]|\S)++"
+
 _SECRET_NAME = re.compile(
     r"(?i)(password|passwd|passphrase|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|credential|cookie|auth(?!ors?(?![a-z]))|(?<![a-z])pass(?![a-z]))")
 _NOT_A_CREDENTIAL_NAME = re.compile(r"PWD|OLDPWD")
@@ -155,18 +159,18 @@ _PATTERNS = [
     ("env_entry", re.compile(
         r"(?i)" + _entry_key("value") + _value("quote", r"{0,4096}?") + _ENTRY_GAP + _QUOTE + r"?"
         + _entry_key("name") + _QUOTE + r"?" + _SECRET_KEY)),
-    ("flag", re.compile(r"(?i)(?<![\w-])--?" + _SECRET_KEY + r"[ \t]+(?!-)" + _value("quote", bare=r"\S+"))),
+    ("flag", re.compile(r"(?i)(?<![\w-])--?" + _SECRET_KEY + r"[ \t]+(?!-)" + _value("quote", bare=_SHELL_WORD))),
     # A CLI password is one shell word: a quoted value runs to its matching quote (_value), so
     # sshpass -p 'apple orchard' masks and pins the whole value, not just the part before the space. A quote that
     # never closes (-u 'admin:apple orchard) runs to the end of the line.
     ("cli_password", re.compile(
         r"(?i)(?<![\w-])(?:-u|--user)[ \t=]*(?P<uq>" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]*:(?:[^\n]*?(?<!\\)(?P=uq)|[^\n]*)")),
     ("cli_password", re.compile(
-        r"(?i)(?<![\w-])(?:-u|--user)[ \t=]*(?!" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]+:" + _value("quote", bare=r"\S+"))),
+        r"(?i)(?<![\w-])(?:-u|--user)[ \t=]*(?!" + _QUOTE + r")(?!\d+:\d+\b)[^\s:]+:" + _value("quote", bare=_SHELL_WORD))),
     ("cli_password", re.compile(
-        r"(?i)\b(?:mysql\w*|mariadb\w*)\b[^\n|;&]{0,512}?\s-p" + _value("quote", bare=r"\S+"))),
+        r"(?i)\b(?:mysql\w*|mariadb\w*)\b[^\n|;&]{0,512}?\s-p" + _value("quote", bare=_SHELL_WORD))),
     ("cli_password", re.compile(
-        r"(?i)\bsshpass\b[^\n|;&]{0,512}?\s-p[ \t]*" + _value("quote", bare=r"\S+"))),
+        r"(?i)\bsshpass\b[^\n|;&]{0,512}?\s-p[ \t]*" + _value("quote", bare=_SHELL_WORD))),
     ("assignment", re.compile(
         r"(?i)[\"']?" + _SECRET_KEY + _QUOTE + r"?" + _GAP + _SEPARATOR + _GAP
         # A YAML block scalar carries its value on the indented lines below the key.
@@ -526,9 +530,13 @@ _ENTRY_VALUE_START = re.compile(r"(?i)" + _entry_key("value"))
 
 
 _OPENING_QUOTE = re.compile(_QUOTE, re.I)
-_UNQUOTED_VALUE = re.compile(
-    r"""(?i)(?:[^\s,;}\]"'\\&]|\\\\|\\(?![nrt"'\\]|u00(?:22|27))|&(?!quot|apos|\#0*(?:34|39)(?!\d)|\#x0*(?:22|27)(?![0-9a-f])))+"""
+_UNQUOTED_CHARS = (
+    r"""[^\s,;}\]"'\\&]|\\\\|\\(?![nrt"'\\]|u00(?:22|27))|&(?!quot|apos|\#0*(?:34|39)(?!\d)|\#x0*(?:22|27)(?![0-9a-f]))"""
 )
+_UNQUOTED_VALUE = re.compile(r"(?i)(?:" + _UNQUOTED_CHARS + r")+")
+# A CLI password or flag value is a shell word: an escaped space (apple\\ orchard) does not end it.
+_UNQUOTED_SHELL_VALUE = re.compile(r"(?i)(?:(?<!\\)\\++[ \t]|" + _UNQUOTED_CHARS + r")++")
+_ESCAPED_SPACE = re.compile(r"(?<!\\)\\++([ \t])")
 
 
 def _closing_quote(text, q):
@@ -546,6 +554,17 @@ def _closing_quote(text, q):
         if len(m.group(1)) % unit == 0:
             return m.start() + len(m.group(1))
     return None
+
+
+def _shell_values(text):
+    """A CLI password or flag value as written and, when it escapes spaces, as the shell decodes it (apple orchard)."""
+    stripped = text.lstrip()
+    if _OPENING_QUOTE.match(stripped) or _PLACEHOLDER.match(stripped):
+        return [_first_value(text)]
+    match = _UNQUOTED_SHELL_VALUE.match(stripped)
+    word = match.group(0).strip() if match else ""
+    decoded = _ESCAPED_SPACE.sub(r"\1", word)
+    return [word, decoded] if decoded != word else [word]
 
 
 def _first_value(text):
@@ -790,7 +809,7 @@ def _named_values_raw(text):
                     covered = max(match.end(), _bracket_end(text, position))
                     values = _collection_values(text[position:covered])
                 else:
-                    values = [_first_value(tail)]
+                    values = _shell_values(tail)
             else:
                 if re.match(r"(?i)^(?:-u|--user)", raw):
                     rest = re.sub(r"(?i)^(?:-u|--user)[ \t=]*", "", raw)
@@ -799,9 +818,9 @@ def _named_values_raw(text):
                         word = _first_value(rest)
                         values = [word.split(":", 1)[1]] if ":" in word else []
                     else:
-                        values = [_first_value(re.sub(r"^[^\s:]+:", "", rest))]
+                        values = _shell_values(re.sub(r"^[^\s:]+:", "", rest))
                 else:
-                    values = [_first_value(re.sub(r"(?is)^.*?\s-p[ \t]*", "", raw))]
+                    values = _shell_values(re.sub(r"(?is)^.*?\s-p[ \t]*", "", raw))
             for value in values:
                 if value and not _REFERENCE.fullmatch(value):
                     found.add(value)

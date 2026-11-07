@@ -309,6 +309,24 @@ class ObserverTest(unittest.TestCase):
         self.assertEqual(plugin._named_values("mysql -p && ls -p 'some dir'"), (set(), False))
         self.assertEqual(plugin._named_values("date -u +%H:%M")[0], set())
 
+    def test_named_values_in_backslash_escaped_cli_passwords(self):
+        # Regression (lolice#1107 review): a shell word may escape its spaces (sshpass -p apple\\ orchard). The whole
+        # word is masked in place, and both its written form and the shell-decoded password are pinned, so neither the
+        # rest of the word nor a restatement of the decoded password is sent.
+        cases = [("sshpass -p apple\\ orchard ssh host", "apple orchard"),
+                 ("mysql -h db -priver\\ bend\\ stone app", "river bend stone"),
+                 ("curl -u admin:quiet\\ harbor https://x", "quiet harbor"),
+                 ("tool --password cedar\\ hollow run", "cedar hollow"),
+                 ('{"command":"sshpass -p birch\\\\ lane ssh host"}', "birch lane")]
+        for text, value in cases:
+            with self.subTest(text=text):
+                pins = plugin._named_values(text)[0]
+                self.assertIn(value, pins)
+                self.assertNotIn(value.split()[-1], plugin._redact(text)[0])
+                pattern = plugin.re.compile("|".join(map(plugin._value_pattern, sorted(pins, key=len, reverse=True))))
+                self.assertNotIn(value.split()[-1], pattern.sub("[REDACTED:pinned]", "restated: " + value))
+        self.assertEqual(plugin._named_values("sshpass -p plainpass ssh host")[0], {"plainpass"})
+
     def test_named_values_in_unclosed_quoted_cli_passwords(self):
         # Regression (arch#14548 review, same rule): a quote that never closes runs to the end of the line, so
         # `curl -u 'admin:apple orchard` masks and pins the password.
