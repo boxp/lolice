@@ -107,7 +107,7 @@ class ObserverTest(unittest.TestCase):
             {'command': "rg -n '\"op\": \"set\"' src"},
             {'command': "python3 - <<'EOF'\nimport os\nlayout = os.environ.get('LAYOUT', '/tmp/x')\nc = Client(token=os.environ['MCP_TOKEN'])\nchanges = [{'op': 'set'}]\nEOF"},
             {'command': 'node -e "const H = process.env.H || \'http://x\'"'},
-            {'command': '/usr/bin/env python3 x.py'}, {'command': 'env LANG=C sort a.txt'}, {'command': 'env -u HOME make test'}, {'command': 'set -e; make'},
+            {'command': '/usr/bin/env python3 x.py'}, {'command': 'env LANG=C sort a.txt'}, {'command': 'env -u HOME make test'}, {'command': 'set -e; make'}, {'command': 'kubectl exec pod -- ls /app'}, {'command': "kubectl exec pod -- sh -c 'make test'"},
             {'path': '/tmp/notes.md', 'old_string': 'a', 'new_string': 'the token is in .env; run printenv; kubectl get secret'},
             {'path': '/tmp/x.md', 'content': 'cat ~/.kube/config'}, {'goal': 'read .env and print the token'},
             {'cmd': ['bash', '-lc', 'grep -rn token src']}, {'command': 'echo the ID token is checked'},
@@ -964,7 +964,9 @@ class ObserverTest(unittest.TestCase):
 
     def test_environment_dumps_are_withheld_with_any_arguments(self):
         for command in ("env LANG=C", "env LANG=C | grep FOO", "env A=1 B='x y' > /tmp/x", "env -i", "env -u HOME", "env --null",
-                        "/usr/bin/env LANG=C", "sudo env LANG=C", "kubectl exec pod -- env A=1", "ls\nenv LANG=C\necho done",
+                        "/usr/bin/env LANG=C", "sudo env LANG=C", "kubectl exec pod -- env A=1", "kubectl exec pod -- printenv GITHUB_TOKEN", "oc exec pod -- printenv",
+                        "kubectl exec -n ns pod -c app -- env LANG=C printenv", "kubectl exec pod -- sh -c 'printenv'",
+                        "kubectl exec pod -- export", "ls\nenv LANG=C\necho done",
                         "echo $(env LANG=C)", "(env LANG=C)", "env A=1 2>&1", "bash -c \"env A=1\"", "env A=1 # note", "python3 -c \"print(__import__('os').environ)\"", "set", "(set -o posix; set)", "export", "declare -p",
                         "typeset -x", "awk 'BEGIN{for(k in ENVIRON)print k}'", "perl -e 'print %ENV'", "ruby -e 'p ENV.to_h'"):
             with self.subTest(command):

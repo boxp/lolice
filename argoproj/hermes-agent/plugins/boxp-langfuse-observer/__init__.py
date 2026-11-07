@@ -1232,37 +1232,47 @@ def _env_access(text):
     return False
 
 
-def _segment_env(text):
-    for seg in _segments(_shell_words(text)):
-        words = [w[2] for w in seg]
-        idx = _program_index(words)
-        if idx is None:
-            continue
-        program, args = _last_element(words[idx]), words[idx + 1:]
-        if program == 'printenv':
-            return True
-        if program in {'set', 'export', 'declare', 'typeset'} and (not args or any(re.fullmatch(r'-[A-Za-z]*[px]', x) for x in args)):
-            return True
-        if program in {'kubectl', 'oc'} and '--' in args:
-            remote = args[args.index('--') + 1:]
-            if remote and _last_element(remote[0]) == 'env':
-                program, args = 'env', remote[1:]
-        if program == 'env':
-            if args and re.fullmatch(r'\d+', args[-1]):
-                args = args[:-1]
-            i = 0
-            while i < len(args):
-                if re.fullmatch(r'-[A-Za-z]*S.*|--split-string(?:=.*)?', args[i]):
-                    return True
-                if args[i] in {'-u', '--unset', '-C', '--chdir'}:
-                    i += 2
-                elif args[i].startswith('-') or re.fullmatch(r'[A-Za-z_]\w*=.*', args[i]):
-                    i += 1
-                else:
-                    break
-            if i >= len(args):
+def _words_env(words, depth=0):
+    idx = _program_index(words)
+    if idx is None:
+        return False
+    program, args = _last_element(words[idx]), words[idx + 1:]
+    if program == 'printenv':
+        return True
+    if program in {'set', 'export', 'declare', 'typeset'} and (not args or any(re.fullmatch(r'-[A-Za-z]*[px]', x) for x in args)):
+        return True
+    if program in {'kubectl', 'oc'} and '--' in args:
+        # kubectl exec pod -- printenv GITHUB_TOKEN / -- env LANG=C printenv: the remote command is judged like a
+        # local one (BOXP-428 TD-12 P0).
+        remote = args[args.index('--') + 1:]
+        return bool(remote) and depth < 4 and _words_env(remote, depth + 1)
+    if depth and program in _SHELLS:
+        # kubectl exec pod -- sh -c 'printenv': the remote shell's script is judged too
+        for i, word in enumerate(args[:-1]):
+            if re.fullmatch(r'-[A-Za-z]*c', word):
+                return _segment_env(args[i + 1], depth + 1)
+    if program == 'env':
+        if args and re.fullmatch(r'\d+', args[-1]):
+            args = args[:-1]
+        i = 0
+        while i < len(args):
+            if re.fullmatch(r'-[A-Za-z]*S.*|--split-string(?:=.*)?', args[i]):
                 return True
+            if args[i] in {'-u', '--unset', '-C', '--chdir'}:
+                i += 2
+            elif args[i].startswith('-') or re.fullmatch(r'[A-Za-z_]\w*=.*', args[i]):
+                i += 1
+            else:
+                break
+        if i >= len(args):
+            return True
     return False
+
+
+def _segment_env(text, depth=0):
+    if depth > 4:
+        return True
+    return any(_words_env([w[2] for w in seg], depth) for seg in _segments(_shell_words(text)))
 
 
 def _command_source(command):
