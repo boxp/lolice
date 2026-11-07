@@ -4,9 +4,9 @@
 //
 // A signed-out visit to any other page does not load /auth/sign-in from the server: the app layout
 // calls router.replace("/auth/sign-in?targetPath=..."), and the Next.js router then fetches the page
-// props from /_next/data/<buildId>/auth/sign-in.json. That request is answered here too, with the
-// redirect form getServerSideProps itself uses (pageProps.__N_REDIRECT), so the router leaves for the
-// issuer instead of rendering the page with the button.
+// props from /_next/data/<buildId>/<locale>/auth/sign-in.json (Langfuse turns on i18n with "en").
+// That request is answered here too, with the redirect form getServerSideProps itself uses
+// (pageProps.__N_REDIRECT), so the router leaves for the issuer instead of rendering the button page.
 import { createServer } from "node:http";
 
 const web = process.env.LANGFUSE_WEB_URL;
@@ -60,9 +60,9 @@ async function showSignInPage(req, res, url) {
   res.end(Buffer.from(await page.arrayBuffer()));
 }
 
-// The props request the router makes for /auth/sign-in. The build id is not checked here: a stale one
+// The props request the router makes for /auth/sign-in (with the locale segment Langfuse's i18n adds). The build id is not checked here: a stale one
 // only means the request never came from the current app, and the login it starts is the same one.
-const SIGN_IN_DATA = /^\/_next\/data\/[A-Za-z0-9_-]{1,128}\/auth\/sign-in\.json$/;
+const SIGN_IN_DATA = /^\/_next\/data\/[A-Za-z0-9_-]{1,128}\/(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?auth\/sign-in\.json$/;
 
 const sendData = (res, pageProps, cookies = []) => {
   const headers = { "content-type": "application/json", "cache-control": "no-store" };
