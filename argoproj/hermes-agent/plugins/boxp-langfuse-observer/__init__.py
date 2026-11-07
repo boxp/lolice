@@ -18,8 +18,10 @@ are fixed lists and end here; a spelling of the same command that escapes them i
 K1 known formats: every string goes through redact() (_PATTERNS, element, assignment, the whole line
 around a secret word and the lines next to it) before it leaves this process, and the serialized
 batch is scanned again (_unsafe) before sending; a hit there drops the span. When a tool result
-carried a known format, later bodies of the session are withheld too (_EXPOSURE_KINDS), because the
-model can repeat the value in a form the patterns do not know.
+carried a credential-shaped known format (_EXPOSURE_KINDS: private key, header, URL credentials, JWT,
+bearer, provider/cloud keys, this process's environment values), later bodies of the session are withheld
+too, because the model can repeat the value in a form the patterns do not know. A name-based hit
+(assignment, env entry, flag, cli password, XML element) is masked in place only.
 Not guaranteed: a plain value without a secret word or known format near it, an unknown transform
 (base32, rot13, gzip...), or a value the model repeats far from its source. The Owner accepted these
 for a self-hosted Langfuse behind Owner-only Access with short retention. Nothing here pins values
@@ -156,7 +158,11 @@ _PATTERNS = [
 _FIELD_ONLY = {"assignment", "entropy", "data_uri", "env_entry", "flag", "cli_password"}
 # A hit of one of these in a tool result means the model saw a credential: later bodies of the session are withheld.
 # A secret word alone (secret_line), a high-entropy string or an image is not such evidence.
-_EXPOSURE_KINDS = {kind for kind, _ in _PATTERNS} - {"entropy", "data_uri"} | {"env", "element"}
+# Only shapes that are credentials by themselves count. Name-based kinds (assignment, env entry, flag, cli password,
+# XML element) mask the value in place but are no evidence: they match ordinary code and logs such as
+# TOKEN_FILE=/work/x or credentials: 'same-origin', which withheld whole sessions in production (BOXP-428).
+_EXPOSURE_KINDS = {"private_key", "header", "url_credentials", "jwt", "provider_key", "aws_key", "google_key",
+                   "telegram", "bearer", "env"}
 # A secret key whose value spans several tokens or lines: a list, a map, a shell array, a YAML block.
 _STRUCTURED_KEY = re.compile(
     r"(?i)(?:" + _entry_key("name") + _QUOTE + r"?" + _SECRET_KEY + _QUOTE + r"?" + _ENTRY_GAP + _QUOTE + r"?" + _entry_key("value")
@@ -493,8 +499,6 @@ def _exposure(text):
     env_pattern = _env_pattern()
     if env_pattern and env_pattern.search(text):
         kinds.add("env")
-    if _SECRET_ELEMENT.search(text):
-        kinds.add("element")
     for kind, pattern in _PATTERNS:
         if kind in _EXPOSURE_KINDS and pattern.search(text):
             kinds.add(kind)
