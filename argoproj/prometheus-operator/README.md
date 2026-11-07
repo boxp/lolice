@@ -35,6 +35,6 @@ Alertmanager は label `notify_hermes="true"` を持つアラートの写しを 
 
 ### BOXP-463: Gemini API 前払い残高
 
-`AI / Gemini API 前払い残高` ダッシュボードは Owner が AI Studio Billing タブで確認した基準と、この環境の利用 ledger に基づく推計を表示する。実残高は Google 公式 API がなく取得不能。基準入力 `baseline.json` と `usage.jsonl` の形式および更新方法は [codex-workspace README](../codex-workspace/README.md) を参照。購入・付与・失効後は Owner が再確認し agent が基準を更新する。他 client・project の消費、課金遅延、購入・付与・失効や価格改定は推計に反映されない。未取得はゼロではない。
+`AI / Gemini API 前払い残高` ダッシュボードは Owner が AI Studio Billing タブで確認した基準と、この環境の利用 ledger に基づく推計を表示する。実残高は Google 公式 API がなく取得不能。基準入力 `baseline.json` と `usage.jsonl` の形式および更新方法は [codex-workspace README](../codex-workspace/README.md) を参照。購入・付与・失効後は Owner が再確認し agent が基準を更新する。他 client・project の消費、課金遅延、購入・付与・失効や価格改定は推計に反映されない。未取得はゼロではない。 stat パネルは instant query・最新値のみで表示し、現在値が消えた場合に過去の残額や ok 状態を表示し続けない。
 
 推奨アラート（今回は未配備）: 推計残額 5 USD 未満、基準が7日超、推計状態が ok 以外、sidecar 不在。

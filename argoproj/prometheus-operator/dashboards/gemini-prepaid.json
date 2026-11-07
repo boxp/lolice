@@ -72,7 +72,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -105,7 +107,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -137,7 +139,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -168,7 +172,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -200,7 +204,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -223,7 +229,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -255,7 +261,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -286,7 +294,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -318,7 +326,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         },
         {
           "expr": "(ai_prepaid_estimate_state{job=\"codex-workspace-ai-ops-metrics\",state=\"baseline_missing\"} == 1) * 2",
@@ -327,7 +337,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         },
         {
           "expr": "(ai_prepaid_estimate_state{job=\"codex-workspace-ai-ops-metrics\",state=\"baseline_invalid\"} == 1) * 3",
@@ -336,7 +348,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         },
         {
           "expr": "(ai_prepaid_estimate_state{job=\"codex-workspace-ai-ops-metrics\",state=\"usage_ledger_invalid\"} == 1) * 4",
@@ -345,7 +359,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         },
         {
           "expr": "(ai_prepaid_estimate_state{job=\"codex-workspace-ai-ops-metrics\",state=\"currency_mismatch\"} == 1) * 5",
@@ -354,7 +370,20 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(ai_prepaid_estimate_state{job=\"codex-workspace-ai-ops-metrics\",state=\"usage_ledger_missing\"} == 1) * 6",
+          "refId": "F",
+          "instant": true,
+          "range": false,
+          "legendFormat": "usage_ledger_missing"
         }
       ],
       "fieldConfig": {
@@ -379,6 +408,9 @@
                 },
                 "5": {
                   "text": "通貨不一致"
+                },
+                "6": {
+                  "text": "ledger未作成/読取不可"
                 }
               }
             }
@@ -398,7 +430,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -430,7 +462,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -453,7 +487,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -485,7 +519,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -508,7 +544,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -540,7 +576,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -563,7 +601,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -595,7 +633,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -618,7 +658,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false
@@ -650,7 +690,9 @@
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
-          }
+          },
+          "instant": true,
+          "range": false
         }
       ],
       "fieldConfig": {
@@ -673,7 +715,7 @@
       "options": {
         "reduceOptions": {
           "calcs": [
-            "lastNotNull"
+            "last"
           ],
           "fields": "",
           "values": false

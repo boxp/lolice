@@ -214,6 +214,6 @@ kubectl -n default exec deploy/some-target-outside-debug-scope -- id
 
 ### BOXP-463: Gemini API 前払い残高
 
-`/home/boxp/.codex-task-board/ai-ops/gemini-prepaid/` の `baseline.json` は `{"schema":"gemini-prepaid-baseline/v1","amount":12.34,"currency":"USD","observed_at":"2026-11-07T18:40:00Z","source":"ai_studio_ui_owner"}` 形式。Owner が AI Studio の Billing タブで残高を確認し、agent がファイルを書き換える。購入・付与・失効の後にも再確認して更新する。`usage.jsonl` は呼び出しごとに `{"ts":"2026-11-07T19:00:00Z","client":"studio","model":"gemini","estimated_cost":0.13,"currency":"USD","basis":"estimate"}` のような JSON 行を記録する（basis は estimate または actual）。
+`/home/boxp/.codex-task-board/ai-ops/gemini-prepaid/` の `baseline.json` は `{"schema":"gemini-prepaid-baseline/v1","amount":12.34,"currency":"USD","observed_at":"2026-11-07T18:40:00Z","source":"ai_studio_ui_owner"}` 形式。Owner が AI Studio の Billing タブで残高を確認し、agent がファイルを書き換える。購入・付与・失効の後にも再確認して更新する。`usage.jsonl` は呼び出しごとに `{"ts":"2026-11-07T19:00:00Z","client":"studio","model":"gemini","estimated_cost":0.13,"currency":"USD","basis":"estimate"}` のような JSON 行を記録する（basis は estimate または actual）。 基準を設定したら利用が無くても空の `usage.jsonl` を作成すること。`usage.jsonl` が無い・読めない場合は利用額不明として state `usage_ledger_missing` になり、推計残額は出さない（利用 0 とは扱わない）。
 
 Google の実残高は公式 API がなく自動取得不能。基準値からこの環境で基準後に記録された利用額を差し引いた値は推計であり、他 client・project、課金遅延、購入・付与、12か月後の失効、価格改定は反映されない。未取得をゼロや十分な残高と解釈しない。推奨アラート（未配備）は推計残額 5 USD 未満、基準が7日超、推計状態が ok 以外、sidecar 不在。

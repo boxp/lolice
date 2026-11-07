@@ -22,7 +22,7 @@ BOXP-462 の subscription 指標とは**別ファイル・別 prefix**（`ai_pre
 2. **基準残高**: Owner が AI Studio Billing タブで確認した金額・通貨・確認時刻（`baseline.json`）。
 3. **推計残額**: 基準残高 −（基準時刻より後に当環境の client が `usage.jsonl` に記録した Gemini 利用費の推計）。
    当環境外の消費・課金遅延・失効・購入は反映されないので「推計」と明示する。
-4. **状態**: 基準未設定・基準不正・ledger 不正・通貨不一致を one-hot の state で区別する。未取得を 0 や十分な残高として扱わない。
+4. **状態**: 基準未設定・基準不正・ledger 未作成/読取不可・ledger 不正・通貨不一致を one-hot の state で区別する。未取得を 0 や十分な残高として扱わない。
 5. **鮮度**: 基準の確認時刻からの経過、ledger の最終記録時刻、生成時刻。
 
 入力ファイル（`/home/boxp/.codex-task-board/ai-ops/gemini-prepaid/`、非秘密、本文/明細/キーは書かない）:
