@@ -45,7 +45,7 @@ spec:
             kubectl get events -n codex-workspace --sort-by=.lastTimestamp || true
             exit 1
           fi
-          kubectl exec -n codex-workspace deployment/codex-workspace -c ai-ops-metrics -- python -c 'import urllib.request as u; assert u.urlopen("http://127.0.0.1:9464/healthz").read().strip() == b"ok"; m=u.urlopen("http://127.0.0.1:9464/metrics").read(); assert b"ai_ops_stub_metric 1" in m and b"ai_ops_metrics_file_present 1" in m'
+          kubectl exec -n codex-workspace deployment/codex-workspace -c ai-ops-metrics -- python -c 'import urllib.request as u; assert u.urlopen("http://127.0.0.1:9464/healthz").read().strip() == b"ok"; m=u.urlopen("http://127.0.0.1:9464/metrics").read(); assert b"ai_ops_stub_metric 1" in m and b"ai_ops_metrics_file_present 1" in m and b"ai_prepaid_estimate_state{provider=\x22gemini_api\x22,state=\x22ok\x22} 1" in m and b"ai_prepaid_balance_actual_state" in m'
     finally:
     - script:
         timeout: 30s

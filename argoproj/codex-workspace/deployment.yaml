@@ -688,6 +688,9 @@ spec:
               value: "9464"
             - name: AI_OPS_METRICS_FILE
               value: /home/boxp/.codex-task-board/ai-ops/metrics.prom
+            # BOXP-463
+            - name: AI_PREPAID_DIR
+              value: /home/boxp/.codex-task-board/ai-ops/gemini-prepaid
             - name: AI_SUBSCRIPTION_METRICS_FILE
               value: /home/boxp/.codex-task-board/ai-ops/subscription-usage.prom
           securityContext:

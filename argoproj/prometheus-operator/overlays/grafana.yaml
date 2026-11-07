@@ -27,6 +27,8 @@ spec:
               name: grafana-dashboard-local-llm-gpu-overview
             - mountPath: /grafana-dashboard-definitions/0/ai-ops-quality
               name: grafana-dashboard-ai-ops-quality
+            - mountPath: /grafana-dashboard-definitions/0/gemini-prepaid
+              name: grafana-dashboard-gemini-prepaid
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
@@ -37,3 +39,6 @@ spec:
         - name: grafana-dashboard-ai-ops-quality
           configMap:
             name: grafana-dashboard-ai-ops-quality
+        - name: grafana-dashboard-gemini-prepaid
+          configMap:
+            name: grafana-dashboard-gemini-prepaid
