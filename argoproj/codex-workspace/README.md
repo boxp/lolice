@@ -211,3 +211,9 @@ kubectl -n default exec deploy/some-target-outside-debug-scope -- id
 `task-board-dashboard` sidecar は `/app`（`dashboard-configmap.yaml`）を process 起動時にだけ読み込みます。ConfigMap volume は Pod 内で更新されますが、実行中の process には反映されません（BOXP-329 の Kohako Board projection `:8090` はこのため未稼働のままでした）。
 
 `dashboard-configmap.yaml` の `server.py` / `kohako_board.py` などを変更するときは、同じ PR で `deployment.yaml` の Pod template annotation `codex-workspace.boxp.tk/dashboard-config-revision` を更新し、上記の通常 Argo CD sync による計画 rollout で反映します。進行中の Task Board run は planned shutdown として `interrupted` 記録され、新 Pod が即時に再受付します。
+
+### BOXP-463: Gemini API 前払い残高
+
+`/home/boxp/.codex-task-board/ai-ops/gemini-prepaid/` の `baseline.json` は `{"schema":"gemini-prepaid-baseline/v1","amount":12.34,"currency":"USD","observed_at":"2026-11-07T18:40:00Z","source":"ai_studio_ui_owner"}` 形式。Owner が AI Studio の Billing タブで残高を確認し、agent がファイルを書き換える。購入・付与・失効の後にも再確認して更新する。`usage.jsonl` は呼び出しごとに `{"ts":"2026-11-07T19:00:00Z","client":"studio","model":"gemini","estimated_cost":0.13,"currency":"USD","basis":"estimate"}` のような JSON 行を記録する（basis は estimate または actual）。 基準を設定したら利用が無くても空の `usage.jsonl` を作成すること。`usage.jsonl` が無い・読めない場合は利用額不明として state `usage_ledger_missing` になり、推計残額は出さない（利用 0 とは扱わない）。さらに利用記録元（BOXP-441 の Kohako Studio 等）が基準時刻以前から全 Gemini 呼出しを `usage.jsonl` に記録していることを `coverage.json`（`{"schema":"gemini-prepaid-coverage/v1","clients":["kohako_studio"],"recording_since":"2026-11-07T19:00:00Z"}`、UTC）で宣言するまでは state `usage_coverage_unconfirmed` とし推計残額は出さない。`recording_since` が基準の `observed_at` より後なら未確認のまま。記録処理を接続していない client がある間は coverage.json を作らない。
+
+Google の実残高は公式 API がなく自動取得不能。基準値からこの環境で基準後に記録された利用額を差し引いた値は推計であり、他 client・project、課金遅延、購入・付与、12か月後の失効、価格改定は反映されない。未取得をゼロや十分な残高と解釈しない。推奨アラート（未配備）は推計残額 5 USD 未満、基準が7日超、推計状態が ok 以外、sidecar 不在。

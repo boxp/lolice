@@ -32,3 +32,9 @@ kubectl port-forward svc/grafana -n monitoring 3000:3000
 Alertmanager は label `notify_hermes="true"` を持つアラートの写しを Hermes の webhook route `alertmanager` へ送ります（`continue: true` なので既存のメール経路はそのまま）。route は deliver_only で LLM を起動せず、`alertmanager_relay.clj` が payload を検証・無害化して Telegram へ短く届けます。認証は route 専用 token を `X-Gitlab-Token` で送る方式で、token は hermes-agent namespace で生成し、monitoring の SecretStore `hermes-webhook-token` が 1 つの Secret だけ読んで monitoring の Secret `alertmanager-hermes-webhook-token` に写し、Alertmanager CR の `spec.secrets` でマウントしたファイルを `http_headers` の `files:` で読みます（`secrets:` は prometheus-operator が設定を再生成するときに `<secret>` へ置き換えるため使えません）。通知済みの記録は Alertmanager の PVC（nflog）に残ります。静音時間（02:00-09:00 JST）は critical を含まない通知を出さず、`repeat_interval: 6h` で再送されます。
 
 テストは `tests/run-promtool-tests.sh`（ルール）と `tests/chainsaw/hermes-agent/alertmanager-relay`（kind 上の Alertmanager → 受信口 → 整形）です。
+
+### BOXP-463: Gemini API 前払い残高
+
+`AI / Gemini API 前払い残高` ダッシュボードは Owner が AI Studio Billing タブで確認した基準と、この環境の利用 ledger に基づく推計を表示する。実残高は Google 公式 API がなく取得不能。基準入力 `baseline.json` と `usage.jsonl` の形式および更新方法は [codex-workspace README](../codex-workspace/README.md) を参照。購入・付与・失効後は Owner が再確認し agent が基準を更新する。他 client・project の消費、課金遅延、購入・付与・失効や価格改定は推計に反映されない。未取得はゼロではない。 stat パネルは instant query・最新値のみで表示し、現在値が消えた場合に過去の残額や ok 状態を表示し続けない。
+
+推奨アラート（今回は未配備）: 推計残額 5 USD 未満、基準が7日超、推計状態が ok 以外、sidecar 不在。
