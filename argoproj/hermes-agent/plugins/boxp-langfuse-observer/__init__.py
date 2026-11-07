@@ -527,6 +527,23 @@ _UNQUOTED_VALUE = re.compile(
 )
 
 
+def _closing_quote(text, q):
+    """Index in text where the value opened by quote token q ends, or None when it never closes.
+
+    A quote is escaped by the backslash run before it. A plain quote (n backslashes in q, n=0 at the top level, 1 for
+    \\" inside a JSON string, 3 a layer deeper) closes when that run is a multiple of 2*(n+1): each backslash of the
+    value is written as n+1 backslashes at that depth, and an escaped quote adds an odd count of them. Other quote
+    forms (\\u0022, &quot;) close after an even run. The value keeps the escaped backslashes: "hunterhorse\\\\"
+    ends after hunterhorse\\\\ (decoded hunterhorse\\).
+    """
+    plain = re.fullmatch(r"(\\*)[\"']", q)
+    unit = 2 * (len(plain.group(1)) + 1) if plain else 2
+    for m in re.finditer(r"(?<!\\)(\\*)" + re.escape(q), text, re.I):
+        if len(m.group(1)) % unit == 0:
+            return m.start() + len(m.group(1))
+    return None
+
+
 def _first_value(text):
     text = text.lstrip()
     placeholder = _PLACEHOLDER.match(text)
@@ -537,10 +554,11 @@ def _first_value(text):
     quote = _OPENING_QUOTE.match(text)
     if quote:
         q = quote.group(0)
-        # Like the in-place mask ((?<!\\)(?P=quote)), a quote token preceded by a backslash is escaped and does not
-        # end the value: password: "a\"b" captures a\"b (and its decoded form a"b), not a\.
-        end = re.search(r"(?<!\\)" + re.escape(q), text[len(q):], re.I)
-        return text[len(q):len(q) + end.start() if end else None].strip()
+        # A quote token preceded by an escaping backslash run does not end the value (password: "a\"b" captures a\"b
+        # and its decoded form a"b), while one preceded by escaped backslashes does (password: "hunterhorse\\"
+        # captures hunterhorse\\ and its decoded form hunterhorse\).
+        end = _closing_quote(text[len(q):], q)
+        return text[len(q):len(q) + end if end is not None else None].strip()
     # Unquoted: stop at a quote, an entity quote or a quote/line escape (\", \u0022, \n, \r, \t) too, so a value
     # inside serialized JSON or HTML does not take the closing quote or a \n escape with it. Any other backslash
     # (password: \mysecret123, its JSON form \\mysecret123, my\secret) is part of the value, not its end.
@@ -635,8 +653,8 @@ def _collection_values(text):
         value = _first_value(text)
         if quote:
             q = quote.group(0)
-            closed = re.search(r"(?<!\\)" + re.escape(q), text[len(q):], re.I)
-            consumed = len(q) + closed.end() if closed else len(text)
+            closed = _closing_quote(text[len(q):], q)
+            consumed = len(q) + closed + len(q) if closed is not None else len(text)
         else:
             value = re.split(r"[\[\]{}()]", value, maxsplit=1)[0]
             consumed = len(value)

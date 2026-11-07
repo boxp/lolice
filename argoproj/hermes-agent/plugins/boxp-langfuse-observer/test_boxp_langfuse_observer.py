@@ -229,6 +229,31 @@ class ObserverTest(unittest.TestCase):
         self.assertEqual(plugin._named_values('password: "hunterhorse" next: "x"'), ({"hunterhorse"}, False))
         self.assertEqual(plugin._named_values('{"password": "hunterhorse", "note": "a\\"b"}'), ({"hunterhorse"}, False))
 
+    def test_named_values_ending_in_escaped_backslash(self):
+        # Regression (lolice#1107 review): a value ending in an escaped backslash ("hunterhorse\\") closes at the
+        # quote after it, so the value and its decoded form (hunterhorse\) are pinned, not the rest of the text.
+        self.assertEqual(plugin._named_values('password: "hunterhorse\\\\"'), ({"hunterhorse\\\\", "hunterhorse\\"}, False))
+        self.assertEqual(plugin._named_values('password: "hunterhorse\\\\" next: "x"'), ({"hunterhorse\\\\", "hunterhorse\\"}, False))
+        self.assertEqual(plugin._named_values("password: 'pond\\\\' note"), ({"pond\\\\", "pond\\"}, False))
+        # One layer deeper (inside a JSON string): \\\\\\" is an escaped backslash, then the closing \".
+        found, _ = plugin._named_values('{"output": "password: \\"maplebrook\\\\\\\\\\" next"}')
+        self.assertIn("maplebrook\\", found)
+        # An escaped quote still does not end the value.
+        self.assertEqual(plugin._named_values('password: "hunter\\"horsefield"'), ({'hunter\\"horsefield', 'hunter"horsefield'}, False))
+        # A list element ending in an escaped backslash is one element.
+        self.assertEqual(plugin._named_values('password: ["hunterhorse\\\\", "meadowlake"]')[0] >= {"hunterhorse\\", "meadowlake"}, True)
+
+    def test_value_ending_in_backslash_is_masked_in_replies(self):
+        session = "kohako-g2-trailing-backslash"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="terminal", args={"command": "cat notes.txt"},
+                        result='password: "hunterhorsefield\\\\"')
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is hunterhorsefield\\ laterreplymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = bodies()
+        self.assertNotIn("hunterhorsefield", body)
+        self.assertIn("laterreplymarker", body)
+
     def test_named_values_with_backslashes(self):
         # A backslash other than a quote/line escape is part of an unquoted value, including at its start.
         self.assertEqual(plugin._named_values("password: \\mysecret123"), ({"\\mysecret123"}, False))
