@@ -1096,12 +1096,40 @@ def _strip_heredocs(text, code):
     return '\n'.join(out)
 
 
+def _program_index(words):
+    """Index of the program a segment runs. Assignments and prefix programs are skipped, and so is `env` with its
+    options and assignments when a command follows it (env LANG=C printenv runs printenv; BOXP-428 TD-12 P1). A bare
+    env, or env -S (its command is a split string), stays on env and is judged as the environment dump."""
+    i, n = 0, len(words)
+    while i < n:
+        word = words[i]
+        if re.fullmatch(r'[A-Za-z_]\w*=.*', word) or _last_element(word) in _PREFIX_PROGRAMS | {'!'}:
+            i += 1
+            continue
+        if _last_element(word) == 'env':
+            j = i + 1
+            while j < n:
+                if re.fullmatch(r'-[A-Za-z]*S.*|--split-string(?:=.*)?', words[j]):
+                    return i
+                if words[j] in {'-u', '--unset', '-C', '--chdir'}:
+                    j += 2
+                elif words[j].startswith('-') or re.fullmatch(r'[A-Za-z_]\w*=.*', words[j]):
+                    j += 1
+                else:
+                    break
+            if j >= n or (j == n - 1 and re.fullmatch(r'\d+', words[j])):  # env A=1 2>&1: a file descriptor, no command
+                return i
+            i = j
+            continue
+        return i
+    return None
+
+
 def _executed_text(text, depth=0, code=True):
     text = _strip_heredocs(text, code)
     edits = []
     for segment in _segments(_shell_words(text)):
-        idx = next ( (i for i, w in enumerate(segment) if not re.fullmatch(r'[A-Za-z_]\w*=.*', w[2])
-                      and _last_element(w[2]) not in _PREFIX_PROGRAMS | {'!'}), None)
+        idx = _program_index([w[2] for w in segment])
         if idx is None:
             continue
         program = _last_element(segment[idx][2])
@@ -1168,8 +1196,7 @@ def _env_access(text):
 def _segment_env(text):
     for seg in _segments(_shell_words(text)):
         words = [w[2] for w in seg]
-        idx = next((i for i, w in enumerate(words) if not re.fullmatch(r'[A-Za-z_]\w*=.*', w)
-                    and _last_element(w) not in _PREFIX_PROGRAMS | {'!'}), None)
+        idx = _program_index(words)
         if idx is None:
             continue
         program, args = _last_element(words[idx]), words[idx + 1:]
@@ -1186,6 +1213,8 @@ def _segment_env(text):
                 args = args[:-1]
             i = 0
             while i < len(args):
+                if re.fullmatch(r'-[A-Za-z]*S.*|--split-string(?:=.*)?', args[i]):
+                    return True
                 if args[i] in {'-u', '--unset', '-C', '--chdir'}:
                     i += 2
                 elif args[i].startswith('-') or re.fullmatch(r'[A-Za-z_]\w*=.*', args[i]):
@@ -1281,14 +1310,9 @@ def _command_reads_token_file(command, depth=0):
     if current:
         segments.append(current)
     for segment in segments:
-        program, operands = None, []
-        for index, word in enumerate(segment):
-            if program is None:
-                if re.fullmatch(r"[A-Za-z_]\w*=.*", word) or _last_element(word) in _PREFIX_PROGRAMS:
-                    continue
-                program = _last_element(word)
-                continue
-            operands.append((index, word))
+        start = _program_index(segment)
+        program = _last_element(segment[start]) if start is not None else None
+        operands = [(index, segment[index]) for index in range(start + 1, len(segment))] if start is not None else []
         if program is None:
             continue
         # `< file` is read by any program, so it is checked before the program is classified.

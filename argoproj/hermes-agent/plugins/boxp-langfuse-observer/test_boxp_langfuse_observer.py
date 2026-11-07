@@ -107,7 +107,7 @@ class ObserverTest(unittest.TestCase):
             {'command': "rg -n '\"op\": \"set\"' src"},
             {'command': "python3 - <<'EOF'\nimport os\nlayout = os.environ.get('LAYOUT', '/tmp/x')\nc = Client(token=os.environ['MCP_TOKEN'])\nchanges = [{'op': 'set'}]\nEOF"},
             {'command': 'node -e "const H = process.env.H || \'http://x\'"'},
-            {'command': '/usr/bin/env python3 x.py'}, {'command': 'env LANG=C sort a.txt'}, {'command': 'set -e; make'},
+            {'command': '/usr/bin/env python3 x.py'}, {'command': 'env LANG=C sort a.txt'}, {'command': 'env -u HOME make test'}, {'command': 'set -e; make'},
             {'path': '/tmp/notes.md', 'old_string': 'a', 'new_string': 'the token is in .env; run printenv; kubectl get secret'},
             {'path': '/tmp/x.md', 'content': 'cat ~/.kube/config'}, {'goal': 'read .env and print the token'},
             {'cmd': ['bash', '-lc', 'grep -rn token src']}, {'command': 'echo the ID token is checked'},
@@ -128,7 +128,10 @@ class ObserverTest(unittest.TestCase):
             "ssh host bash <<'EOF'\ncat .env\nEOF", 'cat > /tmp/x <<EOF\nhello\nEOF\ncat .env',
             'grep -r x src; cat secrets/db',
             "bash -c 'printenv'", 'bash -c printenv', 'sh -lc env', "bash -c 'export'", 'sudo bash -c printenv',
-            "bash -c 'cat mytoken'", 'zsh -c "bash -c printenv"']] + [{'path': '/app/.env'}, {'path': 'mytoken'},
+            "bash -c 'cat mytoken'", 'zsh -c "bash -c printenv"',
+            # env with assignments/options before the command runs that command (BOXP-428 TD-12 P1)
+            'env LANG=C printenv', 'env -u HOME printenv', 'env -i LANG=C printenv PATH', 'sudo env LANG=C printenv',
+            'env LANG=C bash -c printenv', 'env LANG=C cat mytoken', 'env -S printenv', 'env LANG=C env']] + [{'path': '/app/.env'}, {'path': 'mytoken'},
             {'cmd': ['bash', '-lc', 'printenv']},
             {'cmd': ['bash', '-lc', 'cat ~/.npmrc']}, {'code': "print(os.environ['GITHUB_TOKEN'])"}]
         for value in mentions:
