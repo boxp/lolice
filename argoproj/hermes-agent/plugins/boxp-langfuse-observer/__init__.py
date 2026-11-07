@@ -121,8 +121,12 @@ def _value(group, limit="", bare=r"[^\s,;}\]]+"):
             + ("" if limit else r"|[^\n]*") + r")|" + bare + ")")
 
 
+# A key may follow a \u0022 quote escape (\u0022value\u0022:), whose last character is a word character.
+_KEY_START = r"(?:(?<![\w-])|(?<=\\u00(?:22|27)))"
+
+
 def _entry_key(name):
-    return r"(?<![\w-])" + name + _QUOTE + r"?" + _GAP + r"[:=]" + _GAP
+    return _KEY_START + name + _QUOTE + r"?" + _GAP + r"[:=]" + _GAP
 
 
 
@@ -512,7 +516,8 @@ def _mask_secret_lines(text):
 _PIN_KINDS = {"assignment", "env_entry", "flag", "cli_password"}
 _REFERENCE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\[REDACTED:[a-z_-]+\]", re.I)
 _NAME_SEPARATOR = re.compile(r"(?s)^(.*?)(?:[:=]|\\+u00(?:3[aA]|3[dD]))")
-_ENTRY_VALUE_START = re.compile(r"(?i)(?<![\w-])value(?:\\*[\"'])?(?:\s|\\+[nrt])*[:=](?:\s|\\+[nrt])*")
+# The value key takes every serialized quote form (&quot;value&quot;:, \u0022value\u0022:), as _entry_key does.
+_ENTRY_VALUE_START = re.compile(r"(?i)" + _entry_key("value"))
 
 
 _OPENING_QUOTE = re.compile(_QUOTE, re.I)

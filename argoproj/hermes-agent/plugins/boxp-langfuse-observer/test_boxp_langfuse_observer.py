@@ -267,6 +267,20 @@ class ObserverTest(unittest.TestCase):
                 self.assertIn(value, plugin._named_values(text)[0])
                 self.assertNotIn(value.split()[-1], plugin._redact(text)[0])
 
+    def test_named_values_in_encoded_env_entries(self):
+        # Regression (arch#14548 review, same rule): the env entry value key takes every serialized quote form
+        # (&quot;, &#34;, &#x22;, &apos;, \\u0022, \\"), so the value of an HTML/JSON-encoded entry is pinned.
+        cases = ['&quot;name&quot;: &quot;API_SECRET&quot;, &quot;value&quot;: &quot;quietmeadowstone&quot;',
+                 '&#34;name&#34;: &#34;API_SECRET&#34;, &#34;value&#34;: &#34;quietmeadowstone&#34;',
+                 '&#x22;value&#x22;: &#x22;quietmeadowstone&#x22;, &#x22;name&#x22;: &#x22;API_SECRET&#x22;',
+                 '{\\u0022name\\u0022: \\u0022API_SECRET\\u0022, \\u0022value\\u0022: \\u0022quietmeadowstone\\u0022}',
+                 '{\\"name\\": \\"API_SECRET\\", \\"value\\": \\"quietmeadowstone\\"}',
+                 "&apos;name&apos;: &apos;API_SECRET&apos;, &apos;value&apos;: &apos;quietmeadowstone&apos;"]
+        for text in cases:
+            with self.subTest(text=text):
+                self.assertIn("quietmeadowstone", plugin._named_values(text)[0])
+                self.assertNotIn("quietmeadowstone", plugin._redact(text)[0])
+
     def test_named_values_skip_references_and_settings(self):
         for text in ("password: $VAR", "password: ${VAR}", "password: [REDACTED:assignment]", "AUTH_ENABLED=false"):
             with self.subTest(text=text):
