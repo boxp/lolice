@@ -77,7 +77,8 @@ spec:
           - 2408
 ---
 # BOXP-270: the webhook platform listens on 0.0.0.0:8644 inside the Pod. Only
-# the codex-workspace Pod (task-board event dispatcher) may reach it; every
+# the codex-workspace Pod (task-board event dispatcher) and, since BOXP-462, the
+# Alertmanager Pods (`alertmanager` route) may reach it; every
 # other ingress to the hermes-agent Pod is denied. kubelet probes are not
 # subject to Calico workload policy (the codex-workspace dashboard probe runs
 # behind an equally strict ingress policy).
@@ -97,6 +98,16 @@ spec:
       source:
         namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
         selector: app == 'codex-workspace'
+      destination:
+        ports:
+          - 8644
+    # BOXP-462: Alertmanager (monitoring) posts to the `alertmanager` route with
+    # its own token. Only the alertmanager-main Pods, only this port.
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'monitoring'
+        selector: app.kubernetes.io/name == 'alertmanager' && alertmanager == 'main'
       destination:
         ports:
           - 8644

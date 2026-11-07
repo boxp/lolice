@@ -1,0 +1,109 @@
+# BOXP-462 fixture workloads. ConfigMaps come from render-fixture.sh (production
+# Alertmanager config template and the production relay script).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: alertmanager-relay-fixture
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: alertmanager
+          image: quay.io/prometheus/alertmanager:v0.34.1
+          args:
+            - --config.file=/etc/am/alertmanager.yaml
+            - --storage.path=/tmp/am
+            - --cluster.listen-address=
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9093
+          volumeMounts:
+            - name: config
+              mountPath: /etc/am
+      volumes:
+        - name: config
+          secret:
+            secretName: alertmanager-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-sink
+  namespace: alertmanager-relay-fixture
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes-sink
+  template:
+    metadata:
+      labels:
+        app: hermes-sink
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: sink
+          image: python:3.13-alpine
+          command: ["python", "-u", "/scripts/sink.py"]
+          env:
+            - name: EXPECTED_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fixture-token
+                  key: token
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: scripts
+          configMap:
+            name: fixture-scripts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-sink
+  namespace: alertmanager-relay-fixture
+spec:
+  selector:
+    app: hermes-sink
+  ports:
+    - port: 8644
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: relay
+  namespace: alertmanager-relay-fixture
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: relay
+  template:
+    metadata:
+      labels:
+        app: relay
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: relay
+          image: docker.io/babashka/babashka:1.13.229
+          command: ["sleep", "infinity"]
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+      volumes:
+        - name: scripts
+          configMap:
+            name: fixture-scripts

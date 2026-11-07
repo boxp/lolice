@@ -6,6 +6,7 @@ resources:
 - grafana-lb.yaml
 - external-secret.yaml
 - external-secret-alertmanager.yaml
+- secret-store-hermes-webhook.yaml
 - cloudflared-deployment.yaml
 - grafana-pvc.yaml
 - control-plane-node-rules.yaml
@@ -13,6 +14,7 @@ resources:
 - local-llm-gpu-observability-rules.yaml
 - ai-ops-outcome-rules.yaml
 - ai-provider-quota-rules.yaml
+- ai-subscription-forecast-rules.yaml
 - cloudflared-pod-monitor.yaml
 - etcd-service.yaml
 - etcd-servicemonitor.yaml

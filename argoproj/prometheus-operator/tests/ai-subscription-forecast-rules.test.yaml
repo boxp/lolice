@@ -1,0 +1,310 @@
+rule_files:
+  - rules.yaml
+evaluation_interval: 1m
+tests:
+  # 持続的な消費: 0.5pt/h、reset まで 150h、残り 65pt（予備 5pt を除き 60pt）。
+  # burn ratio = 0.5 * 150 / 60 = 1.25。短期の速度での枯渇は 130h 後で 24h 以内ではない。
+  # → warning だけが出る。
+  - name: 持続的な消費は warning
+    interval: 5m
+    input_series:
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '20+0.041666666666666664x400'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '0+300x400'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '648000x400'
+      - series: 'ai_subscription_window_duration_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '604800x400'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex"}'
+        values: '1x400'
+    promql_expr_test:
+      - expr: round(ai_subscription:window_burn_ratio:24h, 0.001)
+        eval_time: 30h
+        exp_samples:
+          - labels: '{provider="codex",name="primary",limit="primary",window="7d"}'
+            value: 1.25
+      - expr: round(ai_subscription:window_burn_ratio:6h, 0.001)
+        eval_time: 30h
+        exp_samples:
+          - labels: '{provider="codex",name="primary",limit="primary",window="7d"}'
+            value: 1.25
+      - expr: round(ai_subscription:window_exhaustion_eta_seconds:6h)
+        eval_time: 30h
+        exp_samples:
+          - labels: '{provider="codex",name="primary",limit="primary",window="7d"}'
+            value: 468000
+    alert_rule_test:
+      - eval_time: 30h
+        alertname: AiSubscriptionWindowExhaustionForecast
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: ai-ops
+              definition_version: quota-forecast/v1-draft
+              reason: sustained_burn
+              notify_hermes: "true"
+              provider: codex
+              name: primary
+              limit: primary
+              window: 7d
+            exp_annotations:
+              summary: codex/primary の利用枠が reset 前に尽きる見込み
+              description: |
+                codex/primary（limit=primary window=7d）
+                使用 35%
+                速度 6h=0.50pt/h 24h=0.50pt/h
+                短期速度での枯渇まで 5d 10h 0m 0s
+                reset まで 6d 6h 0m 0s
+                観測の古さ 0s
+                burn ratio 6h=1.25 24h=1.25（1 以上 = この速度のまま reset 前に尽きる。予備 5pt を除く）
+                予測は点推定で、休止・バースト・1% 刻み・観測の欠けで外れる。閾値は暫定。
+              dashboard: https://grafana.b0xp.io/d/ai-ops-quality
+              runbook_next_actions: 許可された次 action = 消費経路の確認（token 量は quota% の内訳ではない）・証拠の記録・Owner への緩和候補の提示。禁止 = 新しい課金や追加 credits、別 account、既定 model の変更、cron の無断停止、実行中 task の強制停止、claim 削除、予算 reset。
+      - eval_time: 30h
+        alertname: AiSubscriptionWindowForecastUnavailable
+        exp_alerts: []
+  # 速い消費: 2pt/h、残り 20pt で短期の速度では 10h 後に尽きる（reset は 81h 後）。
+  # critical（fast_exhaustion）と warning が両方出る（Alertmanager の inhibit で warning は抑止）。
+  - name: 速い消費は critical
+    interval: 5m
+    input_series:
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '20+0.16666666666666666x400'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '0+300x400'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '400000x400'
+      - series: 'ai_subscription_window_duration_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '604800x400'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex"}'
+        values: '1x400'
+    promql_expr_test:
+      - expr: round(ai_subscription:window_exhaustion_eta_seconds:6h)
+        eval_time: 30h
+        exp_samples:
+          - labels: '{provider="codex",name="primary",limit="primary",window="7d"}'
+            value: 36000
+      - expr: count by (alertname, severity, reason) (ALERTS{alertname=~"AiSubscriptionWindowExhaustion.*",alertstate="firing"})
+        eval_time: 30h
+        exp_samples:
+          - labels: '{alertname="AiSubscriptionWindowExhaustionImminent",severity="critical",reason="fast_exhaustion"}'
+            value: 1
+          - labels: '{alertname="AiSubscriptionWindowExhaustionForecast",severity="warning",reason="sustained_burn"}'
+            value: 1
+  # reset をまたぐ区間では速度を出さない。新しい窓の開始から 6h 未満は判断しない。
+  # 6h 以降 24h 未満は「開始からの平均」を長期の速度に使う。
+  - name: reset の前後
+    interval: 5m
+    input_series:
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '60+0.08333333333333333x119 0+0.08333333333333333x280'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '0+300x400'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '36000x119 640800x280'
+      - series: 'ai_subscription_window_duration_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '604800x400'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex"}'
+        values: '1x400'
+    promql_expr_test:
+      - expr: ai_subscription:window_used_rate_percent_per_hour:6h
+        eval_time: 14h
+        exp_samples: []
+      - expr: ai_subscription:window_used_rate_percent_per_hour:24h
+        eval_time: 14h
+        exp_samples: []
+      - expr: round(ai_subscription:window_used_rate_percent_per_hour:6h, 0.001)
+        eval_time: 20h
+        exp_samples:
+          - labels: '{provider="codex",name="primary",limit="primary",window="7d"}'
+            value: 1
+      - expr: round(ai_subscription:window_used_rate_percent_per_hour:24h, 0.001)
+        eval_time: 20h
+        exp_samples:
+          - labels: '{provider="codex",name="primary",limit="primary",window="7d"}'
+            value: 1
+  # 観測が止まった窓は予測せず「不明」と出す。used が増えていても消費ゼロとも枯渇とも言わない。
+  - name: 観測が古い
+    interval: 5m
+    input_series:
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",pod="p1",provider="claude",name="fable_7d",limit="seven_day_overage_included",window="7d"}'
+        values: '20+0.16666666666666666x400'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="claude",name="fable_7d",limit="seven_day_overage_included",window="7d"}'
+        values: '0x400'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="claude",name="fable_7d",limit="seven_day_overage_included",window="7d"}'
+        values: '400000x400'
+      - series: 'ai_subscription_window_duration_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="claude",name="fable_7d",limit="seven_day_overage_included",window="7d"}'
+        values: '604800x400'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex"}'
+        values: '1x400'
+    alert_rule_test:
+      - eval_time: 30h
+        alertname: AiSubscriptionWindowExhaustionForecast
+        exp_alerts: []
+      - eval_time: 30h
+        alertname: AiSubscriptionWindowForecastUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota-forecast/v1-draft
+              reason: stale
+              provider: claude
+              name: fable_7d
+              limit: seven_day_overage_included
+              window: 7d
+            exp_annotations:
+              summary: claude/fable_7d の枯渇予測ができない（観測が古い）
+              description: 観測が 2 時間以上更新されていない。消費が無いのか観測が止まったのかは区別できない。消費ゼロとも利用可能とも読まない。
+              runbook_next_actions: 許可された次 action = 不明として扱う・証拠の記録。禁止 = 観測のための再試行の連打。
+  # 観測が止まったまま記録済みの reset 時刻を過ぎても、現在の窓は不明なので stale を出し続ける。
+  - name: 観測が古いまま reset を過ぎた
+    interval: 5m
+    input_series:
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '70x400'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '0x400'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '36000x400'
+      - series: 'ai_subscription_window_duration_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '604800x400'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex"}'
+        values: '1x400'
+    alert_rule_test:
+      - eval_time: 30h
+        alertname: AiSubscriptionWindowExhaustionImminent
+        exp_alerts: []
+      - eval_time: 30h
+        alertname: AiSubscriptionWindowForecastUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota-forecast/v1-draft
+              reason: stale
+              provider: codex
+              name: primary
+              limit: primary
+              window: 7d
+            exp_annotations:
+              summary: codex/primary の枯渇予測ができない（観測が古い）
+              description: 観測が 2 時間以上更新されていない。消費が無いのか観測が止まったのかは区別できない。消費ゼロとも利用可能とも読まない。
+              runbook_next_actions: 許可された次 action = 不明として扱う・証拠の記録。禁止 = 観測のための再試行の連打。
+  # 再起動で pod が変わり 2 系列が重なる間は、観測時刻が新しい系列の値を採る。
+  # Codex には status が無いので used=100 を上限到達として出す。Claude（status あり）は既存ルールに任せる。
+  # 未提供の窓と 7d 以外の窓は「未監視」と出す。
+  - name: pod の重複・上限到達・未監視
+    interval: 1m
+    input_series:
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",pod="old",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '90x3'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="old",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '0x3'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",pod="old",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '100000x3'
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",pod="new",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '30x2 100x80'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="new",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '0+60x82'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",pod="new",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '100000x82'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",pod="new",provider="codex"}'
+        values: '1x82'
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",pod="new",provider="claude",name="shared_7d",limit="seven_day",window="7d"}'
+        values: '100x82'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="new",provider="claude",name="shared_7d",limit="seven_day",window="7d"}'
+        values: '0+60x82'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",pod="new",provider="claude",name="shared_7d",limit="seven_day",window="7d"}'
+        values: '100000x82'
+      - series: 'ai_subscription_window_status{job="codex-workspace-ai-ops-metrics",pod="new",provider="claude",name="shared_7d",limit="seven_day",window="7d",status="rejected"}'
+        values: '1x82'
+      - series: 'ai_subscription_window_present{job="codex-workspace-ai-ops-metrics",pod="new",provider="claude",name="shared_5h",limit="five_hour"}'
+        values: '0x82'
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",pod="new",provider="codex",name="secondary",limit="secondary",window="5h"}'
+        values: '10x82'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="new",provider="codex",name="secondary",limit="secondary",window="5h"}'
+        values: '0+60x82'
+    promql_expr_test:
+      - expr: max by (provider, name, limit, window) (ai_subscription:window_used_percent:latest{provider="codex",name="primary"})
+        eval_time: 1m
+        exp_samples:
+          - labels: '{provider="codex",name="primary",limit="primary",window="7d"}'
+            value: 30
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: AiSubscriptionWindowExhaustionImminent
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              component: ai-ops
+              definition_version: quota-forecast/v1-draft
+              reason: exhausted
+              notify_hermes: "true"
+              provider: codex
+              name: primary
+              limit: primary
+              window: 7d
+            exp_annotations:
+              summary: codex/primary の利用枠が上限に達した
+              description: |
+                codex/primary（limit=primary window=7d）
+                使用 100%
+                速度 6h=不明pt/h 24h=不明pt/h
+                短期速度での枯渇まで 不明
+                reset まで 1d 3h 26m 40s
+                観測の古さ 0s
+                burn ratio 6h=不明 24h=不明（1 以上 = この速度のまま reset 前に尽きる。予備 5pt を除く）
+                予測は点推定で、休止・バースト・1% 刻み・観測の欠けで外れる。閾値は暫定。
+              dashboard: https://grafana.b0xp.io/d/ai-ops-quality
+              runbook_next_actions: 許可された次 action = 消費経路の確認（token 量は quota% の内訳ではない）・証拠の記録・Owner への緩和候補の提示。禁止 = 新しい課金や追加 credits、別 account、既定 model の変更、cron の無断停止、実行中 task の強制停止、claim 削除、予算 reset。
+      - eval_time: 70m
+        alertname: AiSubscriptionWindowForecastUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota-forecast/v1-draft
+              reason: not_provided
+              provider: claude
+              name: shared_5h
+              limit: five_hour
+            exp_annotations:
+              summary: claude/shared_5h の窓は観測元が提供していない
+              description: 観測元がこの窓の値を返していない。枠が無いのか取得できないのかは区別できず、未監視として扱う。
+              runbook_next_actions: 許可された次 action = 未監視として扱う。
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota-forecast/v1-draft
+              reason: unsupported_window
+              provider: codex
+              name: secondary
+              limit: secondary
+              window: 5h
+            exp_annotations:
+              summary: codex/secondary（window=5h）は枯渇予測の対象外
+              description: 予測の速度窓は 7d の窓にだけ定義している。この窓は監視していない（未監視）。
+              runbook_next_actions: 許可された次 action = 未監視として扱う・ルール追加の起票。
+  # Codex の観測元が無いときは不明と出す。
+  - name: 観測元が無い
+    interval: 1m
+    input_series:
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",pod="p1",provider="claude"}'
+        values: '1x90'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: AiSubscriptionWindowForecastUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota-forecast/v1-draft
+              reason: source_unavailable
+              job: codex-workspace-ai-ops-metrics
+              provider: codex
+            exp_annotations:
+              summary: codex の利用枠の観測元を読めない
+              description: 観測元を読めないか系列が無い。枯渇予測はできず、利用可能とも読まない。
+              runbook_next_actions: 許可された次 action = 不明として扱う・証拠の記録・切分け。禁止 = Pod/Hermes の再起動。

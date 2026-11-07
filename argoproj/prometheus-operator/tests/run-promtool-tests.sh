@@ -27,3 +27,4 @@ PY
 
 run_one ai-ops-outcome-rules.yaml ai-ops-outcome-rules.test.yaml
 run_one ai-provider-quota-rules.yaml ai-provider-quota-rules.test.yaml
+run_one ai-subscription-forecast-rules.yaml ai-subscription-forecast-rules.test.yaml
