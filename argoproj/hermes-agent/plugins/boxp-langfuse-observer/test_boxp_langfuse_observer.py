@@ -59,10 +59,28 @@ def run_turn(session="kohako-g2-abc", turn="t1", platform="api_server", body="he
 
 
 def drain():
+    """Queued items: each is the list of masked OTLP batches of one turn."""
     out = []
     while not plugin._queue.empty():
         out.append(plugin._queue.get_nowait())
     return out
+
+
+def bodies():
+    return "".join(body for item in drain() for body in item)
+
+
+class capture_turns:
+    """Turns as they are built, for tests that look at the buffer behind the masked batches."""
+    def __enter__(self):
+        self.turns = []
+        original = plugin.build_spans
+        self.patch = patch.object(plugin, "build_spans", side_effect=lambda turn: (self.turns.append(turn), original(turn))[1])
+        self.patch.__enter__()
+        return self.turns
+
+    def __exit__(self, *exc):
+        self.patch.__exit__(*exc)
 
 
 class ObserverTest(unittest.TestCase):
@@ -72,6 +90,7 @@ class ObserverTest(unittest.TestCase):
         plugin._stats.clear()
         plugin._sessions.clear()
         plugin._delegated.clear()
+        getattr(plugin, "_scanned", {}).clear()
         plugin._creds = ("pk-lf-" + "test" * 4, "sk-lf-" + "test" * 4)
         plugin._secret_values = None
 
@@ -92,14 +111,20 @@ class ObserverTest(unittest.TestCase):
             plugin.register(ctx)
             start.assert_called_once()
             self.assertIsNone(plugin._creds)
-            run_turn()
+            run_turn(args={"path": "/a/.env"}, result="V")  # state is tracked, nothing is buffered or sent
             self.assertEqual(plugin._turns, {})
             self.assertEqual(drain(), [])
+            self.assertEqual(plugin.stats().get("turns_skipped_no_key"), 1)
+            self.assertEqual(plugin._tainted("kohako-g2-abc"), "known_source")
             Path(key_dir, "LANGFUSE_PUBLIC_KEY").write_text("pk-lf-later\n")
             self.assertIsNone(plugin._refresh_credentials())  # half-written Secret stays idle
             Path(key_dir, "LANGFUSE_SECRET_KEY").write_text("sk-lf-later\n")
             self.assertEqual(plugin._refresh_credentials(), ("pk-lf-later", "sk-lf-later"))
-            run_turn()
+            run_turn(turn="t2", body="plainwordvalue")  # what the key-less period saw still withholds
+            body = bodies()
+            self.assertNotIn("plainwordvalue", body)
+            self.assertIn("withheld_after_known_source", body)
+            run_turn(session="kohako-g2-fresh")
             self.assertEqual(len(drain()), 1)
 
     def test_worker_picks_up_key_while_running(self):
@@ -223,7 +248,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_structured_secret_in_tool_result_never_reaches_payload(self):
         run_turn(result={"output": '{"password":["first","secondsecretvalue"]}'})
-        self.assertNotIn("secondsecretvalue", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+        self.assertNotIn("secondsecretvalue", bodies())
 
     def test_ordinary_words_near_secret_forms_are_kept(self):
         for text in ("bypass=keptvalue", "compass: keptvalue", "tests passed: keptvalue", "author: keptvalue",
@@ -234,7 +259,7 @@ class ObserverTest(unittest.TestCase):
 
     def test_masked_flag_does_not_trip_the_final_guard(self):
         run_turn(tool="delegate_task", result="mytool --password plainwordvalue\nnext\ncleanbodymarker")
-        self.assertIn("cleanbodymarker", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+        self.assertIn("cleanbodymarker", bodies())
 
     def test_nested_masking_stops_at_the_end_of_the_value(self):
         out = plugin.redact(json.dumps({"output": json.dumps({"password": "plainwordvalue", "name": "keptvalue"})}))
@@ -246,7 +271,7 @@ class ObserverTest(unittest.TestCase):
         for result in ({"output": '{"password":"plainwordvalue"}'}, '{"output":"{\\"password\\":\\"plainwordvalue\\"}"}'):
             with self.subTest(result):
                 run_turn(result=result)
-                self.assertNotIn("plainwordvalue", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+                self.assertNotIn("plainwordvalue", bodies())
 
     def test_keeps_ordinary_text_and_git_sha(self):
         text = "git rev 0123456789abcdef0123456789abcdef01234567 path /a/b/c.txt 日本語"
@@ -254,22 +279,23 @@ class ObserverTest(unittest.TestCase):
 
     def test_secrets_never_reach_payload_from_any_field(self):
         corpus = " ".join(SECRETS.values())
-        run_turn(body=corpus, args={"command": "echo " + corpus}, result=corpus)
-        turn = drain()[0]
+        with capture_turns() as turns:
+            run_turn(body=corpus, args={"command": "echo " + corpus}, result=corpus)
+        turn = turns[0]
         turn["exit_reason"] = corpus
         turn["spans"][0]["name"] = "name " + SECRETS["github"]
         turn["spans"][1]["metadata"]["provider"] = "https://h/?token=" + SECRETS["langfuse"]
-        bodies = list(plugin.guarded_payloads(plugin.build_spans(turn)))
-        self.assertTrue(bodies)
+        batches = list(plugin.guarded_payloads(plugin.build_spans(turn)))
+        self.assertTrue(batches)
         for marker in MARKERS:
-            self.assertNotIn(marker, "".join(bodies))
+            self.assertNotIn(marker, "".join(batches) + bodies())
 
     def test_sensitive_tool_output_is_withheld(self):
         for args in ({"path": "/home/x/.codex/auth.json"}, {"command": "kubectl get secret foo -o yaml"}, {"command": "env"},
                      {"command": "cat /proc/1/environ"}, {"path": "/a/.ssh/id_rsa"}):
             with self.subTest(args):
                 run_turn(args=args, result="UNIQUEOUTPUT")
-                body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
+                body = bodies()
                 self.assertNotIn("UNIQUEOUTPUT", body)
                 self.assertIn("withheld", body)
 
@@ -286,12 +312,66 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn("UNIQUEOUTPUT", body)
                 self.assertIn("withheld", body)
 
+    def test_known_source_table_additions_are_withheld(self):
+        # The K0 table of THREAT_MODEL.md: credential files and credential-printing commands, fixed list.
+        for args in ({"path": "/home/x/.kube/config"}, {"path": "/home/x/.npmrc"}, {"path": "/home/x/.pypirc"}, {"path": "/home/x/.pgpass"},
+                     {"path": "/home/x/.docker/config.json"}, {"path": "/home/x/.config/gh/hosts.yml"}, {"path": "/home/x/.config/gcloud/credentials.db"},
+                     {"path": "/home/x/.azure/msal_token_cache.json"}, {"path": "/home/x/.cargo/credentials.toml"}, {"path": "/home/x/.vault-token"},
+                     {"path": "/etc/app/private.key"}, {"path": "/etc/ssl/server.pem"}, {"path": "/home/x/keystore.p12"}, {"path": "/home/x/.ssh/id_ecdsa_sk"},
+                     {"path": "/home/x/.gnupg/secring.gpg"}, {"path": "/var/lib/app/tokens.json"}, {"path": "/var/lib/app/refresh_token.txt"},
+                     {"path": "/tmp/tokens"}, {"path": "/var/lib/app/tokens/current"},
+                     # id_*: any SSH-style key name, not only the four algorithms spelled out before
+                     {"path": "/backup/id_xmss"}, {"command": "cat /tmp/id_ed448_sk"}, {"command": "cat id_rsa"}, {"path": "/home/x/keys/id_falcon-sk"},
+                     # token files named without an extension or a directory, in a reading position
+                     {"command": "cat tokens"}, {"path": "tokens"}, {"path": "./tokens"}, {"command": "cat ./tokens"}, {"command": "tail -n1 tokens"},
+                     {"command": "sed -n 1p mytoken"}, {"command": "cat access_tokens_backup"}, {"command": "wc -l < tokens"},
+                     {"command": "bash -c 'cat tokens'"}, {"command": "git show HEAD:tokens"}, {"command": "sudo cat tokens"},
+                     {"command": "cat ~/.kube/config"}, {"command": "gcloud auth print-access-token"}, {"command": "gcloud auth application-default print-access-token"},
+                     {"command": "az account get-access-token --resource x"}, {"command": "aws sts get-session-token"}, {"command": "aws ecr get-login-password --region x"},
+                     {"command": "kubectl -n foo create token sa-x"}, {"command": "oc whoami -t"}, {"command": "vault read secret/x"}, {"command": "vault kv get kv/x"},
+                     {"command": "op read op://vault/item/field"}, {"command": "docker-credential-gcr get"}, {"command": "env -u HOME"}):
+            with self.subTest(args):
+                plugin._sessions.clear()
+                run_turn(args=args, result="UNIQUEOUTPUT")
+                body = self._bodies()
+                self.assertNotIn("UNIQUEOUTPUT", body)
+                self.assertIn("withheld_known_source", body)
+
+    def test_words_that_look_like_the_table_are_not_withheld(self):
+        for args in ({"path": "/a/keyboard.md"}, {"path": "/a/api-keys.md"}, {"path": "/a/keymap.py"}, {"path": "/a/package.json"}, {"path": "/a/.bashrc"},
+                     {"path": "/a/kube-config.md"}, {"path": "/a/.kubeignore"}, {"path": "/a/user_id_map.json"},
+                     {"command": "grep -rn id_12345 src"}, {"query": "the session_id_format"}, {"command": "ls ~/.config"}, {"command": "gcloud auth list"},
+                     {"command": "az account show"}, {"command": "aws sts get-caller-identity"}, {"command": "oc whoami"}, {"command": "vault status"},
+                     {"command": "kubectl get pods -n foo"}, {"command": "git commit -m 'count tokens per request'"},
+                     {"command": "codex exec --max-output-tokens 5 x"}, {"model_settings": {"max_output_tokens": 5}}, {"query": "the token refresh flow"},
+                     # the word token in a mention, not a read: listing, searching, naming, deleting
+                     {"command": "grep -rn tokens src"}, {"command": "rg -w token src/"}, {"command": "ls tokens"}, {"command": "echo tokens"},
+                     {"command": "rm -f tokens"}, {"command": "git add tokens"}, {"command": "git log --oneline -- tokens"}, {"command": "find . -name tokens"},
+                     {"command": "python3 -c 'print(1)' --tokens 5"}):
+            with self.subTest(args):
+                plugin._sessions.clear()
+                run_turn(args=args, result="UNIQUEOUTPUT")
+                body = self._bodies()
+                self.assertIn("UNIQUEOUTPUT", body)
+                self.assertNotIn("[withheld", body)
+
+    def test_queue_only_holds_masked_batches(self):
+        # Hooks keep raw bodies in the turn buffer; on_session_end masks them, so no raw value sits in the queue.
+        run_turn(body="the value is " + SECRETS["github"], args={"command": "cat x"}, result="api_key=" + "plainword" + "value2\nnext")
+        for item in drain():
+            self.assertIsInstance(item, list)
+            for batch in item:
+                self.assertIsInstance(batch, str)
+                self.assertNotIn("a1B2a1B2", batch)
+                self.assertNotIn("plainwordvalue2", batch)
+        self.assertEqual(plugin.stats().get("hook_errors"), None)
+
     def test_ordinary_commands_are_not_withheld(self):
         for command in ("kubectl get pods -n foo", "git status", "ls -la", "aws s3 ls", "environment-check", "reset --hard"):
             with self.subTest(command):
                 plugin._sessions.clear()
                 run_turn(args={"command": command}, result="UNIQUEOUTPUT")
-                self.assertIn("tool_body_policy", self._bodies())  # not the withheld marker
+                self.assertIn("UNIQUEOUTPUT", self._bodies())  # not withheld
 
     def test_value_is_masked_in_every_serialized_form(self):
         values = {"A_TOKEN": 'ab"1', "B_TOKEN": "q'z", "C_TOKEN": "l1\nl2", "D_TOKEN": "b\\s", "E_TOKEN": "é7",
@@ -439,7 +519,7 @@ class ObserverTest(unittest.TestCase):
             with self.subTest(command):
                 plugin._sessions.clear()
                 run_turn(args={"command": command}, result="UNIQUEOUTPUT")
-                self.assertIn("tool_body_policy", self._bodies())  # not the withheld marker
+                self.assertIn("UNIQUEOUTPUT", self._bodies())  # not withheld
 
     def test_arguments_of_a_sensitive_call_are_withheld(self):
         for args in ({"command": "echo plainwordvalue > /a/.env"}, {"path": "/a/.env", "content": "plainwordvalue"},
@@ -455,12 +535,14 @@ class ObserverTest(unittest.TestCase):
         plugin._on_session_end(session_id=session, turn_id="c", completed=True)
 
     def test_delegated_child_is_in_scope_without_a_ticket(self):
-        plugin._on_subagent_start(parent_session_id="tg-1", parent_turn_id="t", child_session_id="child-1")
-        self._child_turn("child-1", "tg-1")
-        self.assertEqual([t["session"] for t in drain()], ["child-1"])
-        plugin._on_subagent_start(parent_session_id="child-1", parent_turn_id="c", child_session_id="grandchild-1")
-        self._child_turn("grandchild-1", "child-1")
-        self.assertEqual([t["session"] for t in drain()], ["grandchild-1"])
+        with capture_turns() as turns:
+            plugin._on_subagent_start(parent_session_id="tg-1", parent_turn_id="t", child_session_id="child-1")
+            self._child_turn("child-1", "tg-1")
+            self.assertEqual([t["session"] for t in turns], ["child-1"])
+            plugin._on_subagent_start(parent_session_id="child-1", parent_turn_id="c", child_session_id="grandchild-1")
+            self._child_turn("grandchild-1", "child-1")
+            self.assertEqual([t["session"] for t in turns], ["child-1", "grandchild-1"])
+        self.assertEqual(len(drain()), 2)
 
     def test_rotated_session_of_a_child_stays_in_scope(self):
         plugin._on_subagent_start(parent_session_id="tg-1", parent_turn_id="t", child_session_id="child-1")
@@ -473,7 +555,7 @@ class ObserverTest(unittest.TestCase):
         self.assertEqual(plugin.stats().get("turns_out_of_scope"), 1)
 
     def _bodies(self):
-        return "".join(b for turn in drain() for b in plugin.guarded_payloads(plugin.build_spans(turn)))
+        return bodies()
 
     def test_withheld_output_stays_out_of_later_requests_and_replies(self):
         # The value matches no pattern, so only the withholding can keep it out.
@@ -502,7 +584,7 @@ class ObserverTest(unittest.TestCase):
                 plugin._on_session_end(session_id=session, turn_id="t", completed=True)
                 body = self._bodies()
                 self.assertNotIn(unknown, body)
-                self.assertIn("withheld_after_tool_output", body)
+                self.assertIn("withheld_after_known_source", body)
                 # The following turn of the session still carries the value in its history.
                 run_turn(session=session, turn="t2", body="next", result=unknown)
                 body = self._bodies()
@@ -517,7 +599,7 @@ class ObserverTest(unittest.TestCase):
         run_turn(session="kohako-g2-u", turn="t2", body=unknown)
         body = self._bodies()
         self.assertNotIn(unknown, body)
-        self.assertIn("has seen tool output", body)
+        self.assertIn("withheld_after_known_source", body)
 
     def test_user_message_of_resumed_tainted_session_is_withheld(self):
         history = [{"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]}]
@@ -617,36 +699,82 @@ class ObserverTest(unittest.TestCase):
         plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="plainconfigvalue")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
 
-    def test_reply_after_reading_an_ordinary_file_is_withheld(self):
+    def test_reply_after_an_ordinary_tool_is_sent(self):
+        # Using a tool is not evidence. A value without a secret word or known format near it is the accepted gap (THREAT_MODEL.md).
         for tool, args in (("terminal", {"command": "cat /etc/app/config.yaml"}), ("read_file", {"path": "/etc/app/config.yaml"}),
                            ("search_files", {"pattern": "db"}), ("session_search", {"query": "db"}), ("memory", {"action": "read"}),
-                           ("browser_vault", {}), ("a_tool_added_later", {})):
+                           ("browser_vault", {}), ("a_tool_added_later", {}), ("todo", {}), ("web_search", {})):
             with self.subTest(tool):
                 session = "kohako-g2-config-" + tool
                 self._value_only_reply(session, tool, args)
                 body = self._bodies()
-                self.assertNotIn("plainconfigvalue", body)
-                self.assertIn("read it", body)  # what came before the tool stays
-                self.assertIn("withheld", body)
-                # The next turn: the user can quote the reply back.
-                run_turn(session=session, turn="t2", body="plainconfigvalue", tool="todo", args={}, result="ok")
-                self.assertNotIn("plainconfigvalue", self._bodies())
+                self.assertIn("plainconfigvalue", body)
+                self.assertIn("read it", body)
+                self.assertNotIn("[withheld", body)
+                self.assertNotIn('"withheld_', body)
+                self.assertIn('"stringValue": "sent"', body)
+                # The next turn of the same session stays readable too.
+                run_turn(session=session, turn="t2", body="nextturnmarker", tool="todo", args={}, result="ok")
+                self.assertIn("nextturnmarker", self._bodies())
 
-    def test_replies_stay_after_tools_without_private_output(self):
-        for tool in ("todo", "clarify", "delegate_task", "web_search"):
-            with self.subTest(tool):
-                self._value_only_reply("kohako-g2-keep-" + tool, tool, {}, result="ok")
-                self.assertIn("plainconfigvalue", self._bodies())
-
-    def test_reply_after_a_child_read_a_file_is_withheld(self):
+    def test_reply_after_a_child_used_a_tool_is_sent(self):
         plugin._on_turn_start(session_id="kohako-g2-pc", turn_id="t", user_message="go")
-        plugin._on_turn_start(session_id="pc-child", turn_id="c", user_message="goal", parent_session_id="kohako-g2-pc")
-        plugin._on_tool(session_id="pc-child", turn_id="c", tool_call_id="x", tool_name="terminal", args={"command": "cat /etc/app/config.yaml"}, result="plainconfigvalue")
-        plugin._on_turn_end(session_id="pc-child", turn_id="c", assistant_response="plainconfigvalue")
+        plugin._on_subagent_start(parent_session_id="kohako-g2-pc", parent_turn_id="t", child_session_id="pc-child")
+        plugin._on_turn_start(session_id="pc-child", turn_id="c", user_message="childgoalmarker", parent_session_id="kohako-g2-pc")
+        plugin._on_tool(session_id="pc-child", turn_id="c", tool_call_id="x", tool_name="terminal", args={"command": "cat /etc/app/config.yaml"}, result="childtoolmarker")
+        plugin._on_turn_end(session_id="pc-child", turn_id="c", assistant_response="childreplymarker")
         plugin._on_session_end(session_id="pc-child", turn_id="c", completed=True)
-        plugin._on_turn_end(session_id="kohako-g2-pc", turn_id="t", assistant_response="plainconfigvalue")
+        plugin._on_subagent(parent_session_id="kohako-g2-pc", parent_turn_id="t", child_session_id="pc-child", child_summary="childsummarymarker")
+        plugin._on_turn_end(session_id="kohako-g2-pc", turn_id="t", assistant_response="parentreplymarker")
         plugin._on_session_end(session_id="kohako-g2-pc", turn_id="t", completed=True)
-        self.assertNotIn("plainconfigvalue", self._bodies())
+        body = self._bodies()
+        for marker in ("childgoalmarker", "childtoolmarker", "childreplymarker", "childsummarymarker", "parentreplymarker"):
+            self.assertIn(marker, body)
+        self.assertNotIn("[withheld", body)
+        self.assertNotIn('"withheld_', body)
+
+    def test_known_format_in_a_tool_result_masks_it_and_withholds_later_bodies(self):
+        # The model saw a credential: the line is masked and what follows in the session is withheld.
+        for result in ("host: db\npassword: plainwordvalue\nport: 5432", {"output": '{"api_key":"plainwordvalue"}'},
+                       "<password>plainwordvalue</password>", "Authorization: Bearer " + "plainword" + "value1"):
+            with self.subTest(result):
+                session = "kohako-g2-fmt-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                body = self._bodies()
+                self.assertNotIn("plainwordvalue", body)
+                self.assertIn("read it", body)
+                self.assertIn("withheld_after_known_format_in_tool_output", body)
+                run_turn(session=session, turn="t2", body="plainwordvalue", tool="todo", args={}, result="ok")
+                self.assertNotIn("plainwordvalue", self._bodies())
+
+    def test_a_secret_word_alone_in_a_tool_result_does_not_withhold(self):
+        self._value_only_reply("kohako-g2-word", "terminal", {"command": "cat README.md"},
+                               result="Set the password in the settings page.\nneighbour line\nkeptlinemarker", first="read it")
+        body = self._bodies()
+        self.assertIn("keptlinemarker", body)
+        self.assertIn("plainconfigvalue", body)  # the reply stays
+        self.assertNotIn("[withheld", body)
+        self.assertNotIn('"withheld_', body)
+
+    def test_oversized_tool_result_is_withheld_unscanned(self):
+        big = "x" * (plugin._MAX_SCAN_BYTES + 1)
+        self._value_only_reply("kohako-g2-big", "terminal", {"command": "cat big.log"}, result=big)
+        body = self._bodies()
+        self.assertNotIn("xxxxxxxx", body)
+        self.assertIn("withheld_unscanned_output", body)
+        self.assertNotIn("plainconfigvalue", body)
+
+    def test_a_harmless_turn_is_not_all_withheld(self):
+        # Regression guard: an empty trace would also hold no secret. At least one body has to be sent.
+        run_turn(session="kohako-g2-harmless", body="harmlessrequestmarker", args={"command": "ls -la"}, result="harmlesslistingmarker")
+        body = self._bodies()
+        for marker in ("harmlessrequestmarker", "harmlesslistingmarker", "reply harmlessrequestmarker", "done harmlessrequestmarker", "ls -la"):
+            self.assertIn(marker, body)
+        self.assertIn('"stringValue": "sent"', body)
+        self.assertNotIn("[withheld", body)
+        self.assertNotIn('"withheld_', body)
+        self.assertNotIn("omitted", body)
+        self.assertGreaterEqual(plugin.stats().get("bodies_sent", 0), 3)
 
     def _resumed(self, session, history, parent=None):
         plugin._on_turn_start(session_id=session, turn_id="t", user_message="plainconfigvalue", parent_session_id=parent)
@@ -656,43 +784,56 @@ class ObserverTest(unittest.TestCase):
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
         return self._bodies()
 
-    def test_history_this_process_did_not_observe_is_withheld(self):
-        # After a restart nothing says what the model saw, and compaction leaves no tool call to find.
+    def test_history_this_process_did_not_observe_withholds_nothing_by_itself(self):
+        # After a restart, an ordinary tool in the history or the fact that it was not observed is no evidence.
         histories = {
             "tool_result": [{"role": "tool", "content": "README.md"}, {"role": "user", "content": "go"}],
-            "tool_call": [{"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": "{}"}}]}, {"role": "user", "content": "go"}],
+            "tool_call": [{"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/notes.txt"}'}}]}, {"role": "user", "content": "go"}],
             "compacted": [{"role": "user", "content": "[CONTEXT COMPACTION] the file held plainconfigvalue"}, {"role": "user", "content": "go"}],
             "reply_only": [{"role": "assistant", "content": "plainconfigvalue"}, {"role": "user", "content": "go"}],
+            "unknown_parent": [{"role": "user", "content": "[CONTEXT COMPACTION] summary"}, {"role": "user", "content": "go"}],
         }
         for name, history in histories.items():
             with self.subTest(name):
-                self.assertNotIn("plainconfigvalue", self._resumed("kohako-g2-unseen-" + name, history))
+                body = self._resumed("kohako-g2-unseen-" + name, history, parent="kohako-g2-never-seen" if name == "unknown_parent" else None)
+                self.assertIn("plainconfigvalue", body)
+                self.assertNotIn("[withheld", body)
+                self.assertNotIn('"withheld_', body)
 
-    def test_rotation_of_an_observed_clean_session_keeps_bodies(self):
-        plugin._on_turn_start(session_id="kohako-g2-old", turn_id="t", user_message="go")
-        plugin._on_api_request(session_id="kohako-g2-old", turn_id="t", api_request_id="a", request_messages=[{"role": "user", "content": "go"}])
-        plugin._on_session_end(session_id="kohako-g2-old", turn_id="t", completed=True)
-        self._bodies()
-        history = [{"role": "user", "content": "[CONTEXT COMPACTION] summary"}, {"role": "user", "content": "go"}]
-        self.assertIn("plainconfigvalue", self._resumed("kohako-g2-new", history, parent="kohako-g2-old"))
-        self.assertNotIn("plainconfigvalue", self._resumed("kohako-g2-new2", history, parent="kohako-g2-never-seen"))
+    def test_evidence_in_unobserved_history_withholds_without_its_hook(self):
+        # A call whose post_tool_call never fired, for example after an interrupt or a restart: the history still shows it.
+        shapes = {
+            "chat_args": {"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]},
+            "anthropic_args": {"role": "assistant", "content": [{"type": "tool_use", "name": "read_file", "input": {"path": "/a/.env"}}]},
+            "responses_args": {"type": "function_call", "name": "terminal", "arguments": '{"command": "kubectl get secret x -o yaml"}'},
+            "format_in_result": {"role": "tool", "content": "api_key=" + "plainword" + "value9"},
+            "anthropic_result": {"role": "user", "content": [{"type": "tool_result", "content": "<password>plainwordvalue</password>"}]},
+            "responses_result": {"type": "function_call_output", "output": "PATH=/usr/bin\nHOME=/root\nOPAQUE=plainwordvalue"},
+        }
+        for name, shape in shapes.items():
+            with self.subTest(name):
+                session = "kohako-g2-nohook-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="go")
+                plugin._on_api_request(session_id=session, turn_id="t", api_request_id="a", request_messages=[{"role": "user", "content": "go"}])
+                self.assertIsNone(plugin._tainted(session))
+                plugin._on_api_request(session_id=session, turn_id="t", api_request_id="b", request_messages=[shape, {"role": "user", "content": "go"}])
+                self.assertTrue(plugin._tainted(session))
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="plainwordvalue")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                self.assertNotIn("plainwordvalue", self._bodies())
 
-    def test_private_tool_found_in_a_later_request_withholds_without_its_hook(self):
-        # A tool whose post_tool_call never fired, for example after an interrupt.
-        plugin._on_turn_start(session_id="kohako-g2-nohook", turn_id="t", user_message="go")
-        plugin._on_api_request(session_id="kohako-g2-nohook", turn_id="t", api_request_id="a", request_messages=[{"role": "user", "content": "go"}])
-        for shape in ({"role": "assistant", "tool_calls": [{"function": {"name": "terminal"}}]},
-                      {"role": "assistant", "content": [{"type": "tool_use", "name": "terminal", "input": {}}]},
-                      {"type": "function_call", "name": "terminal", "arguments": "{}"}):
-            with self.subTest(shape):
-                plugin._sessions["kohako-g2-nohook"] = False
-                plugin._on_api_request(session_id="kohako-g2-nohook", turn_id="t", api_request_id="b", request_messages=[shape])
-                self.assertTrue(plugin._tainted("kohako-g2-nohook"))
+    def test_ordinary_tool_names_in_history_are_no_evidence(self):
+        plugin._on_turn_start(session_id="kohako-g2-names", turn_id="t", user_message="go")
+        for shape in ({"role": "assistant", "tool_calls": [{"function": {"name": "terminal", "arguments": '{"command": "ls"}'}}]},
+                      {"role": "assistant", "content": [{"type": "tool_use", "name": "terminal", "input": {"command": "ls"}}]},
+                      {"type": "function_call", "name": "terminal", "arguments": '{"command": "ls"}'}, {"role": "tool", "content": "a.txt b.txt"}):
+            plugin._on_api_request(session_id="kohako-g2-names", turn_id="t", api_request_id="b", request_messages=[shape])
+        self.assertIsNone(plugin._tainted("kohako-g2-names"))
 
     def test_final_guard_drops_span_when_masking_misses(self):
-        run_turn()
-        turn = drain()[0]
-        spans = plugin.build_spans(turn)
+        with capture_turns() as turns:
+            run_turn()
+        spans = plugin.build_spans(turns[0])
         spans[1]["name"] = SECRETS["github"]  # bypasses field masking
         bodies = list(plugin.guarded_payloads(spans))
         self.assertNotIn("a1B2a1B2", "".join(bodies))
@@ -724,39 +865,45 @@ class ObserverTest(unittest.TestCase):
             with self.subTest(text):
                 self.assertEqual(plugin.redact(text), text)
 
-    def test_tool_bodies_are_not_sent_by_default(self):
+    def test_tool_bodies_are_sent_through_the_mask(self):
         for tool, args, result in (
-                ("read_file", {"path": "/a/notes.txt"}, "plainwordvalue"),
-                ("terminal", {"command": "mycli login plainwordvalue"}, "ok"),
-                ("write_file", {"path": "/a/b", "content": "plainwordvalue"}, "ok"),
-                ("execute_code", {"code": "x = 'plainwordvalue'"}, "plainwordvalue"),
-                ("unknown_tool", {"anything": "plainwordvalue"}, {"nested": "plainwordvalue"})):
+                ("read_file", {"path": "/a/notes.txt"}, "harmlessbodymarker"),
+                ("terminal", {"command": "mycli login harmlessbodymarker"}, "ok"),
+                ("write_file", {"path": "/a/b", "content": "harmlessbodymarker"}, "ok"),
+                ("execute_code", {"code": "x = 'harmlessbodymarker'"}, "harmlessbodymarker"),
+                ("unknown_tool", {"anything": "harmlessbodymarker"}, {"nested": "harmlessbodymarker"})):
             with self.subTest(tool):
                 run_turn(tool=tool, args=args, result=result)
-                self.assertNotIn("plainwordvalue", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
-
-    def test_tool_spans_keep_what_can_be_followed_without_the_body(self):
+                body = bodies()
+                self.assertIn("harmlessbodymarker", body)
+                self.assertNotIn("omitted", body)
         run_turn(tool="read_file", args={"path": "/a/notes.txt", "offset": 3}, result="line1\nline2")
-        body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
+        body = bodies()
         self.assertIn("/a/notes.txt", body)
-        self.assertIn("offset", body)
-        self.assertIn("tool_body_policy", body)
+        self.assertIn("line2", body)
         run_turn(session="kohako-g2-program", tool="terminal", args={"command": "LANG=C /usr/bin/kubectl get pods"})
-        body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
-        self.assertIn("kubectl", body)
-        self.assertNotIn("get pods", body)
+        self.assertIn("get pods", bodies())
+
+    def test_tool_bodies_with_a_known_format_are_masked_not_omitted(self):
+        run_turn(tool="read_file", args={"path": "/a/app.yaml"}, result="host: db\npassword: plainwordvalue\nneighbour\nkeptdistantmarker\n")
+        body = bodies()
+        self.assertNotIn("plainwordvalue", body)
+        self.assertIn("REDACTED", body)
+        self.assertIn("masked_known_format", body)
+        self.assertIn("keptdistantmarker", body)  # the line next to the secret word is masked, the one after it is kept
 
     def test_delegation_tool_bodies_are_sent_masked(self):
         run_turn(tool="delegate_task", args={"goal": "delegatedgoalmarker"}, result="delegatedresultmarker")
-        body = "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0])))
+        body = bodies()
         self.assertIn("delegatedgoalmarker", body)
         self.assertIn("delegatedresultmarker", body)
         run_turn(tool="delegate_task", args={"goal": "<password>plainwordvalue</password>"}, result="the password is plainwordvalue")
-        self.assertNotIn("plainwordvalue", "".join(plugin.guarded_payloads(plugin.build_spans(drain()[0]))))
+        self.assertNotIn("plainwordvalue", bodies())
 
     def test_final_guard_drops_span_with_a_secret_word(self):
-        run_turn()
-        spans = plugin.build_spans(drain()[0])
+        with capture_turns() as turns:
+            run_turn()
+        spans = plugin.build_spans(turns[0])
         spans[1]["name"] = "<password>plainwordvalue</password>"  # bypasses field masking
         self.assertNotIn("plainwordvalue", "".join(plugin.guarded_payloads(spans)))
         self.assertEqual(plugin.stats().get("spans_dropped_secret_guard"), 1)
@@ -767,17 +914,19 @@ class ObserverTest(unittest.TestCase):
         run_turn(session="tg-1", platform="telegram", body="dinner plans")
         self.assertEqual(drain(), [])
         self.assertEqual(plugin.stats().get("turns_out_of_scope"), 1)
-        run_turn(session="tg-2", platform="telegram", body="BOXP-428 を作って")
-        turn = drain()[0]
-        self.assertEqual(turn["tickets"], {"BOXP-428"})
+        with capture_turns() as turns:
+            run_turn(session="tg-2", platform="telegram", body="BOXP-428 を作って")
+        self.assertEqual(turns[0]["tickets"], {"BOXP-428"})
+        self.assertIn("ticket:BOXP-428", bodies())
         run_turn(session="tg-3", platform="telegram", tool="delegate_task")
         self.assertEqual(len(drain()), 1)
         run_turn(session="wh", platform="webhook")
         self.assertEqual(len(drain()), 1)
 
     def test_spans_have_trace_attrs_exclusive_usage_and_no_public(self):
-        run_turn(body="BOXP-1 x")
-        spans = plugin.build_spans(drain()[0])
+        with capture_turns() as turns:
+            run_turn(body="BOXP-1 x")
+        spans = plugin.build_spans(turns[0])
         ids = {s["traceId"] for s in spans}
         self.assertEqual(len(ids), 1)
         root = spans[0]["spanId"]
@@ -793,10 +942,10 @@ class ObserverTest(unittest.TestCase):
                          {"input": 6, "output": 3, "input_cached_tokens": 4, "output_reasoning_tokens": 2})
 
     def test_ids_are_deterministic(self):
-        run_turn()
-        a = plugin.build_spans(drain()[0])
-        run_turn()
-        b = plugin.build_spans(drain()[0])
+        with capture_turns() as turns:
+            run_turn()
+            run_turn()
+        a, b = plugin.build_spans(turns[0]), plugin.build_spans(turns[1])
         self.assertEqual([s["spanId"] for s in a], [s["spanId"] for s in b])
 
     def test_turn_limits_and_queue_full_never_raise(self):
@@ -835,20 +984,20 @@ class ObserverTest(unittest.TestCase):
         server = HTTPServer(("127.0.0.1", 0), Handler)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         run_turn()
-        turn = drain()[0]
+        batches = drain()[0]
         with patch.object(plugin, "_URL", f"http://127.0.0.1:{server.server_port}"), patch("time.sleep"):
-            plugin.export_turn(turn)
+            plugin.export_bodies(batches)
             self.assertEqual(len(seen), 2)
             self.assertEqual(plugin.stats()["batches_dropped"], 1)
             Handler.status = 200
-            plugin.export_turn(turn)
+            plugin.export_bodies(batches)
             self.assertEqual(len(seen), 3)
             self.assertEqual(seen[-1][0], "/api/public/otel/v1/traces")
             self.assertEqual(seen[-1][1], "4")
         server.shutdown()
         # Nothing listening: bounded failure, no exception.
         with patch.object(plugin, "_URL", "http://127.0.0.1:9"), patch("time.sleep"):
-            plugin.export_turn(turn)
+            plugin.export_bodies(batches)
         self.assertEqual(plugin.stats()["batches_dropped"], 2)
 
 

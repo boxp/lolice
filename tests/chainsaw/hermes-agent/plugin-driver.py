@@ -56,15 +56,54 @@ def fire_resumed_env_dump(session):
     hooks["post_llm_call"](**common, assistant_response="plainresumevalue")
     hooks["on_session_end"](**common, completed=True)
 
-def fire_value_only_reply(session):
-    # Read from a path nothing flags, with no secret word: the model answers with the bare value.
+def fire_harmless_tool(session, tool, args):
+    # Positive control (Owner contract): an ordinary tool, its output and the replies after it are sent, this turn and the next.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="harmlessrequestmarker")
+    hooks["pre_api_request"](**common, api_request_id="api", request_messages=[{"role": "user", "content": "harmlessrequestmarker"}])
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name=tool, args=args, result="harmlesstooloutputmarker")
+    hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "harmlessreplymarker"}})
+    hooks["post_llm_call"](**common, assistant_response="harmlessreplymarker")
+    hooks["on_session_end"](**common, completed=True)
+    hooks["pre_llm_call"](session_id=session, turn_id="next", user_message="harmlessnextturnmarker")
+    hooks["post_llm_call"](session_id=session, turn_id="next", assistant_response="harmlessnextreplymarker")
+    hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
+
+def fire_harmless_lineage(parent, child):
+    # Positive control: a parent that used terminal delegates; the child's request and the parent's summary are sent.
+    hooks = ctx.hooks
+    hooks["pre_llm_call"](session_id=parent, turn_id="turn", user_message="hello")
+    hooks["post_tool_call"](session_id=parent, turn_id="turn", tool_call_id="tool", tool_name="terminal", args={"command": "ls -la"}, result="a.txt")
+    hooks["subagent_start"](parent_session_id=parent, parent_turn_id="turn", child_session_id=child, child_role="leaf", child_goal="work")
+    hooks["pre_llm_call"](session_id=child, turn_id="turn", user_message="harmlesschildmarker", platform="", parent_session_id=parent)
+    hooks["post_tool_call"](session_id=child, turn_id="turn", tool_call_id="tool", tool_name="read_file", args={"path": "/a/notes.txt"}, result="harmlesschildtoolmarker")
+    hooks["post_llm_call"](session_id=child, turn_id="turn", assistant_response="harmlesschildreplymarker")
+    hooks["on_session_end"](session_id=child, turn_id="turn", completed=True)
+    hooks["subagent_stop"](parent_session_id=parent, parent_turn_id="turn", child_session_id=child, child_summary="harmlesssummarymarker")
+    hooks["post_llm_call"](session_id=parent, turn_id="turn", assistant_response="harmlessparentreplymarker")
+    hooks["on_session_end"](session_id=parent, turn_id="turn", completed=True)
+
+def fire_known_format_in_output(session):
+    # A tool result with a known format: its line is masked, and the reply that repeats the value is withheld.
     hooks = ctx.hooks
     common = {"session_id": session, "turn_id": "turn"}
     hooks["pre_llm_call"](**common, user_message="hello")
-    hooks["pre_api_request"](**common, api_request_id="api", request_messages=[{"role": "user", "content": "hello"}])
-    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args={"command": "cat /etc/app/config.yaml"}, result="plainconfigvalue")
-    hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "plainconfigvalue"}})
-    hooks["post_llm_call"](**common, assistant_response="plainconfigvalue")
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args={"command": "cat app.yaml"},
+                            result="host: db\npassword: plainformatvalue\nneighbour\nkeptdistantmarker")
+    hooks["post_api_request"](**common, api_request_id="api", response={"assistant_message": {"content": "plainformatvalue"}})
+    hooks["post_llm_call"](**common, assistant_response="plainformatvalue")
+    hooks["on_session_end"](**common, completed=True)
+    hooks["pre_llm_call"](session_id=session, turn_id="next", user_message="plainformatvalue")
+    hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
+
+def fire_known_source_table(session, args):
+    # K0 table additions (THREAT_MODEL.md): the call and the rest of the session are withheld.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="hello")
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args=args, result="plaintablevalue")
+    hooks["post_llm_call"](**common, assistant_response="plaintablevalue")
     hooks["on_session_end"](**common, completed=True)
 
 def fire_free_text(session, text):
@@ -103,10 +142,21 @@ while True:
     fire_env_dump(f"kohako-g2-array-{n}", "cat result.json", {"output": '{"password":["first","plainarrayvalue"]}'})
     fire_resumed_env_dump(f"kohako-g2-resume-{n}")
     fire_env_dump(f"kohako-g2-xml-{n}", "cat config.xml", "<password>plainxmlvalue</password>")
-    fire_env_dump(f"kohako-g2-file-{n}", "cat notes.txt", "plainfilevalue")
+    fire_env_dump(f"kohako-g2-file-{n}", "cat notes.txt", "harmlessfilemarker")  # an ordinary file is sent (positive control)
     fire_free_text(f"kohako-g2-xmltext-{n}", "<password>\n\n\nplainxmlvalue\n\n\n</password>")
     fire_free_text(f"kohako-g2-prose-{n}", "the password is plainprosevalue")
-    fire_value_only_reply(f"kohako-g2-config-{n}")
+    fire_harmless_tool(f"kohako-g2-terminal-{n}", "terminal", {"command": "ls -la /tmp"})
+    fire_harmless_tool(f"kohako-g2-read-{n}", "read_file", {"path": "/tmp/notes.txt"})
+    fire_harmless_tool(f"kohako-g2-unknown-{n}", "a_tool_added_later", {"query": "the token refresh flow"})
+    fire_harmless_lineage(f"tg-lineage-{n}", f"subagent-lineage-{n}")
+    fire_known_format_in_output(f"kohako-g2-format-{n}")
+    fire_known_source_table(f"kohako-g2-kube-config-{n}", {"command": "cat ~/.kube/config"})
+    fire_known_source_table(f"kohako-g2-pem-{n}", {"command": "cat /etc/ssl/server.pem"})
+    fire_known_source_table(f"kohako-g2-gcloud-{n}", {"command": "gcloud auth print-access-token"})
+    fire_known_source_table(f"kohako-g2-tokens-{n}", {"command": "cat /var/lib/app/tokens.json"})
+    fire_known_source_table(f"kohako-g2-idkey-{n}", {"command": "cat /backup/id_xmss"})
+    fire_known_source_table(f"kohako-g2-baretokens-{n}", {"command": "cat tokens"})
+    fire_known_source_table(f"kohako-g2-tokenpath-{n}", {"path": "tokens"})
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
     print(f"round {n}", flush=True)
