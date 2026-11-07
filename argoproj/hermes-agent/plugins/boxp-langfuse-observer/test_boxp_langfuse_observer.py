@@ -322,6 +322,10 @@ class ObserverTest(unittest.TestCase):
                      {"path": "/tmp/tokens"}, {"path": "/var/lib/app/tokens/current"},
                      # id_*: any SSH-style key name, not only the four algorithms spelled out before
                      {"path": "/backup/id_xmss"}, {"command": "cat /tmp/id_ed448_sk"}, {"command": "cat id_rsa"}, {"path": "/home/x/keys/id_falcon-sk"},
+                     # token files named without an extension or a directory, in a reading position
+                     {"command": "cat tokens"}, {"path": "tokens"}, {"path": "./tokens"}, {"command": "cat ./tokens"}, {"command": "tail -n1 tokens"},
+                     {"command": "sed -n 1p mytoken"}, {"command": "cat access_tokens_backup"}, {"command": "wc -l < tokens"},
+                     {"command": "bash -c 'cat tokens'"}, {"command": "git show HEAD:tokens"}, {"command": "sudo cat tokens"},
                      {"command": "cat ~/.kube/config"}, {"command": "gcloud auth print-access-token"}, {"command": "gcloud auth application-default print-access-token"},
                      {"command": "az account get-access-token --resource x"}, {"command": "aws sts get-session-token"}, {"command": "aws ecr get-login-password --region x"},
                      {"command": "kubectl -n foo create token sa-x"}, {"command": "oc whoami -t"}, {"command": "vault read secret/x"}, {"command": "vault kv get kv/x"},
@@ -339,7 +343,11 @@ class ObserverTest(unittest.TestCase):
                      {"command": "grep -rn id_12345 src"}, {"query": "the session_id_format"}, {"command": "ls ~/.config"}, {"command": "gcloud auth list"},
                      {"command": "az account show"}, {"command": "aws sts get-caller-identity"}, {"command": "oc whoami"}, {"command": "vault status"},
                      {"command": "kubectl get pods -n foo"}, {"command": "git commit -m 'count tokens per request'"},
-                     {"command": "codex exec --max-output-tokens 5 x"}, {"model_settings": {"max_output_tokens": 5}}, {"query": "the token refresh flow"}):
+                     {"command": "codex exec --max-output-tokens 5 x"}, {"model_settings": {"max_output_tokens": 5}}, {"query": "the token refresh flow"},
+                     # the word token in a mention, not a read: listing, searching, naming, deleting
+                     {"command": "grep -rn tokens src"}, {"command": "rg -w token src/"}, {"command": "ls tokens"}, {"command": "echo tokens"},
+                     {"command": "rm -f tokens"}, {"command": "git add tokens"}, {"command": "git log --oneline -- tokens"}, {"command": "find . -name tokens"},
+                     {"command": "python3 -c 'print(1)' --tokens 5"}):
             with self.subTest(args):
                 plugin._sessions.clear()
                 run_turn(args=args, result="UNIQUEOUTPUT")

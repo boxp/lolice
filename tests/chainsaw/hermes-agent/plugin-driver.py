@@ -155,6 +155,8 @@ while True:
     fire_known_source_table(f"kohako-g2-gcloud-{n}", {"command": "gcloud auth print-access-token"})
     fire_known_source_table(f"kohako-g2-tokens-{n}", {"command": "cat /var/lib/app/tokens.json"})
     fire_known_source_table(f"kohako-g2-idkey-{n}", {"command": "cat /backup/id_xmss"})
+    fire_known_source_table(f"kohako-g2-baretokens-{n}", {"command": "cat tokens"})
+    fire_known_source_table(f"kohako-g2-tokenpath-{n}", {"path": "tokens"})
     fire_delegation(f"kohako-g2-delegation-{n}")
     fire_delegated_child(f"tg-{n}", f"subagent-{n}")
     print(f"round {n}", flush=True)
