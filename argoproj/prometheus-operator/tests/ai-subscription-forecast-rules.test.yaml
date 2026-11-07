@@ -158,6 +158,40 @@ tests:
               summary: claude/fable_7d の枯渇予測ができない（観測が古い）
               description: 観測が 2 時間以上更新されていない。消費が無いのか観測が止まったのかは区別できない。消費ゼロとも利用可能とも読まない。
               runbook_next_actions: 許可された次 action = 不明として扱う・証拠の記録。禁止 = 観測のための再試行の連打。
+  # 観測が止まったまま記録済みの reset 時刻を過ぎても、現在の窓は不明なので stale を出し続ける。
+  - name: 観測が古いまま reset を過ぎた
+    interval: 5m
+    input_series:
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '70x400'
+      - series: 'ai_subscription_window_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '0x400'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '36000x400'
+      - series: 'ai_subscription_window_duration_seconds{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex",name="primary",limit="primary",window="7d"}'
+        values: '604800x400'
+      - series: 'ai_subscription_source_up{job="codex-workspace-ai-ops-metrics",pod="p1",provider="codex"}'
+        values: '1x400'
+    alert_rule_test:
+      - eval_time: 30h
+        alertname: AiSubscriptionWindowExhaustionImminent
+        exp_alerts: []
+      - eval_time: 30h
+        alertname: AiSubscriptionWindowForecastUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              component: ai-ops
+              definition_version: quota-forecast/v1-draft
+              reason: stale
+              provider: codex
+              name: primary
+              limit: primary
+              window: 7d
+            exp_annotations:
+              summary: codex/primary の枯渇予測ができない（観測が古い）
+              description: 観測が 2 時間以上更新されていない。消費が無いのか観測が止まったのかは区別できない。消費ゼロとも利用可能とも読まない。
+              runbook_next_actions: 許可された次 action = 不明として扱う・証拠の記録。禁止 = 観測のための再試行の連打。
   # 再起動で pod が変わり 2 系列が重なる間は、観測時刻が新しい系列の値を採る。
   # Codex には status が無いので used=100 を上限到達として出す。Claude（status あり）は既存ルールに任せる。
   # 未提供の窓と 7d 以外の窓は「未監視」と出す。

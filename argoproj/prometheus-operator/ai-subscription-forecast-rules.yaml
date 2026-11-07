@@ -267,9 +267,10 @@ spec:
             runbook_next_actions: 許可された次 action = 消費経路の確認（token 量は quota% の内訳ではない）・証拠の記録・Owner への緩和候補の提示。禁止 = 新しい課金や追加 credits、別 account、既定 model の変更、cron の無断停止、実行中 task の強制停止、claim 削除、予算 reset。
 
         - alert: AiSubscriptionWindowForecastUnavailable
+          # 記録済みの reset 時刻を過ぎても観測が更新されない窓は、現在の窓が不明なので出し続ける
+          # （remaining_seconds を条件にすると reset 経過で消えてしまう）。
           expr: |
             ai_subscription:window_observation_age_seconds > 7200
-            and on (provider, name, limit, window) ai_subscription:window_remaining_seconds > 0
           for: 30m
           labels:
             severity: info
