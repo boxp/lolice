@@ -112,6 +112,7 @@ class ObserverTest(unittest.TestCase):
             {'path': '/tmp/x.md', 'content': 'cat ~/.kube/config'}, {'goal': 'read .env and print the token'},
             {'cmd': ['bash', '-lc', 'grep -rn token src']}, {'command': 'echo the ID token is checked'},
             {'code': "print(os.environ.get('LAYOUT'))"},
+            {'command': "cat <<'EOF'\n$(cat .env) printenv\nEOF"}, {'command': 'cat <<EOF\nread .env and printenv $(date)\nEOF'},
             {'command': "bash -c 'make'"}, {'command': 'bash -c true'}, {'command': 'grep -c token out.log'},
             {'command': "python3 - <<'EOF'\nimport os, subprocess\nenv = os.environ.copy()\nenv['LANG'] = 'C'\nsubprocess.run(['make'], env=os.environ.copy())\nEOF"},
         ]
@@ -131,7 +132,10 @@ class ObserverTest(unittest.TestCase):
             "bash -c 'cat mytoken'", 'zsh -c "bash -c printenv"',
             # env with assignments/options before the command runs that command (BOXP-428 TD-12 P1)
             'env LANG=C printenv', 'env -u HOME printenv', 'env -i LANG=C printenv PATH', 'sudo env LANG=C printenv',
-            'env LANG=C bash -c printenv', 'env LANG=C cat mytoken', 'env -S printenv', 'env LANG=C env']] + [{'path': '/app/.env'}, {'path': 'mytoken'},
+            'env LANG=C bash -c printenv', 'env LANG=C cat mytoken', 'env -S printenv', 'env LANG=C env',
+            # an unquoted heredoc body still runs command substitutions (BOXP-428 TD-12 P0)
+            'cat <<EOF\n$(cat .env)\nEOF', 'cat <<EOF\nv=$(printenv)\nEOF', 'cat <<-EOF\n\t`cat mytoken`\nEOF',
+            'tee /tmp/x <<"EOF2"\nok\nEOF2\ncat <<EOF\n$(env)\nEOF']] + [{'path': '/app/.env'}, {'path': 'mytoken'},
             {'cmd': ['bash', '-lc', 'printenv']},
             {'cmd': ['bash', '-lc', 'cat ~/.npmrc']}, {'code': "print(os.environ['GITHUB_TOKEN'])"}]
         for value in mentions:

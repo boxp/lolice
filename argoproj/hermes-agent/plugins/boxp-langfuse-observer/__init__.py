@@ -1080,9 +1080,17 @@ def _strip_heredocs(text, code):
     out, pending = [], collections.deque()
     for line in text.split('\n'):
         if pending:
-            tag, tabs, keep = pending[0]
+            tag, tabs, keep, expands = pending[0]
             done = (line.lstrip('\t') if tabs else line) == tag
-            out.append(line if keep or done else '')
+            if keep or done:
+                out.append(line)
+            elif expands:
+                # An unquoted delimiter (<<EOF) still runs $(...) and `...` inside the body, so cat <<EOF with
+                # $(cat .env) or $(printenv) is judged like a command (BOXP-428 TD-12 P0). Quoted (<<'EOF') bodies
+                # are literal data and stay out.
+                out.append(' ; '.join(m[2:-1] if m.startswith('$(') else m[1:-1] for m in _SUBSTITUTION.findall(line)))
+            else:
+                out.append('')
             if done:
                 pending.popleft()
             continue
@@ -1092,7 +1100,8 @@ def _strip_heredocs(text, code):
             words = [w[2] for w in segments[-1]] if segments else []
             runner = next((w for i, w in enumerate(words) if _interpreter(w) and
                            all(x.startswith('-') for x in words[i + 1:])), None)
-            pending.append((match.group(3), bool(match.group(1)), bool(runner and (code or _last_element(runner) in _SHELLS))))
+            pending.append((match.group(3), bool(match.group(1)), bool(runner and (code or _last_element(runner) in _SHELLS)),
+                            not match.group(2)))
     return '\n'.join(out)
 
 
