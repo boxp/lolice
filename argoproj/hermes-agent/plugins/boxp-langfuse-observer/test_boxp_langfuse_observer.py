@@ -162,6 +162,40 @@ class ObserverTest(unittest.TestCase):
         self.assertTrue(plugin._named_values("<password>abc</password>")[1])
         self.assertEqual(plugin._named_values("<password>${DB_PASSWORD}</password> <password/>"), (set(), False))
 
+    def test_named_values_in_entity_quotes(self):
+        for text, value in (("password: &quot;hunterhorse&quot;", "hunterhorse"),
+                            ("password: &#34;hunterhorse&#34;", "hunterhorse"),
+                            ("password: &#x22;hunterhorse&#x22;", "hunterhorse"),
+                            ("password=&apos;hunterhorse&apos;", "hunterhorse"),
+                            ("password: \\u0022hunterhorse\\u0022", "hunterhorse"),
+                            ("password: hunterhorse&quot;", "hunterhorse")):
+            with self.subTest(text=text):
+                self.assertEqual(plugin._named_values(text), ({value}, False))
+
+    def test_named_values_after_self_closing_elements(self):
+        for text in ("<password/><password>hunterhorse</password>",
+                     "<password /> text <password>hunterhorse</password>",
+                     "&lt;password/&gt;&lt;password&gt;hunterhorse&lt;/password&gt;"):
+            with self.subTest(text=text):
+                self.assertEqual(plugin._named_values(text), ({"hunterhorse"}, False))
+        self.assertEqual(plugin._named_values("<password/><password/>"), (set(), False))
+        started = time.monotonic()
+        self.assertEqual(plugin._named_values("<password/>" * 20000 + "<password>hunterhorse</password>"),
+                         ({"hunterhorse"}, False))
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_entity_quoted_and_self_closing_values_are_masked_in_replies(self):
+        for result in ("password: &quot;hunterhorseloft&quot;", "<password/><password>hunterhorseloft</password>"):
+            with self.subTest(result=result):
+                session = "kohako-g2-entity-" + str(abs(hash(result)))
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="t", tool_name="terminal", args={"command": "cat notes.txt"}, result=result)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is hunterhorseloft laterreplymarker")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = bodies()
+                self.assertNotIn("hunterhorseloft", body)
+                self.assertIn("laterreplymarker", body)
+
     def test_named_values_skip_references_and_settings(self):
         for text in ("password: $VAR", "password: ${VAR}", "password: [REDACTED:assignment]", "AUTH_ENABLED=false"):
             with self.subTest(text=text):

@@ -87,7 +87,7 @@ _MAX_SCANNED_HASHES = 2048
 
 # A value can sit inside serialized text at any depth, so a quote can carry escapes. A value ends at
 # a quote of its own depth, and one that never closes runs to the end of the line.
-_QUOTE = r"""(?:\\*["']|\\+u00(?:22|27)|&quot;|&\#0*(?:34|39);|&\#x0*(?:22|27);)"""
+_QUOTE = r"""(?:\\*["']|\\+u00(?:22|27)|&quot;|&apos;|&\#0*(?:34|39);|&\#x0*(?:22|27);)"""
 _GAP = r"""(?:\s|\\+[nrt])*"""
 _SEPARATOR = r"""(?:[:=]|\\+u00(?:3[aA]|3[dD]))"""
 _SECRET_WORD = (
@@ -108,6 +108,9 @@ _GT = r"(?:>|&gt;|&\#0*62;|&\#x0*3[eE];|\\+u003[eE])"
 # An element takes everything up to its closing tag, or the rest of the text when there is none.
 _SECRET_ELEMENT = re.compile(
     r"(?is)" + _LT + r"(?P<tag>[\w:.-]{0,64}" + _LOOSE_WORD + r"[\w:.-]{0,64})(?=[\s/>&\\])"
+    # A self-closing opening tag (within 512 characters) starts no element, so <password/><password>x</password>
+    # yields the second one; a longer opening tag is treated as an element (fail closed).
+    + r"(?!(?:(?!" + _GT + r").){0,512}?[/\\]\s*" + _GT + r")"
     + r".*?(?:" + _LT + r"\\*/(?P=tag)\s*" + _GT + r"|\Z)")
 
 
@@ -506,19 +509,25 @@ _NAME_SEPARATOR = re.compile(r"(?s)^(.*?)(?:[:=]|\\+u00(?:3[aA]|3[dD]))")
 _ENTRY_VALUE_START = re.compile(r"(?i)(?<![\w-])value(?:\\*[\"'])?(?:\s|\\+[nrt])*[:=](?:\s|\\+[nrt])*")
 
 
+_OPENING_QUOTE = re.compile(_QUOTE, re.I)
+_UNQUOTED_VALUE = re.compile(r"""(?i)(?:[^\s,;}\]"'\\&]|&(?!quot|apos|\#0*(?:34|39)(?!\d)|\#x0*(?:22|27)(?![0-9a-f])))+""")
+
+
 def _first_value(text):
     text = text.lstrip()
     placeholder = _PLACEHOLDER.match(text)
     if placeholder:
         return placeholder.group(0)
-    quote = re.match(r"(\\*[\"'])", text)
+    # Quotes include their serialized forms (\\", \\u0022, &quot;, &#34;, &#x22;, &apos;) as the in-place mask
+    # (_QUOTE) matches them: the value ends at the same quote token.
+    quote = _OPENING_QUOTE.match(text)
     if quote:
-        q = quote.group(1)
-        end = text.find(q, len(q))
-        return text[len(q):end if end >= 0 else None].strip()
-    # Unquoted: stop at a quote or a backslash too, so a value inside serialized JSON does not take the closing
-    # quote or a \n escape with it.
-    match = re.match(r"[^\s,;}\]\"'\\]+", text)
+        q = quote.group(0)
+        end = re.search(re.escape(q), text[len(q):], re.I)
+        return text[len(q):len(q) + end.start() if end else None].strip()
+    # Unquoted: stop at a quote, a backslash or an entity quote too, so a value inside serialized JSON or HTML does
+    # not take the closing quote or a \n escape with it.
+    match = _UNQUOTED_VALUE.match(text)
     return match.group(0).strip() if match else ""
 
 
@@ -532,7 +541,7 @@ def _element_values(raw):
     # masked in place; its text is pinned like an assignment value so a bare restatement is masked as well. Child
     # tags and line breaks separate values; a self-closing tag names nothing.
     closer = _TAG_CLOSE.search(raw)
-    if not closer or re.search(r"[/\\]\s*$", raw[:closer.start()]):
+    if not closer or (closer.start() <= 512 and re.search(r"[/\\]\s*$", raw[:closer.start()])):
         return []
     inner = raw[closer.end():]
     closing = _ELEMENT_CLOSE.match(inner)
