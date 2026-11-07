@@ -176,7 +176,8 @@ _PLACEHOLDER = re.compile(r"\[REDACTED:[a-z_]+\]")
 _SENSITIVE_PATH = re.compile(
     r"(?i)(?:^|[/\\\s\"'=])(?:"
     r"auth\.json|\.credentials[^/\s\"']*|\.env(?:\.[\w-]+)?|\.ssh(?:[/\\]|\b)|\.aws(?:[/\\]|\b)|kubeconfig|\.kube[/\\]config"
-    r"|\.git-credentials|\.netrc|id_rsa|id_ed25519(?:_sk)?|id_dsa|id_ecdsa(?:_sk)?|\.gnupg(?:[/\\]|\b)|secrets?(?:[/\\])"
+    # id_*: every SSH-style key name as a whole path element (id_rsa, id_ed25519_sk, id_xmss ...). user_id_map / id_12345 are not.
+    r"|\.git-credentials|\.netrc|id_[a-z][\w-]*(?![\w-])|\.gnupg(?:[/\\]|\b)|secrets?(?:[/\\])"
     # token files: tokens.json, refresh_token.txt, /var/lib/app/tokens. A bare word such as max_output_tokens is not a file.
     r"|[\w.-]{0,64}tokens?[\w.-]{0,64}\.[a-z0-9]{1,8}(?![\w.-])"
     r"|[\w.-]{0,64}\.(?:key|pem|p8|p12|pfx|jks|keystore|ppk)(?![\w.-])"
