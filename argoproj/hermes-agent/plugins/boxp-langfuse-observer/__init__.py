@@ -45,6 +45,7 @@ import logging
 import os
 import queue
 import re
+import shlex
 import threading
 import time
 import urllib.error
@@ -203,6 +204,21 @@ _SENSITIVE_COMMAND = re.compile(
     r"|\bop\s+(?:read|item\s+get)\b|\bdocker-credential-\w+"
     r"|\bhelm\s+get\b|\bgh\s+auth\s+token\b|\bgit\s+credential\b|langfuse-ingest")
 _CLUSTER_CLI = re.compile(r"(?i)\b(?:kubectl|oc)\s")
+# K0 table, part 1b: a token file named without an extension or a directory (tokens, mytoken, access_tokens_backup).
+# Such a word is a file only in a reading position: the value of a path argument, or an operand of a program that
+# reads its operands. Programs that only name files (ls, grep, git add ...) and options (--max-output-tokens) are not.
+_TOKEN_WORD = re.compile(r"(?i)[\w.-]{0,64}tokens?[\w.-]{0,64}")
+_TOKEN_HINT = re.compile(r"(?i)token")
+_PATH_ARG = re.compile(r'"(?:file_?path|path|file|filename|target_file|notebook_path)"\s*:\s*("(?:[^"\\]|\\.)*")')
+_COMMAND_ARG = re.compile(r'"(?:command|cmd|script|code)"\s*:\s*("(?:[^"\\]|\\.)*")')
+_MENTION_PROGRAMS = {"echo", "printf", "grep", "egrep", "fgrep", "rg", "ag", "ack", "ls", "find", "fd", "rm", "mv", "cp", "mkdir",
+                     "rmdir", "touch", "chmod", "chown", "test", "[", "stat", "file", "which", "type", "du", "tree", "basename", "dirname",
+                     "realpath", "readlink", "cd", "pushd", "true", "false", ":", "wc", "ln"}
+_PREFIX_PROGRAMS = {"sudo", "command", "time", "nice", "nohup", "exec", "xargs", "doas"}
+# git / gh print file contents only through these subcommands; others (add, commit, log, status ...) name files.
+_READING_SUBCOMMANDS = {"git": {"show", "cat-file", "diff", "blame", "grep", "archive"}, "gh": {"api", "gist"}}  # git log only with -p
+_SHELL_FLAG = re.compile(r"-[A-Za-z]*c$")
+_MAX_TOKEN_SCAN = 4096
 _ENV_OUTPUT = [re.compile(r"(?:^|[^A-Za-z0-9_]|\\[nrt]|\\u0000)" + name + "=") for name in ("PATH", "HOME")]
 
 _lock = threading.Lock()
@@ -534,7 +550,81 @@ def _withhold(args_text):
     # A cluster CLI can name the resource after any flags, or through a variable, so word order is not checked.
     if "secret" in args_text.lower() and _CLUSTER_CLI.search(args_text):
         return True
-    return bool(_SENSITIVE_PATH.search(args_text) or _SENSITIVE_COMMAND.search(args_text))
+    return bool(_SENSITIVE_PATH.search(args_text) or _SENSITIVE_COMMAND.search(args_text) or _reads_token_file(args_text))
+
+
+def _last_element(word):
+    return word.strip("\"'").rstrip("/\\").replace("\\", "/").rsplit("/", 1)[-1]
+
+
+def _reads_token_file(args_text):
+    """K0 part 1b: a token-named file in a reading position. Unparseable shell text with such a word is fail-closed."""
+    if not _TOKEN_HINT.search(args_text):
+        return False
+    try:
+        if args_text.lstrip().startswith("{"):
+            for match in _PATH_ARG.finditer(args_text):
+                if _TOKEN_WORD.fullmatch(_last_element(json.loads(match.group(1)))):
+                    return True
+            return any(_command_reads_token_file(json.loads(m.group(1))) for m in _COMMAND_ARG.finditer(args_text))
+        return _command_reads_token_file(args_text)
+    except (ValueError, TypeError, RecursionError):
+        return True
+
+
+def _command_reads_token_file(command, depth=0):
+    if not _TOKEN_HINT.search(command):
+        return False
+    if depth > 2 or len(command) > _MAX_TOKEN_SCAN:
+        return True  # nested or long beyond what is parsed here: fail-closed
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    words = list(lexer)  # ValueError on an unclosed quote: fail-closed by the caller
+    segments, current = [], []
+    for word in words:
+        if word in (";", "|", "||", "&&", "&", "(", ")", "\n") or set(word) <= set(";|&()"):
+            if current:
+                segments.append(current)
+            current = []
+        else:
+            current.append(word)
+    if current:
+        segments.append(current)
+    for segment in segments:
+        program, operands = None, []
+        for index, word in enumerate(segment):
+            if program is None:
+                if re.fullmatch(r"[A-Za-z_]\w*=.*", word) or _last_element(word) in _PREFIX_PROGRAMS:
+                    continue
+                program = _last_element(word)
+                continue
+            operands.append((index, word))
+        if program is None:
+            continue
+        # `< file` is read by any program, so it is checked before the program is classified.
+        if any(segment[index - 1].endswith("<") and _TOKEN_WORD.fullmatch(_last_element(word)) for index, word in operands):
+            return True
+        subcommands = _READING_SUBCOMMANDS.get(program)
+        if subcommands is not None:
+            names = {w for _, w in operands}
+            if not (names & subcommands or (program == "git" and "log" in names and names & {"-p", "--patch", "-u", "--cc"})):
+                continue
+        elif program in _MENTION_PROGRAMS:
+            continue
+        for index, word in operands:
+            previous = segment[index - 1]
+            if any(c in word for c in " \t\n"):
+                if _SHELL_FLAG.fullmatch(previous) and _command_reads_token_file(word, depth + 1):
+                    return True
+                continue
+            if word.startswith("-"):
+                continue
+            if "=" in word:
+                word = word.rsplit("=", 1)[-1]
+            name = _last_element(word.split(":", 1)[-1] if program == "git" else word)
+            if _TOKEN_WORD.fullmatch(name):
+                return True
+    return False
 
 
 def _is_env_dump(result_text):
