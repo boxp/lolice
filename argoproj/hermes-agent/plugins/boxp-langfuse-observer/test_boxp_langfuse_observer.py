@@ -128,6 +128,33 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn(value, body)
                 self.assertIn("laterreplymarker", body)
 
+    def test_surrogate_pair_value_is_masked_in_its_decoded_form(self):
+        # A JSON body writes U+1F600 as a surrogate pair; the reply restates the joined character.
+        session = "kohako-g2-surrogate"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={"path": "/tmp/a"},
+                        result='password: "\\ud83d\\ude00hunterhorseloft"')
+        plugin._on_turn_end(session_id=session, turn_id="t",
+                            assistant_response="it is \U0001F600hunterhorseloft laterreplymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = bodies()
+        self.assertNotIn("hunterhorseloft", body)
+        self.assertIn("laterreplymarker", body)
+        self.assertEqual(plugin._join_surrogates("\ud83d"), "\ud83d")  # a lone surrogate stays
+
+    def test_evicted_pins_are_rebuilt_from_resent_history(self):
+        session = "kohako-g2-evicted"
+        self.assertFalse(plugin._pin_body(session, None, "password: hunterhorseloft"))
+        self.assertTrue(plugin._pin_pattern(session).search("hunterhorseloft"))
+        with patch.object(plugin, "_MAX_SESSIONS", 4):
+            for i in range(8):
+                plugin._pin_body("kohako-g2-other-%d" % i, None, "password: othervalue%dzz" % i)
+        self.assertNotIn(session, plugin._pins)
+        self.assertIsNone(plugin._pin_pattern(session))
+        plugin._pin_body(session, None, "password: hunterhorseloft")  # the same history, resent
+        pattern = plugin._pin_pattern(session)
+        self.assertTrue(pattern and pattern.search("hunterhorseloft"))
+
     def test_pins_leave_ids_and_keys_alone(self):
         spans = [{"traceId": "abcd1234", "spanId": "1234", "name": "x 1234",
                   "attributes": [{"key": "langfuse.observation.input", "value": {"stringValue": "1234 here"}}]}]

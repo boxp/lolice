@@ -621,11 +621,19 @@ def _decode_json(m):
     return _JSON_CHARS[m.group(2)]
 
 
+def _join_surrogates(text):
+    # JSON writes a non-BMP character as a surrogate pair (\ud83d\ude00); the decoded form joins the pair into the
+    # character (U+1F600) a restatement uses. A lone surrogate stays as it is.
+    if not any("\ud800" <= ch <= "\udfff" for ch in text):
+        return text
+    return text.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "surrogatepass")
+
+
 def _decoded_forms(value):
     """value and its decoded forms (HTML entities and JSON escapes, up to 3 nested layers)."""
     forms = [value]
     for _ in range(3):
-        decoded = _JSON_ESCAPE.sub(_decode_json, _ENTITY_ESCAPE.sub(_decode_entity, value))
+        decoded = _join_surrogates(_JSON_ESCAPE.sub(_decode_json, _ENTITY_ESCAPE.sub(_decode_entity, value)))
         if decoded == value:
             break
         forms.append(decoded)
@@ -830,8 +838,11 @@ def _pin_body(session, parent, body):
     key = (str(session or ""), hashlib.sha256(text.encode("utf-8", "replace")).hexdigest())
     with _lock:
         if key in _pinned_digests:
-            _pinned_digests.move_to_end(key)
-            return _pinned_digests[key]
+            unpinned, pinned = _pinned_digests[key]
+            if not pinned or key[0] in _pins:
+                _pinned_digests.move_to_end(key)
+                return unpinned
+            del _pinned_digests[key]
     values, unpinned = _named_values(text)
     if values:
         overflow = False
@@ -844,11 +855,15 @@ def _pin_body(session, parent, body):
                     current.clear()
                 _pins.move_to_end(node)
             while len(_pins) > _MAX_SESSIONS:
-                _pins.popitem(last=False)
+                evicted, _ = _pins.popitem(last=False)
+                # The digest cache says "already pinned" only while the pins exist: once a session's pins are evicted,
+                # its cached digests are dropped so a resent history pins its values again.
+                for cached in [k for k in _pinned_digests if k[0] == evicted]:
+                    del _pinned_digests[cached]
         if overflow:
             _taint("pinned_values_over_limit", *_lineage(str(session or "")))
     with _lock:
-        _pinned_digests[key] = unpinned
+        _pinned_digests[key] = (unpinned, bool(values))
         while len(_pinned_digests) > 8 * _MAX_SESSIONS:
             _pinned_digests.popitem(last=False)
     return unpinned
