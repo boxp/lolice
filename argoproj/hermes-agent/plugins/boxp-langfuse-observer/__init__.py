@@ -710,7 +710,18 @@ def _named_values_raw(text):
                 if entry:
                     values = [_first_value(raw[entry.end():])]
             elif kind == "flag":
-                values = [_first_value(re.sub(r"^\S+[ \t]+", "", raw))]
+                if match.start() < covered:
+                    continue
+                head = re.match(r"^\S+[ \t]+", raw)
+                tail = raw[head.end():] if head else raw
+                position = match.start() + (head.end() if head else 0)
+                if position < len(text) and text[position] in "[{(":
+                    # --password [a, b]: like an assignment, the value runs to the matching close (or the end of
+                    # text, fail closed), as _mask_structured masks it, and every element is pinned.
+                    covered = max(match.end(), _bracket_end(text, position))
+                    values = _collection_values(text[position:covered])
+                else:
+                    values = [_first_value(tail)]
             else:
                 if re.match(r"(?i)^(?:-u|--user)", raw):
                     rest = re.sub(r"(?i)^(?:-u|--user)[ \t=]*", "", raw)

@@ -276,7 +276,12 @@ class ObserverTest(unittest.TestCase):
                  ("secret: {primary: hunterhorse, backup: meadowlake}", ["hunterhorse", "meadowlake"]),
                  ('{\\"token\\": [\\"hunterhorse\\", \\"mead,owlake\\"]}', ["hunterhorse", "mead,owlake"]),
                  ("password: [[hunterhorse], (meadowlake)]", ["hunterhorse", "meadowlake"]),
-                 ("password: [hunterhorse, meadowlake", ["hunterhorse", "meadowlake"])]
+                 ("password: [hunterhorse, meadowlake", ["hunterhorse", "meadowlake"]),
+                 # The flag form (--password [a, b]) is masked in place as a whole too.
+                 ("app --password [hunterhorse, meadowlake]", ["hunterhorse", "meadowlake"]),
+                 ("app --api-key {primary: hunterhorse, backup: meadowlake} --verbose", ["hunterhorse", "meadowlake"]),
+                 ("app --token\t[\"hunterhorse\", 'meadowlake']", ["hunterhorse", "meadowlake"]),
+                 ("app --password [hunterhorse, meadowlake", ["hunterhorse", "meadowlake"])]
         for text, values in cases:
             with self.subTest(text=text):
                 found = plugin._named_values(text)[0]
