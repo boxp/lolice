@@ -85,9 +85,10 @@ judgments)
 esac
 
 echo "== 版"
+# head はパイプを途中で閉じ、pipefail 下で書込み側が SIGPIPE (exit 141) になり得るため、全行を読む sed で先頭行だけ出す。
 "$regomark" --version
-"$opa" version | head -n 1
-"$regal" version | head -n 1
+"$opa" version | sed -n 1p
+"$regal" version | sed -n 1p
 
 echo "== 同梱内容と一覧の一致"
 diff <(shared_files) <(awk '{ print $2 }' "$manifest" | LC_ALL=C sort -u)
