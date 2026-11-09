@@ -19,6 +19,8 @@ normalize_ref() {
   first="${ref%%/*}"
   if [[ "$ref" != */* ]]; then
     printf 'docker.io/library/%s\n' "$ref"
+  elif [[ "$first" == docker.io && "${ref#*/}" != */* ]]; then
+    printf 'docker.io/library/%s\n' "${ref#*/}"
   elif [[ "$first" == *.* || "$first" == *:* || "$first" == localhost ]]; then
     printf '%s\n' "$ref"
   else

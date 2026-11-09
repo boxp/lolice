@@ -28,6 +28,11 @@ class NormalizeRefTest(unittest.TestCase):
     def test_short_names_are_fully_qualified_for_containerd(self):
         cases = {
             'python:3.13-alpine': 'docker.io/library/python:3.13-alpine',
+            'docker.io/postgres:16.15': 'docker.io/library/postgres:16.15',
+            'docker.io/python:3.15-alpine': 'docker.io/library/python:3.15-alpine',
+            'docker.io/postgres@sha256:' + '0' * 64: 'docker.io/library/postgres@sha256:' + '0' * 64,
+            'docker.io/grafana/loki:3.4.2': 'docker.io/grafana/loki:3.4.2',
+            'docker.io/library/python:3.15-alpine': 'docker.io/library/python:3.15-alpine',
             'grafana/loki:3.4.2': 'docker.io/grafana/loki:3.4.2',
             'docker.io/calico/node:v3.33.0': 'docker.io/calico/node:v3.33.0',
             'ghcr.io/dexidp/dex:v2.45.1': 'ghcr.io/dexidp/dex:v2.45.1',
