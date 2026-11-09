@@ -95,3 +95,4 @@ spec:
     - script:
         timeout: 60s
         content: '"${REPO_ROOT}/tests/chainsaw/hermes-agent/scenario.sh" producer_continues_without_sink'
+# BOXP-474 計測用 (merge しない)
