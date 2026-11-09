@@ -47,10 +47,25 @@ jq -e '
   ($f[0].fieldConfig.defaults.thresholds.steps[1].value == 7200.000001) and
   ($f[0].fieldConfig.defaults.custom.thresholdsStyle.mode == "line")
 ' "$dashboard" > /dev/null
+# ハーネス評価 (232) は「劣化の疑い」だけ 1=赤で、評価と export は 1=緑
+jq -e '
+  [.. | objects | select(.type? == "state-timeline" and .title? == "ハーネス劣化の疑い（固定課題の対照評価）")] as $s |
+  ($s | length == 1) and
+  ($s[0].fieldConfig.defaults.thresholds.steps | map(.color) == ["green", "red"]) and
+  ($s[0].fieldConfig.overrides | map(.matcher.options) == ["評価", "export"]) and
+  ($s[0].fieldConfig.overrides | map(.properties[1].value.steps | map(.color)) == [["orange", "green"], ["red", "green"]])
+' "$dashboard" > /dev/null
 # ClickHouse は日本語の裸の識別子を構文エラーにする。文字列リテラルと引用済み識別子以外に ASCII 外の文字を残さない
 jq -e '[.. | objects | .rawSql? // empty | gsub("'"'"'[^'"'"']*'"'"'|`[^`]*`"; "") | test("[^\\x00-\\x7F]") | not] | (length > 0 and all)' "$dashboard" > /dev/null
 # 列名と同名の別名は同じ SELECT 内の sum(列+...) に解決され ILLEGAL_AGGREGATION になる
 jq -e '[.. | objects | .rawSql? // empty | select(contains("input_tokens+cache_write_tokens")) | test("\\bAS (input|cache_write|output|reasoning)_tokens\\b") | not] | (length > 0 and all)' "$dashboard" > /dev/null
+# clickhouse-go は ctx 期限 +5 秒を max_execution_time で送るため、view user の上限を超えない queryTimeout にする
+query_timeout=$(grep -E '^ +queryTimeout: "[0-9]+"' argoproj/prometheus-operator/overlays/grafana-datasources.yaml | grep -oE '[0-9]+')
+execution_max=$(grep -oE '<max_execution_time><max>[0-9]+' argoproj/langfuse/files/clickhouse-users.xml | grep -oE '[0-9]+')
+if [ "$((query_timeout + 5))" -gt "$execution_max" ]; then
+  echo "queryTimeout ${query_timeout} + 5 が max_execution_time の上限 ${execution_max} を超えています" >&2
+  exit 1
+fi
 # users.xml の GRANT に grantee を書くと ClickHouse が access control の読み込みに失敗する
 if grep -Eq '<query>GRANT .* TO ' argoproj/langfuse/files/clickhouse-users.xml; then
   echo 'clickhouse-users.xml の GRANT に TO を書かないでください' >&2

@@ -31,7 +31,8 @@ stringData:
           username: grafana_usage
           defaultDatabase: default
           dialTimeout: "10"
-          queryTimeout: "30"
+          # clickhouse-go は ctx 期限 +5 秒を max_execution_time として送る。view user の上限 30 秒に収める
+          queryTimeout: "25"
         secureJsonData:
           password: $CLICKHOUSE_GRAFANA_PASSWORD
       - name: Loki
