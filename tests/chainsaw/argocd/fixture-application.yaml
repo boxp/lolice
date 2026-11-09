@@ -1,0 +1,21 @@
+# Argo CD の通常 manifest 生成/sync を確認する隔離 fixture。外部 repo は固定 commit。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: netpol-impact-fixture
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: 8088f4c0d970abb09e250248cc97e35623447cb5
+    path: lightweight/app-a
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: netpol-impact
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

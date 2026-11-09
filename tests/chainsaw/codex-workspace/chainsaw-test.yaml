@@ -17,40 +17,44 @@ spec:
     try:
     - script:
         timeout: 15s
-        content: |
-          set -eu
-          case "${CHAINSAW_KIND_CONTEXT:-}" in
-            kind-*) ;;
-            *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
-          esac
-          : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
-          test -r "$CHAINSAW_KIND_KUBECONFIG"
-          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
-          expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          actual_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          test -n "$expected_server"
-          test "$actual_server" = "$expected_server"
-  - name: apply-and-check
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh"'
+
+  - name: render-and-apply-minimal-manifest
     try:
     - script:
-        timeout: 210s
-        content: |
-          set -eu
-          manifest="$(mktemp)"
-          trap 'rm -f "$manifest"' EXIT
-          "${REPO_ROOT}/tests/chainsaw/codex-workspace/render-minimal.sh" > "$manifest"
-          kubectl apply --server-side -f "$manifest"
-          if ! kubectl wait --for=condition=Available deployment/codex-workspace -n codex-workspace --timeout=180s; then
-            kubectl describe pods -n codex-workspace || true
-            kubectl get events -n codex-workspace --sort-by=.lastTimestamp || true
-            exit 1
-          fi
-          kubectl exec -n codex-workspace deployment/codex-workspace -c ai-ops-metrics -- python -c 'import urllib.request as u; assert u.urlopen("http://127.0.0.1:9464/healthz").read().strip() == b"ok"; m=u.urlopen("http://127.0.0.1:9464/metrics").read(); assert b"ai_ops_stub_metric 1" in m and b"ai_ops_metrics_file_present 1" in m and b"ai_prepaid_estimate_state{provider=\x22gemini_api\x22,state=\x22ok\x22} 1" in m and b"ai_prepaid_balance_actual_state" in m'
-    finally:
+        timeout: 120s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/render-and-apply.sh"'
+    cleanup:
+    # kind は job ごとに破棄するので削除完了は待たない (python の PID 1 は SIGTERM で
+    # 止まらず、待つと terminationGracePeriodSeconds の 30s がそのまま critical path に乗る)。
+    # namespace は消さない。並列の langfuse suite が同じ namespace で ESO を確認している。
+    # native delete は完了を待つため kubectl のまま使う。
+    - command:
+        timeout: 30s
+        entrypoint: kubectl
+        args: [delete, deployment, codex-workspace, -n, codex-workspace, --ignore-not-found, --wait=false]
+
+  - name: deployment-available
+    try:
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: codex-workspace
+        name: codex-workspace
+        timeout: 180s
+        for:
+          condition:
+            name: Available
+    catch:
+    - describe:
+        apiVersion: v1
+        kind: Pod
+        namespace: codex-workspace
+    - events:
+        namespace: codex-workspace
+
+  - name: metrics-endpoints-respond
+    try:
     - script:
         timeout: 30s
-        content: |
-          # kind は job ごとに破棄するので削除完了は待たない (python の PID 1 は SIGTERM で
-          # 止まらず、待つと terminationGracePeriodSeconds の 30s がそのまま critical path に乗る)。
-          # namespace は消さない。並列の langfuse suite が同じ namespace で ESO を確認している。
-          kubectl delete deployment codex-workspace -n codex-workspace --ignore-not-found --wait=false
+        content: kubectl exec -i -n codex-workspace deployment/codex-workspace -c ai-ops-metrics -- python - < metrics-probe.py

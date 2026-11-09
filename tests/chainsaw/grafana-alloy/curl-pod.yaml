@@ -1,0 +1,12 @@
+# Loki と Alloy のメトリクスをクラスター内から読むための使い捨て Pod。
+apiVersion: v1
+kind: Pod
+metadata:
+  name: chainsaw-curl
+  namespace: monitoring
+spec:
+  restartPolicy: Never
+  containers:
+    - name: curl
+      image: curlimages/curl:8.14.1
+      command: ["sleep", "1800"]
