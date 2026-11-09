@@ -71,4 +71,12 @@ if grep -Eq '<query>GRANT .* TO ' argoproj/langfuse/files/clickhouse-users.xml; 
   echo 'clickhouse-users.xml の GRANT に TO を書かないでください' >&2
   exit 1
 fi
+# Grafana の GC 目標が memory limit を超えて OOMKilled になるのを防ぐ。plugin 別プロセス分の余白も残す
+grafana_overlay=argoproj/prometheus-operator/overlays/grafana.yaml
+gomemlimit=$(grep -A1 'name: GOMEMLIMIT' "$grafana_overlay" | grep -oE '[0-9]+MiB' | grep -oE '[0-9]+' || true)
+memory_limit=$(grep -A3 'limits:' "$grafana_overlay" | grep -oE 'memory: [0-9]+Mi' | grep -oE '[0-9]+')
+if [ -z "$gomemlimit" ] || [ "$((gomemlimit + 64))" -gt "$memory_limit" ]; then
+  echo "GOMEMLIMIT (${gomemlimit:-未設定}MiB) は Grafana の memory limit ${memory_limit}Mi より 64MiB 以上小さくしてください" >&2
+  exit 1
+fi
 printf '%s\n' 'generator tests passed'
