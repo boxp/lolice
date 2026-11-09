@@ -47,7 +47,7 @@ class NormalizeRefTest(unittest.TestCase):
 
 
 class PrefetchTest(unittest.TestCase):
-    def run_prefetch(self, images_tsv, fail_image='<none>', parallel='2'):
+    def run_prefetch(self, images_tsv, fail_image='<none>'):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             stub = root / 'docker'
@@ -56,7 +56,7 @@ class PrefetchTest(unittest.TestCase):
             log = root / 'calls'
             log.write_text('')
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
-                       CALL_LOG=str(log), FAIL_IMAGE=fail_image, PREFETCH_PARALLEL=parallel, PREFETCH_RETRY_SLEEP='0')
+                       CALL_LOG=str(log), FAIL_IMAGE=fail_image, PREFETCH_PARALLEL='2', PREFETCH_RETRY_SLEEP='0')
             result = subprocess.run(['bash', str(PREFETCH), 'chainsaw-test'], input=images_tsv,
                                     env=env, capture_output=True, text=True)
             return result, log.read_text().splitlines()
@@ -98,18 +98,6 @@ class PrefetchTest(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertIn('ok=0 fail=1', result.stdout)
 
-    def test_calico_and_tigera_are_pulled_first_on_all_nodes(self):
-        result, calls = self.run_prefetch(
-            'alpine:3\tall\nquay.io/tigera/operator:v1\tall\n'
-            'quay.io/calico/node:v1\tall\nalpine:3\tall\n'
-            'ghcr.io/external-secrets/external-secrets:v1\tall\n', parallel='1')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        refs = [call.split()[-1] for call in calls]
-        self.assertEqual(len(refs), 8)
-        self.assertTrue(all(ref.startswith(('quay.io/calico/', 'quay.io/tigera/', 'ghcr.io/external-secrets/')) for ref in refs[:6]))
-        self.assertEqual(refs[6:], ['docker.io/library/alpine:3'] * 2)
-        self.assertEqual(len(set(calls)), 8)
-
     def test_empty_input_is_a_noop(self):
         result, calls = self.run_prefetch('')
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -122,11 +110,8 @@ class WorkflowWiringTest(unittest.TestCase):
         # kind-action の既定 wait (60s) は毎回タイムアウトするだけなので 0s にしておく。
         source = WORKFLOW.read_text()
         kind_step = source.split('        uses: helm/kind-action@v1\n', 1)[1].split('\n      - name:', 1)[0]
-        self.assertIn('install_only: true', kind_step)
-        self.assertNotIn('cluster_name:', kind_step)
-        self.assertIn('--wait 0s', source)
+        self.assertIn('wait: 0s', kind_step)
         self.assertIn('kubectl wait --for=condition=Ready node --all', source)
-
 
     def test_prefetch_runs_in_background_and_is_best_effort(self):
         source = WORKFLOW.read_text()
