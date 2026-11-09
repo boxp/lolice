@@ -47,6 +47,10 @@ jq -e '
   ($f[0].fieldConfig.defaults.thresholds.steps[1].value == 7200.000001) and
   ($f[0].fieldConfig.defaults.custom.thresholdsStyle.mode == "line")
 ' "$dashboard" > /dev/null
+# ClickHouse は日本語の裸の識別子を構文エラーにする。文字列リテラルと引用済み識別子以外に ASCII 外の文字を残さない
+jq -e '[.. | objects | .rawSql? // empty | gsub("'"'"'[^'"'"']*'"'"'|`[^`]*`"; "") | test("[^\\x00-\\x7F]") | not] | (length > 0 and all)' "$dashboard" > /dev/null
+# 列名と同名の別名は同じ SELECT 内の sum(列+...) に解決され ILLEGAL_AGGREGATION になる
+jq -e '[.. | objects | .rawSql? // empty | select(contains("input_tokens+cache_write_tokens")) | test("\\bAS (input|cache_write|output|reasoning)_tokens\\b") | not] | (length > 0 and all)' "$dashboard" > /dev/null
 # users.xml の GRANT に grantee を書くと ClickHouse が access control の読み込みに失敗する
 if grep -Eq '<query>GRANT .* TO ' argoproj/langfuse/files/clickhouse-users.xml; then
   echo 'clickhouse-users.xml の GRANT に TO を書かないでください' >&2

@@ -5359,7 +5359,7 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "WITH filtered AS (SELECT * FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote})), totals AS (SELECT sum(total_tokens) AS total, count() AS generations, countIf(has_usage=0) AS usage未取得, sum(other_tokens) AS other_tokens, countIf(route='(未分類)') AS 未分類 FROM filtered), routes AS (SELECT sum(total_tokens) AS n FROM filtered GROUP BY route), models AS (SELECT sum(total_tokens) AS n FROM filtered GROUP BY model), bins AS (SELECT sum(total_tokens) AS n FROM filtered GROUP BY toStartOfInterval(start_time, toIntervalSecond($__interval_s))) SELECT total - (SELECT sum(n) FROM routes) AS 経路差分, total - (SELECT sum(n) FROM models) AS モデル差分, total - (SELECT sum(n) FROM bins) AS bin差分, generations, usage未取得, other_tokens, 未分類 FROM totals",
+          "rawSql": "WITH filtered AS (SELECT * FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote})), totals AS (SELECT sum(total_tokens) AS total, count() AS generations, countIf(has_usage=0) AS `usage未取得`, sum(other_tokens) AS other_tokens, countIf(route='(未分類)') AS `未分類` FROM filtered), routes AS (SELECT sum(total_tokens) AS n FROM filtered GROUP BY route), models AS (SELECT sum(total_tokens) AS n FROM filtered GROUP BY model), bins AS (SELECT sum(total_tokens) AS n FROM filtered GROUP BY toStartOfInterval(start_time, toIntervalSecond($__interval_s))) SELECT total - (SELECT sum(n) FROM routes) AS `経路差分`, total - (SELECT sum(n) FROM models) AS `モデル差分`, total - (SELECT sum(n) FROM bins) AS `bin差分`, generations, `usage未取得`, other_tokens, `未分類` FROM totals",
           "refId": "A"
         }
       ],
@@ -5421,7 +5421,7 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "SELECT toStartOfInterval(start_time, toIntervalSecond($__interval_s)) AS bin, toUnixTimestamp(bin)*1000 AS bin_start_ms, (toUnixTimestamp(bin)+$__interval_s)*1000-1 AS bin_end_ms, count() AS generations, sum(input_tokens) AS input_tokens, sum(cache_write_tokens) AS cache_write_tokens, sum(cache_read_tokens) AS cache_read_tokens, sum(output_tokens) AS output_tokens, sum(reasoning_tokens) AS reasoning_tokens, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS 新規合計, sum(total_tokens) AS total_tokens, sumIf(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens, provider='claude') AS claude, sumIf(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens, provider='codex') AS codex FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) GROUP BY bin ORDER BY 新規合計 DESC",
+          "rawSql": "SELECT toStartOfInterval(start_time, toIntervalSecond($__interval_s)) AS bin, toUnixTimestamp(bin)*1000 AS bin_start_ms, (toUnixTimestamp(bin)+$__interval_s)*1000-1 AS bin_end_ms, count() AS generations, sum(input_tokens) AS input_tokens_sum, sum(cache_write_tokens) AS cache_write_tokens_sum, sum(cache_read_tokens) AS cache_read_tokens_sum, sum(output_tokens) AS output_tokens_sum, sum(reasoning_tokens) AS reasoning_tokens_sum, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS `新規合計`, sum(total_tokens) AS total_tokens_sum, sumIf(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens, provider='claude') AS claude, sumIf(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens, provider='codex') AS codex FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) GROUP BY bin ORDER BY `新規合計` DESC",
           "refId": "A"
         }
       ],
@@ -5463,7 +5463,7 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "SELECT provider, count() AS generations, sum(input_tokens) AS input_tokens, sum(cache_write_tokens) AS cache_write_tokens, sum(cache_read_tokens) AS cache_read_tokens, sum(output_tokens) AS output_tokens, sum(reasoning_tokens) AS reasoning_tokens, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS 新規合計, sum(total_tokens) AS total_tokens, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) / nullIf(sum(sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens)) OVER (),0)*100 AS share_percent FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) GROUP BY provider ORDER BY 新規合計 DESC",
+          "rawSql": "SELECT provider, count() AS generations, sum(input_tokens) AS input_tokens_sum, sum(cache_write_tokens) AS cache_write_tokens_sum, sum(cache_read_tokens) AS cache_read_tokens_sum, sum(output_tokens) AS output_tokens_sum, sum(reasoning_tokens) AS reasoning_tokens_sum, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS `新規合計`, sum(total_tokens) AS total_tokens_sum, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) / nullIf(sum(sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens)) OVER (),0)*100 AS share_percent FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) GROUP BY provider ORDER BY `新規合計` DESC",
           "refId": "A"
         }
       ],
@@ -5505,7 +5505,7 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "SELECT model, count() AS generations, sum(input_tokens) AS input_tokens, sum(cache_write_tokens) AS cache_write_tokens, sum(cache_read_tokens) AS cache_read_tokens, sum(output_tokens) AS output_tokens, sum(reasoning_tokens) AS reasoning_tokens, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS 新規合計, sum(total_tokens) AS total_tokens, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) / nullIf(sum(sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens)) OVER (),0)*100 AS share_percent FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) GROUP BY model ORDER BY 新規合計 DESC",
+          "rawSql": "SELECT model, count() AS generations, sum(input_tokens) AS input_tokens_sum, sum(cache_write_tokens) AS cache_write_tokens_sum, sum(cache_read_tokens) AS cache_read_tokens_sum, sum(output_tokens) AS output_tokens_sum, sum(reasoning_tokens) AS reasoning_tokens_sum, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS `新規合計`, sum(total_tokens) AS total_tokens_sum, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) / nullIf(sum(sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens)) OVER (),0)*100 AS share_percent FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) GROUP BY model ORDER BY `新規合計` DESC",
           "refId": "A"
         }
       ],
@@ -5547,7 +5547,7 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "SELECT route, count() AS generations, sum(input_tokens) AS input_tokens, sum(cache_write_tokens) AS cache_write_tokens, sum(cache_read_tokens) AS cache_read_tokens, sum(output_tokens) AS output_tokens, sum(reasoning_tokens) AS reasoning_tokens, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS 新規合計, sum(total_tokens) AS total_tokens, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) / nullIf(sum(sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens)) OVER (),0)*100 AS share_percent FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) GROUP BY route ORDER BY 新規合計 DESC",
+          "rawSql": "SELECT route, count() AS generations, sum(input_tokens) AS input_tokens_sum, sum(cache_write_tokens) AS cache_write_tokens_sum, sum(cache_read_tokens) AS cache_read_tokens_sum, sum(output_tokens) AS output_tokens_sum, sum(reasoning_tokens) AS reasoning_tokens_sum, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS `新規合計`, sum(total_tokens) AS total_tokens_sum, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) / nullIf(sum(sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens)) OVER (),0)*100 AS share_percent FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) GROUP BY route ORDER BY `新規合計` DESC",
           "refId": "A"
         }
       ],
@@ -5607,7 +5607,7 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "SELECT ticket, count() AS generations, sum(input_tokens) AS input_tokens, sum(cache_write_tokens) AS cache_write_tokens, sum(cache_read_tokens) AS cache_read_tokens, sum(output_tokens) AS output_tokens, sum(reasoning_tokens) AS reasoning_tokens, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS 新規合計, sum(total_tokens) AS total_tokens, min(start_time) AS first_JST, max(start_time) AS last_JST, groupUniqArray(route) AS routes FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND ticket != '' GROUP BY ticket ORDER BY 新規合計 DESC LIMIT 50",
+          "rawSql": "SELECT ticket, count() AS generations, sum(input_tokens) AS input_tokens_sum, sum(cache_write_tokens) AS cache_write_tokens_sum, sum(cache_read_tokens) AS cache_read_tokens_sum, sum(output_tokens) AS output_tokens_sum, sum(reasoning_tokens) AS reasoning_tokens_sum, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS `新規合計`, sum(total_tokens) AS total_tokens_sum, min(start_time) AS first_JST, max(start_time) AS last_JST, groupUniqArray(route) AS routes FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND ticket != '' GROUP BY ticket ORDER BY `新規合計` DESC LIMIT 50",
           "refId": "A"
         }
       ],
@@ -5667,7 +5667,7 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "SELECT route, ticket, trace_id, substring(trace_id,1,8) AS trace_short, count() AS generations, sum(input_tokens) AS input_tokens, sum(cache_write_tokens) AS cache_write_tokens, sum(cache_read_tokens) AS cache_read_tokens, sum(output_tokens) AS output_tokens, sum(reasoning_tokens) AS reasoning_tokens, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS 新規合計, sum(total_tokens) AS total_tokens FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) GROUP BY route, ticket, trace_id ORDER BY 新規合計 DESC LIMIT 50",
+          "rawSql": "SELECT route, ticket, trace_id, substring(trace_id,1,8) AS trace_short, count() AS generations, sum(input_tokens) AS input_tokens_sum, sum(cache_write_tokens) AS cache_write_tokens_sum, sum(cache_read_tokens) AS cache_read_tokens_sum, sum(output_tokens) AS output_tokens_sum, sum(reasoning_tokens) AS reasoning_tokens_sum, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS `新規合計`, sum(total_tokens) AS total_tokens_sum FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) GROUP BY route, ticket, trace_id ORDER BY `新規合計` DESC LIMIT 50",
           "refId": "A"
         }
       ],
