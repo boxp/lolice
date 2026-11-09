@@ -8,19 +8,20 @@ spec:
     - Ingress
     - Egress
   ingress:
+    # BOXP-484: only the gateway and the switcher reach SD.Next directly.
     - action: Allow
       protocol: TCP
       source:
         namespaceSelector: kubernetes.io/metadata.name == 'stable-diffusion'
-        selector: app == 'cloudflared'
+        selector: app == 'sd-admission-gateway'
       destination:
         ports:
           - 7860
     - action: Allow
       protocol: TCP
       source:
-        nets:
-          - 192.168.10.0/24
+        namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
+        selector: app == 'qwen-runtime-controller'
       destination:
         ports:
           - 7860

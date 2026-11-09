@@ -59,6 +59,32 @@ spec:
             - name: identity
               mountPath: /var/run/runtime-identity
               readOnly: true
+        # BOXP-484: durable llama/SD switcher. It reaches the API only through
+        # the file transport above, so it deliberately has no identity volume.
+        - name: sd-switch
+          image: ghcr.io/boxp/arch/codex-workspace@sha256:39456cb95c8553590d8b3aabbabc772361f73b7c5e4f88246945f2e43e3853e3
+          command: [python3, -B, /code/runtime_switch_worker.py]
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 48Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: code
+              mountPath: /code
+              readOnly: true
+            - name: requests
+              mountPath: /runtime-api
       volumes:
         - name: code
           configMap:

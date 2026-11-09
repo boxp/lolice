@@ -13,3 +13,11 @@ resources:
   - qwen-image-eval-deployment.yaml
   - qwen-image-eval-networkpolicy.yaml
   - runtime-authorization.yaml
+  - sd-gateway-envoy-config.yaml
+  - sd-gateway-deployment.yaml
+  - sd-gateway-networkpolicy.yaml
+
+configMapGenerator:
+  - name: sd-intake-code
+    files:
+      - sd_intake.py

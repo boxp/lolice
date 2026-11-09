@@ -1,0 +1,106 @@
+# BOXP-484: always-on front of SD.Next. No GPU and no Kubernetes identity. It can
+# see only the sd-switch directory, never the credential-bearing request queue.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sd-admission-gateway
+spec:
+  replicas: 1
+  # A single intake must own the job store across a rollout.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sd-admission-gateway
+  template:
+    metadata:
+      labels:
+        app: sd-admission-gateway
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: envoy
+          image: docker.io/envoyproxy/envoy@sha256:4d496918618a7ebd6c71ae8285e31ebff092f3a0a5ad642d50decf4a54eb2456
+          imagePullPolicy: IfNotPresent
+          args:
+            - -c
+            - /etc/envoy/envoy.yaml
+            - --log-level
+            - warn
+          ports:
+            - name: http
+              containerPort: 7860
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /__sd/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy/envoy.yaml
+              subPath: envoy.yaml
+              readOnly: true
+            - name: sd-switch
+              mountPath: /sd-switch
+              readOnly: true
+        - name: intake
+          image: docker.io/library/python:3.12-slim@sha256:6b25cbe6577518889d553cdd5a5da97d259348d8f6e45b527dd731caaba27a07
+          imagePullPolicy: IfNotPresent
+          command: [python3, -B, /code/sd_intake.py]
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: code
+              mountPath: /code
+              readOnly: true
+            - name: sd-switch
+              mountPath: /sd-switch
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: sd-admission-gateway-envoy
+        - name: code
+          configMap:
+            name: sd-intake-code
+        - name: sd-switch
+          hostPath:
+            path: /var/lib/local-llm/models/boxp340-qwen-image-21/work/runtime-api/sd-switch
+            type: Directory

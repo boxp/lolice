@@ -1,7 +1,23 @@
+# BOXP-484: the existing tunnel target now reaches the always-on gateway, which
+# keeps the normal URL answering while SD.Next is stopped.
 apiVersion: v1
 kind: Service
 metadata:
   name: stable-diffusion-webui
+  labels:
+    app: sd-admission-gateway
+spec:
+  selector:
+    app: sd-admission-gateway
+  ports:
+    - name: http
+      port: 7860
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stable-diffusion-webui-backend
   labels:
     app: stable-diffusion-webui
 spec:
@@ -11,4 +27,3 @@ spec:
     - name: http
       port: 7860
       targetPort: http
-

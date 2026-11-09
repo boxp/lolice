@@ -22,6 +22,7 @@ TARGETS = {
     '/apis/apps/v1/namespaces/local-llm/deployments/llama-server/scale': '/spec',
     '/apis/apps/v1/namespaces/stable-diffusion/deployments/qwen-image-eval/scale': '/spec',
     '/api/v1/namespaces/local-llm/configmaps/llama-server-admission': '/data/state',
+    '/apis/apps/v1/namespaces/stable-diffusion/deployments/stable-diffusion-webui/scale': '/spec',
 }
 
 

@@ -18,6 +18,11 @@ spec:
       namespace: stable-diffusion
       name: qwen-image-eval
       jsonPointers: [/spec/replicas]
+    - group: "apps"
+      kind: Deployment
+      namespace: stable-diffusion
+      name: stable-diffusion-webui
+      jsonPointers: [/spec/replicas]
   syncPolicy:
     automated:
       prune: true
