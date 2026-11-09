@@ -138,3 +138,5 @@ spec:
         - --force-conflicts
         - -f
         - $REPO_ROOT/argoproj/grafana-alloy/application.yaml
+
+# BOXP-475 main verification (do not merge)

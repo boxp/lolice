@@ -42,3 +42,5 @@ spec:
         - --force-conflicts
         - -f
         - $REPO_ROOT/argoproj/kube-vip/application.yaml
+
+# BOXP-475 main verification (do not merge)

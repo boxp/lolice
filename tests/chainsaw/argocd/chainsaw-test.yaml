@@ -182,3 +182,5 @@ spec:
         timeout: 900s
         content: '"${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh" fixture_resync_and_teardown'
     catch: *argocd-fixture-diagnostics
+
+# BOXP-475 main verification (do not merge)

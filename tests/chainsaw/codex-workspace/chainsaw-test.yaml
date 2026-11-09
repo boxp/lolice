@@ -58,3 +58,5 @@ spec:
     - script:
         timeout: 30s
         content: kubectl exec -i -n codex-workspace deployment/codex-workspace -c ai-ops-metrics -- python - < metrics-probe.py
+
+# BOXP-475 main verification (do not merge)

@@ -52,3 +52,5 @@ spec:
         - --force-conflicts
         - -f
         - $REPO_ROOT/argoproj/external-secrets-operator/application.yaml
+
+# BOXP-475 main verification (do not merge)

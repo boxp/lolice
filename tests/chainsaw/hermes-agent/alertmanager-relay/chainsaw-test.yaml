@@ -74,3 +74,5 @@ spec:
     - script:
         timeout: 30s
         content: '"${REPO_ROOT}/tests/chainsaw/hermes-agent/alertmanager-relay/scenario.sh" relay_drops_foreign_payload'
+
+# BOXP-475 main verification (do not merge)

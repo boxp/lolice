@@ -253,3 +253,5 @@ spec:
     - script:
         timeout: 900s
         content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" retention'
+
+# BOXP-475 main verification (do not merge)

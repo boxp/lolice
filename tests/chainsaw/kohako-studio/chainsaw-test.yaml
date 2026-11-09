@@ -11,3 +11,5 @@ spec:
             content: |
               set -eu
               "${REPO_ROOT}/tests/chainsaw/kohako-studio/render-check.sh"
+
+# BOXP-475 main verification (do not merge)
