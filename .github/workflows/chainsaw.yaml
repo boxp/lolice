@@ -358,7 +358,13 @@ jobs:
             | yq 'select(.kind == "CustomResourceDefinition")' \
             | kubectl apply --server-side --force-conflicts -f -
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-          kubectl wait --for=condition=established --timeout=120s crd --all
+          # 作成直後の CRD は status.conditions が null のことがあり、kubectl wait は待たずに即失敗する。
+          # 120 秒の期限の中で再試行し、期限を過ぎたら失敗させる。
+          CRD_WAIT_DEADLINE=$((SECONDS + 120))
+          until kubectl wait --for=condition=established --timeout="$((CRD_WAIT_DEADLINE - SECONDS))s" crd --all; do
+            [ "$((CRD_WAIT_DEADLINE - SECONDS))" -gt 2 ] || { echo "CRD が Established になりません" >&2; exit 1; }
+            sleep 2
+          done
           echo "CRD インストール完了"
 
           # external-secrets.io 系リソース (ExternalSecret / ClusterSecretStore など) は ESO の
