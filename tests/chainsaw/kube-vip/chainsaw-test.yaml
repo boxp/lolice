@@ -34,6 +34,8 @@ spec:
     - command:
         timeout: 60s
         entrypoint: kubectl
+        # シェルは介さないが、Chainsaw が exec 前に args の環境変数を展開する (env.Expand)。
+        # REPO_ROOT が未設定なら文字列のまま kubectl に渡り、この step は失敗する。
         args:
         - apply
         - --server-side
