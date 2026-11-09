@@ -3,27 +3,181 @@ kind: Test
 metadata:
   name: task-board-langfuse
 spec:
+  description: |
+    Task Board の Langfuse exporter sidecar を合成鍵だけで動かし、鍵なしの非送信、後発の鍵での送信開始と
+    同一 Pod の継続、秘密値の非送信、sink 停止中の spool と復帰後の配信を時系列どおりに確認する。
   steps:
   - name: require-isolated-kind
     try:
     - script:
-        content: |
-          set -eu
-          case "${CHAINSAW_KIND_CONTEXT:-}" in kind-*) ;; *) exit 1 ;; esac
-          : "${CHAINSAW_KIND_KUBECONFIG:?}"
-          test -r "$CHAINSAW_KIND_KUBECONFIG"
-          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
-          expected="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          actual="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          test -n "$expected" && test "$actual" = "$expected"
-          case "$expected" in https://127.0.0.1:*|https://localhost:*) ;; *) exit 1 ;; esac
-  - name: exercise-exporter
+        timeout: 15s
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh" --loopback'
+
+  - name: render-and-apply-fixture
     try:
     - script:
-        timeout: 600s
-        content: |
-          bash "$REPO_ROOT/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh"
-    finally:
+        timeout: 120s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" deploy'
+    cleanup:
     - script:
-        content: |
-          kubectl delete namespace task-board-langfuse-fixture --ignore-not-found --wait=false
+        timeout: 30s
+        content: kubectl delete namespace task-board-langfuse-fixture --ignore-not-found --wait=false
+
+  - name: sink-available
+    try:
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: task-board-langfuse-fixture
+        name: sink
+        timeout: 180s
+        for:
+          condition:
+            name: Available
+    catch:
+    - script:
+        content: echo 'FAIL sink が起動しない' >&2
+    - get: &fixture-pods
+        apiVersion: v1
+        kind: Pod
+        namespace: task-board-langfuse-fixture
+
+  - name: keyless-exporter-starts
+    description: 鍵 Secret が無い状態でも sidecar が起動し、restart 0 のまま Running である。
+    try:
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: task-board-langfuse-fixture
+        name: exporter
+        timeout: 180s
+        for:
+          condition:
+            name: Ready
+    - script:
+        timeout: 30s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" record_identity'
+    catch:
+    - script:
+        content: echo 'FAIL 鍵なしで sidecar が起動しない' >&2
+    - get: *fixture-pods
+
+  - name: keyless-exporter-does-not-send
+    description: 短縮 poll 間隔より長い観測窓の間、sink が 1 件も受信せず sidecar も再起動しない。
+    try:
+    - script:
+        timeout: 60s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" observe'
+
+  - name: provide-ingest-key-and-wait-for-cutoff
+    description: 合成鍵を後から投入し、exporter が cutoff を初期化するのを待つ。
+    skipDelete: true
+    try:
+    - apply:
+        timeout: 60s
+        resource:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: langfuse-ingest-key
+            namespace: task-board-langfuse-fixture
+          stringData:
+            LANGFUSE_PUBLIC_KEY: pk-lf-synthetic-428
+            LANGFUSE_SECRET_KEY: sk-lf-synthetic-428
+    - script:
+        timeout: 210s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" state'
+
+  - name: subpath-owner
+    try:
+    - script:
+        timeout: 30s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" owner'
+
+  - name: late-key-starts-sending-same-pod
+    try:
+    - script:
+        timeout: 60s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" seed_first'
+    - script:
+        timeout: 210s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" received_first'
+    - script:
+        timeout: 30s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" identity_key'
+
+  - name: secrets-stay-out-of-sink
+    try:
+    - script:
+        timeout: 30s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" secrets'
+
+  - name: home-isolation
+    try:
+    - script:
+        timeout: 30s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" home'
+
+  - name: sink-stopped-spools-without-restart
+    try:
+    - patch:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: sink
+            namespace: task-board-langfuse-fixture
+          spec:
+            replicas: 0
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: task-board-langfuse-fixture
+        selector: app=sink
+        timeout: 60s
+        for:
+          deletion: {}
+    - script:
+        timeout: 60s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" seed_second'
+    - script:
+        timeout: 210s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" spool'
+    - script:
+        timeout: 30s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" identity_stopped'
+    catch:
+    - script:
+        content: echo 'FAIL sink が停止しない、または sink 停止中の spool/継続が崩れた' >&2
+    - get: *fixture-pods
+
+  - name: sink-restored-delivers-spool-same-pod
+    try:
+    - patch:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: sink
+            namespace: task-board-langfuse-fixture
+          spec:
+            replicas: 1
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: task-board-langfuse-fixture
+        name: sink
+        timeout: 180s
+        for:
+          condition:
+            name: Available
+    - script:
+        timeout: 210s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" delivered'
+    - script:
+        timeout: 30s
+        content: '"${REPO_ROOT}/tests/chainsaw/codex-workspace/task-board-langfuse/check.sh" identity_restored'
+    catch:
+    - script:
+        content: echo 'FAIL sink が復帰しない、または復帰後の配信/継続が崩れた' >&2
+    - get: *fixture-pods
