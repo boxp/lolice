@@ -81,3 +81,4 @@ spec:
         timeout: 30s
         content: |
           kubectl delete namespace langfuse langfuse-outside hermes-agent --ignore-not-found --wait=false
+# BOXP-474 計測用 (merge しない)
