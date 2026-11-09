@@ -5196,6 +5196,8 @@
         "y": 98
       },
       "id": 1006,
+      "interval": "$bin",
+      "maxDataPoints": 2016,
       "options": {
         "showHeader": true
       },
@@ -5256,6 +5258,8 @@
         "y": 103
       },
       "id": 1007,
+      "interval": "$bin",
+      "maxDataPoints": 2016,
       "options": {
         "showHeader": true
       },

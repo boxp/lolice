@@ -24,4 +24,6 @@ while read -r id; do rg -q "^\\| $id \\|" docs/project_docs/BOXP-472/panel-map.m
 jq -e '[.panels[] | select(.gridPos != null) | .gridPos as $g | range($g.x; $g.x + $g.w) as $x | range($g.y; $g.y + $g.h) as $y | "\($x),\($y)"] | length == (unique | length)' "$dashboard" > /dev/null
 jq -e '[.. | objects | select(.type? == "state-timeline") | .fieldConfig.defaults.mappings | length > 0] | all' "$dashboard" > /dev/null
 jq -e '[.. | objects | .rawSql? // empty | select(test("var-ticket"))] | length == 0' "$dashboard" > /dev/null
+# bin を使う ClickHouse panel は時系列も表も同じ $bin 幅で集計する
+jq -e '[.. | objects | select(.targets? // [] | any((.rawSql? // "") | test("__interval_s"))) | .interval == "$bin"] | (length > 0 and all)' "$dashboard" > /dev/null
 printf '%s\n' 'generator tests passed'
