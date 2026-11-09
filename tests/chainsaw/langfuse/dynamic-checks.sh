@@ -2,6 +2,7 @@
 # 隔離 kind 上の Langfuse に対する動的検査。section ごとに chainsaw の step から呼ぶ。
 set -euo pipefail
 : "${REPO_ROOT:?REPO_ROOT is required}"
+"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh"
 : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
 expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
 test "$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')" = "$expected_server"
@@ -29,7 +30,7 @@ ensure_eso() {
   kubectl wait deployment --all -n external-secrets --for=condition=Available --timeout=240s
 }
 
-deploy() {
+deploy_stack() {
   local manifest attempt
   ensure_eso
   manifest="$(mktemp)"
@@ -41,14 +42,9 @@ deploy() {
     sleep 5
   done
   rm -f "$manifest"
-  kubectl wait -n "$NS" --for=condition=Ready externalsecret/langfuse-secrets externalsecret/langfuse-ingest-key --timeout=120s \
-    || { diagnose; exit 1; }
-  deploy_oidc_fixture
-  kubectl wait -n "$NS" --for=condition=Available deployment --all --timeout=420s || { diagnose; exit 1; }
-  local sts
-  for sts in langfuse-postgres langfuse-clickhouse langfuse-minio; do
-    kubectl rollout status -n "$NS" "statefulset/$sts" --timeout=120s || { diagnose; exit 1; }
-  done
+}
+
+priority_class() {
   # 観測基盤はどの Pod も先取りせず、最低優先度で動く。
   kubectl get pods -n "$NS" -l '!chainsaw-probe' -o json | jq -e '[.items[] | select(.status.phase == "Running")] as $p
     | ($p | length) >= 6 and ($p | all(.spec.priority == -100 and .spec.preemptionPolicy == "Never"))' >/dev/null \
@@ -115,56 +111,7 @@ secrets_and_rbac() {
 deploy_oidc_fixture() {
   kubectl create configmap langfuse-oidc-fixture -n "$NS" --dry-run=client -o yaml \
     --from-file=fixture.py="$SUITE/oidc-fixture.py" --from-file=client.py="$SUITE/oidc-client.py" | kubectl apply -f - >/dev/null
-  cat <<'YAML' | kubectl apply -f - >/dev/null
-apiVersion: v1
-kind: Service
-metadata:
-  name: langfuse-oidc-fixture
-  namespace: langfuse
-spec:
-  selector:
-    app: langfuse-oidc-fixture
-  ports:
-    - port: 8080
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: langfuse-oidc-fixture
-  namespace: langfuse
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: langfuse-oidc-fixture
-  template:
-    metadata:
-      labels:
-        app: langfuse-oidc-fixture
-        chainsaw-probe: "true"
-    spec:
-      priorityClassName: langfuse-observability
-      terminationGracePeriodSeconds: 1
-      automountServiceAccountToken: false
-      containers:
-        - name: fixture
-          image: python:3.13-alpine
-          command: ["python", "/app/fixture.py"]
-          envFrom:
-            - secretRef:
-                name: langfuse-oidc
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: 8080
-          volumeMounts:
-            - name: app
-              mountPath: /app
-      volumes:
-        - name: app
-          configMap:
-            name: langfuse-oidc-fixture
-YAML
+
 }
 
 oidc_client() {
@@ -276,36 +223,10 @@ producer_ingest_key() {
   rm -f "$manifest"
 }
 
-probe() {
-  local name="$1" namespace="$2" app="$3"
-  cat <<YAML | kubectl apply -f - >/dev/null
-apiVersion: v1
-kind: Pod
-metadata:
-  name: $name
-  namespace: $namespace
-  labels:
-    app: $app
-    chainsaw-probe: "true"
-spec:
-  terminationGracePeriodSeconds: 1
-  automountServiceAccountToken: false
-  containers:
-    - name: probe
-      image: python:3.13-alpine
-      command: ["python", "-c", "import time; time.sleep(3600)"]
-YAML
-}
-
 # 接続先は ClusterIP を直接使い、DNS の成否を混ぜない。拒否は「timeout」だけを認める
 # (接続拒否や名前解決失敗で偽 green にしない)。
 service_ip() { kubectl get service "$2" -n "$1" -o jsonpath='{.spec.clusterIP}'; }
-PY_CONNECT='import socket,sys
-try:
-    socket.create_connection((sys.argv[1], int(sys.argv[2])), 4).close()
-except TimeoutError:
-    sys.exit(3)'
-NODE_CONNECT='const s=require("net").connect({host:process.argv[1],port:+process.argv[2],timeout:4000});s.on("connect",()=>{s.destroy();process.exit(0)});s.on("timeout",()=>process.exit(3));s.on("error",()=>process.exit(1));'
+
 
 expect() {
   local want="$1" label="$2" code=0
@@ -319,49 +240,13 @@ expect() {
 }
 
 network_policy() {
-  kubectl create namespace hermes-agent --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl create namespace langfuse-outside --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  probe hermes-allowed hermes-agent hermes-agent
-  probe hermes-other hermes-agent other
-  probe spoof langfuse-outside hermes-agent
-  probe tunnel "$NS" langfuse-cloudflared
-  cat <<'YAML' | kubectl apply -f - >/dev/null
-apiVersion: v1
-kind: Pod
-metadata:
-  name: outside
-  namespace: langfuse-outside
-  labels:
-    app: outside
-spec:
-  terminationGracePeriodSeconds: 1
-  automountServiceAccountToken: false
-  containers:
-    - name: server
-      image: python:3.13-alpine
-      command: ["python", "-m", "http.server", "443"]
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: outside
-  namespace: langfuse-outside
-spec:
-  selector:
-    app: outside
-  ports:
-    - port: 443
-YAML
-  kubectl wait --for=condition=Ready -n hermes-agent pod/hermes-allowed pod/hermes-other --timeout=180s
-  kubectl wait --for=condition=Ready -n langfuse-outside pod/spoof pod/outside --timeout=180s
-  kubectl wait --for=condition=Ready -n "$NS" pod/tunnel --timeout=180s
 
   local web minio clickhouse postgres valkey outside
   web="$(service_ip "$NS" langfuse-web)"; minio="$(service_ip "$NS" langfuse-minio)"
   clickhouse="$(service_ip "$NS" langfuse-clickhouse)"; postgres="$(service_ip "$NS" langfuse-postgres)"
   valkey="$(service_ip "$NS" langfuse-valkey)"; outside="$(service_ip langfuse-outside outside)"
-  from() { local ns="$1" pod="$2"; shift 2; kubectl exec -n "$ns" "$pod" -- python -c "$PY_CONNECT" "$@"; }
-  node_from() { kubectl exec -n "$NS" "deployment/$1" -- node -e "$NODE_CONNECT" "$2" "$3"; }
+  from() { local ns="$1" pod="$2"; shift 2; kubectl exec -i -n "$ns" "$pod" -- python - "$@" < "$SUITE/connect.py"; }
+  node_from() { kubectl exec -i -n "$NS" "deployment/$1" -- node - "$2" "$3" < "$SUITE/connect.js"; }
 
   # ingress: 名前付き client の :3000 だけ
   expect allow "hermes-agent/app=hermes-agent -> web:3000" from hermes-agent hermes-allowed "$web" 3000
@@ -400,57 +285,9 @@ mcp_readonly_proxy() {
   local proxy web logs key
   proxy="$(service_ip "$NS" langfuse-mcp-readonly)"
   web="$(service_ip "$NS" langfuse-web)"
-  expect deny "outside -> MCP proxy:3002" kubectl exec -n langfuse-outside spoof -- python -c "$PY_CONNECT" "$proxy" 3002
-  kubectl exec -n "$NS" deployment/langfuse-mcp-readonly -- node -e "$NODE_CONNECT" "$(service_ip langfuse-outside outside)" 443 >/dev/null 2>&1 && { echo 'FAIL: proxy has outside egress' >&2; return 1; }
-  if ! kubectl exec -i -n hermes-agent hermes-allowed -- env "LF_PK=$(secret_value langfuse-ingest-key LANGFUSE_PUBLIC_KEY)" "LF_SK=$(secret_value langfuse-ingest-key LANGFUSE_SECRET_KEY)" python - "$proxy" "$web" "$TRACE_INGEST" <<'PYTEST'
-import datetime, json, os, sys, urllib.request, urllib.error
-proxy, web, trace = sys.argv[1:]
-def request(path, body=None, headers=None, host=proxy, port=3002):
-    data = None if body is None else (body if isinstance(body, bytes) else json.dumps(body).encode())
-    req = urllib.request.Request(f'http://{host}:{port}{path}', data=data, headers=headers or {})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            body = r.read()
-            assert all(os.environ[k].encode() not in body for k in ('LF_PK','LF_SK')), 'key leaked in response'
-            return r.status, body
-    except urllib.error.HTTPError as e: return e.code, e.read()
-def rpc(method, params=None):
-    status, body = request('/mcp', {'jsonrpc':'2.0','id':1,'method':method,'params':params or {}}, {'Authorization':'Basic bogus','Content-Type':'application/json'})
-    assert status == 200
-    return json.loads(body)
-assert request('/healthz') == (200,b'ok')
-r = rpc('initialize', {'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'chainsaw','version':'1'}})
-assert 'result' in r, f"initialize failed: {r.get('error')}"
-assert r['result']['serverInfo'] and not ({'resources','prompts'} & r['result']['capabilities'].keys())
-r = rpc('tools/list'); names = {t['name'] for t in r['result']['tools']}
-assert names == {'listObservations','getObservation','getObservationFieldSchema','getObservationFilterSchema','getObservationFilterValues','getHealth'}
-assert not names & {'createTextPrompt','deleteDatasetItem','submitFeedback','createScore'}
-assert rpc('tools/call', {'name':'createScore','arguments':{}})['error']['code'] == -32602
-for method in ('prompts/list','resources/list'): assert rpc(method)['error']['code'] == -32601
-now = datetime.datetime.now(datetime.timezone.utc)
-start = (now - datetime.timedelta(minutes=59)).isoformat(); end = (now + datetime.timedelta(minutes=1)).isoformat()
-args = {'traceId':trace,'fromStartTime':start,'toStartTime':end,'fields':['id','traceId']}
-r = rpc('tools/call', {'name':'listObservations','arguments':args})
-def objects(x):
-    if isinstance(x,dict):
-        yield x
-        for v in x.values(): yield from objects(v)
-    elif isinstance(x,list):
-        for v in x: yield from objects(v)
-    elif isinstance(x,str):
-        try: yield from objects(json.loads(x))
-        except (ValueError,RecursionError): pass
-matches = [v for v in objects(r) if v.get('traceId') == trace and v.get('id')]
-assert matches, 'ingested observation missing'
-args.update(observationId=matches[0]['id'], fields=['id','traceId','input','output'])
-r = rpc('tools/call', {'name':'getObservation','arguments':args})
-assert 'chainsaw-body-marker' in json.dumps(r), 'observation body missing'
-status, _ = request('/api/public/mcp', {'jsonrpc':'2.0','id':1,'method':'tools/list'}, {'Host':'langfuse-web.langfuse.svc.cluster.local:3000','Content-Type':'application/json'}, web, 3000)
-assert status in (401,403)
-assert request('/mcp', b' '*65537)[0] == 413
-assert json.loads(request('/mcp', b'[]')[1])['error']['code'] == -32600
-print('PASS: real Langfuse MCP proxy checks')
-PYTEST
+  expect deny "outside -> MCP proxy:3002" kubectl exec -i -n langfuse-outside spoof -- python - "$proxy" 3002 < "$SUITE/connect.py"
+  kubectl exec -i -n "$NS" deployment/langfuse-mcp-readonly -- node - "$(service_ip langfuse-outside outside)" 443 < "$SUITE/connect.js" >/dev/null 2>&1 && { echo 'FAIL: proxy has outside egress' >&2; return 1; }
+  if ! kubectl exec -i -n hermes-agent hermes-allowed -- env "LF_PK=$(secret_value langfuse-ingest-key LANGFUSE_PUBLIC_KEY)" "LF_SK=$(secret_value langfuse-ingest-key LANGFUSE_SECRET_KEY)" python - "$proxy" "$web" "$TRACE_INGEST" < "$SUITE/mcp-proxy-integration.py"
   then
     # 本文を出さない proxy の 1 行ログ (method/tool/decision/upstream status) だけを診断に使う。
     kubectl logs -n "$NS" deployment/langfuse-mcp-readonly --tail=20 >&2 || true
@@ -465,8 +302,6 @@ PYTEST
 
 # BOXP-472: Grafana 用 user は本文なしの view だけを読め、集計は GENERATION を一度ずつ数える。
 usage_view() {
-  kubectl wait -n "$NS" --for=condition=Complete job/langfuse-usage-view --timeout=600s \
-    || { kubectl logs -n "$NS" job/langfuse-usage-view || true; diagnose; exit 1; }
   secret_value langfuse-grafana-clickhouse CLICKHOUSE_GRAFANA_PASSWORD | grep -Eq '^[A-Za-z0-9]{48}$'
   test "$(secret_value langfuse-grafana-clickhouse CLICKHOUSE_GRAFANA_PASSWORD)" != "$(secret_value langfuse-secrets CLICKHOUSE_PASSWORD)"
 
@@ -487,19 +322,7 @@ usage_view() {
 
   # 親 SPAN/AGENT に usage を持たせ、二重加算されないことも確かめる。同じ span の再送は FINAL で 1 行になる。
   # other-project の行は集計にも親 AGENT 名の解決にも混ざらないことを確かめる。
-  as_admin --multiquery <<'SQL'
-INSERT INTO events_core (project_id, trace_id, span_id, parent_span_id, start_time, name, type, trace_name, tags, provided_model_name, usage_details, input, output, event_ts, is_deleted) VALUES
-('ai-ops', 'viewtb', 'root', '', toDateTime64('2026-11-09 00:00:00', 6), 'task-board-run BOXP-1', 'SPAN', 'task-board-run BOXP-1', ['task-board'], '', map('total', 999999), '', '', now64(6), 0),
-('ai-ops', 'viewtb', 'child', 'root', toDateTime64('2026-11-09 00:00:01', 6), 'delegate:codex', 'AGENT', 'task-board-run BOXP-1', ['task-board'], '', map('total', 888888), '', '', now64(6), 0),
-('ai-ops', 'viewtb', 'gen1', 'child', toDateTime64('2026-11-09 00:00:02', 6), 'generation:gpt-6.1-terra', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'gpt-6.1-terra', map('input', 10, 'input_cached_tokens', 90, 'output', 5, 'output_reasoning_tokens', 1, 'total', 106), 'usage-view-body-marker', 'usage-view-body-marker', now64(6), 0),
-('ai-ops', 'viewtb', 'gen2', 'root', toDateTime64('2026-11-09 00:00:03', 6), 'generation:claude-opus-5-5', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'claude-opus-5-5', map('input', 1, 'cache_read_input_tokens', 100, 'cache_creation_input_tokens', 20, 'output', 3, 'total', 124), 'usage-view-body-marker', '', now64(6), 0),
-('ai-ops', 'viewtb', 'gen2', 'root', toDateTime64('2026-11-09 00:00:03', 6), 'generation:claude-opus-5-5', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'claude-opus-5-5', map('input', 1, 'cache_read_input_tokens', 100, 'cache_creation_input_tokens', 20, 'output', 3, 'total', 124), 'usage-view-body-marker', '', now64(6), 0),
-('ai-ops', 'viewtb', 'gen3', 'root', toDateTime64('2026-11-09 00:00:04', 6), 'generation:x', 'GENERATION', 'hermes-turn', ['hermes', 'platform:cron'], 'gpt-6.1-sol', map('input', 7, 'total', 7), '', '', now64(6), 0),
-('ai-ops', 'viewtb', 'gen4', 'root', toDateTime64('2026-11-09 00:00:05', 6), 'generation:x', 'GENERATION', 'something-else', [], '', map(), '', '', now64(6), 0),
-('other-project', 'viewtb', 'gen-other', 'child', toDateTime64('2026-11-09 00:00:06', 6), 'generation:x', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'gpt-6.1-terra', map('input', 5000, 'total', 5000), '', '', now64(6), 0),
-('other-project', 'viewtb', 'gen1', 'other-agent', toDateTime64('2026-11-09 00:00:07', 6), 'generation:x', 'GENERATION', 'hermes-turn', ['hermes'], 'claude-opus-5-5', map('input', 6000, 'total', 6000), '', '', now64(6), 0),
-('other-project', 'viewtb', 'child', 'root', toDateTime64('2026-11-09 00:00:08', 6), 'subagent:other', 'AGENT', 'task-board-run BOXP-1', ['task-board'], '', map(), '', '', now64(6), 0);
-SQL
+  as_admin --multiquery < "$SUITE/usage-view-seed.sql"
   local got expected
   expected="$(printf 'Hermes / cron\tcodex\t7\t1\nTask Board / 子委譲 (Codex)\tcodex\t106\t1\nTask Board / 親 (CLI)\tclaude\t124\t1\n(未分類)\t(不明)\t0\t0' | LC_ALL=C sort)"
   got="$(as_grafana --query "SELECT route, provider, sum(total_tokens), countIf(has_usage) FROM ai_ops_usage_v1 WHERE trace_id = 'viewtb' GROUP BY route, provider FORMAT TSV" | LC_ALL=C sort)"
@@ -518,34 +341,10 @@ SQL
   denied "SELECT 1 SETTINGS max_execution_time = 3600"
 
   # grafana の label だけが :8123 に届き、他の DB には届かない。
-  kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  usage_probe() {
-    cat <<YAML | kubectl apply -f - >/dev/null
-apiVersion: v1
-kind: Pod
-metadata:
-  name: $1
-  namespace: $2
-  labels:
-    app.kubernetes.io/name: $3
-    chainsaw-probe: "true"
-spec:
-  terminationGracePeriodSeconds: 1
-  automountServiceAccountToken: false
-  containers:
-    - name: probe
-      image: python:3.13-alpine
-      command: ["python", "-c", "import time; time.sleep(3600)"]
-YAML
-  }
-  usage_probe grafana-allowed monitoring grafana
-  usage_probe grafana-other monitoring prometheus
-  usage_probe grafana-spoof langfuse-outside grafana
-  kubectl wait --for=condition=Ready -n monitoring pod/grafana-allowed pod/grafana-other --timeout=180s
-  kubectl wait --for=condition=Ready -n langfuse-outside pod/grafana-spoof --timeout=180s
+
   local clickhouse postgres web
   clickhouse="$(service_ip "$NS" langfuse-clickhouse)"; postgres="$(service_ip "$NS" langfuse-postgres)"; web="$(service_ip "$NS" langfuse-web)"
-  from() { local ns="$1" pod="$2"; shift 2; kubectl exec -n "$ns" "$pod" -- python -c "$PY_CONNECT" "$@"; }
+  from() { local ns="$1" pod="$2"; shift 2; kubectl exec -i -n "$ns" "$pod" -- python - "$@" < "$SUITE/connect.py"; }
   expect allow "monitoring/grafana -> clickhouse:8123" from monitoring grafana-allowed "$clickhouse" 8123
   expect deny "monitoring/grafana -> clickhouse:9000" from monitoring grafana-allowed "$clickhouse" 9000
   expect deny "monitoring/grafana -> postgres:5432" from monitoring grafana-allowed "$postgres" 5432

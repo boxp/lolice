@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: grafana-allowed
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: grafana
+    chainsaw-probe: "true"
+spec:
+  terminationGracePeriodSeconds: 1
+  automountServiceAccountToken: false
+  containers:
+    - name: probe
+      image: python:3.13-alpine
+      command: ["python", "-c", "import time; time.sleep(3600)"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: grafana-other
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    chainsaw-probe: "true"
+spec:
+  terminationGracePeriodSeconds: 1
+  automountServiceAccountToken: false
+  containers:
+    - name: probe
+      image: python:3.13-alpine
+      command: ["python", "-c", "import time; time.sleep(3600)"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: grafana-spoof
+  namespace: langfuse-outside
+  labels:
+    app.kubernetes.io/name: grafana
+    chainsaw-probe: "true"
+spec:
+  terminationGracePeriodSeconds: 1
+  automountServiceAccountToken: false
+  containers:
+    - name: probe
+      image: python:3.13-alpine
+      command: ["python", "-c", "import time; time.sleep(3600)"]

@@ -3,77 +3,95 @@ kind: Test
 metadata:
   name: hermes-langfuse-observer
 spec:
+  description: |
+    本番 render の observer plugin を synthetic driver で動かし、鍵なしの非送信、後発の鍵での送信開始、
+    同一 Pod の継続、機密値の非送信、無害な本文の送信、sink 停止時の producer 継続を時系列どおりに確認する。
   steps:
   - name: require-isolated-kind
     try:
     - script:
         timeout: 15s
-        content: |
-          set -eu
-          case "${CHAINSAW_KIND_CONTEXT:-}" in
-            kind-*) ;;
-            *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
-          esac
-          : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
-          test -r "$CHAINSAW_KIND_KUBECONFIG"
-          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
-          expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          actual_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          test -n "$expected_server"
-          test "$actual_server" = "$expected_server"
-  - name: exercise-observer
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh"'
+
+  - name: deploy-fixture-without-key
     try:
     - script:
-        timeout: 600s
-        content: |
-          set -eu
-          ns=hermes-langfuse-fixture
-          manifest="$(mktemp)"
-          trap 'rm -f "$manifest"' EXIT
-          "${REPO_ROOT}/tests/chainsaw/hermes-agent/render-fixture.sh" > "$manifest"
-          kubectl apply --server-side -f "$manifest"
-          kubectl wait -n "$ns" --for=condition=Available deployment/sink deployment/driver --timeout=120s || { echo 'FAIL: Secret 無しで Pod が起動しない'; exit 1; }
-          pod="$(kubectl get pod -n "$ns" -l app=driver -o jsonpath='{.items[0].metadata.name}')"
-          identity() { kubectl get pod -n "$ns" "$pod" -o jsonpath='{.metadata.uid}:{.status.containerStatuses[0].restartCount}:{.status.phase}'; }
-          deadline=$(( $(date +%s) + 60 ))
-          until [ "$(kubectl logs -n "$ns" "$pod" | grep -c '^round ' || true)" -ge 3 ]; do
-            [ "$(date +%s)" -lt "$deadline" ] || { echo 'FAIL: driver が round を出さない'; exit 1; }
-            sleep 1
-          done
-          kubectl exec -n "$ns" deployment/sink -- python -c 'import os; p="/tmp/requests.jsonl"; assert not os.path.exists(p) or os.path.getsize(p) == 0' || { echo 'FAIL: 鍵なしで送信した'; exit 1; }
-          before="$(identity)"
-          case "$before" in *:Running) ;; *) exit 1 ;; esac
-          pk="pk-lf-chainsaw$(openssl rand -hex 16)"
-          sk="sk-lf-chainsaw$(openssl rand -hex 16)"
-          auth="Basic $(printf '%s:%s' "$pk" "$sk" | base64 | tr -d '\n')"
-          kubectl create secret generic langfuse-ingest-key -n "$ns" --from-literal=LANGFUSE_PUBLIC_KEY="$pk" --from-literal=LANGFUSE_SECRET_KEY="$sk"
-          deadline=$(( $(date +%s) + 180 ))
-          until kubectl exec -n "$ns" deployment/sink -- python -c 'import json,sys,os; p="/tmp/requests.jsonl"; rows=[json.loads(x) for x in open(p)] if os.path.exists(p) else []; sys.exit(not any(r["authorization"] == sys.argv[1] and "cleanbodymarker" in r["body"] for r in rows))' "$auth"; do
-            [ "$(date +%s)" -lt "$deadline" ] || { echo 'FAIL: 後発の鍵で送信が始まらない'; exit 1; }
-            sleep 2
-          done
-          test "$(identity)" = "$before" || { echo 'FAIL: 鍵の反映で Pod が再起動した'; exit 1; }
-          kubectl exec -n "$ns" deployment/sink -- python -c 'import json,sys; rows=[json.loads(x) for x in open("/tmp/requests.jsonl")]; assert any("cleanbodymarker" in r["body"] for r in rows); assert all(all(s not in r["body"] for s in ("plainwordvalue", "plainkubevalue", "plainenvvalue", "plainnestedvalue", "plainflagvalue", "plainentryvalue", "plainarrayvalue", "plainresumevalue", "plainxmlvalue", "plainprosevalue", "plainformatvalue", "plainnamedvalue", "plaintablevalue", sys.argv[1], sys.argv[2])) for r in rows)' "$pk" "$sk" || { echo 'FAIL: 機密値が sink に届いた'; exit 1; }
-          # Positive controls of the Owner contract: ordinary tool input/output, the replies after it, the next turn and the delegation lineage are readable.
-          deadline=$(( $(date +%s) + 90 ))
-          until kubectl exec -n "$ns" deployment/sink -- python -c 'import json,sys; body="".join(json.loads(x)["body"] for x in open("/tmp/requests.jsonl")); missing=[m for m in ("harmlessrequestmarker", "harmlesstooloutputmarker", "harmlessreplymarker", "harmlessnextturnmarker", "harmlessnextreplymarker", "ls -la /tmp", "/tmp/notes.txt", "a_tool_added_later", "harmlessfilemarker", "harmlesschildmarker", "harmlesschildtoolmarker", "harmlesschildreplymarker", "harmlesssummarymarker", "harmlessparentreplymarker", "keptdistantmarker", "nameonlyreplymarker", "nameonlynextmarker", "td12grepfilterreplymarker", "td12grepfilternextmarker", "td12prosewritereplymarker", "td12prosewritenextmarker", "td12oneenvreplymarker", "td12oneenvnextmarker") if m not in body]; print(missing); sys.exit(bool(missing))'; do
-            [ "$(date +%s)" -lt "$deadline" ] || { echo 'FAIL: 無害な tool 入出力・応答・次ターン・委譲本文が届かない(全保留の退行)'; exit 1; }
-            sleep 2
-          done
-          kubectl exec -n "$ns" deployment/sink -- python -c 'import json; body="".join(json.loads(x)["body"] for x in open("/tmp/requests.jsonl")); assert body.count("\"stringValue\": \"sent\"") >= 10, "no body_policy=sent"; assert "withheld_after_known_format_in_tool_output" in body; assert "withheld_known_source" in body' || { echo 'FAIL: body_policy が期待どおりでない'; exit 1; }
-          kubectl exec -n "$ns" deployment/sink -- python -c 'import json; rows=[json.loads(x) for x in open("/tmp/requests.jsonl")]; assert any("childbodymarker" in r["body"] for r in rows)' || { echo 'FAIL: 委譲先セッションの trace が届かない'; exit 1; }
-          kubectl exec -n "$ns" deployment/sink -- python -c 'import json; rows=[json.loads(x) for x in open("/tmp/requests.jsonl")]; assert any("delegatedgoalmarker" in r["body"] for r in rows)' || { echo 'FAIL: 委譲の本文が届かない'; exit 1; }
-          kubectl scale -n "$ns" deployment/sink --replicas=0
-          kubectl wait -n "$ns" --for=delete pod -l app=sink --timeout=60s
-          rounds="$(kubectl logs -n "$ns" "$pod" | grep -c '^round ' || true)"
-          deadline=$(( $(date +%s) + 30 ))
-          until [ "$(kubectl logs -n "$ns" "$pod" | grep -c '^round ' || true)" -ge $((rounds + 3)) ]; do
-            [ "$(date +%s)" -lt "$deadline" ] || { echo 'FAIL: sink 停止で producer が止まった'; exit 1; }
-            sleep 1
-          done
-          test "$(identity)" = "$before" || { echo 'FAIL: sink 停止で producer が再起動した'; exit 1; }
-    finally:
+        timeout: 120s
+        content: '"${REPO_ROOT}/tests/chainsaw/hermes-agent/scenario.sh" deploy_fixture'
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: hermes-langfuse-fixture
+        name: sink
+        timeout: 120s
+        for:
+          condition:
+            name: Available
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: hermes-langfuse-fixture
+        name: driver
+        timeout: 120s
+        for:
+          condition:
+            name: Available
+    catch:
+    - script:
+        content: echo 'FAIL Secret 無しで Pod が起動しない' >&2
+    cleanup:
+    # namespace の削除完了は待たない (native delete は完了まで待つ)。
+    - command:
+        timeout: 30s
+        entrypoint: kubectl
+        args: [delete, namespace, hermes-langfuse-fixture, --ignore-not-found, --wait=false]
+
+  - name: keyless-rounds-do-not-send
+    try:
+    - script:
+        timeout: 120s
+        content: '"${REPO_ROOT}/tests/chainsaw/hermes-agent/scenario.sh" keyless_rounds_do_not_send'
+
+  - name: late-key-starts-sending-without-restart
+    try:
+    - script:
+        timeout: 15s
+        content: '"${REPO_ROOT}/tests/chainsaw/hermes-agent/scenario.sh" create_ingest_key'
+    - script:
+        timeout: 210s
+        content: '"${REPO_ROOT}/tests/chainsaw/hermes-agent/scenario.sh" late_key_starts_sending'
+
+  - name: secrets-stay-out-of-sink
+    try:
     - script:
         timeout: 30s
-        content: |
-          kubectl delete namespace hermes-langfuse-fixture --ignore-not-found --wait=false
+        content: '"${REPO_ROOT}/tests/chainsaw/hermes-agent/scenario.sh" secrets_withheld'
+
+  - name: harmless-bodies-delivered
+    try:
+    - script:
+        timeout: 120s
+        content: '"${REPO_ROOT}/tests/chainsaw/hermes-agent/scenario.sh" harmless_bodies_delivered'
+
+  - name: sink-stopped-producer-continues
+    try:
+    - patch:
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: sink
+            namespace: hermes-langfuse-fixture
+          spec:
+            replicas: 0
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: hermes-langfuse-fixture
+        selector: app=sink
+        timeout: 60s
+        for:
+          deletion: {}
+    - script:
+        timeout: 60s
+        content: '"${REPO_ROOT}/tests/chainsaw/hermes-agent/scenario.sh" producer_continues_without_sink'

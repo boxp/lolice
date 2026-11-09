@@ -15,51 +15,126 @@ spec:
     try:
     - script:
         timeout: 15s
-        content: |
-          set -eu
-          case "${CHAINSAW_KIND_CONTEXT:-}" in
-            kind-*) ;;
-            *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
-          esac
-          : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
-          test -r "$CHAINSAW_KIND_KUBECONFIG"
-          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
-          expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          actual_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          test -n "$expected_server"
-          test "$actual_server" = "$expected_server"
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh" --loopback'
+
   - name: verify-manifests-applied
+    try:
+    - assert:
+        timeout: 60s
+        resource:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: alloy-config
+            namespace: monitoring
+    - assert:
+        # part-of が kube-prometheus でないと Prometheus の serviceMonitorSelector に
+        # 一致せず、Alloy のメトリクスが取り込まれない。
+        timeout: 60s
+        resource:
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          metadata:
+            name: grafana-alloy
+            namespace: monitoring
+            labels:
+              app.kubernetes.io/part-of: kube-prometheus
+
+  - name: config-wiring-expands-globs
     try:
     - script:
         timeout: 60s
-        content: |
-          set -e
-          echo "=== kustomize 適用済みリソースの確認 ==="
-          kubectl get configmap alloy-config -n monitoring
-          kubectl get servicemonitor grafana-alloy -n monitoring -o yaml
-          PART_OF=$(kubectl get servicemonitor grafana-alloy -n monitoring \
-            -o jsonpath='{.metadata.labels.app\.kubernetes\.io/part-of}')
-          if [ "$PART_OF" != "kube-prometheus" ]; then
-            echo "ERROR: ServiceMonitor の app.kubernetes.io/part-of が kube-prometheus ではありません ($PART_OF)。Prometheus の serviceMonitorSelector に一致せず Alloy のメトリクスが取り込まれません。"
-            exit 1
-          fi
-  - name: log-pipeline-end-to-end
+        content: '"${REPO_ROOT}/tests/chainsaw/grafana-alloy/log-pipeline.sh" config_wiring'
+
+  - name: start-loki-alloy-and-curl-fixture
+    # 3 つは互いに依存しないので先に全部作り、イメージ pull と起動を重ねる。
+    # 使い捨て kind で片付けない方針を維持する (Chainsaw の削除待ちを増やさない)。
+    skipDelete: true
+    try:
+    - apply:
+        timeout: 60s
+        file: loki-fixture.yaml
+    - script:
+        timeout: 360s
+        content: '"${REPO_ROOT}/tests/chainsaw/grafana-alloy/log-pipeline.sh" install_alloy_chart'
+    - apply:
+        timeout: 60s
+        file: curl-pod.yaml
+
+  - name: fixtures-rolled-out
+    try:
+    - assert:
+        # kubectl rollout status deployment と同じ完了条件。
+        timeout: 240s
+        resource:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: chainsaw-loki
+            namespace: monitoring
+          (status.observedGeneration >= metadata.generation): true
+          (status.updatedReplicas >= spec.replicas): true
+          (status.replicas == status.updatedReplicas): true
+          (status.availableReplicas >= status.updatedReplicas): true
+    - assert:
+        # kubectl rollout status daemonset と同じ完了条件。全 Pod Ready と全ノード配置まで見る。
+        timeout: 300s
+        resource:
+          apiVersion: apps/v1
+          kind: DaemonSet
+          metadata:
+            name: grafana-alloy
+            namespace: monitoring
+          (status.observedGeneration >= metadata.generation): true
+          (status.updatedNumberScheduled >= status.desiredNumberScheduled): true
+          (status.numberAvailable >= status.desiredNumberScheduled): true
+          (status.numberReady == status.desiredNumberScheduled): true
+          (status.desiredNumberScheduled >= length(x_k8s_list($client, 'v1', 'Node', '').items)): true
+          (status.desiredNumberScheduled <= length(x_k8s_list($client, 'v1', 'Node', '').items)): true
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: monitoring
+        name: chainsaw-curl
+        timeout: 180s
+        for:
+          condition:
+            name: Ready
+    catch: &alloy-diagnostics
+    - script:
+        timeout: 60s
+        content: '"${REPO_ROOT}/tests/chainsaw/grafana-alloy/log-pipeline.sh" diagnose'
+
+  - name: logs-reach-loki-from-every-node
     try:
     - script:
-        timeout: 900s
-        content: |
-          set -eu
-          bash "${REPO_ROOT}/tests/chainsaw/grafana-alloy/log-pipeline.sh"
+        timeout: 360s
+        content: '"${REPO_ROOT}/tests/chainsaw/grafana-alloy/log-pipeline.sh" logs_reach_loki_from_every_node'
+
+  - name: loki-labels-and-monitoring-logs
+    try:
+    - script:
+        timeout: 60s
+        content: '"${REPO_ROOT}/tests/chainsaw/grafana-alloy/log-pipeline.sh" labels_and_monitoring_logs'
+
+  - name: alloy-self-metrics
+    try:
+    - script:
+        timeout: 120s
+        content: '"${REPO_ROOT}/tests/chainsaw/grafana-alloy/log-pipeline.sh" alloy_self_metrics'
 
   # Application は最後に適用する。先に適用すると、argocd suite が起動した本物の Argo CD が
   # automated sync で Alloy chart を展開し、log-pipeline.sh の helm install と衝突する。
   - name: apply-application-yaml
     try:
-    - script:
+    - command:
         timeout: 60s
-        content: |
-          set -e
-          echo "=== ArgoCDApplication (application.yaml) の実適用 ==="
-          kubectl apply --server-side --force-conflicts \
-            -f "${REPO_ROOT}/argoproj/grafana-alloy/application.yaml"
-          echo "ArgoCD Application リソース作成完了"
+        entrypoint: kubectl
+        # シェルは介さないが、Chainsaw が exec 前に args の環境変数を展開する (env.Expand)。
+        # REPO_ROOT が未設定なら文字列のまま kubectl に渡り、この step は失敗する。
+        args:
+        - apply
+        - --server-side
+        - --force-conflicts
+        - -f
+        - $REPO_ROOT/argoproj/grafana-alloy/application.yaml

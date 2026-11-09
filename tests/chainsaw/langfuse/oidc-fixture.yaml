@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: langfuse-oidc-fixture
+  namespace: langfuse
+spec:
+  selector:
+    app: langfuse-oidc-fixture
+  ports:
+    - port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse-oidc-fixture
+  namespace: langfuse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langfuse-oidc-fixture
+  template:
+    metadata:
+      labels:
+        app: langfuse-oidc-fixture
+        chainsaw-probe: "true"
+    spec:
+      priorityClassName: langfuse-observability
+      terminationGracePeriodSeconds: 1
+      automountServiceAccountToken: false
+      containers:
+        - name: fixture
+          image: python:3.13-alpine
+          command: ["python", "/app/fixture.py"]
+          envFrom:
+            - secretRef:
+                name: langfuse-oidc
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          volumeMounts:
+            - name: app
+              mountPath: /app
+      volumes:
+        - name: app
+          configMap:
+            name: langfuse-oidc-fixture
