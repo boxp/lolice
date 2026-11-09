@@ -18,3 +18,5 @@ stringData:
     [plugins]
     # readOnlyRootFilesystem 下では同梱プラグイン(prometheus等)の起動時自動更新が失敗し、登録解除されたままになる
     preinstall_auto_update = false
+    # BOXP-472: AI Ops の時間帯別 breakdown (Langfuse の view-only ClickHouse を読む)
+    preinstall = grafana-clickhouse-datasource@4.23.4

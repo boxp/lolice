@@ -308,3 +308,93 @@ tests:
               summary: codex の利用枠の観測元を読めない
               description: 観測元を読めないか系列が無い。枯渇予測はできず、利用可能とも読まない。
               runbook_next_actions: 許可された次 action = 不明として扱う・証拠の記録・切分け。禁止 = Pod/Hermes の再起動。
+
+  # BOXP-472: ダッシュボードの「bin ごとの増加 pt」と同じ式。used は gauge なので rate/increase を
+  # 使わず、同じ reset 窓の 1 分差分を合計する。U/R は Pod 差を落とす max by。式は
+  # scripts/ai-ops-dashboard/generate.bb の delta と同じ（$__interval は下で固定値に置換）。
+  - interval: 1m
+    input_series:
+      # 1% 刻みの増分は idx40 と idx62 に 1 回ずつ
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",provider="p",name="step",limit="step",window="7d",pod="a"}'
+        values: '10x39 11x21 12x30'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="p",name="step",limit="step",window="7d",pod="a"}'
+        values: '1000x91'
+      # reset: idx60 で used が 2 に落ち reset 時刻が 7d 進む。負の差分も新規消費も出ない
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",provider="p",name="reset",limit="reset",window="7d",pod="a"}'
+        values: '10x39 80x19 2x30'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="p",name="reset",limit="reset",window="7d",pod="a"}'
+        values: '1000x59 605800x30'
+      # 数秒の reset 時刻揺れは reset 扱いしない（差分は残る）
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",provider="p",name="jitter",limit="jitter",window="7d",pod="a"}'
+        values: '30x39 33x50'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="p",name="jitter",limit="jitter",window="7d",pod="a"}'
+        values: '1000x39 1005x50'
+      # Pod 切替: 値が変わらなければ偽の差分は出ない
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",provider="p",name="pod",limit="pod",window="7d",pod="a"}'
+        values: '50x30'
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",provider="p",name="pod",limit="pod",window="7d",pod="b"}'
+        values: '_x30 50x60'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="p",name="pod",limit="pod",window="7d",pod="a"}'
+        values: '1000x30'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="p",name="pod",limit="pod",window="7d",pod="b"}'
+        values: '_x30 1000x60'
+      # 欠測: 観測の無い区間にゼロや補間の値を出さない（lookback 5 分より長い欠損）
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",provider="p",name="gap",limit="gap",window="7d",pod="a"}'
+        values: '10x5 _x30 15x54'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="p",name="gap",limit="gap",window="7d",pod="a"}'
+        values: '1000x5 _x30 1000x54'
+      # 補正: reset なしの低下は打ち消す（net 表示）
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",provider="p",name="correction",limit="correction",window="7d",pod="a"}'
+        values: '20x39 18x50'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="p",name="correction",limit="correction",window="7d",pod="a"}'
+        values: '1000x89'
+      # bin の合計 = 窓の中の増加（途中の step の積み上げが終値-始値に一致）
+      - series: 'ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics",provider="p",name="sum",limit="sum",window="7d",pod="a"}'
+        values: '10x34 13x20 20x40'
+      - series: 'ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics",provider="p",name="sum",limit="sum",window="7d",pod="a"}'
+        values: '1000x90'
+    promql_expr_test:
+      # 1h bin（eval 90m は (30m,90m]）
+      -
+        expr: >-
+          sum_over_time(((max by (provider,name,limit,window) (ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics"})
+          - max by (provider,name,limit,window) (ai_subscription_window_used_percent{job="codex-workspace-ai-ops-metrics"} offset 1m))
+          unless on(provider,name,limit,window)
+          (abs(max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics"})
+          - max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{job="codex-workspace-ai-ops-metrics"} offset 1m)) > 3600))[1h:1m])
+        eval_time: 90m
+        exp_samples:
+          - labels: '{provider="p",name="step",limit="step",window="7d"}'
+            value: 2
+          - labels: '{provider="p",name="reset",limit="reset",window="7d"}'
+            value: 70
+          - labels: '{provider="p",name="jitter",limit="jitter",window="7d"}'
+            value: 3
+          - labels: '{provider="p",name="pod",limit="pod",window="7d"}'
+            value: 0
+          - labels: '{provider="p",name="correction",limit="correction",window="7d"}'
+            value: -2
+          - labels: '{provider="p",name="sum",limit="sum",window="7d"}'
+            value: 10
+          - labels: '{provider="p",name="gap",limit="gap",window="7d"}'
+            value: 0
+      # 欠測のみの bin（(14m,24m]）は gap 系列を出さない（0 埋めしない）
+      - expr: >-
+          sum_over_time(((max by (provider,name,limit,window) (ai_subscription_window_used_percent{name="gap"})
+          - max by (provider,name,limit,window) (ai_subscription_window_used_percent{name="gap"} offset 1m))
+          unless on(provider,name,limit,window)
+          (abs(max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{name="gap"})
+          - max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{name="gap"} offset 1m)) > 3600))[10m:1m])
+        eval_time: 24m
+        exp_samples: []
+      # reset 後の bin に負の値も増加も出ない
+      - expr: >-
+          sum_over_time(((max by (provider,name,limit,window) (ai_subscription_window_used_percent{name="reset"})
+          - max by (provider,name,limit,window) (ai_subscription_window_used_percent{name="reset"} offset 1m))
+          unless on(provider,name,limit,window)
+          (abs(max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{name="reset"})
+          - max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{name="reset"} offset 1m)) > 3600))[20m:1m])
+        eval_time: 90m
+        exp_samples:
+          - labels: '{provider="p",name="reset",limit="reset",window="7d"}'
+            value: 0
