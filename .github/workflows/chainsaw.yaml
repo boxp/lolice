@@ -23,8 +23,12 @@ jobs:
       - name: Detect changed components with chainsaw tests
         id: detect
         run: |
-          git fetch origin main
-          git diff --name-only origin/main..HEAD > /tmp/changed_files.txt
+          # 再実行時に main が進んでも、マージ時のベースとの差分だけを検出する。
+          if ! git rev-parse -q --verify HEAD^2 >/dev/null; then
+            echo "Error: HEAD is not a merge commit" >&2
+            exit 1
+          fi
+          git diff --name-only HEAD^1 HEAD > /tmp/changed_files.txt
           echo "Changed files:"
           cat /tmp/changed_files.txt
 
