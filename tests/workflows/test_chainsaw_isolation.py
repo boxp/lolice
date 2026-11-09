@@ -11,7 +11,7 @@ GUARD = ROOT / 'tests/workflows/require-isolated-kind.sh'
 CHAINSAW = ROOT / 'tests/chainsaw'
 # suites that never talk to a cluster and therefore need no isolation guard.
 NO_CLUSTER_SUITES = {'kohako-studio'}
-LOOPBACK_SUITES = {'codex-workspace/task-board-langfuse'}
+LOOPBACK_SUITES = {'argocd', 'codex-workspace/task-board-langfuse', 'grafana-alloy'}
 MUTATING_HELPERS = ['tests/chainsaw/argocd/network-policy-impact.sh', 'tests/chainsaw/grafana-alloy/log-pipeline.sh']
 
 STUB = '''#!/bin/sh

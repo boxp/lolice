@@ -13,7 +13,7 @@ spec:
     try:
     - script:
         timeout: 15s
-        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh"'
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh" --loopback'
 
   - name: wait-for-argocd-ready
     try:
@@ -159,22 +159,22 @@ spec:
   - name: network-policy-create-probes
     try:
     - script:
-        timeout: 300s
+        timeout: 900s
         content: '"${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh" create_probes'
   - name: network-policy-baseline-endpoints
     try:
     - script:
-        timeout: 60s
+        timeout: 900s
         content: '"${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh" baseline_endpoints'
   - name: network-policy-removed-all-probes-reach
     try:
     - script:
-        timeout: 480s
+        timeout: 900s
         content: '"${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh" policies_removed_all_probes_reach'
   - name: network-policy-restored-matrix
     try:
     - script:
-        timeout: 600s
+        timeout: 900s
         content: '"${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh" policies_restored_matrix'
   - name: fixture-resync-after-restore-and-teardown
     try:

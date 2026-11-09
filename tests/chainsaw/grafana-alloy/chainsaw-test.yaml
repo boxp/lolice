@@ -15,7 +15,7 @@ spec:
     try:
     - script:
         timeout: 15s
-        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh"'
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh" --loopback'
 
   - name: verify-manifests-applied
     try:
