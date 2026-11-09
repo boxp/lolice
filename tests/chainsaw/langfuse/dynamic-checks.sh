@@ -239,22 +239,8 @@ expect() {
   echo "ok $want: $label"
 }
 
-expect_background() {
-  expect "$@" &
-  probe_pids+=("$!")
-}
-
-wait_probes() {
-  local pid failed=0
-  for pid in "${probe_pids[@]}"; do
-    wait "$pid" || failed=1
-  done
-  return "$failed"
-}
-
 network_policy() {
 
-  local -a probe_pids=()
   local web minio clickhouse postgres valkey outside
   web="$(service_ip "$NS" langfuse-web)"; minio="$(service_ip "$NS" langfuse-minio)"
   clickhouse="$(service_ip "$NS" langfuse-clickhouse)"; postgres="$(service_ip "$NS" langfuse-postgres)"
@@ -263,21 +249,20 @@ network_policy() {
   node_from() { kubectl exec -i -n "$NS" "deployment/$1" -- node - "$2" "$3" < "$SUITE/connect.js"; }
 
   # ingress: 名前付き client の :3000 だけ
-  expect_background allow "hermes-agent/app=hermes-agent -> web:3000" from hermes-agent hermes-allowed "$web" 3000
-  expect_background deny "hermes-agent/app=other -> web:3000" from hermes-agent hermes-other "$web" 3000
-  expect_background deny "他 namespace の同 label -> web:3000" from langfuse-outside spoof "$web" 3000
-  expect_background deny "hermes-agent -> minio:9000" from hermes-agent hermes-allowed "$minio" 9000
-  expect_background deny "hermes-agent -> clickhouse:8123" from hermes-agent hermes-allowed "$clickhouse" 8123
-  expect_background deny "hermes-agent -> postgres:5432" from hermes-agent hermes-allowed "$postgres" 5432
-  expect_background deny "hermes-agent -> valkey:6379" from hermes-agent hermes-allowed "$valkey" 6379
+  expect allow "hermes-agent/app=hermes-agent -> web:3000" from hermes-agent hermes-allowed "$web" 3000
+  expect deny "hermes-agent/app=other -> web:3000" from hermes-agent hermes-other "$web" 3000
+  expect deny "他 namespace の同 label -> web:3000" from langfuse-outside spoof "$web" 3000
+  expect deny "hermes-agent -> minio:9000" from hermes-agent hermes-allowed "$minio" 9000
+  expect deny "hermes-agent -> clickhouse:8123" from hermes-agent hermes-allowed "$clickhouse" 8123
+  expect deny "hermes-agent -> postgres:5432" from hermes-agent hermes-allowed "$postgres" 5432
+  expect deny "hermes-agent -> valkey:6379" from hermes-agent hermes-allowed "$valkey" 6379
   # egress: 到達可能な外部 (陽性対照) へ、Web/Worker は出られず tunnel だけ出られる
-  expect_background allow "陽性対照: 制限なし namespace -> outside:443" from langfuse-outside spoof "$outside" 443
-  expect_background deny "web -> outside:443" node_from langfuse-web "$outside" 443
-  expect_background deny "worker -> outside:443" node_from langfuse-worker "$outside" 443
-  expect_background allow "web -> clickhouse:8123 (namespace 内)" node_from langfuse-web "$clickhouse" 8123
-  expect_background allow "cloudflared label -> outside:443" from "$NS" tunnel "$outside" 443
-  expect_background allow "cloudflared label -> web:3000" from "$NS" tunnel "$web" 3000
-  wait_probes
+  expect allow "陽性対照: 制限なし namespace -> outside:443" from langfuse-outside spoof "$outside" 443
+  expect deny "web -> outside:443" node_from langfuse-web "$outside" 443
+  expect deny "worker -> outside:443" node_from langfuse-worker "$outside" 443
+  expect allow "web -> clickhouse:8123 (namespace 内)" node_from langfuse-web "$clickhouse" 8123
+  expect allow "cloudflared label -> outside:443" from "$NS" tunnel "$outside" 443
+  expect allow "cloudflared label -> web:3000" from "$NS" tunnel "$web" 3000
 }
 
 otlp() {
@@ -357,18 +342,15 @@ usage_view() {
 
   # grafana の label だけが :8123 に届き、他の DB には届かない。
 
-  local -a probe_pids=()
   local clickhouse postgres web
   clickhouse="$(service_ip "$NS" langfuse-clickhouse)"; postgres="$(service_ip "$NS" langfuse-postgres)"; web="$(service_ip "$NS" langfuse-web)"
   from() { local ns="$1" pod="$2"; shift 2; kubectl exec -i -n "$ns" "$pod" -- python - "$@" < "$SUITE/connect.py"; }
-  expect_background allow "monitoring/grafana -> clickhouse:8123" from monitoring grafana-allowed "$clickhouse" 8123
-  expect_background deny "monitoring/grafana -> clickhouse:9000" from monitoring grafana-allowed "$clickhouse" 9000
-  expect_background deny "monitoring/grafana -> postgres:5432" from monitoring grafana-allowed "$postgres" 5432
-  expect_background deny "monitoring/grafana -> web:3000" from monitoring grafana-allowed "$web" 3000
-  expect_background deny "monitoring/other -> clickhouse:8123" from monitoring grafana-other "$clickhouse" 8123
-  expect_background deny "他 namespace の同 label -> clickhouse:8123" from langfuse-outside grafana-spoof "$clickhouse" 8123
-
-  wait_probes
+  expect allow "monitoring/grafana -> clickhouse:8123" from monitoring grafana-allowed "$clickhouse" 8123
+  expect deny "monitoring/grafana -> clickhouse:9000" from monitoring grafana-allowed "$clickhouse" 9000
+  expect deny "monitoring/grafana -> postgres:5432" from monitoring grafana-allowed "$postgres" 5432
+  expect deny "monitoring/grafana -> web:3000" from monitoring grafana-allowed "$web" 3000
+  expect deny "monitoring/other -> clickhouse:8123" from monitoring grafana-other "$clickhouse" 8123
+  expect deny "他 namespace の同 label -> clickhouse:8123" from langfuse-outside grafana-spoof "$clickhouse" 8123
 
   as_admin --query "ALTER TABLE events_core DELETE WHERE trace_id = 'viewtb' SETTINGS mutations_sync = 1"
 }
