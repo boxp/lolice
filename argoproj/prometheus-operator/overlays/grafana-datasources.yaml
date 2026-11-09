@@ -17,6 +17,23 @@ stringData:
         url: http://prometheus-k8s.monitoring.svc:9090
         isDefault: true
         editable: false
+      # BOXP-472: Langfuse の token/call を本文なしで時間帯別に読む。user は view だけ SELECT 可。
+      - name: langfuse-clickhouse
+        uid: langfuse-clickhouse
+        type: grafana-clickhouse-datasource
+        access: proxy
+        isDefault: false
+        editable: false
+        jsonData:
+          protocol: http
+          host: langfuse-clickhouse.langfuse.svc.cluster.local
+          port: 8123
+          username: grafana_usage
+          defaultDatabase: default
+          dialTimeout: "10"
+          queryTimeout: "30"
+        secureJsonData:
+          password: $CLICKHOUSE_GRAFANA_PASSWORD
       - name: Loki
         type: loki
         access: proxy

@@ -59,6 +59,11 @@ spec:
     - script:
         timeout: 300s
         content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" ingest'
+  - name: usage-view
+    try:
+    - script:
+        timeout: 660s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" usage_view'
   - name: mcp-readonly-proxy
     try:
     - script:

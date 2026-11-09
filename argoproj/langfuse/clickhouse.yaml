@@ -60,6 +60,11 @@ spec:
                 secretKeyRef:
                   name: langfuse-secrets
                   key: CLICKHOUSE_PASSWORD
+            - name: CLICKHOUSE_GRAFANA_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: langfuse-grafana-clickhouse
+                  key: CLICKHOUSE_GRAFANA_PASSWORD
             - name: TZ
               value: UTC
           ports:

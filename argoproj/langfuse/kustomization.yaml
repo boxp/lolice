@@ -7,6 +7,7 @@ resources:
   - scheduling-storage.yaml
   - external-secrets.yaml
   - rbac-ingest-key.yaml
+  - rbac-grafana-clickhouse.yaml
   - networkpolicy.yaml
   - valkey.yaml
   - postgres.yaml
@@ -18,12 +19,16 @@ resources:
   - worker.yaml
   - cloudflared.yaml
   - retention-cronjob.yaml
+  - usage-view-job.yaml
 
 configMapGenerator:
   - name: langfuse-clickhouse-config
     files:
       - files/clickhouse-config.xml
       - files/clickhouse-users.xml
+  - name: langfuse-usage-view
+    files:
+      - files/ai-ops-usage-view.sql
   - name: langfuse-retention
     files:
       - files/retention.mjs

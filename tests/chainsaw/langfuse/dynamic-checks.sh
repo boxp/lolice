@@ -463,6 +463,95 @@ PYTEST
   done
 }
 
+# BOXP-472: Grafana 用 user は本文なしの view だけを読め、集計は GENERATION を一度ずつ数える。
+usage_view() {
+  kubectl wait -n "$NS" --for=condition=Complete job/langfuse-usage-view --timeout=600s \
+    || { kubectl logs -n "$NS" job/langfuse-usage-view || true; diagnose; exit 1; }
+  secret_value langfuse-grafana-clickhouse CLICKHOUSE_GRAFANA_PASSWORD | grep -Eq '^[A-Za-z0-9]{48}$'
+  test "$(secret_value langfuse-grafana-clickhouse CLICKHOUSE_GRAFANA_PASSWORD)" != "$(secret_value langfuse-secrets CLICKHOUSE_PASSWORD)"
+
+  local answer verb_resource
+  answer="$(kubectl auth can-i get secret/langfuse-grafana-clickhouse -n "$NS" --as=system:serviceaccount:monitoring:langfuse-grafana-clickhouse-reader || true)"
+  test "$answer" = yes
+  for verb_resource in "get secret/langfuse-secrets" "get secret/langfuse-ingest-key" "list secrets" "watch secrets" "update secret/langfuse-grafana-clickhouse"; do
+    # shellcheck disable=SC2086
+    answer="$(kubectl auth can-i $verb_resource -n "$NS" --as=system:serviceaccount:monitoring:langfuse-grafana-clickhouse-reader || true)"
+    test "$answer" = no || { echo "monitoring の reader に過剰な権限: $verb_resource" >&2; exit 1; }
+  done
+
+  local admin grafana
+  admin="$(secret_value langfuse-secrets CLICKHOUSE_PASSWORD)"
+  grafana="$(secret_value langfuse-grafana-clickhouse CLICKHOUSE_GRAFANA_PASSWORD)"
+  as_admin() { kubectl exec -i -n "$NS" statefulset/langfuse-clickhouse -- clickhouse-client --user langfuse --password "$admin" "$@"; }
+  as_grafana() { kubectl exec -n "$NS" statefulset/langfuse-clickhouse -- clickhouse-client --user grafana_usage --password "$grafana" "$@"; }
+
+  # 親 SPAN/AGENT に usage を持たせ、二重加算されないことも確かめる。同じ span の再送は FINAL で 1 行になる。
+  as_admin --multiquery <<'SQL'
+INSERT INTO events_core (project_id, trace_id, span_id, parent_span_id, start_time, name, type, trace_name, tags, provided_model_name, usage_details, input, output, event_ts, is_deleted) VALUES
+('p', 'viewtb', 'root', '', toDateTime64('2026-11-09 00:00:00', 6), 'task-board-run BOXP-1', 'SPAN', 'task-board-run BOXP-1', ['task-board'], '', map('total', 999999), '', '', now64(6), 0),
+('p', 'viewtb', 'child', 'root', toDateTime64('2026-11-09 00:00:01', 6), 'delegate:codex', 'AGENT', 'task-board-run BOXP-1', ['task-board'], '', map('total', 888888), '', '', now64(6), 0),
+('p', 'viewtb', 'gen1', 'child', toDateTime64('2026-11-09 00:00:02', 6), 'generation:gpt-6.1-terra', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'gpt-6.1-terra', map('input', 10, 'input_cached_tokens', 90, 'output', 5, 'output_reasoning_tokens', 1, 'total', 106), 'usage-view-body-marker', 'usage-view-body-marker', now64(6), 0),
+('p', 'viewtb', 'gen2', 'root', toDateTime64('2026-11-09 00:00:03', 6), 'generation:claude-opus-5-5', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'claude-opus-5-5', map('input', 1, 'cache_read_input_tokens', 100, 'cache_creation_input_tokens', 20, 'output', 3, 'total', 124), 'usage-view-body-marker', '', now64(6), 0),
+('p', 'viewtb', 'gen2', 'root', toDateTime64('2026-11-09 00:00:03', 6), 'generation:claude-opus-5-5', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'claude-opus-5-5', map('input', 1, 'cache_read_input_tokens', 100, 'cache_creation_input_tokens', 20, 'output', 3, 'total', 124), 'usage-view-body-marker', '', now64(6), 0),
+('p', 'viewtb', 'gen3', 'root', toDateTime64('2026-11-09 00:00:04', 6), 'generation:x', 'GENERATION', 'hermes-turn', ['hermes', 'platform:cron'], 'gpt-6.1-sol', map('input', 7, 'total', 7), '', '', now64(6), 0),
+('p', 'viewtb', 'gen4', 'root', toDateTime64('2026-11-09 00:00:05', 6), 'generation:x', 'GENERATION', 'something-else', [], '', map(), '', '', now64(6), 0);
+SQL
+  local got expected
+  expected="$(printf 'Hermes / cron\tcodex\t7\t1\nTask Board / 子委譲 (Codex)\tcodex\t106\t1\nTask Board / 親 (CLI)\tclaude\t124\t1\n(未分類)\t(不明)\t0\t0' | LC_ALL=C sort)"
+  got="$(as_grafana --query "SELECT route, provider, sum(total_tokens), countIf(has_usage) FROM ai_ops_usage_v1 WHERE trace_id = 'viewtb' GROUP BY route, provider FORMAT TSV" | LC_ALL=C sort)"
+  test "$got" = "$expected" || { printf 'usage view の集計が想定と異なります:\n%s\n' "$got" >&2; exit 1; }
+  got="$(as_grafana --query "SELECT sum(cache_read_tokens), sum(cache_write_tokens), sum(input_tokens + output_tokens + reasoning_tokens), sum(other_tokens) FROM ai_ops_usage_v1 WHERE trace_id = 'viewtb' FORMAT TSV")"
+  test "$got" = "$(printf '190\t20\t27\t0')" || { echo "token 区分の正規化が想定と異なります: $got" >&2; exit 1; }
+  ! as_grafana --query "SELECT * FROM ai_ops_usage_v1 WHERE trace_id = 'viewtb' FORMAT TSV" | grep -q usage-view-body-marker \
+    || { echo 'view から本文が読めます' >&2; exit 1; }
+
+  denied() { if as_grafana --query "$1" >/dev/null 2>&1; then echo "grafana_usage に許可されています: $1" >&2; exit 1; fi; echo "ok denied: $1"; }
+  denied "SELECT input FROM ai_ops_usage_v1 LIMIT 1"
+  denied "SELECT count() FROM events_core"
+  denied "SELECT count() FROM events_full"
+  denied "INSERT INTO events_core (project_id) VALUES ('x')"
+  denied "DROP VIEW ai_ops_usage_v1"
+  denied "SELECT 1 SETTINGS max_execution_time = 3600"
+
+  # grafana の label だけが :8123 に届き、他の DB には届かない。
+  kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  usage_probe() {
+    cat <<YAML | kubectl apply -f - >/dev/null
+apiVersion: v1
+kind: Pod
+metadata:
+  name: $1
+  namespace: $2
+  labels:
+    app.kubernetes.io/name: $3
+    chainsaw-probe: "true"
+spec:
+  terminationGracePeriodSeconds: 1
+  automountServiceAccountToken: false
+  containers:
+    - name: probe
+      image: python:3.13-alpine
+      command: ["python", "-c", "import time; time.sleep(3600)"]
+YAML
+  }
+  usage_probe grafana-allowed monitoring grafana
+  usage_probe grafana-other monitoring prometheus
+  usage_probe grafana-spoof langfuse-outside grafana
+  kubectl wait --for=condition=Ready -n monitoring pod/grafana-allowed pod/grafana-other --timeout=180s
+  kubectl wait --for=condition=Ready -n langfuse-outside pod/grafana-spoof --timeout=180s
+  local clickhouse postgres web
+  clickhouse="$(service_ip "$NS" langfuse-clickhouse)"; postgres="$(service_ip "$NS" langfuse-postgres)"; web="$(service_ip "$NS" langfuse-web)"
+  from() { local ns="$1" pod="$2"; shift 2; kubectl exec -n "$ns" "$pod" -- python -c "$PY_CONNECT" "$@"; }
+  expect allow "monitoring/grafana -> clickhouse:8123" from monitoring grafana-allowed "$clickhouse" 8123
+  expect deny "monitoring/grafana -> clickhouse:9000" from monitoring grafana-allowed "$clickhouse" 9000
+  expect deny "monitoring/grafana -> postgres:5432" from monitoring grafana-allowed "$postgres" 5432
+  expect deny "monitoring/grafana -> web:3000" from monitoring grafana-allowed "$web" 3000
+  expect deny "monitoring/other -> clickhouse:8123" from monitoring grafana-other "$clickhouse" 8123
+  expect deny "他 namespace の同 label -> clickhouse:8123" from langfuse-outside grafana-spoof "$clickhouse" 8123
+
+  as_admin --query "ALTER TABLE events_core DELETE WHERE trace_id = 'viewtb' SETTINGS mutations_sync = 1"
+}
+
 clickhouse_count() {
   kubectl exec -n "$NS" statefulset/langfuse-clickhouse -- clickhouse-client --user langfuse \
     --password "$(secret_value langfuse-secrets CLICKHOUSE_PASSWORD)" \

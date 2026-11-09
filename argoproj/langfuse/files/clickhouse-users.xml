@@ -4,5 +4,35 @@
             <log_queries>0</log_queries>
             <max_threads>2</max_threads>
         </default>
+        <!-- BOXP-472: Grafana panels. readonly=2 lets the datasource plugin set its session
+             options, while the constraints below keep the load limits from being raised. -->
+        <grafana_usage>
+            <readonly>2</readonly>
+            <log_queries>0</log_queries>
+            <max_threads>2</max_threads>
+            <max_execution_time>30</max_execution_time>
+            <max_memory_usage>1000000000</max_memory_usage>
+            <max_result_rows>200000</max_result_rows>
+            <result_overflow_mode>throw</result_overflow_mode>
+            <constraints>
+                <max_threads><max>2</max></max_threads>
+                <max_execution_time><max>30</max></max_execution_time>
+                <max_memory_usage><max>1000000000</max></max_memory_usage>
+                <max_result_rows><max>200000</max></max_result_rows>
+            </constraints>
+        </grafana_usage>
     </profiles>
+    <users>
+        <!-- BOXP-472: reads only default.ai_ops_usage_v1, which has no input/output/metadata.
+             Reachable only from Grafana (networkpolicy.yaml); the password check still applies. -->
+        <grafana_usage>
+            <password from_env="CLICKHOUSE_GRAFANA_PASSWORD"/>
+            <networks><ip>::/0</ip></networks>
+            <profile>grafana_usage</profile>
+            <quota>default</quota>
+            <grants>
+                <query>GRANT SELECT ON default.ai_ops_usage_v1 TO grafana_usage</query>
+            </grants>
+        </grafana_usage>
+    </users>
 </clickhouse>

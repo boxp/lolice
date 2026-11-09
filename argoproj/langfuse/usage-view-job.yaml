@@ -1,0 +1,66 @@
+# BOXP-472: creates the metadata-only view Grafana reads. CREATE OR REPLACE, so a sync is
+# idempotent and a changed view definition takes effect on the next sync.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: langfuse-usage-view
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  # events_core comes from the Langfuse migrations, which web runs at startup.
+  backoffLimit: 12
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: langfuse-usage-view
+    spec:
+      priorityClassName: langfuse-observability
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  # amd64 excludes the control plane; golyat-4 is the GPU research node.
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: ["amd64"]
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: ["golyat-4"]
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+      containers:
+        - name: create-view
+          image: docker.io/clickhouse/clickhouse-server:26.10.3.7
+          command:
+            - /bin/sh
+            - -ec
+            - >-
+              clickhouse-client --host langfuse-clickhouse --user langfuse
+              --password "$CLICKHOUSE_PASSWORD" --multiquery --queries-file /sql/ai-ops-usage-view.sql
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: langfuse-secrets, key: CLICKHOUSE_PASSWORD}
+          resources:
+            requests: {cpu: 10m, memory: 64Mi}
+            limits: {cpu: 200m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+              readOnly: true
+      volumes:
+        - name: sql
+          configMap:
+            name: langfuse-usage-view
