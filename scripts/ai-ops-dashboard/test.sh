@@ -28,6 +28,25 @@ jq -e '[.. | objects | .rawSql? // empty | select(test("var-ticket"))] | length 
 jq -e '[.. | objects | select(.targets? // [] | any((.rawSql? // "") | test("__interval_s"))) | .interval == "$bin"] | (length > 0 and all)' "$dashboard" > /dev/null
 # $__timeFilter は両端を含むので、bin の絞り込みリンクの終端は次の bin の開始と重ねない
 jq -e '[.. | objects | .rawSql? // empty | select(test("bin_end_ms"))] | (length > 0 and all(test("\\*1000-1 AS bin_end_ms")))' "$dashboard" > /dev/null
+# 判断可能性 (233) は export が 1=正常、measuring が 1=充足、insufficient/no_observations が 1=該当で、鮮度は別の時系列にある
+jq -e '
+  [.. | objects | select(.type? == "state-timeline" and .title? == "判断可能性（計測の鮮度・export・観測数）")] as $s |
+  ($s | length == 1) and
+  ($s[0].targets | map(.refId) == ["A", "C", "D", "E"]) and
+  ($s[0].fieldConfig.defaults.mappings[0].options."1".text == "正常") and
+  ($s[0].fieldConfig.defaults.thresholds.steps | map(.color) == ["red", "green"]) and
+  ($s[0].fieldConfig.overrides | map(.matcher.options) == [".* measuring", ".* (insufficient|no_observations)"]) and
+  ($s[0].fieldConfig.overrides[0].properties[1].value.steps | map(.color) == ["orange", "green"]) and
+  ($s[0].fieldConfig.overrides[1].properties[1].value.steps | map(.color) == ["green", "orange"])
+' "$dashboard" > /dev/null
+jq -e '
+  [.. | objects | select(.type? == "timeseries" and .title? == "計測の鮮度（outcome export からの経過）")] as $f |
+  ($f | length == 1) and
+  ($f[0].targets[0].refId == "B") and
+  ($f[0].targets[0].expr | contains("ai_ops_outcome_generated_timestamp_seconds")) and
+  ($f[0].fieldConfig.defaults.thresholds.steps[1].value == 7200.000001) and
+  ($f[0].fieldConfig.defaults.custom.thresholdsStyle.mode == "line")
+' "$dashboard" > /dev/null
 # users.xml の GRANT に grantee を書くと ClickHouse が access control の読み込みに失敗する
 if grep -Eq '<query>GRANT .* TO ' argoproj/langfuse/files/clickhouse-users.xml; then
   echo 'clickhouse-users.xml の GRANT に TO を書かないでください' >&2

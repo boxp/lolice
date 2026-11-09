@@ -603,7 +603,7 @@
         "x": 0,
         "y": 14
       },
-      "id": 1017,
+      "id": 1018,
       "panels": [
         {
           "datasource": {
@@ -824,11 +824,11 @@
                   "options": {
                     "0": {
                       "index": 0,
-                      "text": "非該当"
+                      "text": "失敗"
                     },
                     "1": {
                       "index": 1,
-                      "text": "該当"
+                      "text": "正常"
                     }
                   },
                   "type": "value"
@@ -839,17 +839,98 @@
                 "mode": "absolute",
                 "steps": [
                   {
-                    "color": "green",
+                    "color": "red",
                     "value": null
                   },
                   {
-                    "color": "red",
+                    "color": "green",
                     "value": 1
                   }
                 ]
               }
             },
-            "overrides": []
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* measuring"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "0": {
+                            "text": "観測不足/対象なし"
+                          },
+                          "1": {
+                            "text": "観測充足"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "orange",
+                          "value": null
+                        },
+                        {
+                          "color": "green",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".* (insufficient|no_observations)"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "0": {
+                            "text": "非該当"
+                          },
+                          "1": {
+                            "text": "該当"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": null
+                        },
+                        {
+                          "color": "orange",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
           },
           "gridPos": {
             "h": 8,
@@ -929,6 +1010,73 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
+          "description": "収集 60s・保持 31d・Pod 更新で系列が切れる場合がある。欠測は 0 ではありません。 7200 秒超は stale（赤線）。",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "drawStyle": "line",
+                "spanNulls": false,
+                "thresholdsStyle": {
+                  "mode": "line"
+                }
+              },
+              "noValue": "未計測",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 7200.000001
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "id": 1016,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "expr": "max without (pod,instance,container,endpoint,service,namespace,job) (time() - ai_ops_outcome_generated_timestamp_seconds{job=\"codex-workspace-ai-ops-metrics\"})",
+              "instant": false,
+              "legendFormat": "鮮度",
+              "range": true,
+              "refId": "B"
+            }
+          ],
+          "title": "計測の鮮度（outcome export からの経過）",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
           "description": "収集 60s・保持 31d・Pod 更新で系列が切れる場合がある。欠測は 0 ではありません。 No data = 発火なし（rule 未配備なら区別不能）。許可された次 action = 証拠保全（Notes への記録）・切分け（モデル更新/ハーネス更新/外部障害/課題の難度）・同条件での再評価・既承認の小さな是正候補の提示。禁止 = gate/承認/排他の解除、retry budget の reset、本番の自動変更、通知の再送、Pod/Hermes の再起動。",
           "fieldConfig": {
             "defaults": {
@@ -971,10 +1119,10 @@
           "gridPos": {
             "h": 8,
             "w": 12,
-            "x": 12,
-            "y": 8
+            "x": 0,
+            "y": 16
           },
-          "id": 1016,
+          "id": 1017,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -1470,7 +1618,7 @@
         "x": 0,
         "y": 27
       },
-      "id": 1023,
+      "id": 1024,
       "panels": [
         {
           "datasource": {
@@ -1505,7 +1653,7 @@
             "x": 0,
             "y": 0
           },
-          "id": 1018,
+          "id": 1019,
           "options": {
             "legend": {
               "calcs": [],
@@ -1617,7 +1765,7 @@
             "x": 12,
             "y": 0
           },
-          "id": 1019,
+          "id": 1020,
           "options": {
             "legend": {
               "calcs": [],
@@ -1726,7 +1874,7 @@
             "x": 0,
             "y": 8
           },
-          "id": 1020,
+          "id": 1021,
           "options": {
             "legend": {
               "calcs": [],
@@ -1783,7 +1931,7 @@
             "x": 12,
             "y": 8
           },
-          "id": 1021,
+          "id": 1022,
           "options": {
             "legend": {
               "calcs": [],
@@ -1851,7 +1999,7 @@
             "x": 0,
             "y": 16
           },
-          "id": 1022,
+          "id": 1023,
           "options": {
             "legend": {
               "calcs": [],
@@ -2443,7 +2591,7 @@
         "x": 0,
         "y": 38
       },
-      "id": 1030,
+      "id": 1031,
       "panels": [
         {
           "datasource": {
@@ -2478,7 +2626,7 @@
             "x": 0,
             "y": 0
           },
-          "id": 1024,
+          "id": 1025,
           "options": {
             "legend": {
               "calcs": [],
@@ -2557,7 +2705,7 @@
             "x": 12,
             "y": 0
           },
-          "id": 1025,
+          "id": 1026,
           "options": {
             "legend": {
               "calcs": [],
@@ -2636,7 +2784,7 @@
             "x": 0,
             "y": 8
           },
-          "id": 1026,
+          "id": 1027,
           "options": {
             "legend": {
               "calcs": [],
@@ -2737,7 +2885,7 @@
             "x": 12,
             "y": 8
           },
-          "id": 1027,
+          "id": 1028,
           "options": {
             "legend": {
               "calcs": [],
@@ -2816,7 +2964,7 @@
             "x": 0,
             "y": 16
           },
-          "id": 1028,
+          "id": 1029,
           "options": {
             "legend": {
               "calcs": [],
@@ -2907,7 +3055,7 @@
             "x": 12,
             "y": 16
           },
-          "id": 1029,
+          "id": 1030,
           "options": {
             "legend": {
               "calcs": [],
@@ -3916,7 +4064,7 @@
         "x": 0,
         "y": 51
       },
-      "id": 1044,
+      "id": 1045,
       "panels": [
         {
           "datasource": {
@@ -3952,7 +4100,7 @@
             "x": 0,
             "y": 0
           },
-          "id": 1031,
+          "id": 1032,
           "options": {
             "legend": {
               "calcs": [],
@@ -4021,7 +4169,7 @@
             "x": 12,
             "y": 0
           },
-          "id": 1032,
+          "id": 1033,
           "options": {
             "legend": {
               "calcs": [],
@@ -4104,7 +4252,7 @@
             "x": 0,
             "y": 8
           },
-          "id": 1033,
+          "id": 1034,
           "options": {
             "legend": {
               "calcs": [],
@@ -4161,7 +4309,7 @@
             "x": 12,
             "y": 8
           },
-          "id": 1034,
+          "id": 1035,
           "options": {
             "legend": {
               "calcs": [],
@@ -4261,7 +4409,7 @@
             "x": 0,
             "y": 16
           },
-          "id": 1035,
+          "id": 1036,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -4345,7 +4493,7 @@
             "x": 12,
             "y": 16
           },
-          "id": 1036,
+          "id": 1037,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -4408,7 +4556,7 @@
             "x": 0,
             "y": 24
           },
-          "id": 1037,
+          "id": 1038,
           "options": {
             "legend": {
               "calcs": [],
@@ -4486,7 +4634,7 @@
             "x": 12,
             "y": 24
           },
-          "id": 1038,
+          "id": 1039,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -4561,7 +4709,7 @@
             "x": 0,
             "y": 32
           },
-          "id": 1039,
+          "id": 1040,
           "interval": "$bin",
           "options": {
             "legend": {
@@ -4630,7 +4778,7 @@
             "x": 12,
             "y": 32
           },
-          "id": 1040,
+          "id": 1041,
           "options": {
             "legend": {
               "calcs": [],
@@ -4721,7 +4869,7 @@
             "x": 0,
             "y": 40
           },
-          "id": 1041,
+          "id": 1042,
           "targets": [
             {
               "datasource": {
@@ -4772,7 +4920,7 @@
             "x": 12,
             "y": 40
           },
-          "id": 1042,
+          "id": 1043,
           "options": {
             "legend": {
               "calcs": [],
@@ -4862,7 +5010,7 @@
             "x": 0,
             "y": 48
           },
-          "id": 1043,
+          "id": 1044,
           "options": {
             "legend": {
               "calcs": [],
@@ -4898,7 +5046,7 @@
         "x": 0,
         "y": 52
       },
-      "id": 1082,
+      "id": 1083,
       "title": "消費タイムライン → 同じ期間の内訳（JST。drag で範囲選択すると下の内訳も連動）",
       "type": "row"
     },
@@ -7202,7 +7350,7 @@
         "x": 0,
         "y": 132
       },
-      "id": 1063,
+      "id": 1064,
       "panels": [
         {
           "datasource": {
@@ -7237,7 +7385,7 @@
             "x": 0,
             "y": 0
           },
-          "id": 1045,
+          "id": 1046,
           "options": {
             "legend": {
               "calcs": [],
@@ -7306,7 +7454,7 @@
             "x": 12,
             "y": 0
           },
-          "id": 1046,
+          "id": 1047,
           "options": {
             "legend": {
               "calcs": [],
@@ -7363,7 +7511,7 @@
             "x": 0,
             "y": 8
           },
-          "id": 1047,
+          "id": 1048,
           "options": {
             "legend": {
               "calcs": [],
@@ -7443,7 +7591,7 @@
             "x": 12,
             "y": 8
           },
-          "id": 1048,
+          "id": 1049,
           "options": {
             "legend": {
               "calcs": [],
@@ -7490,7 +7638,7 @@
             "x": 0,
             "y": 16
           },
-          "id": 1049,
+          "id": 1050,
           "options": {
             "legend": {
               "calcs": [],
@@ -7548,7 +7696,7 @@
             "x": 12,
             "y": 16
           },
-          "id": 1050,
+          "id": 1051,
           "options": {
             "legend": {
               "calcs": [],
@@ -7617,7 +7765,7 @@
             "x": 0,
             "y": 24
           },
-          "id": 1051,
+          "id": 1052,
           "options": {
             "legend": {
               "calcs": [],
@@ -7675,7 +7823,7 @@
             "x": 12,
             "y": 24
           },
-          "id": 1052,
+          "id": 1053,
           "options": {
             "legend": {
               "calcs": [],
@@ -7744,7 +7892,7 @@
             "x": 0,
             "y": 32
           },
-          "id": 1053,
+          "id": 1054,
           "interval": "$bin",
           "options": {
             "legend": {
@@ -7802,7 +7950,7 @@
             "x": 12,
             "y": 32
           },
-          "id": 1054,
+          "id": 1055,
           "options": {
             "legend": {
               "calcs": [],
@@ -7860,7 +8008,7 @@
             "x": 0,
             "y": 40
           },
-          "id": 1055,
+          "id": 1056,
           "interval": "$bin",
           "options": {
             "legend": {
@@ -7943,7 +8091,7 @@
             "x": 12,
             "y": 40
           },
-          "id": 1056,
+          "id": 1057,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -8027,7 +8175,7 @@
             "x": 0,
             "y": 48
           },
-          "id": 1057,
+          "id": 1058,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -8080,7 +8228,7 @@
             "x": 12,
             "y": 48
           },
-          "id": 1058,
+          "id": 1059,
           "options": {
             "legend": {
               "calcs": [],
@@ -8162,7 +8310,7 @@
             "x": 0,
             "y": 56
           },
-          "id": 1059,
+          "id": 1060,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -8250,7 +8398,7 @@
             "x": 12,
             "y": 56
           },
-          "id": 1060,
+          "id": 1061,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -8338,7 +8486,7 @@
             "x": 0,
             "y": 64
           },
-          "id": 1061,
+          "id": 1062,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -8426,7 +8574,7 @@
             "x": 12,
             "y": 64
           },
-          "id": 1062,
+          "id": 1063,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -9791,7 +9939,7 @@
         "x": 0,
         "y": 134
       },
-      "id": 1073,
+      "id": 1074,
       "panels": [
         {
           "datasource": {
@@ -9836,7 +9984,7 @@
             "x": 0,
             "y": 0
           },
-          "id": 1064,
+          "id": 1065,
           "options": {
             "legend": {
               "calcs": [],
@@ -9910,7 +10058,7 @@
             "x": 12,
             "y": 0
           },
-          "id": 1065,
+          "id": 1066,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -9961,7 +10109,7 @@
             "x": 0,
             "y": 8
           },
-          "id": 1066,
+          "id": 1067,
           "options": {
             "legend": {
               "calcs": [],
@@ -10074,7 +10222,7 @@
             "x": 12,
             "y": 8
           },
-          "id": 1067,
+          "id": 1068,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -10169,7 +10317,7 @@
             "x": 0,
             "y": 16
           },
-          "id": 1068,
+          "id": 1069,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -10260,7 +10408,7 @@
             "x": 12,
             "y": 16
           },
-          "id": 1069,
+          "id": 1070,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -10360,7 +10508,7 @@
             "x": 0,
             "y": 24
           },
-          "id": 1070,
+          "id": 1071,
           "options": {
             "legend": {
               "calcs": [],
@@ -10438,7 +10586,7 @@
             "x": 12,
             "y": 24
           },
-          "id": 1071,
+          "id": 1072,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -10518,7 +10666,7 @@
             "x": 0,
             "y": 32
           },
-          "id": 1072,
+          "id": 1073,
           "options": {
             "alignValue": "left",
             "legend": {
@@ -11202,7 +11350,7 @@
         "x": 0,
         "y": 136
       },
-      "id": 1081,
+      "id": 1082,
       "panels": [
         {
           "datasource": {
@@ -11237,7 +11385,7 @@
             "x": 0,
             "y": 0
           },
-          "id": 1074,
+          "id": 1075,
           "options": {
             "legend": {
               "calcs": [],
@@ -11327,7 +11475,7 @@
             "x": 12,
             "y": 0
           },
-          "id": 1075,
+          "id": 1076,
           "options": {
             "legend": {
               "calcs": [],
@@ -11461,7 +11609,7 @@
             "x": 0,
             "y": 8
           },
-          "id": 1076,
+          "id": 1077,
           "options": {
             "legend": {
               "calcs": [],
@@ -11518,7 +11666,7 @@
             "x": 12,
             "y": 8
           },
-          "id": 1077,
+          "id": 1078,
           "options": {
             "legend": {
               "calcs": [],
@@ -11609,7 +11757,7 @@
             "x": 0,
             "y": 16
           },
-          "id": 1078,
+          "id": 1079,
           "options": {
             "legend": {
               "calcs": [],
@@ -11667,7 +11815,7 @@
             "x": 12,
             "y": 16
           },
-          "id": 1079,
+          "id": 1080,
           "options": {
             "legend": {
               "calcs": [],
@@ -11746,7 +11894,7 @@
             "x": 0,
             "y": 24
           },
-          "id": 1080,
+          "id": 1081,
           "options": {
             "legend": {
               "calcs": [],
