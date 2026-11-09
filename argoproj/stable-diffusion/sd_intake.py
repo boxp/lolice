@@ -185,11 +185,19 @@ def handler(intake):
         def do_POST(self):
             path = self.path.split('?', 1)[0]
             if path == '/__sd/switch':
+                # A custom header cannot be sent cross-site without a CORS
+                # preflight, so another site cannot start a GPU switch.
+                if self.headers.get('X-SD-Switch') != '1':
+                    self.respond(403, {'error': 'X-SD-Switch: 1 required'})
+                    return
                 intake.intent()
                 self.respond(202, {'phase': intake.phase()})
                 return
             if path not in GENERATION:
                 self.respond(404, {'error': 'not found'})
+                return
+            if self.headers.get('Content-Type', '').split(';', 1)[0].strip().lower() != 'application/json':
+                self.respond(415, {'error': 'application/json required'})
                 return
             try:
                 length = int(self.headers.get('Content-Length', ''))
@@ -241,7 +249,7 @@ def handler(intake):
             page = ('<!doctype html><html lang="ja"><meta charset="utf-8"><title>画像生成の準備</title>'
                     '<meta http-equiv="refresh" content="30"><h1>画像生成の準備</h1><p>状態: ' + intake.phase() +
                     '</p><p>' + guidance + '</p>'
-                    '<button onclick="fetch(\'/__sd/switch\',{method:\'POST\'}).then(()=>location.reload())">画像生成モードへ切替</button></html>')
+                    '<button onclick="fetch(\'/__sd/switch\',{method:\'POST\',headers:{\'X-SD-Switch\':\'1\'}}).then(()=>location.reload())">画像生成モードへ切替</button></html>')
             self.respond(503, page.encode(), 'text/html; charset=utf-8', retry=True)
 
     return Handler

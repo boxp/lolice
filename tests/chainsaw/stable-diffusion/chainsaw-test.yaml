@@ -1,0 +1,45 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: sd-admission-gateway
+spec:
+  namespace: stable-diffusion
+  timeouts:
+    assert: 4m
+  steps:
+    - name: apply-fixture
+      try:
+        - apply:
+            file: stub-backend.yaml
+        - script:
+            timeout: 60s
+            content: |
+              set -eu
+              python3 "${REPO_ROOT}/tests/chainsaw/stable-diffusion/render-fixture.py" "${REPO_ROOT}/argoproj/stable-diffusion" \
+                | kubectl apply -n stable-diffusion -f -
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: stable-diffusion-webui
+                namespace: stable-diffusion
+              status:
+                availableReplicas: 1
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: sd-admission-gateway
+                namespace: stable-diffusion
+              status:
+                availableReplicas: 1
+    - name: gateway-behaviour
+      try:
+        - script:
+            timeout: 120s
+            content: |
+              set -eu
+              kubectl exec -i -n stable-diffusion deploy/sd-admission-gateway -c intake -- python3 - \
+                < "${REPO_ROOT}/tests/chainsaw/stable-diffusion/check.py"

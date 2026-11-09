@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stable-diffusion-webui
+  namespace: stable-diffusion
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stable-diffusion-webui
+  template:
+    metadata:
+      labels:
+        app: stable-diffusion-webui
+    spec:
+      containers:
+        - name: stub
+          image: python:3.12-slim@sha256:6b25cbe6577518889d553cdd5a5da97d259348d8f6e45b527dd731caaba27a07
+          command:
+            - python3
+            - -c
+            - |
+              from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+              class H(BaseHTTPRequestHandler):
+                  def reply(self):
+                      body = b'{"images":["stub"]}' if self.command == 'POST' else b'stub-backend'
+                      self.send_response(200); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
+                  do_GET = do_POST = reply
+              ThreadingHTTPServer(('0.0.0.0', 7860), H).serve_forever()
+          ports:
+            - name: http
+              containerPort: 7860

@@ -19,3 +19,4 @@ configMapGenerator:
   - name: qwen-runtime-api-code
     files:
       - runtime_api_worker.py
+      - runtime_switch_worker.py

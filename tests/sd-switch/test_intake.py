@@ -1,7 +1,9 @@
 import importlib.util
 import json
 from pathlib import Path
+import http.client
 import tempfile
+import threading
 import unittest
 
 path = Path(__file__).resolve().parents[2] / 'argoproj/stable-diffusion/sd_intake.py'
@@ -66,6 +68,74 @@ class IntakeTest(unittest.TestCase):
         before = (self.root / 'intent.json').read_bytes()
         self.intake.intent()
         self.assertEqual(before, (self.root / 'intent.json').read_bytes())
+
+
+class HttpSurfaceTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.intake = module.Intake(self.root)
+        self.server = module.ThreadingHTTPServer(('127.0.0.1', 0), module.handler(self.intake))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def call(self, method, path, body=None, headers=None):
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=10)
+        self.addCleanup(connection.close)
+        connection.request(method, path, body, headers or {})
+        response = connection.getresponse()
+        return response.status, response.read(), response
+
+    def no_side_effects(self):
+        self.assertFalse((self.root / 'intent.json').exists())
+        self.assertEqual(list((self.root / 'jobs').iterdir()), [])
+
+    def test_reads_never_create_intent_or_job(self):
+        for path, code in (('/', 503), ('/file=app.js', 503), ('/health', 503), ('/sdapi/v1/progress', 503),
+                           ('/__sd/status', 200), ('/__sd/health', 200)):
+            self.assertEqual(self.call('GET', path)[0], code, path)
+        self.no_side_effects()
+
+    def test_waiting_page_and_json_explain_retry(self):
+        status, body, response = self.call('GET', '/', headers={'Accept': 'text/html'})
+        self.assertEqual(status, 503)
+        self.assertIn('画像生成モードへ切替', body.decode())
+        self.assertTrue(response.getheader('Retry-After'))
+        status, body, response = self.call('GET', '/sdapi/v1/options')
+        self.assertIn('GET does not start', json.loads(body)['message'])
+
+    def test_switch_needs_csrf_header(self):
+        self.assertEqual(self.call('POST', '/__sd/switch')[0], 403)
+        self.no_side_effects()
+        self.assertEqual(self.call('POST', '/__sd/switch', headers={'X-SD-Switch': '1'})[0], 202)
+        self.assertTrue((self.root / 'intent.json').exists())
+
+    def test_generation_needs_json_and_is_durable(self):
+        path = '/sdapi/v1/txt2img'
+        self.assertEqual(self.call('POST', path, b'{}', {'Content-Type': 'text/plain'})[0], 415)
+        json_type = {'Content-Type': 'application/json'}
+        self.assertEqual(self.call('POST', path, b'[]', json_type)[0], 400)
+        self.assertEqual(self.call('POST', path, b'{bad', json_type)[0], 400)
+        self.no_side_effects()
+        status, body, response = self.call('POST', path, b'{"prompt":"x"}', json_type)
+        self.assertEqual(status, 202)
+        self.assertTrue(response.getheader('Retry-After'))
+        accepted = json.loads(body)
+        self.assertTrue((self.root / 'jobs' / accepted['job_id'] / 'request.json').exists())
+        status, body, _ = self.call('GET', accepted['status_url'])
+        self.assertEqual((status, json.loads(body)['state'], json.loads(body)['position']), (200, 'queued', 1))
+        self.assertEqual(self.call('GET', accepted['result_url'])[0], 409)
+        self.assertEqual(self.call('GET', '/__sd/jobs/' + 'f' * 32)[0], 404)
+
+    def test_body_limit(self):
+        headers = {'Content-Type': 'application/json', 'Content-Length': str(module.LIMIT + 1)}
+        self.assertEqual(self.call('POST', '/sdapi/v1/txt2img', b'', headers)[0], 413)
+
+    def test_invalid_idempotency_key(self):
+        headers = {'Content-Type': 'application/json', 'Idempotency-Key': 'x' * 129}
+        self.assertEqual(self.call('POST', '/sdapi/v1/txt2img', b'{}', headers)[0], 400)
 
 
 if __name__ == '__main__':

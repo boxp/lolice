@@ -1,0 +1,48 @@
+# BOXP-484: same public sources SD.Next had, and no route to anything else.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: sd-admission-gateway
+spec:
+  selector: app == 'sd-admission-gateway'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'stable-diffusion'
+        selector: app == 'cloudflared'
+      destination:
+        ports:
+          - 7860
+    - action: Allow
+      protocol: TCP
+      source:
+        nets:
+          - 192.168.10.0/24
+      destination:
+        ports:
+          - 7860
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'stable-diffusion-webui'
+        ports:
+          - 7860
