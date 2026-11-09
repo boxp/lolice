@@ -1,6 +1,9 @@
 -- BOXP-472: the only object the Grafana user can read (clickhouse-users.xml). It runs as the
 -- definer, so that user holds no grant on events_core and cannot select input/output/metadata.
 --
+-- Limited to the ai-ops project (LANGFUSE_INIT_PROJECT_ID in web.yaml), so another project's usage
+-- never appears in the AI Ops totals and a same-id trace in it cannot supply a parent AGENT name.
+--
 -- Counts GENERATION rows only. Traces and parent AGENT/SPAN rows carry no usage of their own
 -- that may be added on top, so a parent and its children are never counted twice.
 -- start_time is the call's own time from the session log or hook, not the export time.
@@ -58,13 +61,13 @@ FROM
 (
     SELECT trace_id, span_id, parent_span_id, start_time, trace_name, tags, provided_model_name, usage_details
     FROM default.events_core FINAL
-    WHERE type = 'GENERATION'
+    WHERE project_id = 'ai-ops' AND type = 'GENERATION'
 ) AS g
 LEFT JOIN
 (
     SELECT trace_id, span_id, any(name) AS name
     FROM default.events_core FINAL
-    WHERE type = 'AGENT'
+    WHERE project_id = 'ai-ops' AND type = 'AGENT'
     GROUP BY trace_id, span_id
 ) AS a
 ON g.trace_id = a.trace_id AND g.parent_span_id = a.span_id

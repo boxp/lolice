@@ -486,15 +486,19 @@ usage_view() {
   as_grafana() { kubectl exec -n "$NS" statefulset/langfuse-clickhouse -- clickhouse-client --user grafana_usage --password "$grafana" "$@"; }
 
   # 親 SPAN/AGENT に usage を持たせ、二重加算されないことも確かめる。同じ span の再送は FINAL で 1 行になる。
+  # other-project の行は集計にも親 AGENT 名の解決にも混ざらないことを確かめる。
   as_admin --multiquery <<'SQL'
 INSERT INTO events_core (project_id, trace_id, span_id, parent_span_id, start_time, name, type, trace_name, tags, provided_model_name, usage_details, input, output, event_ts, is_deleted) VALUES
-('p', 'viewtb', 'root', '', toDateTime64('2026-11-09 00:00:00', 6), 'task-board-run BOXP-1', 'SPAN', 'task-board-run BOXP-1', ['task-board'], '', map('total', 999999), '', '', now64(6), 0),
-('p', 'viewtb', 'child', 'root', toDateTime64('2026-11-09 00:00:01', 6), 'delegate:codex', 'AGENT', 'task-board-run BOXP-1', ['task-board'], '', map('total', 888888), '', '', now64(6), 0),
-('p', 'viewtb', 'gen1', 'child', toDateTime64('2026-11-09 00:00:02', 6), 'generation:gpt-6.1-terra', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'gpt-6.1-terra', map('input', 10, 'input_cached_tokens', 90, 'output', 5, 'output_reasoning_tokens', 1, 'total', 106), 'usage-view-body-marker', 'usage-view-body-marker', now64(6), 0),
-('p', 'viewtb', 'gen2', 'root', toDateTime64('2026-11-09 00:00:03', 6), 'generation:claude-opus-5-5', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'claude-opus-5-5', map('input', 1, 'cache_read_input_tokens', 100, 'cache_creation_input_tokens', 20, 'output', 3, 'total', 124), 'usage-view-body-marker', '', now64(6), 0),
-('p', 'viewtb', 'gen2', 'root', toDateTime64('2026-11-09 00:00:03', 6), 'generation:claude-opus-5-5', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'claude-opus-5-5', map('input', 1, 'cache_read_input_tokens', 100, 'cache_creation_input_tokens', 20, 'output', 3, 'total', 124), 'usage-view-body-marker', '', now64(6), 0),
-('p', 'viewtb', 'gen3', 'root', toDateTime64('2026-11-09 00:00:04', 6), 'generation:x', 'GENERATION', 'hermes-turn', ['hermes', 'platform:cron'], 'gpt-6.1-sol', map('input', 7, 'total', 7), '', '', now64(6), 0),
-('p', 'viewtb', 'gen4', 'root', toDateTime64('2026-11-09 00:00:05', 6), 'generation:x', 'GENERATION', 'something-else', [], '', map(), '', '', now64(6), 0);
+('ai-ops', 'viewtb', 'root', '', toDateTime64('2026-11-09 00:00:00', 6), 'task-board-run BOXP-1', 'SPAN', 'task-board-run BOXP-1', ['task-board'], '', map('total', 999999), '', '', now64(6), 0),
+('ai-ops', 'viewtb', 'child', 'root', toDateTime64('2026-11-09 00:00:01', 6), 'delegate:codex', 'AGENT', 'task-board-run BOXP-1', ['task-board'], '', map('total', 888888), '', '', now64(6), 0),
+('ai-ops', 'viewtb', 'gen1', 'child', toDateTime64('2026-11-09 00:00:02', 6), 'generation:gpt-6.1-terra', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'gpt-6.1-terra', map('input', 10, 'input_cached_tokens', 90, 'output', 5, 'output_reasoning_tokens', 1, 'total', 106), 'usage-view-body-marker', 'usage-view-body-marker', now64(6), 0),
+('ai-ops', 'viewtb', 'gen2', 'root', toDateTime64('2026-11-09 00:00:03', 6), 'generation:claude-opus-5-5', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'claude-opus-5-5', map('input', 1, 'cache_read_input_tokens', 100, 'cache_creation_input_tokens', 20, 'output', 3, 'total', 124), 'usage-view-body-marker', '', now64(6), 0),
+('ai-ops', 'viewtb', 'gen2', 'root', toDateTime64('2026-11-09 00:00:03', 6), 'generation:claude-opus-5-5', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'claude-opus-5-5', map('input', 1, 'cache_read_input_tokens', 100, 'cache_creation_input_tokens', 20, 'output', 3, 'total', 124), 'usage-view-body-marker', '', now64(6), 0),
+('ai-ops', 'viewtb', 'gen3', 'root', toDateTime64('2026-11-09 00:00:04', 6), 'generation:x', 'GENERATION', 'hermes-turn', ['hermes', 'platform:cron'], 'gpt-6.1-sol', map('input', 7, 'total', 7), '', '', now64(6), 0),
+('ai-ops', 'viewtb', 'gen4', 'root', toDateTime64('2026-11-09 00:00:05', 6), 'generation:x', 'GENERATION', 'something-else', [], '', map(), '', '', now64(6), 0),
+('other-project', 'viewtb', 'gen-other', 'child', toDateTime64('2026-11-09 00:00:06', 6), 'generation:x', 'GENERATION', 'task-board-run BOXP-1', ['task-board'], 'gpt-6.1-terra', map('input', 5000, 'total', 5000), '', '', now64(6), 0),
+('other-project', 'viewtb', 'gen1', 'other-agent', toDateTime64('2026-11-09 00:00:07', 6), 'generation:x', 'GENERATION', 'hermes-turn', ['hermes'], 'claude-opus-5-5', map('input', 6000, 'total', 6000), '', '', now64(6), 0),
+('other-project', 'viewtb', 'child', 'root', toDateTime64('2026-11-09 00:00:08', 6), 'subagent:other', 'AGENT', 'task-board-run BOXP-1', ['task-board'], '', map(), '', '', now64(6), 0);
 SQL
   local got expected
   expected="$(printf 'Hermes / cron\tcodex\t7\t1\nTask Board / 子委譲 (Codex)\tcodex\t106\t1\nTask Board / 親 (CLI)\tclaude\t124\t1\n(未分類)\t(不明)\t0\t0' | LC_ALL=C sort)"
