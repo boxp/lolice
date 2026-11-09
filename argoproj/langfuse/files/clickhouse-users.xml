@@ -31,7 +31,8 @@
             <profile>grafana_usage</profile>
             <quota>default</quota>
             <grants>
-                <query>GRANT SELECT ON default.ai_ops_usage_v1 TO grafana_usage</query>
+                <!-- No "TO user" here: ClickHouse refuses grantees in a config file and fails to start. -->
+                <query>GRANT SELECT ON default.ai_ops_usage_v1</query>
             </grants>
         </grafana_usage>
     </users>

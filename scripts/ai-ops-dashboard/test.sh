@@ -26,4 +26,11 @@ jq -e '[.. | objects | select(.type? == "state-timeline") | .fieldConfig.default
 jq -e '[.. | objects | .rawSql? // empty | select(test("var-ticket"))] | length == 0' "$dashboard" > /dev/null
 # bin を使う ClickHouse panel は時系列も表も同じ $bin 幅で集計する
 jq -e '[.. | objects | select(.targets? // [] | any((.rawSql? // "") | test("__interval_s"))) | .interval == "$bin"] | (length > 0 and all)' "$dashboard" > /dev/null
+# $__timeFilter は両端を含むので、bin の絞り込みリンクの終端は次の bin の開始と重ねない
+jq -e '[.. | objects | .rawSql? // empty | select(test("bin_end_ms"))] | (length > 0 and all(test("\\*1000-1 AS bin_end_ms")))' "$dashboard" > /dev/null
+# users.xml の GRANT に grantee を書くと ClickHouse が access control の読み込みに失敗する
+if grep -Eq '<query>GRANT .* TO ' argoproj/langfuse/files/clickhouse-users.xml; then
+  echo 'clickhouse-users.xml の GRANT に TO を書かないでください' >&2
+  exit 1
+fi
 printf '%s\n' 'generator tests passed'
