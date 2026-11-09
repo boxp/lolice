@@ -13,53 +13,172 @@ spec:
     try:
     - script:
         timeout: 15s
-        content: |
-          set -eu
-          case "${CHAINSAW_KIND_CONTEXT:-}" in
-            kind-*) ;;
-            *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
-          esac
-          : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
-          test -r "$CHAINSAW_KIND_KUBECONFIG"
-          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
-          expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          actual_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          test -n "$expected_server"
-          test "$actual_server" = "$expected_server"
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh" --loopback'
+
   - name: wait-for-argocd-ready
     try:
-    - script:
-        timeout: 360s
-        content: |
-          set -e
-          echo "=== ArgoCD コア Deployment の起動待機 ==="
-          for DEPLOY in argocd-server argocd-repo-server argocd-dex-server argocd-notifications-controller argocd-applicationset-controller argocd-redis; do
-            echo "Waiting for deployment/$DEPLOY ..."
-            kubectl wait deployment/$DEPLOY \
-              -n argocd \
-              --for=condition=Available \
-              --timeout=300s
-          done
-
-          echo "=== ArgoCD ApplicationController (StatefulSet) の起動待機 ==="
-          kubectl rollout status statefulset/argocd-application-controller -n argocd --timeout=300s
-
-          echo "=== 実行中の Pod 確認 ==="
-          kubectl get pods -n argocd
-          echo "ArgoCD 動的検証: 全コアコンポーネント Available"
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: argocd
+        name: argocd-server
+        timeout: 300s
+        for:
+          condition:
+            name: Available
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: argocd
+        name: argocd-repo-server
+        timeout: 300s
+        for:
+          condition:
+            name: Available
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: argocd
+        name: argocd-dex-server
+        timeout: 300s
+        for:
+          condition:
+            name: Available
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: argocd
+        name: argocd-notifications-controller
+        timeout: 300s
+        for:
+          condition:
+            name: Available
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: argocd
+        name: argocd-applicationset-controller
+        timeout: 300s
+        for:
+          condition:
+            name: Available
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: argocd
+        name: argocd-redis
+        timeout: 300s
+        for:
+          condition:
+            name: Available
+    - assert:
+        # kubectl rollout status statefulset と同じ完了条件
+        timeout: 300s
+        resource:
+          apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: argocd-application-controller
+            namespace: argocd
+          (status.observedGeneration >= metadata.generation): true
+          (status.readyReplicas >= spec.replicas): true
+          (status.updateRevision == status.currentRevision): true
+    finally:
+    - get:
+        apiVersion: v1
+        kind: Pod
+        namespace: argocd
 
   - name: fixture-manifest-generation-and-reconcile
+    description: |
+      隔離 fixture Application で manifest 生成と通常 sync を確認する。NetworkPolicy matrix とは
+      独立に全 suite (preflight の kindnet を含む) で実行する。
     try:
-    - script:
-        timeout: 900s
-        content: |
-          set -eu
-          bash "${REPO_ROOT}/tests/chainsaw/argocd/fixture-reconcile.sh"
+    - apply:
+        timeout: 60s
+        file: fixture-application.yaml
+    - assert:
+        timeout: 180s
+        resource:
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: netpol-impact-fixture
+            namespace: argocd
+          status:
+            sync:
+              status: Synced
+    - assert:
+        timeout: 180s
+        resource:
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: netpol-impact-fixture
+            namespace: argocd
+          status:
+            health:
+              status: Healthy
+          (status.reconciledAt != null): true
+    - assert:
+        timeout: 10s
+        resource:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: appset-demo
+            namespace: netpol-impact
+          data:
+            source: app-a
+    catch: &argocd-fixture-diagnostics
+    - get:
+        apiVersion: argoproj.io/v1alpha1
+        kind: Application
+        namespace: argocd
+        name: netpol-impact-fixture
+        format: yaml
+    - get:
+        apiVersion: argoproj.io/v1alpha1
+        kind: AppProject
+        namespace: argocd
+        name: default
+        format: yaml
+    - podLogs:
+        namespace: argocd
+        selector: app.kubernetes.io/name=argocd-application-controller
+        tail: 100
+    - podLogs:
+        namespace: argocd
+        selector: app.kubernetes.io/name=argocd-repo-server
+        tail: 60
+    - get:
+        apiVersion: v1
+        kind: Pod
+        namespace: netpol-impact
 
-  - name: network-policy-impact-matrix
+  - name: network-policy-create-probes
     try:
     - script:
         timeout: 900s
-        content: |
-          set -eu
-          bash "${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh"
+        content: '"${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh" create_probes'
+  - name: network-policy-baseline-endpoints
+    try:
+    - script:
+        timeout: 900s
+        content: '"${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh" baseline_endpoints'
+  - name: network-policy-removed-all-probes-reach
+    try:
+    - script:
+        timeout: 900s
+        content: '"${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh" policies_removed_all_probes_reach'
+  - name: network-policy-restored-matrix
+    try:
+    - script:
+        timeout: 900s
+        content: '"${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh" policies_restored_matrix'
+  - name: fixture-resync-after-restore-and-teardown
+    try:
+    - script:
+        timeout: 900s
+        content: '"${REPO_ROOT}/tests/chainsaw/argocd/network-policy-impact.sh" fixture_resync_and_teardown'
+    catch: *argocd-fixture-diagnostics
