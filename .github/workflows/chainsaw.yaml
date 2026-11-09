@@ -434,12 +434,25 @@ jobs:
             # Secret に証明書が書かれたことだけを待つ (cert-controller は起動直後に書く)。
             kubectl wait secret/external-secrets-webhook -n external-secrets --for=jsonpath='{.data.tls\.crt}' --timeout=150s
             echo "webhook 証明書が揃うまで $((SECONDS - eso_started))s"
-            # Available 待ちと deferred の適用は次の step で非依存 suite と並行して行う。langfuse suite の
-            # 全 Deployment 待ちが 0 replica の webhook を見逃さないよう、scale だけはここで同期的に戻す。
             kubectl scale deployment/external-secrets-webhook -n external-secrets --replicas="${ESO_WEBHOOK_REPLICAS:-1}"
+            if ! kubectl wait deployment --all -n external-secrets --for=condition=Available --timeout=180s; then
+              echo "ESO Deployment が Available になりませんでした" >&2
+              kubectl get pods -n external-secrets -o wide >&2 || true
+              kubectl logs -n external-secrets deployment/external-secrets-webhook --tail=20 >&2 || true
+              exit 1
+            fi
+            echo "ESO Available まで $((SECONDS - eso_started))s"
+            for DEFERRED in "$DEFERRED_DIR"/*-eso.yaml; do
+              [ -s "$DEFERRED" ] || continue
+              echo "=== $(basename "$DEFERRED") を適用 (ESO webhook 経由) ==="
+              # Available 直後は webhook の CA 注入が追いついていないことがあるので短く再試行する。
+              for attempt in $(seq 1 12); do
+                if kubectl apply --server-side --force-conflicts -f - < "$DEFERRED"; then break; fi
+                [ "$attempt" -lt 12 ] || { echo "ESO webhook 経由の適用に失敗しました: $DEFERRED" >&2; exit 1; }
+                sleep 5
+              done
+            done
           fi
-          echo "ESO_INSTALLED=$ESO_INSTALLED" >> "$GITHUB_ENV"
-          echo "DEFERRED_DIR=$DEFERRED_DIR" >> "$GITHUB_ENV"
           if has_component argocd; then
             echo "=== ArgoCD マニフェスト適用後の状態確認 ==="
             kubectl get deployments -n argocd
@@ -468,52 +481,16 @@ jobs:
           # 時間で済む。出力は component ごとのファイルに分け、完了順ではなく
           # COMPONENTS の順で結果を組み立てる。
           declare -A COMPONENT_PIDS
-          start_suite() {
-            local component="$1"
-            KUBECONFIG="$CHAINSAW_KIND_KUBECONFIG" chainsaw test \
-              --test-dir "./tests/chainsaw/$component" \
-              > "$OUTPUT_DIR/$component.txt" 2>&1 &
-            COMPONENT_PIDS[$component]=$!
-            echo "Started chainsaw tests for $component (pid ${COMPONENT_PIDS[$component]})"
-          }
-          eso_independent() {
-            case "$1" in
-              grafana-alloy|kube-vip|codex-workspace|hermes-agent|kohako-studio|langfuse) return 0 ;;
-              *) return 1 ;;
-            esac
-          }
-          FINALIZE_STATUS=0
-          if [ "${ESO_INSTALLED:-false}" = true ]; then
-            KUBECONFIG="$CHAINSAW_KIND_KUBECONFIG" bash tests/workflows/chainsaw-eso-finalize.sh "$DEFERRED_DIR" > "$OUTPUT_DIR/eso-finalize.txt" 2>&1 &
-            FINALIZE_PID=$!
-          fi
           for COMPONENT in "${COMPONENT_LIST[@]}"; do
-            if [ "${ESO_INSTALLED:-false}" != true ] || eso_independent "$COMPONENT"; then
-              start_suite "$COMPONENT"
-            fi
+            KUBECONFIG="$CHAINSAW_KIND_KUBECONFIG" chainsaw test \
+              --test-dir "./tests/chainsaw/$COMPONENT" \
+              > "$OUTPUT_DIR/$COMPONENT.txt" 2>&1 &
+            COMPONENT_PIDS[$COMPONENT]=$!
+            echo "Started chainsaw tests for $COMPONENT (pid ${COMPONENT_PIDS[$COMPONENT]})"
           done
-          if [ "${ESO_INSTALLED:-false}" = true ]; then
-            if wait "$FINALIZE_PID"; then
-              FINALIZE_STATUS=0
-            else
-              FINALIZE_STATUS=$?
-              OVERALL_STATUS=1
-            fi
-            echo "::group::ESO finalize (exit $FINALIZE_STATUS)"
-            cat "$OUTPUT_DIR/eso-finalize.txt"
-            echo "::endgroup::"
-            if [ "$FINALIZE_STATUS" -eq 0 ]; then
-              for COMPONENT in "${COMPONENT_LIST[@]}"; do
-                if ! eso_independent "$COMPONENT"; then start_suite "$COMPONENT"; fi
-              done
-            fi
-          fi
 
           for COMPONENT in "${COMPONENT_LIST[@]}"; do
-            if [ -z "${COMPONENT_PIDS[$COMPONENT]:-}" ]; then
-              COMPONENT_STATUS=$FINALIZE_STATUS
-              cp "$OUTPUT_DIR/eso-finalize.txt" "$OUTPUT_DIR/$COMPONENT.txt"
-            elif wait "${COMPONENT_PIDS[$COMPONENT]}"; then
+            if wait "${COMPONENT_PIDS[$COMPONENT]}"; then
               COMPONENT_STATUS=0
             else
               COMPONENT_STATUS=$?
