@@ -16,24 +16,95 @@ spec:
     try:
     - script:
         timeout: 15s
-        content: |
-          set -eu
-          case "${CHAINSAW_KIND_CONTEXT:-}" in
-            kind-*) ;;
-            *) echo "An explicit isolated kind context is required; this suite is not read-only." >&2; exit 1 ;;
-          esac
-          : "${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
-          test -r "$CHAINSAW_KIND_KUBECONFIG"
-          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
-          expected_server="$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          actual_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')"
-          test -n "$expected_server"
-          test "$actual_server" = "$expected_server"
-  - name: deploy-stack
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh"'
+  - name: install-eso-and-apply-rendered-stack
     try:
     - script:
         timeout: 840s
-        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" deploy'
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" deploy_stack'
+    cleanup:
+    - script:
+        timeout: 30s
+        content: kubectl delete namespace langfuse langfuse-outside hermes-agent --ignore-not-found --wait=false
+  - name: external-secrets-ready
+    try:
+    - wait:
+        apiVersion: external-secrets.io/v1
+        kind: ExternalSecret
+        namespace: langfuse
+        name: langfuse-secrets
+        timeout: 120s
+        for:
+          condition:
+            name: Ready
+    - wait:
+        apiVersion: external-secrets.io/v1
+        kind: ExternalSecret
+        namespace: langfuse
+        name: langfuse-ingest-key
+        timeout: 120s
+        for:
+          condition:
+            name: Ready
+    catch:
+    - script:
+        timeout: 30s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" diagnose'
+  - name: oidc-fixture
+    skipDelete: true
+    try:
+    - script:
+        timeout: 840s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" deploy_oidc_fixture'
+    - apply:
+        timeout: 60s
+        file: oidc-fixture.yaml
+  - name: workloads-ready
+    try:
+    - wait:
+        apiVersion: apps/v1
+        kind: Deployment
+        namespace: langfuse
+        timeout: 420s
+        for:
+          condition:
+            name: Available
+    - assert:
+        timeout: 120s
+        resource:
+          apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: langfuse-postgres
+            namespace: langfuse
+          (status.observedGeneration >= metadata.generation && status.readyReplicas >= spec.replicas && status.updateRevision == status.currentRevision): true
+    - assert:
+        timeout: 120s
+        resource:
+          apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: langfuse-clickhouse
+            namespace: langfuse
+          (status.observedGeneration >= metadata.generation && status.readyReplicas >= spec.replicas && status.updateRevision == status.currentRevision): true
+    - assert:
+        timeout: 120s
+        resource:
+          apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: langfuse-minio
+            namespace: langfuse
+          (status.observedGeneration >= metadata.generation && status.readyReplicas >= spec.replicas && status.updateRevision == status.currentRevision): true
+    catch:
+    - script:
+        timeout: 30s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" diagnose'
+  - name: priority-class
+    try:
+    - script:
+        timeout: 840s
+        content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" priority_class'
   - name: postgres-existing-data
     try:
     - script:
@@ -49,6 +120,57 @@ spec:
     - script:
         timeout: 300s
         content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" producer_ingest_key'
+  - name: network-policy-probes
+    skipDelete: true
+    try:
+    - apply:
+        timeout: 60s
+        file: network-policy-probes.yaml
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: hermes-agent
+        name: hermes-allowed
+        timeout: 180s
+        for:
+          condition:
+            name: Ready
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: hermes-agent
+        name: hermes-other
+        timeout: 180s
+        for:
+          condition:
+            name: Ready
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: langfuse-outside
+        name: spoof
+        timeout: 180s
+        for:
+          condition:
+            name: Ready
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: langfuse-outside
+        name: outside
+        timeout: 180s
+        for:
+          condition:
+            name: Ready
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: langfuse
+        name: tunnel
+        timeout: 180s
+        for:
+          condition:
+            name: Ready
   - name: network-policy
     try:
     - script:
@@ -59,6 +181,56 @@ spec:
     - script:
         timeout: 300s
         content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" ingest'
+  - name: usage-view-job-complete
+    try:
+    - wait:
+        apiVersion: batch/v1
+        kind: Job
+        namespace: langfuse
+        name: langfuse-usage-view
+        timeout: 600s
+        for:
+          condition:
+            name: Complete
+    catch:
+    - script:
+        timeout: 30s
+        content: |
+          kubectl logs -n langfuse job/langfuse-usage-view || true
+          "${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" diagnose
+  - name: usage-view-probes
+    skipDelete: true
+    try:
+    - apply:
+        timeout: 60s
+        file: usage-view-probes.yaml
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: monitoring
+        name: grafana-allowed
+        timeout: 180s
+        for:
+          condition:
+            name: Ready
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: monitoring
+        name: grafana-other
+        timeout: 180s
+        for:
+          condition:
+            name: Ready
+    - wait:
+        apiVersion: v1
+        kind: Pod
+        namespace: langfuse-outside
+        name: grafana-spoof
+        timeout: 180s
+        for:
+          condition:
+            name: Ready
   - name: usage-view
     try:
     - script:
@@ -81,8 +253,3 @@ spec:
     - script:
         timeout: 900s
         content: '"${REPO_ROOT}/tests/chainsaw/langfuse/dynamic-checks.sh" retention'
-    finally:
-    - script:
-        timeout: 30s
-        content: |
-          kubectl delete namespace langfuse langfuse-outside hermes-agent --ignore-not-found --wait=false

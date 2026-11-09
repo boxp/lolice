@@ -1,0 +1,1 @@
+const s=require("net").connect({host:process.argv[2],port:+process.argv[3],timeout:4000});s.on("connect",()=>{s.destroy();process.exit(0)});s.on("timeout",()=>process.exit(3));s.on("error",()=>process.exit(1));
