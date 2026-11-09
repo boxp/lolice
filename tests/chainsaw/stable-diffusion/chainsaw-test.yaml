@@ -4,42 +4,50 @@ metadata:
   name: sd-admission-gateway
 spec:
   namespace: stable-diffusion
+  # The job's kind cluster is discarded; python PID 1 ignores SIGTERM, so waiting
+  # for namespace deletion only burns the grace period.
+  skipDelete: true
   timeouts:
     assert: 4m
   steps:
-    - name: apply-fixture
-      try:
-        - apply:
-            file: stub-backend.yaml
-        - script:
-            timeout: 60s
-            content: |
-              set -eu
-              python3 "${REPO_ROOT}/tests/chainsaw/stable-diffusion/render-fixture.py" "${REPO_ROOT}/argoproj/stable-diffusion" \
-                | kubectl apply -n stable-diffusion -f -
-        - assert:
-            resource:
-              apiVersion: apps/v1
-              kind: Deployment
-              metadata:
-                name: stable-diffusion-webui
-                namespace: stable-diffusion
-              status:
-                availableReplicas: 1
-        - assert:
-            resource:
-              apiVersion: apps/v1
-              kind: Deployment
-              metadata:
-                name: sd-admission-gateway
-                namespace: stable-diffusion
-              status:
-                availableReplicas: 1
-    - name: gateway-behaviour
-      try:
-        - script:
-            timeout: 120s
-            content: |
-              set -eu
-              kubectl exec -i -n stable-diffusion deploy/sd-admission-gateway -c intake -- python3 - \
-                < "${REPO_ROOT}/tests/chainsaw/stable-diffusion/check.py"
+  - name: require-isolated-kind
+    try:
+      - script:
+          timeout: 15s
+          content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh"'
+  - name: apply-fixture
+    try:
+      - apply:
+          file: stub-backend.yaml
+      - script:
+          timeout: 60s
+          content: |
+            set -eu
+            python3 "${REPO_ROOT}/tests/chainsaw/stable-diffusion/render-fixture.py" "${REPO_ROOT}/argoproj/stable-diffusion" \
+              | kubectl apply -n stable-diffusion -f -
+      - assert:
+          resource:
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: stable-diffusion-webui
+              namespace: stable-diffusion
+            status:
+              availableReplicas: 1
+      - assert:
+          resource:
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: sd-admission-gateway
+              namespace: stable-diffusion
+            status:
+              availableReplicas: 1
+  - name: gateway-behaviour
+    try:
+      - script:
+          timeout: 120s
+          content: |
+            set -eu
+            kubectl exec -i -n stable-diffusion deploy/sd-admission-gateway -c intake -- python3 - \
+              < "${REPO_ROOT}/tests/chainsaw/stable-diffusion/check.py"
