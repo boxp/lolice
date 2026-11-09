@@ -1,3 +1,3 @@
 kustomize:
   images:
-  - ghcr.io/boxp/arch/kohako-studio=ghcr.io/boxp/arch/kohako-studio:sha-dfa051d
+  - ghcr.io/boxp/arch/kohako-studio=ghcr.io/boxp/arch/kohako-studio:sha-8e2a00e
