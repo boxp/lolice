@@ -118,3 +118,4 @@ class WorkflowWiringTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+# BOXP-474 計測用 (merge しない)
