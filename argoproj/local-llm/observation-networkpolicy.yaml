@@ -19,3 +19,10 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name in {'codex-workspace', 'monitoring'}
       destination:
         ports: [9901]
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
+        selector: app == 'qwen-runtime-controller'
+      destination:
+        ports: [9901]

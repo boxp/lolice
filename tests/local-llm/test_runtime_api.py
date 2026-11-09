@@ -21,8 +21,17 @@ class TransportTest(unittest.TestCase):
                 dict(op='replace', path=pointer, value={'replicas': 1} if value is None else value)]
 
     def test_exact_boundary(self):
+        self.assertEqual(worker.TARGETS, {
+            '/apis/apps/v1/namespaces/local-llm/deployments/llama-server/scale': '/spec',
+            '/apis/apps/v1/namespaces/stable-diffusion/deployments/qwen-image-eval/scale': '/spec',
+            '/api/v1/namespaces/local-llm/configmaps/llama-server-admission': '/data/state',
+            '/apis/apps/v1/namespaces/stable-diffusion/deployments/stable-diffusion-webui/scale': '/spec',
+        })
         worker.validate(self.request())
         worker.validate(self.request(method='PATCH', body=self.patch()))
+        sd = '/apis/apps/v1/namespaces/stable-diffusion/deployments/stable-diffusion-webui/scale'
+        worker.validate(self.request(sd))
+        worker.validate(self.request(sd, 'PATCH', self.patch()))
         for path in ['/api/v1/secrets', '/apis/apps/v1/namespaces/local-llm/deployments/llama-server']:
             with self.assertRaises(ValueError): worker.validate(self.request(path))
         for value in [{'replicas': 2}, {'replicas': True}, {'replicas': 1, 'template': {}}]:
