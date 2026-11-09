@@ -25,7 +25,7 @@ spec:
             name: kube-vip-ds
             namespace: kube-system
           status:
-            (desiredNumberScheduled > `0`): true
+            (desiredNumberScheduled > `999`): true
   - name: apply-application-yaml
     description: |
       native apply は Create/MergePatch で strict field validation がなく、test 後に削除も
