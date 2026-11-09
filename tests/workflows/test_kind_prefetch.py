@@ -47,7 +47,7 @@ class NormalizeRefTest(unittest.TestCase):
 
 
 class PrefetchTest(unittest.TestCase):
-    def run_prefetch(self, images_tsv, fail_image='<none>'):
+    def run_prefetch(self, images_tsv, fail_image='<none>', parallel='2'):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             stub = root / 'docker'
@@ -56,7 +56,7 @@ class PrefetchTest(unittest.TestCase):
             log = root / 'calls'
             log.write_text('')
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
-                       CALL_LOG=str(log), FAIL_IMAGE=fail_image, PREFETCH_PARALLEL='2', PREFETCH_RETRY_SLEEP='0')
+                       CALL_LOG=str(log), FAIL_IMAGE=fail_image, PREFETCH_PARALLEL=parallel, PREFETCH_RETRY_SLEEP='0')
             result = subprocess.run(['bash', str(PREFETCH), 'chainsaw-test'], input=images_tsv,
                                     env=env, capture_output=True, text=True)
             return result, log.read_text().splitlines()
@@ -98,6 +98,17 @@ class PrefetchTest(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertIn('ok=0 fail=1', result.stdout)
 
+    def test_calico_and_tigera_are_pulled_first_on_all_nodes(self):
+        result, calls = self.run_prefetch(
+            'alpine:3\tall\nquay.io/tigera/operator:v1\tall\n'
+            'quay.io/calico/node:v1\tall\nalpine:3\tall\n', parallel='1')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        refs = [call.split()[-1] for call in calls]
+        self.assertEqual(len(refs), 6)
+        self.assertTrue(all(ref.startswith(('quay.io/calico/', 'quay.io/tigera/')) for ref in refs[:4]))
+        self.assertEqual(refs[4:], ['docker.io/library/alpine:3'] * 2)
+        self.assertEqual(len(set(calls)), 6)
+
     def test_empty_input_is_a_noop(self):
         result, calls = self.run_prefetch('')
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -110,8 +121,36 @@ class WorkflowWiringTest(unittest.TestCase):
         # kind-action の既定 wait (60s) は毎回タイムアウトするだけなので 0s にしておく。
         source = WORKFLOW.read_text()
         kind_step = source.split('        uses: helm/kind-action@v1\n', 1)[1].split('\n      - name:', 1)[0]
-        self.assertIn('wait: 0s', kind_step)
+        self.assertIn('install_only: true', kind_step)
+        self.assertNotIn('cluster_name:', kind_step)
+        self.assertIn('--wait 0s', source)
         self.assertIn('kubectl wait --for=condition=Ready node --all', source)
+
+    def test_finalize_failure_gates_dependent_and_unknown_suites(self):
+        source = WORKFLOW.read_text()
+        step = source.split('      - name: Run chainsaw tests\n', 1)[1].split('\n      - name:', 1)[0]
+        script = step.split('        run: |\n', 1)[1]
+        script = '\n'.join(line[10:] for line in script.splitlines())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'tests/workflows').mkdir(parents=True)
+            (root / 'tests/workflows/chainsaw-eso-finalize.sh').write_text('echo finalize-failed; exit 7\n')
+            chainsaw = root / 'chainsaw'
+            chainsaw.write_text('#!/bin/bash\necho "$*" >> "$CALL_LOG"\n')
+            chainsaw.chmod(0o755)
+            log = root / 'calls'
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                       CALL_LOG=str(log), RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(root / 'output'),
+                       CHAINSAW_KIND_KUBECONFIG='fake', ESO_INSTALLED='true', DEFERRED_DIR='fake',
+                       COMPONENTS='["argocd", "langfuse", "external-secrets-operator", "unknown"]')
+            result = subprocess.run(['bash', '-e', '-c', script], cwd=root, env=env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(log.read_text().splitlines(), ['test --test-dir ./tests/chainsaw/langfuse'])
+            report = (root / 'chainsaw-results.md').read_text()
+            self.assertEqual(report.count('**FAILED**'), 3)
+            self.assertEqual(report.count('finalize-failed'), 3)
+            self.assertEqual(result.stdout.count('::group::ESO finalize'), 1)
 
     def test_prefetch_runs_in_background_and_is_best_effort(self):
         source = WORKFLOW.read_text()

@@ -111,7 +111,7 @@ class EsoVersionTest(unittest.TestCase):
                 (manifests / f'{name}.yaml').write_text('kind: ConfigMap\n')
             log = root / 'commands.jsonl'
             env = dict(os.environ, PATH=str(binary_dir) + ':' + os.environ['PATH'],
-                       REPO_ROOT=str(root), RUNNER_TEMP=str(root), COMMAND_LOG=str(log),
+                       REPO_ROOT=str(root), RUNNER_TEMP=str(root), COMMAND_LOG=str(log), GITHUB_ENV=str(root / "github-env"),
                        CHAINSAW_KIND_KUBECONFIG=str(root / 'isolated.kubeconfig'), MANIFEST_DIR=str(manifests),
                        COMPONENT=component, COMPONENTS=json.dumps([component]), VERIFIED_DIGEST=DIGEST)
             if preflight:
