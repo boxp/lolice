@@ -11,3 +11,4 @@ spec:
             content: |
               set -eu
               "${REPO_ROOT}/tests/chainsaw/kohako-studio/render-check.sh"
+# BOXP-474 計測用 (merge しない)
