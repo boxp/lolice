@@ -8,6 +8,11 @@ rules:
     resources: [deployments/scale]
     resourceNames: [qwen-image-eval]
     verbs: [get, patch]
+  # BOXP-484: only the normal SD.Next replica count.
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    resourceNames: [stable-diffusion-webui]
+    verbs: [get, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
