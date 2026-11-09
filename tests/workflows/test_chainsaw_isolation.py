@@ -67,6 +67,12 @@ class IsolationGuardTest(unittest.TestCase):
         self.assertIn('hermes-agent/alertmanager-relay', seen)
         self.assertTrue(NO_CLUSTER_SUITES <= seen)
 
+    def test_scripts_invoked_directly_are_executable(self):
+        for suite, test in suites():
+            for relative in re.findall(r'\$\{REPO_ROOT\}/(tests/\S+?\.sh)', test.read_text()):
+                with self.subTest(suite=suite, script=relative):
+                    self.assertTrue(os.access(ROOT / relative, os.X_OK))
+
     def test_no_cluster_suites_do_not_use_kubectl(self):
         for suite in NO_CLUSTER_SUITES:
             for path in (CHAINSAW / suite).rglob('*'):
