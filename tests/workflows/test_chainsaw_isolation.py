@@ -1,90 +1,143 @@
 """Exercise the real suite guard using local kubectl stubs only."""
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
-import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+GUARD = ROOT / 'tests/workflows/require-isolated-kind.sh'
+CHAINSAW = ROOT / 'tests/chainsaw'
+# suites that never talk to a cluster and therefore need no isolation guard.
+NO_CLUSTER_SUITES = {'kohako-studio'}
+LOOPBACK_SUITES = {'codex-workspace/task-board-langfuse'}
+MUTATING_HELPERS = ['tests/chainsaw/argocd/network-policy-impact.sh', 'tests/chainsaw/grafana-alloy/log-pipeline.sh']
+
+STUB = '''#!/bin/sh
+case "$*" in
+  *current-context*) printf called >> "$CALL_LOG"; printf '%s\\n' "$CONFIG_CONTEXT" ;;
+  *--kubeconfig*) printf called >> "$CALL_LOG"; printf '%s\\n' "$KIND_SERVER" ;;
+  *config*view*) printf called >> "$CALL_LOG"; printf '%s\\n' "$ACTIVE_SERVER" ;;
+  *) printf called >> "$CALL_LOG"; printf mutation >> "$MUTATION_LOG" ;;
+esac
+'''
+
+
+class GuardHarness:
+    def __init__(self, directory):
+        self.root = Path(directory)
+        self.config = self.root / 'kind-config'
+        self.config.write_text('stub only')
+        stub = self.root / 'kubectl'
+        stub.write_text(STUB)
+        stub.chmod(0o755)
+        self.calls = self.root / 'calls'
+        self.mutations = self.root / 'mutations'
+
+    def env(self, expected, actual, kind_server, active_server, **extra):
+        self.calls.write_text('')
+        self.mutations.write_text('')
+        return dict(os.environ, PATH=str(self.root) + os.pathsep + os.environ['PATH'],
+                    CHAINSAW_KIND_CONTEXT=expected, CHAINSAW_KIND_KUBECONFIG=str(self.config),
+                    CONFIG_CONTEXT=actual, KIND_SERVER=kind_server, ACTIVE_SERVER=active_server,
+                    CALL_LOG=str(self.calls), MUTATION_LOG=str(self.mutations),
+                    REPO_ROOT=str(ROOT), **extra)
+
+
+def suites():
+    for test in CHAINSAW.rglob('chainsaw-test.yaml'):
+        yield test.parent.relative_to(CHAINSAW).as_posix(), test
 
 
 class IsolationGuardTest(unittest.TestCase):
-    def test_guard_on_every_mutating_suite(self):
-        for component in ['argocd', 'external-secrets-operator', 'grafana-alloy', 'kube-vip', 'codex-workspace', 'codex-workspace/task-board-langfuse', 'hermes-agent', 'langfuse']:
-            source = (ROOT / 'tests/chainsaw' / component / 'chainsaw-test.yaml').read_text()
-            guard = textwrap.dedent(source.split('        content: |\n', 1)[1].split('\n  - name:', 1)[0])
-            with tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                config = root / 'kind-config'
-                config.write_text('stub only')
-                stub = root / 'kubectl'
-                stub.write_text('''#!/bin/sh
-printf called >> "$CALL_LOG"
-case "$*" in
-  *current-context*) printf '%s\\n' "$CONFIG_CONTEXT" ;;
-  *--kubeconfig*) printf '%s\\n' "$KIND_SERVER" ;;
-  *) printf '%s\\n' "$ACTIVE_SERVER" ;;
-esac
-''')
-                stub.chmod(0o755)
-                # Chainsaw may rewrite current-context; bind to the server in
-                # the independently exported and validated kind kubeconfig.
-                cases = [('', 'kind-test', 'https://kind', 'https://kind', False, False),
-                         ('in-cluster', 'in-cluster', 'https://prod', 'https://prod', False, False),
-                         ('kind-test', 'in-cluster', 'https://prod', 'https://prod', False, True),
-                         ('kind-test', 'kind-test', 'https://kind', 'https://prod', False, True),
-                         ('kind-test', 'kind-test', '', '', False, True),
-                         ('kind-test', 'kind-test', 'https://kind', 'https://kind', True, True)]
-                if component == 'codex-workspace/task-board-langfuse':
-                    cases[-1] = ('kind-test', 'kind-test', 'https://127.0.0.1:1234', 'https://127.0.0.1:1234', True, True)
-                for expected, actual, kind_server, active_server, success, called in cases:
-                    with self.subTest(component=component, expected=expected, server=active_server):
-                        log = root / 'calls'
-                        log.write_text('')
-                        env = dict(os.environ, PATH=directory + os.pathsep + os.environ['PATH'],
-                                   CHAINSAW_KIND_CONTEXT=expected, CHAINSAW_KIND_KUBECONFIG=str(config),
-                                   CONFIG_CONTEXT=actual, KIND_SERVER=kind_server,
-                                   ACTIVE_SERVER=active_server, CALL_LOG=str(log))
-                        result = subprocess.run(['sh', '-c', guard], env=env, capture_output=True)
-                        self.assertEqual(result.returncode == 0, success, result.stderr)
-                        self.assertEqual(bool(log.read_text()), called)
+    def test_every_cluster_suite_runs_guard_first(self):
+        seen = set()
+        for suite, test in suites():
+            seen.add(suite)
+            if suite in NO_CLUSTER_SUITES:
+                continue
+            with self.subTest(suite=suite):
+                steps = re.findall(r'^  - name: (\S+)$', test.read_text(), re.M)
+                self.assertEqual(steps[0], 'require-isolated-kind')
+                first = test.read_text().split('  - name: ', 2)[1]
+                option = ' --loopback' if suite in LOOPBACK_SUITES else ''
+                expected = f"""content: '"${{REPO_ROOT}}/tests/workflows/require-isolated-kind.sh"{option}'\n"""
+                self.assertIn(expected, first)
+        self.assertIn('hermes-agent/alertmanager-relay', seen)
+        self.assertTrue(NO_CLUSTER_SUITES <= seen)
 
-    def test_network_matrix_guard_rejects_unsafe_context_before_mutation(self):
-        source = (ROOT / 'tests/chainsaw/argocd/network-policy-impact.sh').read_text()
-        guard = source.split('kubectl create namespace', 1)[0]
+    def test_no_cluster_suites_do_not_use_kubectl(self):
+        for suite in NO_CLUSTER_SUITES:
+            for path in (CHAINSAW / suite).rglob('*'):
+                if path.is_file():
+                    with self.subTest(path=str(path)):
+                        self.assertNotIn('kubectl', path.read_text())
+
+    def test_guard_fails_closed_before_any_cluster_call(self):
+        # Chainsaw may rewrite current-context; bind to the server in the
+        # independently exported and validated kind kubeconfig.
+        cases = [('', 'kind-test', 'https://kind', 'https://kind', False, False),
+                 ('in-cluster', 'in-cluster', 'https://prod', 'https://prod', False, False),
+                 ('kind-test', 'in-cluster', 'https://prod', 'https://prod', False, True),
+                 ('kind-test', 'kind-test', 'https://kind', 'https://prod', False, True),
+                 ('kind-test', 'kind-test', '', '', False, True),
+                 ('kind-test', 'kind-test', 'https://kind', 'https://kind', True, True)]
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            config = root / 'kind-config'
-            config.write_text('stub only')
-            stub = root / 'kubectl'
-            stub.write_text('''#!/bin/sh
-case "$*" in
-  *current-context*) printf '%s\\n' "$CONFIG_CONTEXT" ;;
-  *--kubeconfig*) printf '%s\\n' "$KIND_SERVER" ;;
-  *config*view*) printf '%s\\n' "$ACTIVE_SERVER" ;;
-  *) printf mutation >> "$CALL_LOG" ;;
-esac
-''')
-            stub.chmod(0o755)
-            cases = [('', 'kind-test', 'https://127.0.0.1:1234', 'https://127.0.0.1:1234', False),
-                     ('in-cluster', 'in-cluster', 'https://prod', 'https://prod', False),
-                     ('kind-test', 'in-cluster', 'https://prod', 'https://prod', False),
-                     ('kind-test', 'kind-test', 'https://prod', 'https://prod', False),
-                     ('kind-test', 'kind-test', 'https://127.0.0.1:1234', 'https://prod', False),
-                     ('kind-test', 'kind-test', 'https://127.0.0.1:1234', 'https://127.0.0.1:1234', True)]
-            for expected, actual, kind_server, active_server, success in cases:
-                with self.subTest(context=expected, server=active_server):
-                    log = root / 'calls'
-                    log.write_text('')
-                    env = dict(os.environ, PATH=directory + os.pathsep + os.environ['PATH'],
-                               CHAINSAW_KIND_CONTEXT=expected, CHAINSAW_KIND_KUBECONFIG=str(config),
-                               CHAINSAW_NETWORK_POLICY_TEST="true",
-                               CONFIG_CONTEXT=actual, KIND_SERVER=kind_server,
-                               ACTIVE_SERVER=active_server, CALL_LOG=str(log))
-                    result = subprocess.run(['bash', '-c', guard], env=env, capture_output=True)
+            harness = GuardHarness(directory)
+            for expected, actual, kind_server, active_server, success, called in cases:
+                with self.subTest(expected=expected, actual=actual, active=active_server):
+                    result = subprocess.run(['bash', str(GUARD)], capture_output=True,
+                                            env=harness.env(expected, actual, kind_server, active_server))
                     self.assertEqual(result.returncode == 0, success, result.stderr)
-                    self.assertEqual(log.read_text(), '')
+                    self.assertEqual(bool(harness.calls.read_text()), called)
+                    self.assertEqual(harness.mutations.read_text(), '')
+
+    def test_loopback_guard_requires_local_api_server(self):
+        cases = [('kind-test', 'kind-test', 'https://prod', 'https://prod', False),
+                 ('kind-test', 'kind-test', 'https://127.0.0.1:1234', 'https://127.0.0.1:1234', True),
+                 ('kind-test', 'kind-test', 'https://localhost:1234', 'https://localhost:1234', True)]
+        with tempfile.TemporaryDirectory() as directory:
+            harness = GuardHarness(directory)
+            for expected, actual, kind_server, active_server, success in cases:
+                with self.subTest(server=active_server):
+                    result = subprocess.run(['bash', str(GUARD), '--loopback'], capture_output=True,
+                                            env=harness.env(expected, actual, kind_server, active_server))
+                    self.assertEqual(result.returncode == 0, success, result.stderr)
+
+    def test_unknown_guard_option_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            harness = GuardHarness(directory)
+            result = subprocess.run(['bash', str(GUARD), '--bogus'], capture_output=True,
+                                    env=harness.env('kind-test', 'kind-test', 'https://kind', 'https://kind'))
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(harness.calls.read_text(), '')
+
+    def test_mutating_helpers_reject_unsafe_context_before_mutation(self):
+        unsafe = [('', 'kind-test', 'https://127.0.0.1:1234', 'https://127.0.0.1:1234'),
+                  ('in-cluster', 'in-cluster', 'https://prod', 'https://prod'),
+                  ('kind-test', 'in-cluster', 'https://prod', 'https://prod'),
+                  ('kind-test', 'kind-test', 'https://prod', 'https://prod'),
+                  ('kind-test', 'kind-test', 'https://127.0.0.1:1234', 'https://prod')]
+        for helper in MUTATING_HELPERS:
+            with tempfile.TemporaryDirectory() as directory:
+                harness = GuardHarness(directory)
+                for expected, actual, kind_server, active_server in unsafe:
+                    with self.subTest(helper=helper, context=expected, server=active_server):
+                        env = harness.env(expected, actual, kind_server, active_server,
+                                          CHAINSAW_NETWORK_POLICY_TEST='true')
+                        result = subprocess.run(['bash', str(ROOT / helper), 'section-not-reached'], capture_output=True, env=env)
+                        self.assertNotEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(harness.mutations.read_text(), '')
+
+    def test_matrix_is_skipped_only_without_network_policy_support(self):
+        with tempfile.TemporaryDirectory() as directory:
+            harness = GuardHarness(directory)
+            env = harness.env('', '', '', '', CHAINSAW_NETWORK_POLICY_TEST='false')
+            result = subprocess.run(['bash', str(ROOT / MUTATING_HELPERS[0]), 'create_probes'], capture_output=True, env=env, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('NetworkPolicy通信matrix未実施', result.stdout)
+            self.assertEqual(harness.calls.read_text(), '')
 
 
 if __name__ == '__main__':
