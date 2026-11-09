@@ -171,20 +171,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Create kind cluster
+      - name: Install kind
         uses: helm/kind-action@v1
         with:
           # v0.33.0 writes kubeadm v1beta4 for Kubernetes >= 1.36.
           # v0.31.0 used v1beta3, removed by Kubernetes 1.37.
           version: v0.33.0
           kubectl_version: v1.37.2
-          node_image: kindest/node:v1.37.0
-          cluster_name: chainsaw-test
-          config: tests/chainsaw/argocd/kind-config.yaml
+          install_only: true
+
+      - name: Create kind cluster
+        run: |
+          # GitHub hosted runner は使い捨てなので、Post でクラスタを削除しない。
           # kind-config は disableDefaultCNI のため、Calico を入れるまでノードは Ready に
           # ならない。既定の wait (60s) は毎回タイムアウトして 60 秒を捨てるだけなので待たない。
           # ノードの Ready は Calico 導入後に "Apply component manifests" で待つ。
-          wait: 0s
+          kind create cluster --name chainsaw-test --image kindest/node:v1.37.0 --config tests/chainsaw/argocd/kind-config.yaml --wait 0s
 
       - name: Export and verify isolated kubeconfig
         run: |

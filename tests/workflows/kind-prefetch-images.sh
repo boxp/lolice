@@ -91,6 +91,10 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     for node in "${targets[@]}"; do printf '%s\t%s\n' "$node" "$ref"; done
   done | sort -u > "$jobs_file"
 
+  # Apply step が順に待つ Calico と ESO を優先し、各グループ内では sort 後の順序を保つ。
+  awk -F '\t' '$2 ~ /^(quay\.io\/(calico|tigera)|ghcr\.io\/external-secrets)\// { print; next } { rest = rest $0 "\n" } END { printf "%s", rest }' "$jobs_file" > "${jobs_file}.ordered"
+  mv "${jobs_file}.ordered" "$jobs_file"
+
   echo "prefetch: $(wc -l < "$jobs_file") pulls across ${#all_nodes[@]} node(s), parallel=${PARALLEL}"
   xargs -r -P "$PARALLEL" -L 1 bash -c 'pull_one "$0" "$1"' < "$jobs_file" | tee "${jobs_file}.result"
   ok="$(grep -c '^ok ' "${jobs_file}.result" || true)"
