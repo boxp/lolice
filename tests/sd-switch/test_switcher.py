@@ -49,6 +49,7 @@ class Base(unittest.TestCase):
         self.progress = IDLE
         self.active = 0
         self.processing = False
+        self.slots_status = 200
         self.probes = 0
         self.probe_ok = True
         self.switcher = self.make()
@@ -66,7 +67,7 @@ class Base(unittest.TestCase):
         if url.endswith('/__board_pilot__/models'):
             return 200, b'{"data":[{"id":"gemma4-26b","status":{"value":"loaded"}}]}'
         if '/__board_pilot__/slots' in url:
-            return 200, json.dumps([{'is_processing': self.processing}]).encode()
+            return self.slots_status, json.dumps([{'is_processing': self.processing}]).encode()
         if url.endswith('/sdapi/v1/progress'):
             return self.progress
         if url.endswith('/health'):
@@ -167,6 +168,17 @@ class Drain(Base):
         self.assertEqual(self.phase, 'draining')
         self.assertEqual(self.cluster.llama, 1)
 
+    def test_unobservable_slots_do_not_count_as_idle(self):
+        self.slots_status = 503
+        self.intent()
+        self.until('draining')
+        for _ in range(12):
+            self.advance(20)
+        self.assertEqual(self.phase, 'draining')
+        self.assertEqual(self.cluster.llama, 1)
+        self.slots_status = 200
+        self.until('stopping-llm', step=20)
+
     def test_processing_slot_resets_stability(self):
         self.intent()
         self.advance()
@@ -261,6 +273,16 @@ class Window(Base):
         self.until('failed', step=60)
         self.assertTrue(self.cluster.gate.startswith('verify:'))
         self.assertLessEqual(self.probes, module.START_LIMIT // module.PROBE_SPACING + 1)
+
+
+class Progress(Base):
+    def test_residual_progress_after_a_job_is_idle(self):
+        self.progress = (200, json.dumps({'progress': 1.0, 'state': {'job': '', 'job_count': 0, 'sampling_step': 20}}).encode())
+        self.assertIs(self.switcher.sd_busy(), False)
+
+    def test_running_job_is_busy(self):
+        self.progress = (200, json.dumps({'progress': 0, 'state': {'job': 'txt2img', 'job_count': 1}}).encode())
+        self.assertIs(self.switcher.sd_busy(), True)
 
 
 class Recovery(Base):

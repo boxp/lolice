@@ -298,8 +298,8 @@ class Switcher:
                 if model['status']['value'] != 'loaded':
                     continue
                 code, body = self.get(LLM + ':9901/__board_pilot__/slots?model=' + model['id'])
-                if code == 503:
-                    continue
+                # Any failure, including 503, is not evidence of idleness: an
+                # unloaded model simply disappears from the next list.
                 slots = json.loads(body) if code == 200 else None
                 if not isinstance(slots, list) or not slots or any(slot.get('is_processing') is not False for slot in slots):
                     return False
@@ -314,10 +314,10 @@ class Switcher:
             return None
         try:
             value = json.loads(body)
+            # SD.Next leaves the last sampling step behind after end(), so
+            # `progress` stays non-zero while idle. Only the job fields are reset.
             state = value['state']
-            if state['job_count'] != 0 or state.get('job') or value.get('progress', 0) != 0:
-                return True
-            return False
+            return state['job_count'] != 0 or bool(state.get('job'))
         except (ValueError, KeyError, TypeError):
             return None
 

@@ -117,6 +117,13 @@ class GatewayRoutingTest(unittest.TestCase):
         for path in ('/sdapi/v1/txt2img', '/sdapi/v1/img2img', '/sdapi/v1/txt2img?x=1', '/sdapi/v1//txt2img'):
             self.assertEqual(self.request('POST', path), [200, 'intake'], path)
 
+    def test_api_writes_never_reach_the_backend(self):
+        self.phase('image-ready')
+        for path in ('/sdapi/v1/shutdown', '/sdapi/v1/restart', '/sdapi/v1/interrupt', '/sdapi/v1/skip',
+                     '/sdapi/v1/options', '/sdapi/v1/unload-checkpoint', '/sdapi/v1/txt2img/', '/%73dapi/v1/shutdown'):
+            self.assertEqual(self.request('POST', path), [200, 'intake'], path)
+        self.assertEqual(self.request('GET', '/sdapi/v1/progress'), [200, 'backend'])
+
     def test_client_cannot_choose_route(self):
         self.phase('llm-open')
         self.assertEqual(self.request('GET', '/', {'x-sd-route': 'backend'}), [200, 'intake'])

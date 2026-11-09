@@ -30,3 +30,9 @@ llm-open → fencing → draining → stopping-llm → starting-sd → image-rea
 - 生成APIは同期ではなく202とポーリングになる（Cloudflareの応答時間上限のため）。
 - WebUI操作が5分ないとwindowを解放する。
 - 実機のSD.Nextで `/sdapi/v1/progress` の形式を確認するまで、アイドル判定は未検証。
+
+## 独立レビューの反映（head 16e76f7 時点）
+- 修正: slots の 503 を idle 扱いしない / image-ready 中の `/sdapi/` 書込みは生成の受付以外を SD.Next へ通さない / gateway の LAN 許可を削除し Tunnel のみに限定 / dispatch と image-draining の競合を再確認で解消。
+- 追加修正: SD.Next は `end()` 後も `sampling_step` を残し `progress` が 0 に戻らないため、idle 判定は `job` と `job_count` のみで行う。
+- 非採用（P2）: Deployment の `status.replicas` に Terminating Pod が含まれない件。`gpu.intel.com/i915` allocatable=1 のためスケジューラが後続 GPU Pod を Pending にし、二重所有は起きない。
+- 残る制約: WebUI の Gradio 経由の操作（再起動ボタン等）は gateway で個別に制限していない。Access 認証済みの利用者のみ到達できる。

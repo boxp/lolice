@@ -1,4 +1,4 @@
-# BOXP-484: same public sources SD.Next had, and no route to anything else.
+# BOXP-484: only the Access-protected tunnel reaches the unauthenticated gateway.
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
 metadata:
@@ -14,14 +14,6 @@ spec:
       source:
         namespaceSelector: kubernetes.io/metadata.name == 'stable-diffusion'
         selector: app == 'cloudflared'
-      destination:
-        ports:
-          - 7860
-    - action: Allow
-      protocol: TCP
-      source:
-        nets:
-          - 192.168.10.0/24
       destination:
         ports:
           - 7860

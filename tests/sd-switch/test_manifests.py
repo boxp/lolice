@@ -54,6 +54,13 @@ class BoundaryTest(unittest.TestCase):
         self.assertNotIn("selector: app == 'cloudflared'", ingress)
         self.assertIn("selector: app == 'sd-admission-gateway'", ingress)
 
+    def test_gateway_accepts_only_the_tunnel(self):
+        policy = text('stable-diffusion/sd-gateway-networkpolicy.yaml')
+        ingress = policy[policy.index('ingress:'):policy.index('egress:')]
+        self.assertNotIn('nets:', ingress)
+        self.assertEqual(ingress.count('- action: Allow'), 1)
+        self.assertIn("selector: app == 'cloudflared'", ingress)
+
     def test_tunnel_target_service_selects_the_gateway(self):
         front = text('stable-diffusion/service.yaml').split('---')[0]
         self.assertIn('name: stable-diffusion-webui\n', front)

@@ -66,8 +66,11 @@ data:
                                 end
                                 local generation = method == "POST" and
                                   (path == "/sdapi/v1/txt2img" or path == "/sdapi/v1/img2img")
+                                -- shutdown, restart, interrupt, options and other writes
+                                -- never reach SD.Next; the intake answers them with 404.
+                                local api_write = path:sub(1, 7) == "/sdapi/" and method ~= "GET"
                                 local target = "intake"
-                                if phase == "image-ready" and path:sub(1, 6) ~= "/__sd/" and not generation then
+                                if phase == "image-ready" and path:sub(1, 6) ~= "/__sd/" and not generation and not api_write then
                                   target = "backend"
                                 end
                                 -- Always overwritten, so a client cannot choose the route.

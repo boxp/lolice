@@ -51,6 +51,21 @@ class IntakeTest(unittest.TestCase):
         self.assertFalse(restarted.dispatch_once())
         self.assertEqual(len(self.calls), 1)
 
+    def test_phase_change_during_dispatch_sends_nothing(self):
+        identity = self.create()
+        (self.root / 'phase').write_text('image-ready')
+        original = self.intake.status
+
+        def status(job, state, **extra):
+            value = original(job, state, **extra)
+            if state == 'dispatched':
+                (self.root / 'phase').write_text('image-draining')
+            return value
+        self.intake.status = status
+        self.assertFalse(self.intake.dispatch_once())
+        self.assertEqual(self.calls, [])
+        self.assertEqual(module.read_json(self.root / 'jobs' / identity / 'status.json')['state'], 'queued')
+
     def test_failed_phase_and_retention(self):
         identity = self.create()
         (self.root / 'phase').write_text('image-draining')

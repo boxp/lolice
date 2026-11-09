@@ -139,6 +139,12 @@ class Intake:
             identity = queued[0]['job_id']
             request = read_json(self.jobs / identity / 'request.json')
             self.status(identity, 'dispatched')
+            # The switcher publishes image-draining and then looks for dispatched
+            # jobs; recording first and re-reading here means one of us always
+            # sees the other. Nothing was sent yet, so queued is still accurate.
+            if self.phase() != 'image-ready':
+                self.status(identity, 'queued')
+                return False
         try:
             code, data, content_type = self.http(request['path'], request['body'])
             with self.lock:
