@@ -16,6 +16,10 @@ spec:
       containers:
         - name: grafana
           env:
+            # BOXP-472: 上限 512Mi に対し Go の GC 目標が 490-530MiB まで伸び、dashboard 表示で OOMKilled に
+            # なっていた。limit は増やさず GC を早める (残りは ClickHouse plugin の別プロセス分)
+            - name: GOMEMLIMIT
+              value: 400MiB
             # BOXP-472: grafana-datasources の provisioning が展開する view-only user の password
             - name: CLICKHOUSE_GRAFANA_PASSWORD
               valueFrom:
