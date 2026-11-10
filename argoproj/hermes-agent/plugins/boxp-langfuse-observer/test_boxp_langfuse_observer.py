@@ -276,6 +276,20 @@ class ObserverTest(unittest.TestCase):
             self.assertNotIn("q7z", pattern.sub("[x]", text), text)
         for text in ("aq7zb", "q7z_x", "xq7z"):
             self.assertIn("q7z", pattern.sub("[x]", text), text)
+        # Only ASCII letters, digits and _ join a word: in Japanese (or other non-ASCII) text the value stands alone
+        # (lolice#1157 review: 秘密はq7zです).
+        for text in ("秘密はq7zです", "値:q7z。", "éq7zé", "q7z１"):
+            self.assertNotIn("q7z", pattern.sub("[x]", text), text)
+
+    def test_short_value_in_japanese_reply_is_masked(self):
+        session = "kohako-g2-short-ja"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: q7z")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="秘密はq7zです。jareplymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = bodies()
+        self.assertIn("jareplymarker", body)
+        self.assertNotIn("q7z", body)
 
     def test_reference_shaped_values_pin_nothing(self):
         for text in ("password: ${{ secrets.DB_PASSWORD }}", "CLOUDFLARE_API_TOKEN: ${{ secrets.CF }}",

@@ -90,8 +90,9 @@ def fire_short_values(session):
     common = {"session_id": session, "turn_id": "turn"}
     hooks["pre_llm_call"](**common, user_message="hello")
     hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args={"command": "bb test.bb"},
-                            result='PASS: old\nsame_site_cookie_attribute = "lax"\npassword: ${{ secrets.X }}\n')
-    hooks["post_llm_call"](**common, assistant_response="td12shortreplymarker")
+                            result='PASS: old\nsame_site_cookie_attribute = "lax"\npassword: ${{ secrets.X }}\npassword: qzk\n')
+    # The short value repeated inside Japanese text is still masked (lolice#1157 review: 秘密はqzkです).
+    hooks["post_llm_call"](**common, assistant_response="秘密はqzkです。td12shortreplymarker")
     hooks["on_session_end"](**common, completed=True)
     hooks["pre_llm_call"](session_id=session, turn_id="next", user_message="td12shortnextmarker")
     hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
