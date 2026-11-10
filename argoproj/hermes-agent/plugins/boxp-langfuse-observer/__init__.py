@@ -184,6 +184,7 @@ _FIELD_ONLY = {"assignment", "entropy", "data_uri", "env_entry", "flag", "cli_pa
 # Only shapes that are credentials by themselves count. Name-based kinds (assignment, env entry, flag, cli password,
 # XML element) mask the value in place and pin it (_named_values) but are no evidence: they match ordinary code and logs such as
 # TOKEN_FILE=/work/x or credentials: 'same-origin', which withheld whole sessions in production (BOXP-428).
+_PROVIDER_PREFIX = re.compile(r"^(?:sk-lf-|pk-lf-|sk-|ghp_|gho_|ghs_|ghu_|ghr_|github_pat_|xox[baprs]-|npm_|glpat-)")
 _EXPOSURE_KINDS = {"private_key", "header", "url_credentials", "jwt", "provider_key", "aws_key", "google_key",
                    "telegram", "bearer", "env"}
 # A secret key whose value spans several tokens or lines: a list, a map, a shell array, a YAML block.
@@ -521,6 +522,25 @@ _PIN_KINDS = {"assignment", "env_entry", "flag", "cli_password"}
 # that starts with $ (password: $hunterhorse): it is pinned like any value (masking a later ${VAR} is a harmless
 # over-mask), but when it is too short to pin it does not withhold, since it is most likely a reference.
 _REFERENCE = re.compile(r"\[REDACTED:[a-z_-]+\]", re.I)
+# Not a credential by shape (BOXP-428 TD-12): no letter or digit (${KEY:-} leaves -, ==), a template or expression start
+# that the value scan cut off (password: ${{ secrets.X }}, {{ .Values.x }}), a printf directive (n_tokens = %d) or a
+# grep -n location (runtime-authorization.yaml:4:). Such hits withheld whole sessions in production.
+_NOT_A_VALUE = re.compile(r"[^\w]*|_+|\$?\{[{%].*|%[-+ #0]*\d*(?:\.\d+)?[a-zA-Z]|\d+:", re.S)
+
+
+def _not_a_value(value):
+    return bool(_REFERENCE.fullmatch(value) or _NOT_A_VALUE.fullmatch(value))
+
+
+class _Word(str):
+    """A named value of 1-3 characters (password: q7z, \"auth\": 38). It is pinned as a whole word: masking it inside
+    longer words would blank ordinary text, and withholding the lineage for it hid whole sessions whose tool output
+    was a test log (PASS: old) or a config file (same_site_cookie_attribute = \"lax\") (BOXP-428 TD-12)."""
+
+
+# A word boundary is a letter, digit or _ on neither side; an escape (\n, \u0020, %20) before the value is a boundary.
+_WORD_BEFORE = r"(?:(?<!\w)|(?<=\\[nrtbf])|(?<=\\u[0-9a-fA-F]{4})|(?<=%[0-9a-fA-F]{2}))"
+_WORD_AFTER = r"(?!\w)"
 _VARIABLE_LIKE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 _NAME_SEPARATOR = re.compile(r"(?s)^(.*?)(?:[:=]|\\+u00(?:3[aA]|3[dD]))")
 # The value key takes every serialized quote form (&quot;value&quot;:, \u0022value\u0022:), as _entry_key does.
@@ -708,12 +728,15 @@ def _collection_values(text):
 
 
 def _named_values(text):
+    """(values, unpinned). Values of 1-3 characters are _Word (pinned as whole words); a short $X form is most likely a
+    reference and is not pinned. Only a value too long or too many to mask is unpinned."""
     found, unpinned = _named_values_raw(text)
     decoded = {form for value in found for form in _decoded_forms(value)}
+    values = {v for v in decoded if 4 <= len(v) <= 256} | {
+        _Word(v) for v in decoded if 0 < len(v) < 4 and not _VARIABLE_LIKE.fullmatch(v) and not _not_a_value(v)}
     if len(decoded) > 64:
-        return {v for v in decoded if 4 <= len(v) <= 256}, True
-    return {v for v in decoded if 4 <= len(v) <= 256}, unpinned or any(
-        not 4 <= len(v) <= 256 and not (len(v) < 4 and _VARIABLE_LIKE.fullmatch(v)) for v in decoded)
+        return values, True
+    return values, unpinned or any(len(v) > 256 for v in decoded)
 
 
 def _reversed_entry_values(text):
@@ -739,12 +762,12 @@ def _named_values_raw(text):
     found = set()
     for match in _SECRET_ELEMENT.finditer(text):
         for value in _element_values(match.group(0)):
-            if not _REFERENCE.fullmatch(value):
+            if not _not_a_value(value):
                 found.add(value)
                 if len(found) > 64:
                     return found, True
     for value in _reversed_entry_values(text):
-        if value and not _REFERENCE.fullmatch(value):
+        if value and not _not_a_value(value):
             found.add(value)
             if len(found) > 64:
                 return found, True
@@ -820,7 +843,7 @@ def _named_values_raw(text):
                 else:
                     values = _shell_values(re.sub(r"(?is)^.*?\s-p[ \t]*", "", raw))
             for value in values:
-                if value and not _REFERENCE.fullmatch(value):
+                if value and not _not_a_value(value):
                     found.add(value)
                     if len(found) > 64:
                         return found, True
@@ -889,7 +912,9 @@ def _pin_body(session, parent, body):
 def _pin_pattern(session):
     with _lock:
         values = set().union(*(_pins.get(node, set()) for node in _lineage(str(session or ""))))
-    return re.compile("|".join(map(_value_pattern, sorted(values, key=len, reverse=True)))) if values else None
+    return re.compile("|".join(
+        _WORD_BEFORE + "(?:" + _value_pattern(v) + ")" + _WORD_AFTER if isinstance(v, _Word) else _value_pattern(v)
+        for v in sorted(values, key=len, reverse=True))) if values else None
 
 
 def _mask_value(value, pattern):
@@ -945,6 +970,13 @@ def _exposure(text):
                 elif kind == "url_credentials":
                     password = re.search(r":([^:@]*)@$", value)
                     credential = password.group(1) if password else ""
+                elif kind == "provider_key":
+                    # A prefix on an ordinary identifier (npm_config_cache: lower-case words joined by _ or -) or a short
+                    # word (sk-inet) is masked in place but does not withhold (BOXP-428 TD-12); an issued key does.
+                    body = _PROVIDER_PREFIX.sub("", value)
+                    if len(body) < 8 or re.fullmatch(r"[a-z]+(?:[_-][a-z]+)+", body):
+                        continue
+                    credential = None
                 else:
                     credential = None
                 if credential is not None and _placeholder_credential((credential.split() or [""])[0]):

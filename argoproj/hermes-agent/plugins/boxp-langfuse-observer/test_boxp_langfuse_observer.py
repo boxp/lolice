@@ -3,6 +3,7 @@ import importlib.util
 import inspect
 import json
 import os
+import re
 import tempfile
 import threading
 import time
@@ -250,21 +251,45 @@ class ObserverTest(unittest.TestCase):
         plugin._on_session_end(session_id="kohako-g2-child", turn_id="t", completed=True)
         self.assertNotIn("hunterhorsebattery", bodies())
 
-    def test_short_tool_value_withholds(self):
-        session = "kohako-g2-short"
-        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
-        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: q7z")
-        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="laterbodymarker")
-        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
-        self.assertNotIn("laterbodymarker", bodies())
-        self.assertEqual(plugin._tainted(session), "known_format_in_tool_output")
+    def test_short_tool_value_is_pinned_as_a_word(self):
+        # BOXP-428 TD-12 (production 2026-11-10): a 1-3 character named value withheld the whole session, and the
+        # triggers were test logs (PASS: old) and config files. It is pinned as a whole word instead.
+        for i, (result, value) in enumerate((("password: q7z", "q7z"), ("PASS: old\nPASS: pin", "old"),
+                                             ('same_site_cookie_attribute = "lax"', "lax"), ('{"auth":38}', "38"),
+                                             ("password: 5", "5"), ("<password>abc</password>", "abc"))):
+            with self.subTest(result):
+                session = "kohako-g2-short-%d" % i
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result=result)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is %s, laterbodymarker" % value)
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = bodies()
+                self.assertIn("laterbodymarker", body)
+                self.assertIsNone(plugin._tainted(session))
+                self.assertIsNone(re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % value, body.replace("\\n", " ")))
+
+    def test_word_values_mask_whole_words_only(self):
+        pattern = re.compile(plugin._WORD_BEFORE + "(?:" + plugin._value_pattern("q7z") + ")" + plugin._WORD_AFTER)
+        for text in ("q7z", "x\\nq7z", "x\\u0020q7z", "a%20q7z", "(q7z)", '"q7z"'):
+            self.assertNotIn("q7z", pattern.sub("[x]", text), text)
+        for text in ("aq7zb", "q7z_x", "xq7z"):
+            self.assertIn("q7z", pattern.sub("[x]", text), text)
+
+    def test_reference_shaped_values_pin_nothing(self):
+        for text in ("password: ${{ secrets.DB_PASSWORD }}", "CLOUDFLARE_API_TOKEN: ${{ secrets.CF }}",
+                     "key=${ANTHROPIC_API_KEY:-}", "n_tokens = %d", "runtime-authorization.yaml:4:  kind: Role", "password: =="):
+            self.assertEqual(plugin._named_values(text), (set(), False), text)
+
+    def test_provider_prefix_on_names_does_not_withhold(self):
+        self.assertEqual(plugin._exposure("npm_config_cache=/home/u/.npm\nsk-inet ok"), set())
+        self.assertEqual(plugin._exposure("key: ghp_" + "plainwordvalue"), {"provider_key"})
 
     def test_named_values_in_xml_elements(self):
         self.assertEqual(plugin._named_values("<password>quietmeadowstone</password>"), ({"quietmeadowstone"}, False))
         self.assertEqual(plugin._named_values('{"output":"\\u003cpassword\\u003equietmeadowstone\\u003c/password\\u003e"}'),
                          ({"quietmeadowstone"}, False))
         self.assertEqual(plugin._named_values("<secret><value>outerkeyvalue</value></secret>"), ({"outerkeyvalue"}, False))
-        self.assertTrue(plugin._named_values("<password>abc</password>")[1])
+        self.assertEqual(plugin._named_values("<password>abc</password>"), ({"abc"}, False))
         self.assertEqual(plugin._named_values("<password>${DB_PASSWORD}</password> <password/>"), ({"${DB_PASSWORD}"}, False))
 
     def test_named_values_in_entity_quotes(self):
@@ -442,7 +467,7 @@ class ObserverTest(unittest.TestCase):
                 self.assertFalse(any(v.startswith("[") for v in found))
         found = plugin._named_values("secret: {primary: hunterhorse, backup: meadowlake}")[0]
         self.assertFalse({"primary", "backup"} & found)
-        self.assertTrue(plugin._named_values("password: [hunterhorse, ab]")[1])
+        self.assertEqual(plugin._named_values("password: [hunterhorse, ab]"), ({"hunterhorse", "ab"}, False))
         # Regression (lolice#1107 review): an object nested in a list ([{primary:a}]) with no space after the
         # colon pins the value itself, not only key:value as one token.
         for text in ["password: [{primary:hunterhorse}]", "password: [{primary=hunterhorse}, {backup:meadowlake}]",
@@ -474,8 +499,8 @@ class ObserverTest(unittest.TestCase):
                     self.assertNotIn(value, plugin._redact(text)[0])
                 self.assertFalse(any(v.startswith("[") for v in found))
                 self.assertFalse({"primary", "backup"} & found)
-        self.assertTrue(plugin._named_values('{"name":"API_SECRET","value":["hunterhorse","ab"]}')[1])
-        self.assertTrue(plugin._named_values('{"value":["hunterhorse","ab"],"name":"API_SECRET"}')[1])
+        self.assertFalse(plugin._named_values('{"name":"API_SECRET","value":["hunterhorse","ab"]}')[1])
+        self.assertIn("ab", plugin._named_values('{"value":["hunterhorse","ab"],"name":"API_SECRET"}')[0])
         self.assertFalse(plugin._named_values('{"name":"PATH_LIST","value":["alphabeta","gammadelta"]}')[0])
 
     def test_named_values_in_uppercase_cli_flags(self):
