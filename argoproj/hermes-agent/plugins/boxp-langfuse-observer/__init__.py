@@ -537,6 +537,10 @@ _TEMPLATE_REST = re.compile(r"[ \t]+(?:[^\r\n{]|\{(?![{%]))*?[}%]\}")
 _SYMBOLS_ONLY = re.compile(r"[^\w]+|_+")
 _GREP_LOCATION_NAME = re.compile(r"\.[A-Za-z0-9]{1,10}$")
 _DATE_FORMAT = re.compile(r"[\"']?\+[\"']?(?:%[A-Za-z]|[TZ]|[^A-Za-z0-9\s])*")
+# The command word before -u: only date takes a format there. The segment starts after a line break or a shell
+# separator (; & | ( `), may set variables or use sudo, and may give other flags before -u.
+_DATE_COMMAND_BEFORE = re.compile(
+    r"(?:^|[\n;&|(`])[ \t]*(?:(?:sudo|env|[A-Za-z_][A-Za-z0-9_]*=\S*)[ \t]+)*(?:\S*/)?g?date(?:[ \t]+-\S+)*[ \t]+\Z")
 
 
 def _not_a_value(value):
@@ -873,9 +877,11 @@ def _named_values_raw(text):
             else:
                 if re.match(r"(?i)^(?:-u|--user)", raw):
                     rest = re.sub(r"(?i)^(?:-u|--user)[ \t=]*", "", raw)
-                    if _DATE_FORMAT.fullmatch(rest.split()[0] if rest.split() else ""):
+                    if (_DATE_FORMAT.fullmatch(rest.split()[0] if rest.split() else "")
+                            and _DATE_COMMAND_BEFORE.search(text[max(0, match.start() - 512):match.start()])):
                         # date -u +%H:%M: the whole argument is a date format (only % directives, literal T/Z and
-                        # punctuation), not user:password. Before TD-12 the printf rule skipped it as a value.
+                        # punctuation), not user:password. Before TD-12 the printf rule skipped it as a value. Only
+                        # the date command takes it: curl -u +%H:%M is user:password and %M is pinned (lolice#1157).
                         values = []
                     elif _OPENING_QUOTE.match(rest):
                         # -u 'user:pass word': the whole quoted word is user:password.

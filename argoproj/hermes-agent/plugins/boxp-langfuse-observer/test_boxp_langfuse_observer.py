@@ -495,6 +495,15 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn(value.split()[-1], plugin._redact(text)[0])
         self.assertEqual(plugin._named_values("mysql -p && ls -p 'some dir'"), (set(), False))
         self.assertEqual(plugin._named_values("date -u +%H:%M")[0], set())
+        # Regression (lolice#1157 review): only the date command takes a date format after -u. A curl -u value that
+        # looks like a date format (+%H:%M) is user:password and its password is pinned.
+        for text in ("date -u +%FT%TZ", "TZ=UTC date -u '+%H:%M'", "echo $(date -u +%H:%M)", "/bin/date -u +%T"):
+            with self.subTest(text=text):
+                self.assertEqual(plugin._named_values(text)[0], set())
+        for text in ("curl -u +%H:%M https://example.com", "date; curl -u +%H:%M https://x",
+                     "curl --user +%H:%M https://x"):
+            with self.subTest(text=text):
+                self.assertIn("%M", plugin._named_values(text)[0])
 
     def test_named_values_in_backslash_escaped_cli_passwords(self):
         # Regression (lolice#1107 review): a shell word may escape its spaces (sshpass -p apple\\ orchard). The whole
