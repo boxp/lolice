@@ -18,7 +18,7 @@ spec:
         # from the ConfigMap into the PVC only at Pod start. Bump this value
         # whenever task_board_webhook_route.json changes so Argo CD rolls
         # the Pod and the new route definition takes effect.
-        boxp.io/task-board-webhook-route-revision: "2026-10-22T14:10Z-marker-fallback"
+        boxp.io/task-board-webhook-route-revision: "2026-11-10-BOXP-491-prefilter"
         # BOXP-462: bump when alertmanager_webhook_route.json / alertmanager_relay.* change.
         boxp.io/alertmanager-webhook-route-revision: "2026-11-08-v1"
     spec:
@@ -316,6 +316,11 @@ spec:
               chmod 0755 /opt/data/scripts/alertmanager_relay.sh
               chmod 0644 /opt/data/scripts/alertmanager_relay.clj
               chown 1000:10000 /opt/data/scripts/alertmanager_relay.sh /opt/data/scripts/alertmanager_relay.clj
+              cp /bootstrap/task_board_webhook_filter.sh /opt/data/scripts/task_board_webhook_filter.sh
+              cp /bootstrap/task_board_webhook_filter.clj /opt/data/scripts/task_board_webhook_filter.clj
+              chmod 0755 /opt/data/scripts/task_board_webhook_filter.sh
+              chmod 0644 /opt/data/scripts/task_board_webhook_filter.clj
+              chown 1000:10000 /opt/data/scripts/task_board_webhook_filter.sh /opt/data/scripts/task_board_webhook_filter.clj
               cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
               chmod 0755 /opt/data/scripts/quiet_gate.sh
               chown 1000:10000 /opt/data/scripts/quiet_gate.sh
