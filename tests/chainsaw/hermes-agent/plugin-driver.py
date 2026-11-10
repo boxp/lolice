@@ -82,6 +82,21 @@ def fire_mention(session, tool, args, tag):
     hooks["pre_llm_call"](session_id=session, turn_id="next", user_message=f"td12{tag}nextmarker")
     hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
 
+def fire_short_values(session):
+    # BOXP-428 TD-12 positive control (production 2026-11-10): a test log and config file whose name-based values are
+    # 1-3 characters or a template expression (PASS: old, same_site_cookie_attribute = "lax", password: ${{ secrets.X }})
+    # are masked in place; the reply and the next turn stay readable.
+    hooks = ctx.hooks
+    common = {"session_id": session, "turn_id": "turn"}
+    hooks["pre_llm_call"](**common, user_message="hello")
+    hooks["post_tool_call"](**common, tool_call_id="tool", tool_name="terminal", args={"command": "bb test.bb"},
+                            result='PASS: old\nsame_site_cookie_attribute = "lax"\npassword: ${{ secrets.X }}\npassword: qzk\n')
+    # The short value repeated inside Japanese text is still masked (lolice#1157 review: 秘密はqzkです).
+    hooks["post_llm_call"](**common, assistant_response="秘密はqzkです。td12shortreplymarker")
+    hooks["on_session_end"](**common, completed=True)
+    hooks["pre_llm_call"](session_id=session, turn_id="next", user_message="td12shortnextmarker")
+    hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
+
 def fire_harmless_lineage(parent, child):
     # Positive control: a parent that used terminal delegates; the child's request and the parent's summary are sent.
     hooks = ctx.hooks
@@ -176,6 +191,7 @@ while True:
     fire_mention(f"kohako-g2-grepfilter-{n}", "terminal", {"command": "kubectl logs pod --since=1h | grep -viE 'authorization|token|secret|key=' | tail"}, "grepfilter")
     fire_mention(f"kohako-g2-prose-write-{n}", "write_file", {"path": "/tmp/notes.md", "content": "the ID token is checked; never cat .env or run printenv"}, "prosewrite")
     fire_mention(f"kohako-g2-oneenv-{n}", "execute_code", {"code": "import os\nlayout = os.environ.get('LAYOUT', '/tmp/x')\nprint(layout)"}, "oneenv")
+    fire_short_values(f"kohako-g2-short-{n}")
     fire_harmless_lineage(f"tg-lineage-{n}", f"subagent-lineage-{n}")
     fire_known_format_in_output(f"kohako-g2-format-{n}")
     fire_name_only_in_output(f"kohako-g2-nameonly-{n}")

@@ -11,7 +11,7 @@ SECRET_FRAGMENTS = (
     "plainwordvalue", "plainkubevalue", "plainenvvalue", "plainnestedvalue",
     "plainflagvalue", "plainentryvalue", "plainarrayvalue", "plainresumevalue",
     "plainxmlvalue", "plainprosevalue", "plainformatvalue", "plainnamedvalue",
-    "plaintablevalue",
+    "plaintablevalue", "qzk",
 )
 # Owner の契約: 無害な tool 入出力、その後の応答、次ターン、委譲の系譜は読めること。
 POSITIVE_MARKERS = (
@@ -22,7 +22,7 @@ POSITIVE_MARKERS = (
     "harmlessparentreplymarker", "keptdistantmarker", "nameonlyreplymarker",
     "nameonlynextmarker", "td12grepfilterreplymarker", "td12grepfilternextmarker",
     "td12prosewritereplymarker", "td12prosewritenextmarker", "td12oneenvreplymarker",
-    "td12oneenvnextmarker",
+    "td12oneenvnextmarker", "td12shortreplymarker", "td12shortnextmarker",
 )
 
 

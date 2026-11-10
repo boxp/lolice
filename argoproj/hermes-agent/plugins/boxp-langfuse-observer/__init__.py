@@ -184,6 +184,7 @@ _FIELD_ONLY = {"assignment", "entropy", "data_uri", "env_entry", "flag", "cli_pa
 # Only shapes that are credentials by themselves count. Name-based kinds (assignment, env entry, flag, cli password,
 # XML element) mask the value in place and pin it (_named_values) but are no evidence: they match ordinary code and logs such as
 # TOKEN_FILE=/work/x or credentials: 'same-origin', which withheld whole sessions in production (BOXP-428).
+_PROVIDER_PREFIX = re.compile(r"^(?:sk-lf-|pk-lf-|sk-|ghp_|gho_|ghs_|ghu_|ghr_|github_pat_|xox[baprs]-|npm_|glpat-)")
 _EXPOSURE_KINDS = {"private_key", "header", "url_credentials", "jwt", "provider_key", "aws_key", "google_key",
                    "telegram", "bearer", "env"}
 # A secret key whose value spans several tokens or lines: a list, a map, a shell array, a YAML block.
@@ -521,6 +522,62 @@ _PIN_KINDS = {"assignment", "env_entry", "flag", "cli_password"}
 # that starts with $ (password: $hunterhorse): it is pinned like any value (masking a later ${VAR} is a harmless
 # over-mask), but when it is too short to pin it does not withhold, since it is most likely a reference.
 _REFERENCE = re.compile(r"\[REDACTED:[a-z_-]+\]", re.I)
+# Not a credential by shape (BOXP-428 TD-12): a whole template expression whose opener the value scan cut off at the
+# space (password: ${{ secrets.X }}, {{ .Values.x }}); see _template_expression. Such hits withheld whole sessions in
+# production. A value that merely starts like a template ("{{hunter123") is a value like any other and is pinned; a
+# quoted or unclosed opener ("{{") is a short symbol value and withholds the lineage (arch#14742 review). The operator of a
+# ${NAME:-default} expansion is not a value (_named_values_raw drops it). A value of symbols only (password: ==) can
+# be a real password: it is pinned when long enough, and a short one withholds the lineage (_named_values), since a
+# whole-word match cannot bound it (arch#14742 review). A printf directive (password: %d) or digits with a colon (password: 1234:) can be a real password, so
+# they are pinned like any value (a later %d is over-masked as a whole word); only a grep -n location, whose name is a
+# file name with an extension (runtime-authorization.yaml:4:), is skipped (_GREP_LOCATION_NAME).
+_NOT_A_VALUE = re.compile(r"\s*", re.S)
+_TEMPLATE_OPENER = re.compile(r"\$?\{[{%]-?")
+_TEMPLATE_REST = re.compile(r"[ \t]+(?:[^\r\n{]|\{(?![{%]))*?[}%]\}")
+_SYMBOLS_ONLY = re.compile(r"[\W_]+")
+_GREP_LOCATION_NAME = re.compile(r"\.[A-Za-z0-9]{1,10}$")
+_DATE_FORMAT = re.compile(r"[\"']?\+[\"']?(?:%[A-Za-z]|[TZ]|[^A-Za-z0-9\s])*")
+# The command word before -u: only date takes a format there. The segment starts after a line break or a shell
+# separator (; & | ( `), may set variables or use sudo, and may give other flags before -u.
+_DATE_COMMAND_BEFORE = re.compile(
+    r"(?:^|[\n;&|(`])[ \t]*(?:(?:sudo|env|[A-Za-z_][A-Za-z0-9_]*=\S*)[ \t]+)*(?:\S*/)?g?date(?:[ \t]+-\S+)*[ \t]+\Z")
+
+
+def _not_a_value(value):
+    return bool(_REFERENCE.fullmatch(value) or _NOT_A_VALUE.fullmatch(value))
+
+
+def _template_expression(text, match, value):
+    """An unquoted template opener that is the whole value (the match ends with it) and is closed later on the same
+    line after a space, before any other opener: password: ${{ secrets.X }}. Not a credential by shape (BOXP-428
+    TD-12); in password: {{ note password: {{ secrets.X }} the closer belongs to the second opener (arch#14742 review)."""
+    return bool(_TEMPLATE_OPENER.fullmatch(value) and match.group(0).rstrip().endswith(value)
+                and _TEMPLATE_REST.match(text, match.end()))
+
+
+_OPEN_TEMPLATE = re.compile(r"\{[{%]")
+_CLOSED_TEMPLATE = re.compile(r"\{[{%]-?[ \t]+(?:[^\r\n{]|\{(?![{%]))*?[}%]\}")
+
+
+def _open_template(text, position):
+    """An unquoted template opener ({{, {%) at position that no closer follows on its line (arch#14742 review): it is
+    not an object or a template expression but the value itself (password: {{ is a short symbol password and
+    withholds the lineage). A closed template ({{ .Values.x }}) is still scanned as a bracket; a closer after another
+    opener on the line closes that opener, not this one ({{ note {{ x }} is open; arch#14742 review)."""
+    return bool(_OPEN_TEMPLATE.match(text, position) and not _CLOSED_TEMPLATE.match(text, position))
+
+
+class _Word(str):
+    """A named value of 1-3 characters (password: q7z, \"auth\": 38). It is pinned as a whole word: masking it inside
+    longer words would blank ordinary text, and withholding the lineage for it hid whole sessions whose tool output
+    was a test log (PASS: old) or a config file (same_site_cookie_attribute = \"lax\") (BOXP-428 TD-12)."""
+
+
+# A word boundary is an ASCII letter, digit or _ on neither side; an escape (\n, \u0020, %20) before the value is a
+# boundary. Non-ASCII letters do not join the word: Japanese has no spaces, so 秘密はq7zです repeats the value q7z
+# (lolice#1157 review). A non-ASCII value is then also masked inside longer non-ASCII text (over-masking, not a leak).
+_WORD_BEFORE = r"(?:(?<![A-Za-z0-9_])|(?<=\\[nrtbf])|(?<=\\u[0-9a-fA-F]{4})|(?<=%[0-9a-fA-F]{2}))"
+_WORD_AFTER = r"(?![A-Za-z0-9_])"
 _VARIABLE_LIKE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 _NAME_SEPARATOR = re.compile(r"(?s)^(.*?)(?:[:=]|\\+u00(?:3[aA]|3[dD]))")
 # The value key takes every serialized quote form (&quot;value&quot;:, \u0022value\u0022:), as _entry_key does.
@@ -708,12 +765,17 @@ def _collection_values(text):
 
 
 def _named_values(text):
+    """(values, unpinned). Values of 1-3 characters are _Word (pinned as whole words); a short $X form is most likely a
+    reference and is not pinned. Only a value too long or too many to mask is unpinned."""
     found, unpinned = _named_values_raw(text)
     decoded = {form for value in found for form in _decoded_forms(value)}
+    short_symbols = any(0 < len(v) < 4 and _SYMBOLS_ONLY.fullmatch(v) for v in decoded)
+    values = {v for v in decoded if 4 <= len(v) <= 256} | {
+        _Word(v) for v in decoded if 0 < len(v) < 4 and not _VARIABLE_LIKE.fullmatch(v) and not _not_a_value(v)
+        and not _SYMBOLS_ONLY.fullmatch(v)}
     if len(decoded) > 64:
-        return {v for v in decoded if 4 <= len(v) <= 256}, True
-    return {v for v in decoded if 4 <= len(v) <= 256}, unpinned or any(
-        not 4 <= len(v) <= 256 and not (len(v) < 4 and _VARIABLE_LIKE.fullmatch(v)) for v in decoded)
+        return values, True
+    return values, unpinned or short_symbols or any(len(v) > 256 for v in decoded)
 
 
 def _reversed_entry_values(text):
@@ -739,12 +801,12 @@ def _named_values_raw(text):
     found = set()
     for match in _SECRET_ELEMENT.finditer(text):
         for value in _element_values(match.group(0)):
-            if not _REFERENCE.fullmatch(value):
+            if not _not_a_value(value):
                 found.add(value)
                 if len(found) > 64:
                     return found, True
     for value in _reversed_entry_values(text):
-        if value and not _REFERENCE.fullmatch(value):
+        if value and not _not_a_value(value):
             found.add(value)
             if len(found) > 64:
                 return found, True
@@ -765,10 +827,14 @@ def _named_values_raw(text):
                     continue
                 name = re.sub(r"[\"'\\\s]", "", sep.group(1))
                 tail = raw[sep.end():]
+                if (raw[:sep.end()].endswith(":") and text[max(0, match.start() - 2):match.start()] == "${"
+                        and tail[:1] in ("-", "=", "?", "+")):
+                    # ${NAME:-default} (also :=, :?, :+): the operator is not part of the value; the default is.
+                    tail = tail[1:]
                 position = match.start() + sep.end()
                 while position < len(text) and text[position] in " \t":
                     position += 1
-                if position < len(text) and text[position] in "[{(":
+                if position < len(text) and text[position] in "[{(" and not _open_template(text, position):
                     # The value runs to the matching close (or the end of text, fail closed), as _mask_structured
                     # masks it.
                     covered = max(match.end(), _bracket_end(text, position))
@@ -778,7 +844,9 @@ def _named_values_raw(text):
                     values = [_first_value(v) if re.match(r"\\*[\"']", v) else v for v in values]
                 else:
                     value = _first_value(tail)
-                    if not _is_setting(name, value):
+                    if re.fullmatch(r"\d+:", value.strip()) and _GREP_LOCATION_NAME.search(name):
+                        values = []
+                    elif not _is_setting(name, value):
                         values = [value]
             elif kind == "env_entry":
                 if match.start() < covered:
@@ -788,7 +856,7 @@ def _named_values_raw(text):
                     position = match.start() + entry.end()
                     while position < len(text) and text[position] in " \t":
                         position += 1
-                    if position < len(text) and text[position] in "[{(":
+                    if position < len(text) and text[position] in "[{(" and not _open_template(text, position):
                         # "value": ["a", "b"]: the value runs to the matching close (or the end of text, fail
                         # closed), as _mask_structured masks it, and every element is pinned.
                         covered = max(match.end(), _bracket_end(text, position))
@@ -801,7 +869,7 @@ def _named_values_raw(text):
                 head = re.match(r"^\S+[ \t]+", raw)
                 tail = raw[head.end():] if head else raw
                 position = match.start() + (head.end() if head else 0)
-                if position < len(text) and text[position] in "[{(":
+                if position < len(text) and text[position] in "[{(" and not _open_template(text, position):
                     # --password [a, b]: like an assignment, the value runs to the matching close (or the end of
                     # text, fail closed), as _mask_structured masks it, and every element is pinned.
                     covered = max(match.end(), _bracket_end(text, position))
@@ -811,7 +879,13 @@ def _named_values_raw(text):
             else:
                 if re.match(r"(?i)^(?:-u|--user)", raw):
                     rest = re.sub(r"(?i)^(?:-u|--user)[ \t=]*", "", raw)
-                    if _OPENING_QUOTE.match(rest):
+                    if (_DATE_FORMAT.fullmatch(rest.split()[0] if rest.split() else "")
+                            and _DATE_COMMAND_BEFORE.search(text[max(0, match.start() - 512):match.start()])):
+                        # date -u +%H:%M: the whole argument is a date format (only % directives, literal T/Z and
+                        # punctuation), not user:password. Before TD-12 the printf rule skipped it as a value. Only
+                        # the date command takes it: curl -u +%H:%M is user:password and %M is pinned (lolice#1157).
+                        values = []
+                    elif _OPENING_QUOTE.match(rest):
                         # -u 'user:pass word': the whole quoted word is user:password.
                         word = _first_value(rest)
                         values = [word.split(":", 1)[1]] if ":" in word else []
@@ -820,7 +894,7 @@ def _named_values_raw(text):
                 else:
                     values = _shell_values(re.sub(r"(?is)^.*?\s-p[ \t]*", "", raw))
             for value in values:
-                if value and not _REFERENCE.fullmatch(value):
+                if value and not _not_a_value(value) and not _template_expression(text, match, value.strip()):
                     found.add(value)
                     if len(found) > 64:
                         return found, True
@@ -889,7 +963,9 @@ def _pin_body(session, parent, body):
 def _pin_pattern(session):
     with _lock:
         values = set().union(*(_pins.get(node, set()) for node in _lineage(str(session or ""))))
-    return re.compile("|".join(map(_value_pattern, sorted(values, key=len, reverse=True)))) if values else None
+    return re.compile("|".join(
+        _WORD_BEFORE + "(?:" + _value_pattern(v) + ")" + _WORD_AFTER if isinstance(v, _Word) else _value_pattern(v)
+        for v in sorted(values, key=len, reverse=True))) if values else None
 
 
 def _mask_value(value, pattern):
@@ -945,6 +1021,13 @@ def _exposure(text):
                 elif kind == "url_credentials":
                     password = re.search(r":([^:@]*)@$", value)
                     credential = password.group(1) if password else ""
+                elif kind == "provider_key":
+                    # A prefix on an ordinary identifier (npm_config_cache: lower-case words joined by _ or -) or a short
+                    # word (sk-inet) is masked in place but does not withhold (BOXP-428 TD-12); an issued key does.
+                    body = _PROVIDER_PREFIX.sub("", value)
+                    if len(body) < 8 or re.fullmatch(r"[a-z]+(?:[_-][a-z]+)+", body):
+                        continue
+                    credential = None
                 else:
                     credential = None
                 if credential is not None and _placeholder_credential((credential.split() or [""])[0]):

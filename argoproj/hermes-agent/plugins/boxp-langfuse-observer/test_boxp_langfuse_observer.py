@@ -3,6 +3,7 @@ import importlib.util
 import inspect
 import json
 import os
+import re
 import tempfile
 import threading
 import time
@@ -250,21 +251,156 @@ class ObserverTest(unittest.TestCase):
         plugin._on_session_end(session_id="kohako-g2-child", turn_id="t", completed=True)
         self.assertNotIn("hunterhorsebattery", bodies())
 
-    def test_short_tool_value_withholds(self):
-        session = "kohako-g2-short"
+    def test_short_tool_value_is_pinned_as_a_word(self):
+        # BOXP-428 TD-12 (production 2026-11-10): a 1-3 character named value withheld the whole session, and the
+        # triggers were test logs (PASS: old) and config files. It is pinned as a whole word instead.
+        for i, (result, value) in enumerate((("password: q7z", "q7z"), ("PASS: old\nPASS: pin", "old"),
+                                             ('same_site_cookie_attribute = "lax"', "lax"), ('{"auth":38}', "38"),
+                                             ("password: 5", "5"), ("<password>abc</password>", "abc"),
+                                             # A printf directive or digits with a colon can be a real password.
+                                             ("password: %d", "%d"), ("password: 1234:", "1234:"))):
+            with self.subTest(result):
+                session = "kohako-g2-short-%d" % i
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result=result)
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is %s, laterbodymarker" % value)
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = bodies()
+                self.assertIn("laterbodymarker", body)
+                self.assertIsNone(plugin._tainted(session))
+                self.assertIsNone(re.search(r"(?<![A-Za-z0-9_])%s(?![A-Za-z0-9_])" % value, body.replace("\\n", " ")))
+
+    def test_word_values_mask_whole_words_only(self):
+        pattern = re.compile(plugin._WORD_BEFORE + "(?:" + plugin._value_pattern("q7z") + ")" + plugin._WORD_AFTER)
+        for text in ("q7z", "x\\nq7z", "x\\u0020q7z", "a%20q7z", "(q7z)", '"q7z"'):
+            self.assertNotIn("q7z", pattern.sub("[x]", text), text)
+        for text in ("aq7zb", "q7z_x", "xq7z"):
+            self.assertIn("q7z", pattern.sub("[x]", text), text)
+        # Only ASCII letters, digits and _ join a word: in Japanese (or other non-ASCII) text the value stands alone
+        # (lolice#1157 review: 秘密はq7zです).
+        for text in ("秘密はq7zです", "値:q7z。", "éq7zé", "q7z１"):
+            self.assertNotIn("q7z", pattern.sub("[x]", text), text)
+
+    def test_short_value_in_japanese_reply_is_masked(self):
+        session = "kohako-g2-short-ja"
         plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
         plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: q7z")
-        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="laterbodymarker")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="秘密はq7zです。jareplymarker")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = bodies()
+        self.assertIn("jareplymarker", body)
+        self.assertNotIn("q7z", body)
+
+    def test_reference_shaped_values_pin_nothing(self):
+        for text in ("password: ${{ secrets.DB_PASSWORD }}", "CLOUDFLARE_API_TOKEN: ${{ secrets.CF }}",
+                     "key=${ANTHROPIC_API_KEY:-}", "runtime-authorization.yaml:4:  kind: Role",
+                     "src/secret_store.py:12:  kind: Role", 'echo "${ANTHROPIC_API_KEY:-}"', "${PASSWORD:-}"):
+            self.assertEqual(plugin._named_values(text), (set(), False), text)
+
+    def test_template_like_values_are_pinned(self):
+        # Regression (arch#14742 review): only a whole template expression is skipped. A value that merely starts like
+        # a template is a password: it is pinned and a later restatement is masked; a quoted opener withholds.
+        for text, value in (('password: "{{hunter123"', "{{hunter123"), ("password: '{%secretpw'", "{%secretpw"),
+                            ('password: "${{hunter123"', "${{hunter123"), ('{"password": "{{hunter123"}', "{{hunter123")):
+            values, _ = plugin._named_values(text)
+            self.assertIn(value, values, text)
+        for text in ('password: "{{"', "password: '${{'", 'password: "{%"'):
+            self.assertTrue(plugin._named_values(text)[1], text)
+        for text in ("password: ${{ secrets.X }}", "PASSWORD: {{ .Values.db.password }} # note"):
+            values, unpinned = plugin._named_values(text)
+            self.assertFalse(unpinned, text)
+            self.assertFalse(any(re.match(r"\$?\{[{%]", v) for v in values), text)
+        session = "kohako-g2-template"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={},
+                        result='password: "{{hunter123"\nconfigline')
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is {{hunter123 , laterbodymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = bodies()
+        self.assertIn("laterbodymarker", body)
+        self.assertNotIn("hunter123", body)
+
+    def test_unclosed_template_opener_is_the_value(self):
+        # Regression (arch#14742 review): an unquoted opener with no closer on its line (password: {{) is not an
+        # object or a template: it is a short symbol password and withholds, even when the same name later has a
+        # closed template (password: {{ secrets.X }}). A closed template on its own still does not withhold.
+        for text in ("password: {{", "password: {{\npassword: {{ secrets.X }}", "--password {{",
+                     "password: ${{\nnote\npassword: ${{ secrets.X }}", "password: {%\npassword: {% x %}"):
+            self.assertTrue(plugin._named_values(text)[1], text)
+        for text in ("password: {{ secrets.X }}", "password: {}", "password: {a: hunterhorse}"):
+            self.assertFalse(plugin._named_values(text)[1], text)
+        self.assertIn("{{hunter123", plugin._named_values("password: {{hunter123")[0])
+        session = "kohako-g2-open-template"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={},
+                        result="password: {{\npassword: {{ secrets.X }}")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is {{ , laterbodymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        self.assertIsNotNone(plugin._tainted(session))
         self.assertNotIn("laterbodymarker", bodies())
-        self.assertEqual(plugin._tainted(session), "known_format_in_tool_output")
+
+    def test_unclosed_template_opener_on_same_line_as_closed_template(self):
+        # Regression (arch#14742 review): a closer belongs to the nearest opener before it. An unclosed opener on the
+        # same line as a later closed template (password: {{ note password: {{ secrets.X }}) is a short symbol
+        # password and withholds; the restatement is never sent.
+        for text in ("password: {{ note password: {{ secrets.X }}", "password: ${{ x password: ${{ secrets.X }}",
+                     "password: {% a {% b %}", "token: {{ note {{ x }}"):
+            self.assertTrue(plugin._named_values(text)[1], text)
+        for text in ("password: ${{ secrets.X }} and token: ${{ secrets.Y }}",
+                     "PASSWORD: {{ .Values.db.password }} # note"):
+            self.assertFalse(plugin._named_values(text)[1], text)
+        session = "kohako-g2-open-template-same-line"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={},
+                        result="password: {{ note password: {{ secrets.X }}")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is {{ , laterbodymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        self.assertIsNotNone(plugin._tainted(session))
+        self.assertNotIn("laterbodymarker", bodies())
+
+    def test_short_symbol_only_values_withhold(self):
+        # Regression (arch#14742 review): a value of symbols only can be a real password (password: ==). A short one
+        # has no word boundary to pin it by, so it withholds the lineage; the restatement is never sent.
+        for text in ("password: ==", 'password: "=="', "token=***", "password: -", "<password>==</password>",
+                     "password: -_", "password: _-", "token=_=*", 'password: "-_"'):
+            self.assertEqual(plugin._named_values(text), (set(), True), text)
+        self.assertEqual(plugin._named_values("password: !@#$"), ({"!@#$"}, False))
+        # Mixed underscores and symbols are still symbols only (lolice#1157 review): password: -_ withholds, so a
+        # later a-_b restatement is never sent.
+        self.assertEqual(plugin._named_values("password: -_=_"), ({"-_=_"}, False))
+        session = "kohako-g2-symbols"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: ==\nconfigline")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is == , laterbodymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        self.assertIsNotNone(plugin._tainted(session))
+        body = bodies()
+        self.assertNotIn("laterbodymarker", body)
+        self.assertNotIn("it is ==", body)
+        session = "kohako-g2-symbols-mixed"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: -_\nconfigline")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="use a-_b , mixedlatermarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        self.assertIsNotNone(plugin._tainted(session))
+        body = bodies()
+        self.assertNotIn("mixedlatermarker", body)
+        self.assertNotIn("a-_b", body)
+
+    def test_expansion_defaults_are_values(self):
+        self.assertEqual(plugin._named_values('echo "${API_TOKEN:-hunterzz9}"'), ({"hunterzz9"}, False))
+        self.assertEqual(plugin._named_values("x=${API_TOKEN:=ab}"), ({"ab"}, False))
+
+    def test_provider_prefix_on_names_does_not_withhold(self):
+        self.assertEqual(plugin._exposure("npm_config_cache=/home/u/.npm\nsk-inet ok"), set())
+        self.assertEqual(plugin._exposure("key: ghp_" + "plainwordvalue"), {"provider_key"})
 
     def test_named_values_in_xml_elements(self):
         self.assertEqual(plugin._named_values("<password>quietmeadowstone</password>"), ({"quietmeadowstone"}, False))
         self.assertEqual(plugin._named_values('{"output":"\\u003cpassword\\u003equietmeadowstone\\u003c/password\\u003e"}'),
                          ({"quietmeadowstone"}, False))
         self.assertEqual(plugin._named_values("<secret><value>outerkeyvalue</value></secret>"), ({"outerkeyvalue"}, False))
-        self.assertTrue(plugin._named_values("<password>abc</password>")[1])
+        self.assertEqual(plugin._named_values("<password>abc</password>"), ({"abc"}, False))
         self.assertEqual(plugin._named_values("<password>${DB_PASSWORD}</password> <password/>"), ({"${DB_PASSWORD}"}, False))
 
     def test_named_values_in_entity_quotes(self):
@@ -386,6 +522,15 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn(value.split()[-1], plugin._redact(text)[0])
         self.assertEqual(plugin._named_values("mysql -p && ls -p 'some dir'"), (set(), False))
         self.assertEqual(plugin._named_values("date -u +%H:%M")[0], set())
+        # Regression (lolice#1157 review): only the date command takes a date format after -u. A curl -u value that
+        # looks like a date format (+%H:%M) is user:password and its password is pinned.
+        for text in ("date -u +%FT%TZ", "TZ=UTC date -u '+%H:%M'", "echo $(date -u +%H:%M)", "/bin/date -u +%T"):
+            with self.subTest(text=text):
+                self.assertEqual(plugin._named_values(text)[0], set())
+        for text in ("curl -u +%H:%M https://example.com", "date; curl -u +%H:%M https://x",
+                     "curl --user +%H:%M https://x"):
+            with self.subTest(text=text):
+                self.assertIn("%M", plugin._named_values(text)[0])
 
     def test_named_values_in_backslash_escaped_cli_passwords(self):
         # Regression (lolice#1107 review): a shell word may escape its spaces (sshpass -p apple\\ orchard). The whole
@@ -442,7 +587,7 @@ class ObserverTest(unittest.TestCase):
                 self.assertFalse(any(v.startswith("[") for v in found))
         found = plugin._named_values("secret: {primary: hunterhorse, backup: meadowlake}")[0]
         self.assertFalse({"primary", "backup"} & found)
-        self.assertTrue(plugin._named_values("password: [hunterhorse, ab]")[1])
+        self.assertEqual(plugin._named_values("password: [hunterhorse, ab]"), ({"hunterhorse", "ab"}, False))
         # Regression (lolice#1107 review): an object nested in a list ([{primary:a}]) with no space after the
         # colon pins the value itself, not only key:value as one token.
         for text in ["password: [{primary:hunterhorse}]", "password: [{primary=hunterhorse}, {backup:meadowlake}]",
@@ -474,8 +619,8 @@ class ObserverTest(unittest.TestCase):
                     self.assertNotIn(value, plugin._redact(text)[0])
                 self.assertFalse(any(v.startswith("[") for v in found))
                 self.assertFalse({"primary", "backup"} & found)
-        self.assertTrue(plugin._named_values('{"name":"API_SECRET","value":["hunterhorse","ab"]}')[1])
-        self.assertTrue(plugin._named_values('{"value":["hunterhorse","ab"],"name":"API_SECRET"}')[1])
+        self.assertFalse(plugin._named_values('{"name":"API_SECRET","value":["hunterhorse","ab"]}')[1])
+        self.assertIn("ab", plugin._named_values('{"value":["hunterhorse","ab"],"name":"API_SECRET"}')[0])
         self.assertFalse(plugin._named_values('{"name":"PATH_LIST","value":["alphabeta","gammadelta"]}')[0])
 
     def test_named_values_in_uppercase_cli_flags(self):
