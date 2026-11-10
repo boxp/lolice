@@ -139,8 +139,8 @@ data:
                      :event_id (safe (:event_id event) #"[A-Za-z0-9._:-]{1,200}")
                      :ticket_id (safe (:ticket_id event) #"BOXP-[0-9]+")
                      :event_type (when (#{"task-board.run-finished" "task-board.lane-changed" "task-board.morning-digest"} (:event_type event)) (:event_type event))
-                     :to_status (when (#{"Backlog" "Todo" "In Progress" "Done" "Blocked"} (:to_status event)) (:to_status event))
-                     :notify_mode (when (#{"defer" "immediate"} (:notify_mode event)) (:notify_mode event))
+                     :to_status (when (#{"backlog" "ready" "in-progress" "blocked" "done"} (:to_status event)) (:to_status event))
+                     :notify_mode (when (#{"normal" "defer"} (:notify_mode event)) (:notify_mode event))
                      :decision decision :reason reason}]
           (when-let [parent (.getParentFile path)] (.mkdirs parent))
           (spit path (str (json/generate-string entry) "\n") :append true))
