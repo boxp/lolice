@@ -62,7 +62,8 @@ data:
   task_board_webhook_route.json: |
     {
       "task-board": {
-        "description": "BOXP-270 Task Board -> Kohako event relay (managed by lolice argoproj/hermes-agent/configmap.yaml; do not edit on the PVC)",
+        "description": "BOXP-270 Task Board -> Kohako event relay with BOXP-491 prefilter (managed by lolice argoproj/hermes-agent/configmap.yaml; do not edit on the PVC)",
+        "script": "task_board_webhook_filter.sh",
         "events": [
           "task-board.run-finished",
           "task-board.lane-changed",
@@ -77,6 +78,76 @@ data:
         "enabled": true
       }
     }
+
+  task_board_webhook_filter.sh: |
+    #!/bin/sh
+    # A failed filter must never suppress the original event.
+    tmp=$(mktemp) || { cat; exit 0; }
+    out=$(mktemp) || { cat; rm -f "$tmp"; exit 0; }
+    trap 'rm -f "$tmp" "$out"' EXIT HUP INT TERM
+    cat > "$tmp"
+    if timeout 20 bb /opt/data/scripts/task_board_webhook_filter.clj < "$tmp" > "$out" && [ -s "$out" ]; then
+      cat "$out"
+    else
+      cat "$tmp"
+    fi
+    exit 0
+
+  task_board_webhook_filter.clj: |
+    #!/usr/bin/env bb
+    (require '[cheshire.core :as json] '[clojure.string :as str] '[clojure.java.io :as io] '[babashka.process :as process])
+    (def raw (slurp *in*))
+    (def event (try (json/parse-string raw true) (catch Exception _ nil)))
+    (defn marker? [content id]
+      (boolean (some (fn [line]
+                       (let [prefix (first (str/split line #"\bsummary=" 2))]
+                         (and (re-find #"(?i)handled" prefix)
+                              (re-find (re-pattern (str "(?:^|\\s)event=" (java.util.regex.Pattern/quote id) "(\\s|$)")) prefix))))
+                     (str/split-lines content))))
+    (defn decide []
+      (let [{:keys [event_type ticket_id event_id run_id]} event]
+        (cond
+          (not (map? event)) ["pass" "invalid-object"]
+          (not (#{"task-board.run-finished" "task-board.lane-changed"} event_type)) ["pass" "event-type"]
+          (not (and (string? ticket_id) (re-matches #"BOXP-[0-9]+" ticket_id))) ["pass" "ticket-id"]
+          (not (and (string? event_id) (<= (count event_id) 200) (str/starts-with? event_id (str ticket_id "-")) (re-matches #"[A-Za-z0-9._:-]+" event_id))) ["pass" "event-id"]
+          (not (or (nil? run_id) (and (string? run_id) (re-matches #"[A-Za-z0-9._:-]+" run_id)))) ["pass" "run-id"]
+          :else
+          (let [runbook (io/file (or (System/getenv "TASK_BOARD_FILTER_RUNBOOK") "/opt/data/kohako-task-supervision.md"))
+                vault (or (System/getenv "TASK_BOARD_FILTER_VAULT") "/home/boxp/Documents/obsidian-headless/BOXP")
+                ticket (io/file vault "Tickets" (str ticket_id ".md"))
+                number (subs ticket_id 5)]
+            (cond
+              (or (not (.isFile runbook)) (not (.canRead runbook)) (< (.length runbook) 1000)) ["pass" "runbook-unavailable"]
+              :else (let [book (slurp runbook)]
+                      (cond
+                        (or (re-find (re-pattern (str (java.util.regex.Pattern/quote ticket_id) "(?![0-9])")) book)
+                            (re-find (re-pattern (str "(?<![0-9])" (java.util.regex.Pattern/quote number) "(?![0-9])")) book)) ["pass" "possibly-registered"]
+                        (not (.isFile ticket)) ["pass" "ticket-unavailable"]
+                        (marker? (slurp ticket) event_id) ["silent-already-handled" "marker-exists"]
+                        :else (let [helper (or (System/getenv "TASK_BOARD_FILTER_HELPER") "/opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb")
+                                    note (str "[kohako-event] handled event=" event_id " run=" (or run_id "none") " result=silent summary=未登録票の定型処理(LLMなし)")
+                                    result (process/shell {:continue true :out :string :err :string} "timeout" "15" "bb" helper "append-note" ticket_id "--vault" vault "--source" "kohako-event" "--note" note)]
+                                (if (and (zero? (:exit result)) (marker? (slurp ticket) event_id))
+                                  ["silent-unregistered" "marker-appended"]
+                                  ["pass" "helper-failed-or-marker-missing"])))))))))
+    (defn log! [decision reason]
+      (try
+        (let [path (io/file (or (System/getenv "TASK_BOARD_FILTER_LOG") "/opt/data/ai-ops/task-board-webhook-filter.jsonl"))
+              safe (fn [x pattern] (when (and (string? x) (re-matches pattern x)) x))
+              entry {:ts (str (java.time.Instant/now))
+                     :event_id (safe (:event_id event) #"[A-Za-z0-9._:-]{1,200}")
+                     :ticket_id (safe (:ticket_id event) #"BOXP-[0-9]+")
+                     :event_type (when (#{"task-board.run-finished" "task-board.lane-changed" "task-board.morning-digest"} (:event_type event)) (:event_type event))
+                     :to_status (when (#{"backlog" "ready" "in-progress" "blocked" "done"} (:to_status event)) (:to_status event))
+                     :notify_mode (when (#{"normal" "defer"} (:notify_mode event)) (:notify_mode event))
+                     :decision decision :reason reason}]
+          (when-let [parent (.getParentFile path)] (.mkdirs parent))
+          (spit path (str (json/generate-string entry) "\n") :append true))
+        (catch Exception _ nil)))
+    (let [[decision reason] (try (decide) (catch Exception _ ["pass" "unexpected-error"]))]
+      (log! decision reason)
+      (print (if (= decision "pass") raw "[SILENT]")))
 
   # BOXP-462: Alertmanager -> Hermes の汎用受信口。Alertmanager の webhook_configs が
   # X-Gitlab-Token（Hermes webhook の token 検証方式。route 専用の secret）で送る。
