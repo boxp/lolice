@@ -550,6 +550,17 @@ def _template_expression(text, match, value):
                 and _TEMPLATE_REST.match(text, match.end()))
 
 
+_OPEN_TEMPLATE = re.compile(r"\{[{%]")
+_CLOSED_TEMPLATE = re.compile(r"\{[{%]-?[ \t]+[^\r\n]*?[}%]\}")
+
+
+def _open_template(text, position):
+    """An unquoted template opener ({{, {%) at position that no closer follows on its line (arch#14742 review): it is
+    not an object or a template expression but the value itself (password: {{ is a short symbol password and
+    withholds the lineage). A closed template ({{ .Values.x }}) is still scanned as a bracket."""
+    return bool(_OPEN_TEMPLATE.match(text, position) and not _CLOSED_TEMPLATE.match(text, position))
+
+
 class _Word(str):
     """A named value of 1-3 characters (password: q7z, \"auth\": 38). It is pinned as a whole word: masking it inside
     longer words would blank ordinary text, and withholding the lineage for it hid whole sessions whose tool output
@@ -815,7 +826,7 @@ def _named_values_raw(text):
                 position = match.start() + sep.end()
                 while position < len(text) and text[position] in " \t":
                     position += 1
-                if position < len(text) and text[position] in "[{(":
+                if position < len(text) and text[position] in "[{(" and not _open_template(text, position):
                     # The value runs to the matching close (or the end of text, fail closed), as _mask_structured
                     # masks it.
                     covered = max(match.end(), _bracket_end(text, position))
@@ -837,7 +848,7 @@ def _named_values_raw(text):
                     position = match.start() + entry.end()
                     while position < len(text) and text[position] in " \t":
                         position += 1
-                    if position < len(text) and text[position] in "[{(":
+                    if position < len(text) and text[position] in "[{(" and not _open_template(text, position):
                         # "value": ["a", "b"]: the value runs to the matching close (or the end of text, fail
                         # closed), as _mask_structured masks it, and every element is pinned.
                         covered = max(match.end(), _bracket_end(text, position))
@@ -850,7 +861,7 @@ def _named_values_raw(text):
                 head = re.match(r"^\S+[ \t]+", raw)
                 tail = raw[head.end():] if head else raw
                 position = match.start() + (head.end() if head else 0)
-                if position < len(text) and text[position] in "[{(":
+                if position < len(text) and text[position] in "[{(" and not _open_template(text, position):
                     # --password [a, b]: like an assignment, the value runs to the matching close (or the end of
                     # text, fail closed), as _mask_structured masks it, and every element is pinned.
                     covered = max(match.end(), _bracket_end(text, position))

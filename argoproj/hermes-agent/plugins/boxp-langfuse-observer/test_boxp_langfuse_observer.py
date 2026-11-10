@@ -306,6 +306,25 @@ class ObserverTest(unittest.TestCase):
         self.assertIn("laterbodymarker", body)
         self.assertNotIn("hunter123", body)
 
+    def test_unclosed_template_opener_is_the_value(self):
+        # Regression (arch#14742 review): an unquoted opener with no closer on its line (password: {{) is not an
+        # object or a template: it is a short symbol password and withholds, even when the same name later has a
+        # closed template (password: {{ secrets.X }}). A closed template on its own still does not withhold.
+        for text in ("password: {{", "password: {{\npassword: {{ secrets.X }}", "--password {{",
+                     "password: ${{\nnote\npassword: ${{ secrets.X }}", "password: {%\npassword: {% x %}"):
+            self.assertTrue(plugin._named_values(text)[1], text)
+        for text in ("password: {{ secrets.X }}", "password: {}", "password: {a: hunterhorse}"):
+            self.assertFalse(plugin._named_values(text)[1], text)
+        self.assertIn("{{hunter123", plugin._named_values("password: {{hunter123")[0])
+        session = "kohako-g2-open-template"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={},
+                        result="password: {{\npassword: {{ secrets.X }}")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is {{ , laterbodymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        self.assertIsNotNone(plugin._tainted(session))
+        self.assertNotIn("laterbodymarker", bodies())
+
     def test_short_symbol_only_values_withhold(self):
         # Regression (arch#14742 review): a value of symbols only can be a real password (password: ==). A short one
         # has no word boundary to pin it by, so it withholds the lineage; the restatement is never sent.
