@@ -22,7 +22,7 @@ POSITIVE_MARKERS = (
     "harmlessparentreplymarker", "keptdistantmarker", "nameonlyreplymarker",
     "nameonlynextmarker", "td12grepfilterreplymarker", "td12grepfilternextmarker",
     "td12prosewritereplymarker", "td12prosewritenextmarker", "td12oneenvreplymarker",
-    "td12oneenvnextmarker",
+    "td12oneenvnextmarker", "td12shortreplymarker", "td12shortnextmarker",
 )
 
 
