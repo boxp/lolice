@@ -534,7 +534,7 @@ _REFERENCE = re.compile(r"\[REDACTED:[a-z_-]+\]", re.I)
 _NOT_A_VALUE = re.compile(r"\s*", re.S)
 _TEMPLATE_OPENER = re.compile(r"\$?\{[{%]-?")
 _TEMPLATE_REST = re.compile(r"[ \t]+(?:[^\r\n{]|\{(?![{%]))*?[}%]\}")
-_SYMBOLS_ONLY = re.compile(r"[^\w]+|_+")
+_SYMBOLS_ONLY = re.compile(r"[\W_]+")
 _GREP_LOCATION_NAME = re.compile(r"\.[A-Za-z0-9]{1,10}$")
 _DATE_FORMAT = re.compile(r"[\"']?\+[\"']?(?:%[A-Za-z]|[TZ]|[^A-Za-z0-9\s])*")
 # The command word before -u: only date takes a format there. The segment starts after a line break or a shell

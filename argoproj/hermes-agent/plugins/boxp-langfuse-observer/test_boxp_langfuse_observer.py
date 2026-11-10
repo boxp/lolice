@@ -347,9 +347,13 @@ class ObserverTest(unittest.TestCase):
     def test_short_symbol_only_values_withhold(self):
         # Regression (arch#14742 review): a value of symbols only can be a real password (password: ==). A short one
         # has no word boundary to pin it by, so it withholds the lineage; the restatement is never sent.
-        for text in ("password: ==", 'password: "=="', "token=***", "password: -", "<password>==</password>"):
+        for text in ("password: ==", 'password: "=="', "token=***", "password: -", "<password>==</password>",
+                     "password: -_", "password: _-", "token=_=*", 'password: "-_"'):
             self.assertEqual(plugin._named_values(text), (set(), True), text)
         self.assertEqual(plugin._named_values("password: !@#$"), ({"!@#$"}, False))
+        # Mixed underscores and symbols are still symbols only (lolice#1157 review): password: -_ withholds, so a
+        # later a-_b restatement is never sent.
+        self.assertEqual(plugin._named_values("password: -_=_"), ({"-_=_"}, False))
         session = "kohako-g2-symbols"
         plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
         plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: ==\nconfigline")
@@ -359,6 +363,15 @@ class ObserverTest(unittest.TestCase):
         body = bodies()
         self.assertNotIn("laterbodymarker", body)
         self.assertNotIn("it is ==", body)
+        session = "kohako-g2-symbols-mixed"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: -_\nconfigline")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="use a-_b , mixedlatermarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        self.assertIsNotNone(plugin._tainted(session))
+        body = bodies()
+        self.assertNotIn("mixedlatermarker", body)
+        self.assertNotIn("a-_b", body)
 
     def test_expansion_defaults_are_values(self):
         self.assertEqual(plugin._named_values('echo "${API_TOKEN:-hunterzz9}"'), ({"hunterzz9"}, False))
