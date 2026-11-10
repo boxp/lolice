@@ -522,14 +522,18 @@ _PIN_KINDS = {"assignment", "env_entry", "flag", "cli_password"}
 # that starts with $ (password: $hunterhorse): it is pinned like any value (masking a later ${VAR} is a harmless
 # over-mask), but when it is too short to pin it does not withhold, since it is most likely a reference.
 _REFERENCE = re.compile(r"\[REDACTED:[a-z_-]+\]", re.I)
-# Not a credential by shape (BOXP-428 TD-12): a template or expression start that the value scan cut off
-# (password: ${{ secrets.X }}, {{ .Values.x }}). Such hits withheld whole sessions in production. The operator of a
+# Not a credential by shape (BOXP-428 TD-12): a whole template expression whose opener the value scan cut off at the
+# space (password: ${{ secrets.X }}, {{ .Values.x }}); see _template_expression. Such hits withheld whole sessions in
+# production. A value that merely starts like a template ("{{hunter123") is a value like any other and is pinned; a
+# quoted or unclosed opener ("{{") is a short symbol value and withholds the lineage (arch#14742 review). The operator of a
 # ${NAME:-default} expansion is not a value (_named_values_raw drops it). A value of symbols only (password: ==) can
 # be a real password: it is pinned when long enough, and a short one withholds the lineage (_named_values), since a
 # whole-word match cannot bound it (arch#14742 review). A printf directive (password: %d) or digits with a colon (password: 1234:) can be a real password, so
 # they are pinned like any value (a later %d is over-masked as a whole word); only a grep -n location, whose name is a
 # file name with an extension (runtime-authorization.yaml:4:), is skipped (_GREP_LOCATION_NAME).
-_NOT_A_VALUE = re.compile(r"\s*|\$?\{[{%].*", re.S)
+_NOT_A_VALUE = re.compile(r"\s*", re.S)
+_TEMPLATE_OPENER = re.compile(r"\$?\{[{%]-?")
+_TEMPLATE_REST = re.compile(r"[ \t]+[^\r\n]*?[}%]\}")
 _SYMBOLS_ONLY = re.compile(r"[^\w]+|_+")
 _GREP_LOCATION_NAME = re.compile(r"\.[A-Za-z0-9]{1,10}$")
 _DATE_FORMAT = re.compile(r"[\"']?\+[\"']?(?:%[A-Za-z]|[TZ]|[^A-Za-z0-9\s])*")
@@ -537,6 +541,13 @@ _DATE_FORMAT = re.compile(r"[\"']?\+[\"']?(?:%[A-Za-z]|[TZ]|[^A-Za-z0-9\s])*")
 
 def _not_a_value(value):
     return bool(_REFERENCE.fullmatch(value) or _NOT_A_VALUE.fullmatch(value))
+
+
+def _template_expression(text, match, value):
+    """An unquoted template opener that is the whole value (the match ends with it) and is closed later on the same
+    line after a space: password: ${{ secrets.X }}. Not a credential by shape (BOXP-428 TD-12)."""
+    return bool(_TEMPLATE_OPENER.fullmatch(value) and match.group(0).rstrip().endswith(value)
+                and _TEMPLATE_REST.match(text, match.end()))
 
 
 class _Word(str):
@@ -862,7 +873,7 @@ def _named_values_raw(text):
                 else:
                     values = _shell_values(re.sub(r"(?is)^.*?\s-p[ \t]*", "", raw))
             for value in values:
-                if value and not _not_a_value(value):
+                if value and not _not_a_value(value) and not _template_expression(text, match, value.strip()):
                     found.add(value)
                     if len(found) > 64:
                         return found, True

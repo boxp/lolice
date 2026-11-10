@@ -283,6 +283,29 @@ class ObserverTest(unittest.TestCase):
                      "src/secret_store.py:12:  kind: Role", 'echo "${ANTHROPIC_API_KEY:-}"', "${PASSWORD:-}"):
             self.assertEqual(plugin._named_values(text), (set(), False), text)
 
+    def test_template_like_values_are_pinned(self):
+        # Regression (arch#14742 review): only a whole template expression is skipped. A value that merely starts like
+        # a template is a password: it is pinned and a later restatement is masked; a quoted opener withholds.
+        for text, value in (('password: "{{hunter123"', "{{hunter123"), ("password: '{%secretpw'", "{%secretpw"),
+                            ('password: "${{hunter123"', "${{hunter123"), ('{"password": "{{hunter123"}', "{{hunter123")):
+            values, _ = plugin._named_values(text)
+            self.assertIn(value, values, text)
+        for text in ('password: "{{"', "password: '${{'", 'password: "{%"'):
+            self.assertTrue(plugin._named_values(text)[1], text)
+        for text in ("password: ${{ secrets.X }}", "PASSWORD: {{ .Values.db.password }} # note"):
+            values, unpinned = plugin._named_values(text)
+            self.assertFalse(unpinned, text)
+            self.assertFalse(any(re.match(r"\$?\{[{%]", v) for v in values), text)
+        session = "kohako-g2-template"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={},
+                        result='password: "{{hunter123"\nconfigline')
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is {{hunter123 , laterbodymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        body = bodies()
+        self.assertIn("laterbodymarker", body)
+        self.assertNotIn("hunter123", body)
+
     def test_short_symbol_only_values_withhold(self):
         # Regression (arch#14742 review): a value of symbols only can be a real password (password: ==). A short one
         # has no word boundary to pin it by, so it withholds the lineage; the restatement is never sent.
