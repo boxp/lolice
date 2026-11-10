@@ -533,7 +533,7 @@ _REFERENCE = re.compile(r"\[REDACTED:[a-z_-]+\]", re.I)
 # file name with an extension (runtime-authorization.yaml:4:), is skipped (_GREP_LOCATION_NAME).
 _NOT_A_VALUE = re.compile(r"\s*", re.S)
 _TEMPLATE_OPENER = re.compile(r"\$?\{[{%]-?")
-_TEMPLATE_REST = re.compile(r"[ \t]+[^\r\n]*?[}%]\}")
+_TEMPLATE_REST = re.compile(r"[ \t]+(?:[^\r\n{]|\{(?![{%]))*?[}%]\}")
 _SYMBOLS_ONLY = re.compile(r"[^\w]+|_+")
 _GREP_LOCATION_NAME = re.compile(r"\.[A-Za-z0-9]{1,10}$")
 _DATE_FORMAT = re.compile(r"[\"']?\+[\"']?(?:%[A-Za-z]|[TZ]|[^A-Za-z0-9\s])*")
@@ -545,19 +545,21 @@ def _not_a_value(value):
 
 def _template_expression(text, match, value):
     """An unquoted template opener that is the whole value (the match ends with it) and is closed later on the same
-    line after a space: password: ${{ secrets.X }}. Not a credential by shape (BOXP-428 TD-12)."""
+    line after a space, before any other opener: password: ${{ secrets.X }}. Not a credential by shape (BOXP-428
+    TD-12); in password: {{ note password: {{ secrets.X }} the closer belongs to the second opener (arch#14742 review)."""
     return bool(_TEMPLATE_OPENER.fullmatch(value) and match.group(0).rstrip().endswith(value)
                 and _TEMPLATE_REST.match(text, match.end()))
 
 
 _OPEN_TEMPLATE = re.compile(r"\{[{%]")
-_CLOSED_TEMPLATE = re.compile(r"\{[{%]-?[ \t]+[^\r\n]*?[}%]\}")
+_CLOSED_TEMPLATE = re.compile(r"\{[{%]-?[ \t]+(?:[^\r\n{]|\{(?![{%]))*?[}%]\}")
 
 
 def _open_template(text, position):
     """An unquoted template opener ({{, {%) at position that no closer follows on its line (arch#14742 review): it is
     not an object or a template expression but the value itself (password: {{ is a short symbol password and
-    withholds the lineage). A closed template ({{ .Values.x }}) is still scanned as a bracket."""
+    withholds the lineage). A closed template ({{ .Values.x }}) is still scanned as a bracket; a closer after another
+    opener on the line closes that opener, not this one ({{ note {{ x }} is open; arch#14742 review)."""
     return bool(_OPEN_TEMPLATE.match(text, position) and not _CLOSED_TEMPLATE.match(text, position))
 
 
