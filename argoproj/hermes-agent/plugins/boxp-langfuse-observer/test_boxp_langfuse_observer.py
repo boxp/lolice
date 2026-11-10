@@ -280,8 +280,28 @@ class ObserverTest(unittest.TestCase):
     def test_reference_shaped_values_pin_nothing(self):
         for text in ("password: ${{ secrets.DB_PASSWORD }}", "CLOUDFLARE_API_TOKEN: ${{ secrets.CF }}",
                      "key=${ANTHROPIC_API_KEY:-}", "runtime-authorization.yaml:4:  kind: Role",
-                     "src/secret_store.py:12:  kind: Role", "password: =="):
+                     "src/secret_store.py:12:  kind: Role", 'echo "${ANTHROPIC_API_KEY:-}"', "${PASSWORD:-}"):
             self.assertEqual(plugin._named_values(text), (set(), False), text)
+
+    def test_short_symbol_only_values_withhold(self):
+        # Regression (arch#14742 review): a value of symbols only can be a real password (password: ==). A short one
+        # has no word boundary to pin it by, so it withholds the lineage; the restatement is never sent.
+        for text in ("password: ==", 'password: "=="', "token=***", "password: -", "<password>==</password>"):
+            self.assertEqual(plugin._named_values(text), (set(), True), text)
+        self.assertEqual(plugin._named_values("password: !@#$"), ({"!@#$"}, False))
+        session = "kohako-g2-symbols"
+        plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: ==\nconfigline")
+        plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is == , laterbodymarker")
+        plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+        self.assertIsNotNone(plugin._tainted(session))
+        body = bodies()
+        self.assertNotIn("laterbodymarker", body)
+        self.assertNotIn("it is ==", body)
+
+    def test_expansion_defaults_are_values(self):
+        self.assertEqual(plugin._named_values('echo "${API_TOKEN:-hunterzz9}"'), ({"hunterzz9"}, False))
+        self.assertEqual(plugin._named_values("x=${API_TOKEN:=ab}"), ({"ab"}, False))
 
     def test_provider_prefix_on_names_does_not_withhold(self):
         self.assertEqual(plugin._exposure("npm_config_cache=/home/u/.npm\nsk-inet ok"), set())

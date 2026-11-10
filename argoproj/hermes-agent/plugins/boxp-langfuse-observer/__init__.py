@@ -522,12 +522,15 @@ _PIN_KINDS = {"assignment", "env_entry", "flag", "cli_password"}
 # that starts with $ (password: $hunterhorse): it is pinned like any value (masking a later ${VAR} is a harmless
 # over-mask), but when it is too short to pin it does not withhold, since it is most likely a reference.
 _REFERENCE = re.compile(r"\[REDACTED:[a-z_-]+\]", re.I)
-# Not a credential by shape (BOXP-428 TD-12): no letter or digit (${KEY:-} leaves -, ==), a template or expression start
-# that the value scan cut off (password: ${{ secrets.X }}, {{ .Values.x }}). Such hits withheld whole sessions in
-# production. A printf directive (password: %d) or digits with a colon (password: 1234:) can be a real password, so
+# Not a credential by shape (BOXP-428 TD-12): a template or expression start that the value scan cut off
+# (password: ${{ secrets.X }}, {{ .Values.x }}). Such hits withheld whole sessions in production. The operator of a
+# ${NAME:-default} expansion is not a value (_named_values_raw drops it). A value of symbols only (password: ==) can
+# be a real password: it is pinned when long enough, and a short one withholds the lineage (_named_values), since a
+# whole-word match cannot bound it (arch#14742 review). A printf directive (password: %d) or digits with a colon (password: 1234:) can be a real password, so
 # they are pinned like any value (a later %d is over-masked as a whole word); only a grep -n location, whose name is a
 # file name with an extension (runtime-authorization.yaml:4:), is skipped (_GREP_LOCATION_NAME).
-_NOT_A_VALUE = re.compile(r"[^\w]*|_+|\$?\{[{%].*", re.S)
+_NOT_A_VALUE = re.compile(r"\s*|\$?\{[{%].*", re.S)
+_SYMBOLS_ONLY = re.compile(r"[^\w]+|_+")
 _GREP_LOCATION_NAME = re.compile(r"\.[A-Za-z0-9]{1,10}$")
 _DATE_FORMAT = re.compile(r"[\"']?\+[\"']?(?:%[A-Za-z]|[TZ]|[^A-Za-z0-9\s])*")
 
@@ -736,11 +739,13 @@ def _named_values(text):
     reference and is not pinned. Only a value too long or too many to mask is unpinned."""
     found, unpinned = _named_values_raw(text)
     decoded = {form for value in found for form in _decoded_forms(value)}
+    short_symbols = any(0 < len(v) < 4 and _SYMBOLS_ONLY.fullmatch(v) for v in decoded)
     values = {v for v in decoded if 4 <= len(v) <= 256} | {
-        _Word(v) for v in decoded if 0 < len(v) < 4 and not _VARIABLE_LIKE.fullmatch(v) and not _not_a_value(v)}
+        _Word(v) for v in decoded if 0 < len(v) < 4 and not _VARIABLE_LIKE.fullmatch(v) and not _not_a_value(v)
+        and not _SYMBOLS_ONLY.fullmatch(v)}
     if len(decoded) > 64:
         return values, True
-    return values, unpinned or any(len(v) > 256 for v in decoded)
+    return values, unpinned or short_symbols or any(len(v) > 256 for v in decoded)
 
 
 def _reversed_entry_values(text):
@@ -792,6 +797,10 @@ def _named_values_raw(text):
                     continue
                 name = re.sub(r"[\"'\\\s]", "", sep.group(1))
                 tail = raw[sep.end():]
+                if (raw[:sep.end()].endswith(":") and text[max(0, match.start() - 2):match.start()] == "${"
+                        and tail[:1] in ("-", "=", "?", "+")):
+                    # ${NAME:-default} (also :=, :?, :+): the operator is not part of the value; the default is.
+                    tail = tail[1:]
                 position = match.start() + sep.end()
                 while position < len(text) and text[position] in " \t":
                     position += 1
