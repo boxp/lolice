@@ -573,9 +573,11 @@ class _Word(str):
     was a test log (PASS: old) or a config file (same_site_cookie_attribute = \"lax\") (BOXP-428 TD-12)."""
 
 
-# A word boundary is a letter, digit or _ on neither side; an escape (\n, \u0020, %20) before the value is a boundary.
-_WORD_BEFORE = r"(?:(?<!\w)|(?<=\\[nrtbf])|(?<=\\u[0-9a-fA-F]{4})|(?<=%[0-9a-fA-F]{2}))"
-_WORD_AFTER = r"(?!\w)"
+# A word boundary is an ASCII letter, digit or _ on neither side; an escape (\n, \u0020, %20) before the value is a
+# boundary. Non-ASCII letters do not join the word: Japanese has no spaces, so 秘密はq7zです repeats the value q7z
+# (lolice#1157 review). A non-ASCII value is then also masked inside longer non-ASCII text (over-masking, not a leak).
+_WORD_BEFORE = r"(?:(?<![A-Za-z0-9_])|(?<=\\[nrtbf])|(?<=\\u[0-9a-fA-F]{4})|(?<=%[0-9a-fA-F]{2}))"
+_WORD_AFTER = r"(?![A-Za-z0-9_])"
 _VARIABLE_LIKE = re.compile(r"\$\{?[A-Za-z_][A-Za-z0-9_]*\}?")
 _NAME_SEPARATOR = re.compile(r"(?s)^(.*?)(?:[:=]|\\+u00(?:3[aA]|3[dD]))")
 # The value key takes every serialized quote form (&quot;value&quot;:, \u0022value\u0022:), as _entry_key does.
