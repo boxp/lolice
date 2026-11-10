@@ -84,7 +84,7 @@ tigeraOperator:
   registry: quay.io
 calicoctl:
   image: docker.io/calico/ctl
-  tag: v3.32.3
+  tag: v3.32.4
 
 kubeletVolumePluginPath: /var/lib/kubelet
 
