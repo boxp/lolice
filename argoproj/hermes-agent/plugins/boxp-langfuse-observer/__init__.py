@@ -523,9 +523,13 @@ _PIN_KINDS = {"assignment", "env_entry", "flag", "cli_password"}
 # over-mask), but when it is too short to pin it does not withhold, since it is most likely a reference.
 _REFERENCE = re.compile(r"\[REDACTED:[a-z_-]+\]", re.I)
 # Not a credential by shape (BOXP-428 TD-12): no letter or digit (${KEY:-} leaves -, ==), a template or expression start
-# that the value scan cut off (password: ${{ secrets.X }}, {{ .Values.x }}), a printf directive (n_tokens = %d) or a
-# grep -n location (runtime-authorization.yaml:4:). Such hits withheld whole sessions in production.
-_NOT_A_VALUE = re.compile(r"[^\w]*|_+|\$?\{[{%].*|%[-+ #0]*\d*(?:\.\d+)?[a-zA-Z]|\d+:", re.S)
+# that the value scan cut off (password: ${{ secrets.X }}, {{ .Values.x }}). Such hits withheld whole sessions in
+# production. A printf directive (password: %d) or digits with a colon (password: 1234:) can be a real password, so
+# they are pinned like any value (a later %d is over-masked as a whole word); only a grep -n location, whose name is a
+# file name with an extension (runtime-authorization.yaml:4:), is skipped (_GREP_LOCATION_NAME).
+_NOT_A_VALUE = re.compile(r"[^\w]*|_+|\$?\{[{%].*", re.S)
+_GREP_LOCATION_NAME = re.compile(r"\.[A-Za-z0-9]{1,10}$")
+_DATE_FORMAT = re.compile(r"[\"']?\+[\"']?(?:%[A-Za-z]|[TZ]|[^A-Za-z0-9\s])*")
 
 
 def _not_a_value(value):
@@ -801,7 +805,9 @@ def _named_values_raw(text):
                     values = [_first_value(v) if re.match(r"\\*[\"']", v) else v for v in values]
                 else:
                     value = _first_value(tail)
-                    if not _is_setting(name, value):
+                    if re.fullmatch(r"\d+:", value.strip()) and _GREP_LOCATION_NAME.search(name):
+                        values = []
+                    elif not _is_setting(name, value):
                         values = [value]
             elif kind == "env_entry":
                 if match.start() < covered:
@@ -834,7 +840,11 @@ def _named_values_raw(text):
             else:
                 if re.match(r"(?i)^(?:-u|--user)", raw):
                     rest = re.sub(r"(?i)^(?:-u|--user)[ \t=]*", "", raw)
-                    if _OPENING_QUOTE.match(rest):
+                    if _DATE_FORMAT.fullmatch(rest.split()[0] if rest.split() else ""):
+                        # date -u +%H:%M: the whole argument is a date format (only % directives, literal T/Z and
+                        # punctuation), not user:password. Before TD-12 the printf rule skipped it as a value.
+                        values = []
+                    elif _OPENING_QUOTE.match(rest):
                         # -u 'user:pass word': the whole quoted word is user:password.
                         word = _first_value(rest)
                         values = [word.split(":", 1)[1]] if ":" in word else []

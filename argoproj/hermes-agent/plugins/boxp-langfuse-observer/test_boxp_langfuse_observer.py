@@ -256,7 +256,9 @@ class ObserverTest(unittest.TestCase):
         # triggers were test logs (PASS: old) and config files. It is pinned as a whole word instead.
         for i, (result, value) in enumerate((("password: q7z", "q7z"), ("PASS: old\nPASS: pin", "old"),
                                              ('same_site_cookie_attribute = "lax"', "lax"), ('{"auth":38}', "38"),
-                                             ("password: 5", "5"), ("<password>abc</password>", "abc"))):
+                                             ("password: 5", "5"), ("<password>abc</password>", "abc"),
+                                             # A printf directive or digits with a colon can be a real password.
+                                             ("password: %d", "%d"), ("password: 1234:", "1234:"))):
             with self.subTest(result):
                 session = "kohako-g2-short-%d" % i
                 plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
@@ -277,7 +279,8 @@ class ObserverTest(unittest.TestCase):
 
     def test_reference_shaped_values_pin_nothing(self):
         for text in ("password: ${{ secrets.DB_PASSWORD }}", "CLOUDFLARE_API_TOKEN: ${{ secrets.CF }}",
-                     "key=${ANTHROPIC_API_KEY:-}", "n_tokens = %d", "runtime-authorization.yaml:4:  kind: Role", "password: =="):
+                     "key=${ANTHROPIC_API_KEY:-}", "runtime-authorization.yaml:4:  kind: Role",
+                     "src/secret_store.py:12:  kind: Role", "password: =="):
             self.assertEqual(plugin._named_values(text), (set(), False), text)
 
     def test_provider_prefix_on_names_does_not_withhold(self):
