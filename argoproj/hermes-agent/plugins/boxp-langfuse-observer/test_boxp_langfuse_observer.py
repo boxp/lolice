@@ -2086,7 +2086,9 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
         # (a short lower-case word, xxxx) are not pinned and the word stays readable.
         for i, (result, credential) in enumerate([("Authorization: Bearer ABCDEFGHIJKL", "ABCDEFGHIJKL"),
                                                   ("Bearer ABCDEF_GHIJKL ok", "ABCDEF_GHIJKL"),
-                                                  ("postgres://app:YOUR_DB_PW@db/app", "YOUR_DB_PW")]):
+                                                  ("postgres://app:YOUR_DB_PW@db/app", "YOUR_DB_PW"),
+                                                  ("Authorization: token ABCDEFGHIJKL extra", "ABCDEFGHIJKL"),
+                                                  ("Authorization: Bearer QWERTYUIOPAS trailing", "QWERTYUIOPAS")]):
             with self.subTest(credential=credential):
                 session = "kohako-g2-upper-%d" % i
                 plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
