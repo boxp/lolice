@@ -3,6 +3,11 @@ kind: Application
 metadata:
   name: kohako-studio
   namespace: argocd
+  annotations:
+    # BOXP-501: ServerSideApply=true のアプリでは server-side diff の dry-run が、所有者のいない既存
+    # spec.strategy.rollingUpdate と Recreate の組み合わせで Forbidden になり比較自体が失敗して自動同期が走らない。
+    # client-side diff に戻し、Deployment の client-side apply(retainKeys)で rollingUpdate を除去させる。
+    argocd.argoproj.io/compare-options: ServerSideDiff=false
 spec:
   destination:
     namespace: kohako-studio
