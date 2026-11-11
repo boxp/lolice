@@ -1649,18 +1649,19 @@ def _withheld(turn):
     return _tainted(turn["session"]) or turn.get("withheld")
 
 
-def _withhold_open_turns(reason, *sessions):
+def _withhold_open_turns(reason, session, parent=None):
     """K1 known format in a tool result: withhold the rest of the turns open now in this lineage (BOXP-428 TD-13).
     The format is masked in place and its credential is pinned to the lineage, so a later turn is sent through the mask
     instead of being withheld for the life of the session (a long chat session, or after every restart that rescans
     its history, would otherwise never be readable again)."""
     with _lock:
-        nodes = set().union(*(_lineage(str(s or "")) for s in sessions if s))
-        sources = {str(s) for s in sessions if s}
+        nodes = set().union(*(_lineage(str(s)) for s in (session, parent) if s))
+        source = str(session or "")
         for turn in _turns.values():
-            # Ancestors (the turn that delegated) and descendants (a child turn already open when the parent saw the
-            # format: it may repeat what the parent passes it; lolice#1179 review). Siblings are not touched.
-            if turn["session"] in nodes or sources & _lineage(turn["session"]):
+            # Ancestors (the turn that delegated) and descendants of the session that saw the format (a child turn
+            # already open: it may repeat what this session passes it; lolice#1179 review). Descendants are taken from
+            # the detecting session only, never from its parent, so siblings are not touched (lolice#1179 review).
+            if turn["session"] in nodes or (source and source in _lineage(turn["session"])):
                 turn["withheld"] = turn.get("withheld") or reason
 
 

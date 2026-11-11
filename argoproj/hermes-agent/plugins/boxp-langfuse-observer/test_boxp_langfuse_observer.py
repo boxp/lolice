@@ -1856,6 +1856,25 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
         # a sibling of the parent's lineage that is not under the parent is untouched
         self.assertIsNone(plugin._open_withheld("kohako-g2-unrelated"))
 
+    def test_child_credential_does_not_withhold_open_sibling_turns(self):
+        # Review of lolice#1179: a child's credential withheld its parent and, through the parent, every open sibling.
+        parent, child, sibling = "kohako-g2-sibparent", "kohako-g2-sibchild", "kohako-g2-sibling"
+        plugin._on_turn_start(session_id=parent, turn_id="p", user_message="hello")
+        plugin._on_turn_start(session_id=child, turn_id="c", user_message="child goal", parent_session_id=parent)
+        plugin._on_turn_start(session_id=sibling, turn_id="s", user_message="sibling goal", parent_session_id=parent)
+        plugin._on_tool(session_id=child, turn_id="c", tool_name="read_file", args={},
+                        result="Authorization: Bearer " + "ghp_" + "SibChild" + "Q7w8E9r0zz")
+        self.assertIsNotNone(plugin._open_withheld(child))
+        self.assertIsNotNone(plugin._open_withheld(parent))
+        self.assertIsNone(plugin._open_withheld(sibling))
+        plugin._on_turn_end(session_id=sibling, turn_id="s", assistant_response="siblingreplymarker")
+        plugin._on_session_end(session_id=sibling, turn_id="s", completed=True)
+        plugin._on_session_end(session_id=child, turn_id="c", completed=True)
+        plugin._on_session_end(session_id=parent, turn_id="p", completed=True)
+        body = bodies()
+        self.assertIn("siblingreplymarker", body)
+        self.assertNotIn("SibChildQ7w8E9r0zz", body)
+
     def test_caller_metadata_is_still_masked(self):
         # Review of lolice#1179: only the observer's own constants, ids and numbers are exempt from the pin mask.
         session = "kohako-g2-callermeta"
