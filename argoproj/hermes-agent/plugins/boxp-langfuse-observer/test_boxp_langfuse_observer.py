@@ -2116,7 +2116,8 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
         for i, (result, credential) in enumerate([("Authorization: custom abcXYZ123", "abcXYZ123"),
                                                   ("Proxy-Authorization: Negotiate4 q7Zk2Pw9", "q7Zk2Pw9"),
                                                   ("Authorization: myscheme a1b2c3d4 extra", "a1b2c3d4"),
-                                                  ("Authorization: Bearer <token> zz9Kq1wE", "zz9Kq1wE")]):
+                                                  ("Authorization: Bearer <token> zz9Kq1wE", "zz9Kq1wE"),
+                                                  ("Authorization: Bearer token ordinary zz9Kq1wE", "zz9Kq1wE")]):
             with self.subTest(credential=credential):
                 session = "kohako-g2-scheme-%d" % i
                 plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")

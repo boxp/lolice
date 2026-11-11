@@ -1169,9 +1169,12 @@ def _exposure_scan(text):
                 else:
                     credential = None
                 if credential is not None and _placeholder_credential((credential.split() or [""])[0]):
-                    # Not evidence that a credential was seen, so nothing is withheld; pinned whole unless a word.
-                    if not _word_credential((credential.split() or [""])[0]):
-                        whole = credential.strip()
+                    # Not evidence that a credential was seen, so nothing is withheld; pinned whole unless every token
+                    # is a word. Every token is checked, not only the first: Authorization: Bearer token ordinary
+                    # zz9Kq1wE pins zz9Kq1wE (and the whole) although it starts with ordinary words (lolice#1179 review).
+                    whole = credential.strip()
+                    tokens = re.findall(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'])+""", whole)
+                    if any(not _word_credential(token) for token in tokens):
                         if whole and len(whole) <= _WHOLE_PIN_MAX:
                             values.add(whole)
                         # The placeholder token itself (cut at an escape or quote of serialized history) is pinned as
@@ -1181,7 +1184,7 @@ def _exposure_scan(text):
                         # does not, so it is never left unpinned.
                         # Every token, not only the first: Authorization: Bearer <token> zz9Kq1wE masks a later bare
                         # zz9Kq1wE (lolice#1179 review). Word tokens stay unpinned and readable.
-                        for token in re.findall(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'])+""", whole):
+                        for token in tokens:
                             if not _word_credential(token):
                                 values.add(token)
                     continue
