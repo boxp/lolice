@@ -3,6 +3,10 @@ kind: Deployment
 metadata:
   name: kohako-studio
   namespace: kohako-studio
+  annotations:
+    # BOXP-501: ServerSideApply は rollingUpdate: null を「未指定」として無視し、所有者のいない既存 rollingUpdate が残って
+    # Recreate への切替が拒否されるため、この Deployment だけ client-side apply(retainKeys で rollingUpdate を除去)にする
+    argocd.argoproj.io/sync-options: ServerSideApply=false
 spec:
   replicas: 1
   # BOXP-501: the data PVC is ReadWriteOnce.
