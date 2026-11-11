@@ -42,6 +42,11 @@ def permits(policy, side, namespace, selector, port):
     return False
 assert permits(get(workspace, 'NetworkPolicy', 'codex-workspace-network-policy')['spec'], 'egress', 'kohako-studio', 'kohako-studio', 8080)
 assert permits(get(hermes, 'NetworkPolicy', 'hermes-agent-api-ingress')['spec'], 'ingress', 'kohako-studio', 'kohako-studio', 8642)
+# BOXP-504: kohako-home status strip reads only the read-only Task Board projection (8090) and AI metrics (9464).
+for port in (8090, 9464):
+    assert permits(policy, 'egress', 'codex-workspace', 'codex-workspace', port)
+    assert permits(get(workspace, 'NetworkPolicy', 'codex-workspace-network-policy')['spec'], 'ingress', 'kohako-studio', 'kohako-studio', port)
+assert not permits(get(workspace, 'NetworkPolicy', 'codex-workspace-network-policy')['spec'], 'ingress', 'kohako-studio', 'kohako-studio', 8080)
 secret_role = get(hermes, 'Role', 'kohako-api-server-key-reader')
 assert secret_role['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['hermes-agent-api-server-key'], 'verbs': ['get']}]
 assert {'kind': 'ServiceAccount', 'name': 'kohako-api-server-key-reader', 'namespace': 'kohako-studio'} in get(hermes, 'RoleBinding', 'kohako-api-server-key-reader')['subjects']
