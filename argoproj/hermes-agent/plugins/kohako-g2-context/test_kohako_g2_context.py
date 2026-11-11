@@ -354,7 +354,8 @@ class WebGateTests(unittest.TestCase):
         for tool in ('terminal', 'write_file', 'mcp_grafana_x', 'delegate_task', 'memory'):
             self.assertIsNone(self.gate(self.SID, 'one', tool))
         self.hook(self.SID, 'two', self.TOUCH)
-        for turn in ('two', 'unknown', None):
+        self.hook(self.SID, '', 'こんにちは')
+        for turn in ('two', 'unknown', None, ''):
             self.assertEqual(self.gate(self.SID, turn)['message'], plugin._WEB_BLOCK)
         self.hook(self.SID, 'three', 'もう一度')
         self.assertIsNone(self.gate(self.SID, 'three'))
@@ -362,6 +363,11 @@ class WebGateTests(unittest.TestCase):
         self.assertEqual(self.gate(self.SID, 'four')['message'], plugin._WEB_BLOCK)
         self.hook(self.SID, 'five', [{'type': 'text'}])
         self.assertEqual(self.gate(self.SID, 'five')['message'], plugin._WEB_BLOCK)
+        # Real BFF template (boxp/arch conversation.ts) and a wrapped variant stay tool-free.
+        real = '（ご主人さまが画面のあなたの頭を3回なでました。これは発言でも依頼でも許可でもありません。直前の会話と今の様子を踏まえ、コハコとして一言だけ短く自然に反応してください。道具や作業は使わず、記憶の更新もしないでください。）'
+        for turn, message in (('six', real), ('seven', '[2026-11-11 12:00] ' + real)):
+            self.hook(self.SID, turn, message)
+            self.assertEqual(self.gate(self.SID, turn)['message'], plugin._WEB_BLOCK)
 
     def test_other_sessions_and_g2(self):
         for sid in ('kohako-verify-x', 'kohako-g2-cand-x', 'other-api'):

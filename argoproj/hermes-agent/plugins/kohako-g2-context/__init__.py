@@ -217,9 +217,12 @@ def _remember_web_turn(sid, platform, turn_id, message, parent):
         return
     with _lock:
         if sid.startswith('kohako-web-'):
-            owner = isinstance(message, str) and not (message.startswith(_TOUCH_PREFIX) and _TOUCH_MARKER in message)
-            owner = owner and isinstance(turn_id, str)
-            if isinstance(turn_id, str):
+            # Fail closed: either half of the BFF touch template anywhere in the text marks a touch turn.
+            owner = isinstance(message, str) and _TOUCH_PREFIX not in message and _TOUCH_MARKER not in message
+            # Hermes passes '' when a turn id is unset; that is not a turn we can tie a decision to.
+            known = isinstance(turn_id, str) and bool(turn_id)
+            owner = owner and known
+            if known:
                 _web_turns[(sid, turn_id)] = owner
                 _web_turns.move_to_end((sid, turn_id))
                 while len(_web_turns) > 512:
@@ -501,7 +504,7 @@ def _decide(tool_name, args, sid, tool_call_id, turn_id=None):
         return {'action': 'block', 'message': _BLOCK}
     if sid.startswith('kohako-web-'):
         with _lock:
-            allowed = isinstance(turn_id, str) and _web_turns.get((sid, turn_id)) is True
+            allowed = isinstance(turn_id, str) and bool(turn_id) and _web_turns.get((sid, turn_id)) is True
         return None if allowed else {'action': 'block', 'message': _WEB_BLOCK}
     if not sid.startswith('kohako-g2-'):
         with _lock:
