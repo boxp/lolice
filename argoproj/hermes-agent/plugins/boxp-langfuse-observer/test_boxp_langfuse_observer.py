@@ -2215,6 +2215,20 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
         self.assertNotIn("zz9Kq1wEjp", body)
         self.assertIsNone(plugin._tainted(session))
 
+    def test_cookie_after_a_non_ascii_pair_is_still_pinned(self):
+        # lolice#1187 review: the non-ASCII cut of a header credential is per cookie pair, so a valid pair after a
+        # malformed one keeps its value pinned and a later bare restatement is masked.
+        for i, header in enumerate(["Cookie: note=日本; sid=abcXYZ123", "Cookie: a=1; note=日本語の値; sid=abcXYZ123"]):
+            session = "kohako-g2-nonasciipair-%d" % i
+            plugin._on_turn_start(session_id=session, turn_id="k1", user_message="hello")
+            plugin._on_tool(session_id=session, turn_id="k1", tool_name="read_file", args={}, result=header)
+            plugin._on_session_end(session_id=session, turn_id="k1", completed=True)
+            drain()
+            run_turn(session=session, turn="k2", body="restated abcXYZ123 here pairnonasciimarker")
+            body = bodies()
+            self.assertIn("pairnonasciimarker", body)
+            self.assertNotIn("abcXYZ123", body)
+
     def test_pinned_value_count_is_reported_as_coverage(self):
         session = "kohako-g2-pincount"
         plugin._pin_body(session, None, "password: countedvalue1")

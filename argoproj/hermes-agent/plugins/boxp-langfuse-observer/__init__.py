@@ -1157,7 +1157,12 @@ def _exposure_scan(text):
                     # header named in Japanese prose ("Authorization: Bearer <token> 等の...") pinned the rest of the
                     # sentence and its particles, and a long home session passed 256 pins and was withheld whole
                     # (pinned_values_over_limit, BOXP-428 TD-13 readback).
-                    credential = _NON_ASCII_TAIL.sub("", credential)
+                    # A cookie header is cut per pair instead: Cookie: note=日本; sid=abcXYZ123 keeps sid=abcXYZ123, whose
+                    # value is pinned like any other pair (lolice#1187 review); only the malformed pair loses its tail.
+                    if re.match(r"(?i)(?:set-)?cookie\b", value):
+                        credential = ";".join(_NON_ASCII_TAIL.sub("", pair) for pair in credential.split(";"))
+                    else:
+                        credential = _NON_ASCII_TAIL.sub("", credential)
                     # Authorization: <scheme> <credentials> with any scheme name (custom, Negotiate4): a scheme that
                     # reads as a placeholder word is dropped when a non-placeholder credential follows it, so
                     # Authorization: custom abcXYZ123 counts and pins abcXYZ123 like Bearer does (lolice#1179 review).
