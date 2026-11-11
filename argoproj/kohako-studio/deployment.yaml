@@ -8,6 +8,8 @@ spec:
   # BOXP-501: the data PVC is ReadWriteOnce.
   strategy:
     type: Recreate
+    # RollingUpdate からの切替で既存の rollingUpdate が残り apply が拒否されるため明示的に消す
+    rollingUpdate: null
   selector:
     matchLabels:
       app: kohako-studio
