@@ -27,7 +27,8 @@ names (4..256 characters, _named_values) is pinned to the session lineage and ma
 of its turns, escapes included, and the final guard rejects a span that still holds it, so a bare
 restatement in a later reply is not sent. A value that cannot be pinned (shorter, longer, or more
 than 64 in one text) in a tool result withholds the rest of the turn; over 256 pinned values per lineage
-withholds it too (pinned_values_over_limit).
+withholds it too (pinned_values_over_limit), and so does a known-format credential over 65,536 characters
+(credential_over_limit). The open-turn hold covers ancestors and descendants already open, not siblings.
 Not guaranteed: a plain value without a secret word or known format near it, a transformed or partial
 restatement (base64, reversal...), a restatement in an unrelated session, and a short named value in a
 prompt or reply. The Owner accepted these for a self-hosted Langfuse behind Owner-only Access with
@@ -958,9 +959,12 @@ def _pin_body(session, parent, body):
     # like a short named value.
     # A symbol-only value is taken from the strings as written only: in the serialized text of a structured body the
     # JSON punctuation after a credential reads as one more token (Bearer x"} gives "}").
-    values = values | {v if len(v) >= 4 else _Word(v) for index, leaf in enumerate(_leaves(body))
-                       for v in _exposure_values(leaf) if 0 < len(v) <= 65536 and v.strip()
-                       and (re.search(r"[^\W_]", v) or isinstance(body, str) or index > 0)}
+    exposed = {v for index, leaf in enumerate(_leaves(body)) for v in _exposure_values(leaf) if v.strip()
+               and (re.search(r"[^\W_]", v) or isinstance(body, str) or index > 0)}
+    # A credential too long to pin (over 65,536 characters) cannot be masked when restated; the turn-scoped hold ends
+    # with the turn, so the lineage is withheld instead (fail-closed; lolice#1179 review).
+    oversized = any(len(v) > 65536 for v in exposed)
+    values = values | {v if len(v) >= 4 else _Word(v) for v in exposed if len(v) <= 65536}
     if values:
         overflow = False
         with _lock:
@@ -979,6 +983,9 @@ def _pin_body(session, parent, body):
                     del _pinned_digests[cached]
         if overflow:
             _taint("pinned_values_over_limit", *_lineage(str(session or "")))
+    if oversized:
+        _taint("credential_over_limit", *_lineage(str(session or "")))
+        unpinned = True
     with _lock:
         _pinned_digests[key] = (unpinned, bool(values))
         while len(_pinned_digests) > 8 * _MAX_SESSIONS:
@@ -1649,8 +1656,11 @@ def _withhold_open_turns(reason, *sessions):
     its history, would otherwise never be readable again)."""
     with _lock:
         nodes = set().union(*(_lineage(str(s or "")) for s in sessions if s))
+        sources = {str(s) for s in sessions if s}
         for turn in _turns.values():
-            if turn["session"] in nodes:
+            # Ancestors (the turn that delegated) and descendants (a child turn already open when the parent saw the
+            # format: it may repeat what the parent passes it; lolice#1179 review). Siblings are not touched.
+            if turn["session"] in nodes or sources & _lineage(turn["session"]):
                 turn["withheld"] = turn.get("withheld") or reason
 
 

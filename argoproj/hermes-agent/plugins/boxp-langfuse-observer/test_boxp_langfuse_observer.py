@@ -1825,6 +1825,37 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
                 self.assertNotIn(secret, body.replace("q7zz", ""))
                 self.assertIn("credlenmarker", body)
 
+    def test_oversized_credential_withholds_the_lineage(self):
+        # Review of lolice#1179: a known-format credential over 65,536 characters was not pinned, and the turn-scoped
+        # hold ended with the turn, so a later restatement was sent. Too long to pin: the lineage is withheld.
+        secret = "Q7w8E9r0" * 8193
+        session = "kohako-g2-credhuge"
+        plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                        result="Authorization: Bearer " + secret)
+        plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+        drain()
+        run_turn(session=session, turn="2", body="reply " + secret[:70000] + " hugemarker")
+        self.assertNotIn("Q7w8E9r0Q7w8E9r0", bodies())
+        self.assertEqual(plugin._tainted(session), "credential_over_limit")
+
+    def test_open_child_turn_is_withheld_when_the_parent_sees_a_credential(self):
+        # Review of lolice#1179: a child turn already open when its parent's tool printed a credential kept sending the
+        # rest of its own turn (the hold walked ancestors only).
+        parent, child = "kohako-g2-openparent", "kohako-g2-openchild"
+        plugin._on_turn_start(session_id=parent, turn_id="p", user_message="hello")
+        plugin._on_turn_start(session_id=child, turn_id="c", user_message="child goal", parent_session_id=parent)
+        plugin._on_tool(session_id=parent, turn_id="p", tool_name="read_file", args={},
+                        result="Authorization: Bearer " + "ghp_" + "OpenChild" + "Q7w8E9r0zz")
+        plugin._on_turn_end(session_id=child, turn_id="c", assistant_response="openchildreplymarker")
+        plugin._on_session_end(session_id=child, turn_id="c", completed=True)
+        plugin._on_session_end(session_id=parent, turn_id="p", completed=True)
+        body = bodies()
+        self.assertNotIn("openchildreplymarker", body)
+        self.assertNotIn("OpenChildQ7w8E9r0zz", body)
+        # a sibling of the parent's lineage that is not under the parent is untouched
+        self.assertIsNone(plugin._open_withheld("kohako-g2-unrelated"))
+
     def test_caller_metadata_is_still_masked(self):
         # Review of lolice#1179: only the observer's own constants, ids and numbers are exempt from the pin mask.
         session = "kohako-g2-callermeta"
