@@ -34,6 +34,7 @@ class BoundaryTest(unittest.TestCase):
             '/apis/apps/v1/namespaces/local-llm/deployments/llama-server/scale',
             '/apis/apps/v1/namespaces/stable-diffusion/deployments/qwen-image-eval/scale',
             '/apis/apps/v1/namespaces/stable-diffusion/deployments/stable-diffusion-webui/scale',
+            '/apis/apps/v1/namespaces/stable-diffusion/deployments/comfyui/scale',
             '/api/v1/namespaces/local-llm/configmaps/llama-server-admission']))
 
     def test_switcher_never_holds_a_credential(self):

@@ -23,6 +23,11 @@ spec:
       namespace: stable-diffusion
       name: stable-diffusion-webui
       jsonPointers: [/spec/replicas]
+    - group: "apps"
+      kind: Deployment
+      namespace: stable-diffusion
+      name: comfyui
+      jsonPointers: [/spec/replicas]
   syncPolicy:
     automated:
       prune: true

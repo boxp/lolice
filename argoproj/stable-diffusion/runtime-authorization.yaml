@@ -13,6 +13,11 @@ rules:
     resources: [deployments/scale]
     resourceNames: [stable-diffusion-webui]
     verbs: [get, patch]
+  # BOXP-498: only the ComfyUI replica count.
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    resourceNames: [comfyui]
+    verbs: [get, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

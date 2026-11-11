@@ -16,8 +16,16 @@ resources:
   - sd-gateway-envoy-config.yaml
   - sd-gateway-deployment.yaml
   - sd-gateway-networkpolicy.yaml
+  - comfyui-deployment.yaml
+  - comfyui-service.yaml
+  - comfyui-networkpolicy.yaml
+  - comfyui-gateway-envoy-config.yaml
+  - comfyui-gateway-deployment.yaml
 
 configMapGenerator:
   - name: sd-intake-code
     files:
       - sd_intake.py
+  - name: comfy-intake-code
+    files:
+      - comfy_intake.py

@@ -1,0 +1,29 @@
+# BOXP-498: the tunnel reaches the always-on gateway; only the gateway and the
+# switcher reach ComfyUI itself.
+apiVersion: v1
+kind: Service
+metadata:
+  name: comfyui
+  labels:
+    app: comfyui-gateway
+spec:
+  selector:
+    app: comfyui-gateway
+  ports:
+    - name: http
+      port: 8188
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: comfyui-backend
+  labels:
+    app: comfyui
+spec:
+  selector:
+    app: comfyui
+  ports:
+    - name: http
+      port: 8188
+      targetPort: http

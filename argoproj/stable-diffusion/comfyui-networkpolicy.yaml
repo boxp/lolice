@@ -1,0 +1,70 @@
+# BOXP-498: ComfyUI executes whatever workflow its user submits, so it gets no
+# way out: no egress at all (models are provisioned beforehand) and ingress only
+# from its gateway and the switcher.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: comfyui
+spec:
+  selector: app == 'comfyui'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'stable-diffusion'
+        selector: app == 'comfyui-gateway'
+      destination:
+        ports:
+          - 8188
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'local-llm'
+        selector: app == 'qwen-runtime-controller'
+      destination:
+        ports:
+          - 8188
+---
+# Only the Access-protected tunnel reaches the unauthenticated gateway.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: comfyui-gateway
+spec:
+  selector: app == 'comfyui-gateway'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'stable-diffusion'
+        selector: app == 'cloudflared'
+      destination:
+        ports:
+          - 8188
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'comfyui'
+        ports:
+          - 8188

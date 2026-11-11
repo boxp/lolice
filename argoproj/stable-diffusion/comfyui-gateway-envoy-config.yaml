@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: comfyui-gateway-envoy
+data:
+  envoy.yaml: |
+    static_resources:
+      listeners:
+        - name: comfyui_gateway
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 8188
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: comfyui_gateway
+                    normalize_path: true
+                    merge_slashes: true
+                    # A long video job can leave the progress socket quiet.
+                    stream_idle_timeout: 7200s
+                    upgrade_configs:
+                      - upgrade_type: websocket
+                    route_config:
+                      name: comfyui_gateway
+                      virtual_hosts:
+                        - name: comfyui_gateway
+                          domains: ["*"]
+                          routes:
+                            - match:
+                                prefix: /
+                                headers:
+                                  - name: x-comfy-route
+                                    string_match:
+                                      exact: backend
+                              route:
+                                cluster: comfyui_backend
+                                timeout: 0s
+                                idle_timeout: 0s
+                            - match:
+                                prefix: /
+                              route:
+                                cluster: comfyui_intake
+                                timeout: 60s
+                    http_filters:
+                      - name: envoy.filters.http.lua
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                          default_source_code:
+                            inline_string: |
+                              function envoy_on_request(handle)
+                                local headers = handle:headers()
+                                local path = (headers:get(":path") or ""):match("^[^?]*")
+                                local method = headers:get(":method")
+                                local phase = "unavailable"
+                                local ok, value = pcall(function()
+                                  local f = io.open("/comfy-switch/phase", "r")
+                                  if not f then return nil end
+                                  local v = f:read(64)
+                                  f:close()
+                                  return v
+                                end)
+                                if ok and value then
+                                  phase = value:match("^%s*([%a-]+)%s*$") or "unavailable"
+                                end
+                                -- ComfyUI serves every route again below /api.
+                                local route = path
+                                if route:sub(1, 5) == "/api/" then route = route:sub(5) end
+                                local read = method == "GET" or method == "HEAD"
+                                -- Server-side file listings, logs and terminal are not
+                                -- needed in the browser workflow.
+                                local internal = route:sub(1, 10) == "/internal/" or route == "/internal"
+                                local target = "intake"
+                                if path:sub(1, 9) ~= "/__comfy/" and not internal then
+                                  if phase == "image-ready" then
+                                    target = "backend"
+                                  elseif phase == "image-draining" and (read or route == "/interrupt" or route == "/queue") then
+                                    -- The window is closing: results stay readable and a
+                                    -- running job can be cancelled, but nothing new starts.
+                                    target = "backend"
+                                  end
+                                end
+                                -- Always overwritten, so a client cannot choose the route.
+                                headers:replace("x-comfy-route", target)
+                                handle:clearRouteCache()
+                              end
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+      clusters:
+        - name: comfyui_intake
+          connect_timeout: 1s
+          type: STATIC
+          load_assignment:
+            cluster_name: comfyui_intake
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: 127.0.0.1
+                          port_value: 8090
+        - name: comfyui_backend
+          connect_timeout: 5s
+          type: STRICT_DNS
+          load_assignment:
+            cluster_name: comfyui_backend
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: comfyui-backend.stable-diffusion.svc.cluster.local
+                          port_value: 8188
+    admin:
+      address:
+        socket_address:
+          address: 127.0.0.1
+          port_value: 9903
