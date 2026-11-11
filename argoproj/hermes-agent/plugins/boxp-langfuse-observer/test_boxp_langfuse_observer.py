@@ -706,8 +706,8 @@ class ObserverTest(unittest.TestCase):
     def test_pinned_limit_withholds(self):
         session = "kohako-g2-limit"
         plugin._on_turn_start(session_id=session, turn_id="t", user_message="hello")
-        for i in range(257):
-            plugin._pin_body(session, None, "password: uniquevalue%03d" % i)
+        for i in range(plugin._MAX_PINS + 1):
+            plugin._pin_body(session, None, "password: uniquevalue%04d" % i)
         self.assertEqual(plugin._tainted(session), "pinned_values_over_limit")
 
     def test_hook_callbacks_declare_no_kwargs_and_no_history(self):
@@ -2166,23 +2166,62 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
         self.assertNotIn("required for all requests", body)
 
     def test_long_session_stays_readable_until_the_pin_limit(self):
-        # BOXP-507 step 2: pins are bounded per lineage (256). A long session that printed distinct cookie headers
-        # stays readable below the bound and is withheld (fail-closed) only past it: 3 values a header reach it at 37.
+        # BOXP-507 step 2: pins are bounded per lineage (_MAX_PINS = 512). A long session that printed distinct cookie
+        # headers stays readable below the bound and is withheld (fail-closed) only past it: 7 values a header (each
+        # pair value, the pairs and the whole) reach it at 74.
         session = "kohako-g2-pincap"
-        for n in range(1, 38):
+        for n in range(1, 75):
             plugin._on_turn_start(session_id=session, turn_id=str(n), user_message="hello")
             plugin._on_tool(session_id=session, turn_id=str(n), tool_name="read_file", args={},
                             result="Cookie: a=v%dAAA; b=w%dBBB; c=x%dCCC" % (n, n, n))
             plugin._on_session_end(session_id=session, turn_id=str(n), completed=True)
             drain()
-            if n == 36:
+            if n == 73:
                 self.assertIsNone(plugin._tainted(session))
-                run_turn(session=session, turn="r36", body="pincapmarker v36AAA")
+                run_turn(session=session, turn="r73", body="pincapmarker v73AAA")
                 body = bodies()
                 self.assertIn("pincapmarker", body)
-                self.assertNotIn("v36AAA", body)
+                self.assertNotIn("v73AAA", body)
         self.assertEqual(plugin._tainted(session), "pinned_values_over_limit")
 
+    def test_header_named_in_japanese_prose_pins_only_the_ascii_credential(self):
+        # BOXP-428 TD-13 readback: the home Telegram session receives Task Board notes that name headers in Japanese
+        # prose. The header credential ran to the end of the line, so the sentence and its particles (が, 値) were
+        # pinned, the lineage passed the pin limit and every later turn was withheld (pinned_values_over_limit).
+        # An HTTP credential is ASCII (RFC 7235 token68, RFC 6265 cookie-octet): it ends at the first non-ASCII
+        # character.
+        session = "kohako-g2-hometd13"
+        notes = ["Authorization: Bearer <token> 等のプレースホルダ形は先頭トークン%dを断片として pin する。値が漏れる" % i
+                 for i in range(100)]
+        notes += ["Cookie: a=1; sid=abc,def で abc/def の語だけ pin され%d件目の値が送信" % i for i in range(100)]
+        for note in notes:
+            # The header credential is cut at the Japanese text (a name-based value in prose may still be Japanese).
+            self.assertFalse([v for v in plugin._exposure_values(note) if re.search(r"[^\x00-\x7f]", v)])
+            plugin._pin_body(session, None, note)
+        self.assertIsNone(plugin._tainted(session))
+        run_turn(session=session, turn="home1", body="ご主人さま、その値が確認できました homejpkeepmarker")
+        body = bodies()
+        self.assertIn("ご主人さま、その値が確認できました", body)
+        self.assertIn("homejpkeepmarker", body)
+        # The ASCII credential right before Japanese text is still pinned and masked when restated.
+        plugin._on_turn_start(session_id=session, turn_id="home2", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="home2", tool_name="read_file", args={},
+                        result="Authorization: Bearer zz9Kq1wEjp日本語の説明")
+        plugin._on_session_end(session_id=session, turn_id="home2", completed=True)
+        drain()
+        run_turn(session=session, turn="home3", body="restated zz9Kq1wEjp here homejpnextmarker")
+        body = bodies()
+        self.assertIn("homejpnextmarker", body)
+        self.assertNotIn("zz9Kq1wEjp", body)
+        self.assertIsNone(plugin._tainted(session))
+
+    def test_pinned_value_count_is_reported_as_coverage(self):
+        session = "kohako-g2-pincount"
+        plugin._pin_body(session, None, "password: countedvalue1")
+        run_turn(session=session, turn="c1", body="countmarker")
+        body = bodies()
+        self.assertIn("coverage.pinned_values", body)
+        self.assertNotIn("countedvalue1", body)
 
 if __name__ == "__main__":
     unittest.main()
