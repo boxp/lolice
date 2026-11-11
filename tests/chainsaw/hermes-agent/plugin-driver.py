@@ -156,6 +156,25 @@ def fire_td13_home(session):
     hooks["post_llm_call"](**turn3, assistant_response="plaintd13homevalue td13restartreplymarker")
     hooks["on_session_end"](**turn3, completed=True)
 
+def fire_td13_notes(session):
+    # BOXP-428 TD-13 readback: the home Telegram session receives Task Board notes that name headers in Japanese
+    # prose. The header credential ran to the end of the line, so each sentence was pinned, the lineage passed the pin
+    # limit and every later turn was withheld (pinned_values_over_limit). The credential of an HTTP header is ASCII and
+    # ends at the first non-ASCII character: the later turns stay readable and a real credential is still masked.
+    hooks = ctx.hooks
+    note = "\n".join("- Authorization: Bearer <token> 等のプレースホルダ形は先頭トークン%dを断片として pin する。" % i
+                      for i in range(150))
+    turn1 = {"session_id": session, "turn_id": "t1"}
+    hooks["pre_llm_call"](**turn1, user_message="[Webhook delivery: task-board] BOXP-428\n" + note, platform="telegram")
+    hooks["post_tool_call"](**turn1, tool_call_id="c1", tool_name="terminal", args={"command": "tail app.log"},
+                            result="GET /api 200\nAuthorization: Bearer plaintd13notesvalue日本語の説明\nok")
+    hooks["post_llm_call"](**turn1, assistant_response="確認しました")
+    hooks["on_session_end"](**turn1, completed=True)
+    turn2 = {"session_id": session, "turn_id": "t2"}
+    hooks["pre_llm_call"](**turn2, user_message="BOXP-428 td13notesnextmarker ありがとう", platform="telegram")
+    hooks["post_llm_call"](**turn2, assistant_response="キーは plaintd13notesvalue でした。td13notesreplymarker")
+    hooks["on_session_end"](**turn2, completed=True)
+
 def fire_name_only_in_output(session):
     # Ordinary code that names a secret, and a secret-name assignment: the value is masked in place, and the replies
     # and the next turn stay readable (BOXP-428 production regression: these withheld whole sessions).
@@ -228,6 +247,7 @@ while True:
     fire_known_format_in_output(f"kohako-g2-format-{n}")
     fire_name_only_in_output(f"kohako-g2-nameonly-{n}")
     fire_td13_home(f"20261026_td13home-{n}")
+    fire_td13_notes(f"20261026_td13notes-{n}")
     fire_known_source_table(f"kohako-g2-kube-config-{n}", {"command": "cat ~/.kube/config"})
     fire_known_source_table(f"kohako-g2-pem-{n}", {"command": "cat /etc/ssl/server.pem"})
     fire_known_source_table(f"kohako-g2-gcloud-{n}", {"command": "gcloud auth print-access-token"})
