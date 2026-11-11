@@ -1,6 +1,6 @@
 name: kohako-g2-context
-version: 1.5.0
-description: Reference G2 conversations and gate API server tools; read-only curl and web_search skip approval in G2 (BOXP-420); notification decision claims removed in BOXP-366.
+version: 1.6.0
+description: Reference G2 conversations and gate API tools for G2 and Kohako home Owner turns (BOXP-503).
 author: boxp
 provides_hooks:
   - pre_llm_call

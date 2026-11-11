@@ -40,7 +40,7 @@ spec:
                   name: kohako-hermes-api-key
                   key: key
             - name: KOHAKO_HERMES_TOOLSETS
-              value: file,session_search,skills,terminal
+              value: browser,code_execution,connections,cronjob,delegation,file,memory,session_search,skills,terminal,todo,vision,web
             - name: KOHAKO_VERIFIER_ENABLED
               value: "true"
             - name: KOHAKO_VERIFIER_USERNAME

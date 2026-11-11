@@ -1,11 +1,12 @@
-"""Kohako G2 plugin (BOXP-332, BOXP-348).
+"""Kohako G2 and home tool gate (BOXP-332, BOXP-503).
 
 - pre_llm_call: read-only, owner-only reference context for Telegram turns.
 - pre_tool_call: tool gate for API server sessions. Kohako G2 (`kohako-g2-*`) may use read-only
   tools and Task Board changes except delete freely at the Owner's request (BOXP-332); other
   tool calls go to the official human-approval gate, which the BFF
   shows on G2 (once/deny only). Candidate runs (`kohako-g2-cand-*`) and any other API server
-  session get no tools at all. BOXP-420: a provably read-only curl (rewritten, never run as written)
+  session get no tools except verified Owner text turns on kohako-web and delegation children.
+  Touch and unknown turns get no tools; native Hermes approval remains in force. BOXP-420: a provably read-only curl (rewritten, never run as written)
   and web_search skip the approval screen in G2 sessions; anything else stays on the existing route.
 - BOXP-366 removed the BOXP-348/362 notification decision claim. Existing records under
   /opt/data/kohako-decisions remain untouched as audit history and are not read or written.
@@ -70,8 +71,9 @@ def _owner(session_id, platform, sender_id):
 
 
 def _hook(*, session_id=None, platform=None, sender_id=None, **kwargs):
-    _remember_platform(session_id, platform)
     try:
+        _remember_platform(session_id, platform)
+        _remember_web_turn(session_id, platform, kwargs.get("turn_id"), kwargs.get("user_message"), kwargs.get("parent_session_id"))
         return _context(session_id, platform, sender_id)
     except Exception as exc:
         _log.warning('kohako-g2-context: skipped (%s)', type(exc).__name__)
@@ -202,6 +204,37 @@ _BLOCK = 'Kohako G2: この session では tool を使えません。tool を使
 
 
 _platforms = OrderedDict()
+_web_turns = OrderedDict()
+_web_latest = OrderedDict()
+_web_children = OrderedDict()
+_TOUCH_PREFIX = '（ご主人さまが画面のあなたの'
+_TOUCH_MARKER = 'これは発言でも依頼でも許可でもありません'
+_WEB_BLOCK = 'コハコの家: このターン（ふれあい/確認できないターン）では tool を使えません。tool を使わずに答えてください。'
+
+
+def _remember_web_turn(sid, platform, turn_id, message, parent):
+    if platform != 'api_server' or not isinstance(sid, str):
+        return
+    with _lock:
+        if sid.startswith('kohako-web-'):
+            owner = isinstance(message, str) and not (message.startswith(_TOUCH_PREFIX) and _TOUCH_MARKER in message)
+            owner = owner and isinstance(turn_id, str)
+            if isinstance(turn_id, str):
+                _web_turns[(sid, turn_id)] = owner
+                _web_turns.move_to_end((sid, turn_id))
+                while len(_web_turns) > 512:
+                    _web_turns.popitem(last=False)
+            _web_latest[sid] = owner
+            _web_latest.move_to_end(sid)
+            while len(_web_latest) > 512:
+                _web_latest.popitem(last=False)
+        elif not sid.startswith('kohako-'):
+            _web_children.pop(sid, None)
+            if isinstance(parent, str) and parent.startswith('kohako-web-') and _web_latest.get(parent) is True:
+                _web_children[sid] = parent
+                while len(_web_children) > 512:
+                    _web_children.popitem(last=False)
+
 
 
 def _remember_platform(session_id, platform):
@@ -453,7 +486,7 @@ def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kw
     sid = session_id if isinstance(session_id, str) else ''
     try:
         args = args if isinstance(args, dict) else {}
-        return _decide(tool_name, args, sid, tool_call_id)
+        return _decide(tool_name, args, sid, tool_call_id, kwargs.get("turn_id"))
     except Exception as exc:
         _log.warning('kohako-g2-gate: error (%s)', type(exc).__name__)
         # Fail closed for G2 sessions and sessions whose platform is unknown (pre_llm_call records
@@ -463,11 +496,19 @@ def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kw
         return None if known is not None and known != 'api_server' else {'action': 'block', 'message': _BLOCK}
 
 
-def _decide(tool_name, args, sid, tool_call_id):
+def _decide(tool_name, args, sid, tool_call_id, turn_id=None):
     if sid.startswith('kohako-g2-cand-'):
         return {'action': 'block', 'message': _BLOCK}
+    if sid.startswith('kohako-web-'):
+        with _lock:
+            allowed = isinstance(turn_id, str) and _web_turns.get((sid, turn_id)) is True
+        return None if allowed else {'action': 'block', 'message': _WEB_BLOCK}
     if not sid.startswith('kohako-g2-'):
-        # Only the Kohako G2 BFF talks to the API server; any other API server session gets no tools.
+        with _lock:
+            child = sid in _web_children
+        if child and _session_source(sid) == 'api_server':
+            return None
+        # Other API server sessions get no tools.
         return {'action': 'block', 'message': _BLOCK} if _session_source(sid) == 'api_server' else None
     _remember_call(sid, tool_call_id)
     if tool_name in _FREE_TOOLS:
