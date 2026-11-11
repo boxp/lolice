@@ -386,14 +386,27 @@ class Switcher:
         except (ValueError, KeyError, TypeError):
             return None
 
-    def track_probe(self, busy):
-        """A backend that stays unobservable must not hold the GPU forever."""
-        if busy is None:
-            since = self.state.setdefault('probe_failing_since', self.clock())
-            if self.clock() - since >= PROBE_FAILURE_LIMIT:
-                raise Stop('image backend unobservable')
-        else:
+    def track_probe(self, busy, snapshot):
+        """A backend that stays unobservable must not hold the GPU forever.
+
+        True when the window was closed here and the caller must not go on.
+        """
+        if busy is not None:
             self.state.pop('probe_failing_since', None)
+            return False
+        since = self.state.setdefault('probe_failing_since', self.clock())
+        if self.clock() - since < PROBE_FAILURE_LIMIT:
+            return False
+        if self.backend() != 'comfy':
+            raise Stop('image backend unobservable')
+        # ComfyUI's liveness probe restarts a silent container long before this
+        # limit, so a job that was running is already gone. Leaving LLM down
+        # until an operator arrives would protect nothing: stop ComfyUI and let
+        # the usual path wait for its pod to end before LLM starts.
+        self.state.pop('probe_failing_since', None)
+        self.state.update(reason='ComfyUI unobservable; window closed', next_cooldown=START_FAILURE_COOLDOWN)
+        self.write(snapshot, 'comfy', 0, 'stopping-sd')
+        return True
 
     def complete_window(self):
         self.state['cooldown_until'] = self.clock() + self.state.pop('next_cooldown', COOLDOWN)
@@ -465,7 +478,8 @@ class Switcher:
         snapshot = self.cluster.snapshot()
         self.expect(snapshot, (0,), 1, (self.closed(),))
         busy = self.image_busy()
-        self.track_probe(busy)
+        if self.track_probe(busy, snapshot):
+            return
         if busy:
             self.state['last_activity'] = self.clock()
         self.save()
@@ -486,7 +500,8 @@ class Switcher:
         snapshot = self.cluster.snapshot()
         self.expect(snapshot, (0,), 1, (self.closed(),))
         busy = self.image_busy()
-        self.track_probe(busy)
+        if self.track_probe(busy, snapshot):
+            return
         self.save()
         dispatched = self.backend() == 'sd' and self.jobs()['dispatched']
         self.stable = self.stable + 1 if busy is False and not dispatched else 0

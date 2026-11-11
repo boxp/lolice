@@ -127,17 +127,41 @@ class ComfyWindow(ComfyBase):
         self.advance(module.IDLE_RELEASE + 60)
         self.assertEqual(self.phase, 'image-ready')
 
-    def test_unreadable_queue_is_not_idle_and_fails_closed(self):
+    def test_unreadable_queue_is_not_idle_and_returns_the_gpu_to_llm(self):
         self.comfy_ready()
         for answer in ((500, b''), (200, b'not json'), (200, b'{"queue_running": []}'), (200, b'{"queue_running": 0, "queue_pending": 0}')):
             self.queue = answer
             self.assertIsNone(self.switcher.comfy_busy())
-        for _ in range(100):
-            self.advance(60)
-        self.assertEqual(self.phase, 'failed')
-        self.assertEqual(self.cluster.comfy, 1)
-        self.assertTrue(self.cluster.gate.startswith('closed:'))
-        self.assertEqual(self.phases(), ('failed', 'failed'))
+        # Not idle: the window outlives the idle release while the queue is unreadable.
+        self.advance(module.COMFY_IDLE_RELEASE + 120)
+        self.assertEqual((self.phase, self.cluster.comfy), ('image-ready', 1))
+        self.advance(module.PROBE_FAILURE_LIMIT)
+        self.until('llm-open', step=30)
+        token = self.switcher.state['token']
+        # ComfyUI is stopped before LLM starts, and LLM answers before admission opens.
+        self.assertEqual(self.cluster.writes[-4:], [
+            ('comfy', 0), ('gate', 'verify:' + token), ('llama', 1), ('gate', 'open:' + token)])
+        self.assertEqual((self.cluster.llama, self.cluster.comfy, self.cluster.gate), (1, 0, 'open:' + token))
+        self.assertEqual(self.probes, 1)
+        self.assertEqual(self.switcher.state['reason'], 'ComfyUI unobservable; window closed')
+        # No new window during the cooldown, even if the button is pressed again.
+        self.comfy_intent()
+        writes = len(self.cluster.writes)
+        self.advance(module.START_FAILURE_COOLDOWN - 300)
+        self.assertEqual((self.phase, len(self.cluster.writes)), ('llm-open', writes))
+
+    def test_unreadable_queue_while_draining_returns_the_gpu_to_llm(self):
+        self.comfy_ready()
+        self.queue = RUNNING
+        self.advance(module.COMFY_WINDOW_LIMIT + 60)
+        self.assertEqual(self.phase, 'image-draining')
+        self.queue = (503, b'')
+        self.advance(60)
+        self.advance(module.PROBE_FAILURE_LIMIT - 120)
+        self.assertEqual((self.phase, self.cluster.comfy), ('image-draining', 1))
+        self.advance(240)
+        self.until('llm-open', step=30)
+        self.assertEqual((self.cluster.llama, self.cluster.comfy), (1, 0))
 
     def test_backend_restart_during_a_window_recovers(self):
         self.comfy_ready()
