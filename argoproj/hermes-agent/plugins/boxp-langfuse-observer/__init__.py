@@ -1060,6 +1060,8 @@ def _exposure_values(text):
     return _exposure_details(text)[1]
 
 
+_COOKIE_ATTRIBUTES = {"path", "domain", "expires", "max-age", "samesite", "secure", "httponly", "partitioned",
+                      "priority"}
 _KEY_LINE = re.compile(r"[A-Za-z0-9+/=]{16,}")
 _CREDENTIAL_WORD = re.compile(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'<>,;])+""")
 
@@ -1098,7 +1100,25 @@ def _exposure_details(text):
                     values.update({value, _PROVIDER_PREFIX.sub("", value)})
                 elif credential is not None:
                     # Serialized history escapes the line break (\\n) and closes the string: the credential ends there.
-                    values.update(_CREDENTIAL_WORD.findall(credential))
+                    words = _CREDENTIAL_WORD.findall(credential)
+                    if kind == "header" and re.match(r"(?i)(?:set-)?cookie\b", value):
+                        # A cookie header carries name=value pairs: the value of each pair is the credential and is
+                        # pinned on its own (lolice#1179 review). Set-Cookie attributes (Path=/, Max-Age=3600) are not.
+                        if re.match(r"(?i)set-cookie\b", value):
+                            # Everything after the first ; of Set-Cookie is attributes (Expires=Wed, 21 Oct ...).
+                            words = _CREDENTIAL_WORD.findall(credential.split(";", 1)[0])
+                        pairs = []
+                        for word in words:
+                            name, sep, pair_value = word.partition("=")
+                            if name.lower() in _COOKIE_ATTRIBUTES:
+                                continue
+                            pair_value = pair_value.strip("\"'")
+                            if not sep or pair_value:
+                                pairs.append(word)
+                            if sep and pair_value:
+                                pairs.append(pair_value)
+                        words = pairs
+                    values.update(words)
                 else:
                     values.add(value)
     return kinds, values

@@ -1357,7 +1357,11 @@ class ObserverTest(unittest.TestCase):
         # withheld a long chat session for good).
         for result, credential in (("Authorization: Bearer " + "plainword" + "value1", "plainwordvalue1"),
                                    ("url: postgres://app:" + "plainwordvalue@db/x", "plainwordvalue"),
-                                   ("key: " + "ghp_" + "plainwordvalue", "plainwordvalue")):
+                                   ("key: " + "ghp_" + "plainwordvalue", "plainwordvalue"),
+                                   # lolice#1179 review: a cookie header pins the value of each pair, not only name=value
+                                   ("Set-Cookie: session=" + "plainwordvalue; Path=/; HttpOnly", "plainwordvalue"),
+                                   ("Cookie: a=1; sid=" + "plainwordvalue", "plainwordvalue"),
+                                   ('Set-Cookie: sid="' + 'plainwordvalue"; Max-Age=3600', "plainwordvalue")):
             with self.subTest(result):
                 session = "kohako-g2-fmt-" + str(abs(hash(str(result))))
                 self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
