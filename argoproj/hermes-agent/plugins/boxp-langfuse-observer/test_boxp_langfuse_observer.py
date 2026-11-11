@@ -1384,6 +1384,7 @@ class ObserverTest(unittest.TestCase):
         # lolice#1179 review: a URL password abc,def was pinned only as the short words abc and def, which match on word
         # boundaries, so prefixabc,defsuffix in a later turn was sent.
         for result, restated in (("url: https://u:" + "abc,def@example.com", "prefixabc,defsuffix"),
+                                 ("url: https://u:" + "hunter123:q7z@example.com", "prefixhunter123:q7zsuffix"),
                                  ("Authorization: Bearer " + "abc;def", "prefixabc;defsuffix")):
             with self.subTest(result):
                 session = "kohako-g2-sep-" + str(abs(hash(str(result))))

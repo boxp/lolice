@@ -1105,7 +1105,9 @@ def _exposure_scan(text):
                 elif kind == "bearer":
                     credential = re.sub(r"(?i)^bearer\s+", "", value)
                 elif kind == "url_credentials":
-                    password = re.search(r":([^:@]*)@$", value)
+                    # userinfo is user:password and the user part has no colon, so the password is everything after the
+                    # first colon: https://u:hunter123:q7z@host pins hunter123:q7z, not just q7z (lolice#1179 review).
+                    password = re.match(r"(?i)[a-z][a-z0-9+.-]*://[^\s/@:]+:(.*)@$", value)
                     credential = password.group(1) if password else ""
                 elif kind == "provider_key":
                     # A prefix on an ordinary identifier (npm_config_cache: lower-case words joined by _ or -) or a short
