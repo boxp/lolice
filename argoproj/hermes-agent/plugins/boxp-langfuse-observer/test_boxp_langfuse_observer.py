@@ -1380,6 +1380,25 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn(credential, body)
                 self.assertIn("nextturnmarker", body)
 
+    def test_a_symbol_only_known_format_credential_is_pinned(self):
+        # lolice#1179 review: a credential of a known format made only of symbols (https://u:!!!@host) was not pinned,
+        # so a bare restatement of it in a later turn was sent.
+        for result, credential in (("url: https://u:" + "!!!@example.com", "!!!"),
+                                   ("url: https://u:" + "!@example.com", "!"),
+                                   ("url: https://u:" + "#$%&@example.com", "#$%&"),
+                                   ("Authorization: Bearer " + "----", "----"),
+                                   ("Cookie: a=" + "!!; b=1", "!!")):
+            with self.subTest(result):
+                session = "kohako-g2-sym-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                self.assertIn("withheld_after_known_format_in_tool_output", self._bodies())
+                run_turn(session=session, turn="t2", body="next turn " + credential + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(" " + credential + " ", body)
+                self.assertIn("nextturnmarker", body)
+                self.assertIsNone(plugin._tainted(session))
+
     def test_a_name_based_hit_masks_in_place_and_keeps_later_bodies(self):
         # A secret name with a value is masked where it is, but is no evidence: ordinary code and logs match it too.
         # A bare restatement of the masked value elsewhere is the accepted residual (THREAT_MODEL.md 2).

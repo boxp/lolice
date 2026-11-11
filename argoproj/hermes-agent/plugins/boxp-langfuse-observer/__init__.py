@@ -953,10 +953,14 @@ def _pin_body(session, parent, body):
                 return unpinned
             del _pinned_digests[key]
     values, unpinned = _named_values(text)
-    # A credential of a known format is pinned whatever its length (an exact match, a JWT can be long); a short one
-    # as a whole word, like a short named value.
-    values = values | {v if len(v) >= 4 else _Word(v) for leaf in _leaves(body) for v in _exposure_values(leaf)
-                       if 0 < len(v) <= 65536 and re.search(r"[^\W_]", v)}
+    # A credential of a known format is pinned whatever its length (an exact match, a JWT can be long) and whatever
+    # its characters (https://u:!!!@host has a symbol-only password; lolice#1179 review); a short one as a whole word,
+    # like a short named value.
+    # A symbol-only value is taken from the strings as written only: in the serialized text of a structured body the
+    # JSON punctuation after a credential reads as one more token (Bearer x"} gives "}").
+    values = values | {v if len(v) >= 4 else _Word(v) for index, leaf in enumerate(_leaves(body))
+                       for v in _exposure_values(leaf) if 0 < len(v) <= 65536 and v.strip()
+                       and (re.search(r"[^\W_]", v) or isinstance(body, str) or index > 0)}
     if values:
         overflow = False
         with _lock:
