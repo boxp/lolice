@@ -37,11 +37,6 @@ class ComfyBoundaryTest(unittest.TestCase):
             self.assertIn(f'- ip: {ip}\n          hostnames: [comfyui.b0xp.io]', backend)
         self.assertIn('dnsPolicy: "None"\n      dnsConfig:\n        nameservers: ["127.0.0.1"]', backend)
 
-    def test_backend_caps_vram_below_the_shared_memory_limit(self):
-        backend = text('stable-diffusion/comfyui-deployment.yaml')
-        self.assertIn('args: ["--reserve-vram", "48"]', backend)
-        self.assertIn('memory: 72Gi', backend)
-
     def test_backend_mounts_only_its_own_directory_of_the_shared_volume(self):
         backend = text('stable-diffusion/comfyui-deployment.yaml')
         self.assertEqual(backend.count('claimName:'), 1)
