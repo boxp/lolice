@@ -42,7 +42,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: proxy
-          image: docker.io/langfuse/langfuse:4.77.0
+          image: docker.io/langfuse/langfuse:4.78.0
           command: ["node", "--max-old-space-size=64", "/proxy/mcp-readonly-proxy.mjs"]
           env:
             # Langfuse checks Host against NEXTAUTH_URL; keep this in sync with web.yaml.
