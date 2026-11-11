@@ -1435,6 +1435,22 @@ class ObserverTest(unittest.TestCase):
                 self.assertIn("nextturnmarker", body)
                 self.assertIsNone(plugin._tainted(session))
 
+    def test_a_symbol_only_credential_nested_at_any_depth_is_pinned(self):
+        # lolice#1179 review: the strings of a structured result were walked only 8 levels deep, so a symbol-only
+        # credential nested deeper (Authorization: Bearer !!!!) was not pinned and its bare restatement was sent.
+        for depth in (1, 9, 40, 400):
+            with self.subTest(depth=depth):
+                result = "Authorization: Bearer " + "!!!!"
+                for _ in range(depth):
+                    result = {"x": [result]}
+                session = "kohako-g2-deep-" + str(depth)
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                run_turn(session=session, turn="t2", body="next turn " + "!!!!" + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(" " + "!!!!" + " ", body)
+                self.assertIn("nextturnmarker", body)
+
     def test_a_name_based_hit_masks_in_place_and_keeps_later_bodies(self):
         # A secret name with a value is masked where it is, but is no evidence: ordinary code and logs match it too.
         # A bare restatement of the masked value elsewhere is the accepted residual (THREAT_MODEL.md 2).

@@ -924,20 +924,25 @@ def _link_parent(session, parent):
 _pinned_digests = collections.OrderedDict()  # (session, digest) of bodies already pinned: history is resent on every request
 
 
-def _leaves(body, depth=0):
+def _leaves(body):
     """The strings of a body as written, plus its serialized text: a format at the start of a line is found in the
-    original string (serialized, the line break before it is the two characters \\n)."""
-    if depth == 0:
-        yield _text(body)
+    original string (serialized, the line break before it is the two characters \\n). Every depth is walked (an
+    explicit stack, no recursion limit): a symbol-only credential nested deeper than any fixed bound must still be
+    pinned (lolice#1179 review)."""
+    yield _text(body)
     if isinstance(body, str):
-        if depth:
-            yield body
-    elif isinstance(body, dict) and depth < 8:
-        for item in body.values():
-            yield from _leaves(item, depth + 1)
-    elif isinstance(body, (list, tuple)) and depth < 8:
-        for item in body:
-            yield from _leaves(item, depth + 1)
+        return
+    stack, seen = [body], set()
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            yield node
+        elif isinstance(node, (dict, list, tuple)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            items = list(node.values()) if isinstance(node, dict) else list(node)
+            stack.extend(reversed(items))
 
 
 def _pin_body(session, parent, body):
