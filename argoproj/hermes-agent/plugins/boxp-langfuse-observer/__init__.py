@@ -19,13 +19,16 @@ K1 known formats: every string goes through redact() (_PATTERNS, element, assign
 around a secret word and the lines next to it) before it is queued, and the serialized batch is
 scanned again (_unsafe) before sending; a hit there drops the span. When a tool result carried a
 credential-shaped known format (_EXPOSURE_KINDS: private key, header, URL credentials, JWT, bearer,
-provider/cloud keys, this process's environment values), later bodies of the session are withheld
-too. A name-based hit (assignment, env entry, flag, cli password) does not withhold: the value it
+provider/cloud keys, this process's environment values), the rest of the turns open in its lineage is
+withheld, and the credential itself is pinned like a named value: later turns are sent through the mask
+(BOXP-428 TD-13: withholding the session for good hid a long home chat session for days, and every restart
+withheld it again from its history). A name-based hit (assignment, env entry, flag, cli password) does not withhold: the value it
 names (4..256 characters, _named_values) is pinned to the session lineage and masked in every field
 of its turns, escapes included, and the final guard rejects a span that still holds it, so a bare
 restatement in a later reply is not sent. A value that cannot be pinned (shorter, longer, or more
-than 64 in one text) in a tool result withholds the lineage; over 256 pinned values per lineage
-withholds it too (pinned_values_over_limit).
+than 64 in one text) in a tool result withholds the rest of the turn; over 256 pinned values per lineage
+withholds it too (pinned_values_over_limit), and so does a known-format credential over 65,536 characters
+(credential_over_limit). The open-turn hold covers ancestors and descendants already open, not siblings.
 Not guaranteed: a plain value without a secret word or known format near it, a transformed or partial
 restatement (base64, reversal...), a restatement in an unrelated session, and a short named value in a
 prompt or reply. The Owner accepted these for a self-hosted Langfuse behind Owner-only Access with
@@ -921,6 +924,28 @@ def _link_parent(session, parent):
 _pinned_digests = collections.OrderedDict()  # (session, digest) of bodies already pinned: history is resent on every request
 
 
+def _leaves(body):
+    """The strings of a body as written, plus its serialized text: a format at the start of a line is found in the
+    original string (serialized, the line break before it is the two characters \\n). Every depth is walked (an
+    explicit stack, no recursion limit): a symbol-only credential nested deeper than any fixed bound must still be
+    pinned (lolice#1179 review)."""
+    yield _text(body)
+    if isinstance(body, str):
+        return
+    stack, seen = [body], set()
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            yield node
+        elif isinstance(node, (dict, list, tuple)):
+            if id(node) in seen:
+                continue
+            seen.add(id(node))
+            # Keys too: a credential written as a key ({"Authorization: Bearer !!!!": 1}) is pinned (lolice#1179).
+            items = [x for kv in node.items() for x in kv] if isinstance(node, dict) else list(node)
+            stack.extend(reversed(items))
+
+
 def _pin_body(session, parent, body):
     _link_parent(session, parent)
     text = _text(body)
@@ -935,6 +960,18 @@ def _pin_body(session, parent, body):
                 return unpinned
             del _pinned_digests[key]
     values, unpinned = _named_values(text)
+    # A credential of a known format is pinned whatever its length (an exact match, a JWT can be long) and whatever
+    # its characters (https://u:!!!@host has a symbol-only password; lolice#1179 review); a short one as a whole word,
+    # like a short named value.
+    # A symbol-only value is taken from the strings as written only: in the serialized text of a structured body the
+    # JSON punctuation after a credential reads as one more token (Bearer x"} gives "}").
+    exposed = {v for index, leaf in enumerate(_leaves(body)) for v in _exposure_values(leaf) if v.strip()
+               and (re.search(r"[^\W_]", v) or isinstance(body, str) or index > 0)}
+    # A credential too long to pin (over 65,536 characters) cannot be masked when restated; the turn-scoped hold ends
+    # with the turn, so the lineage is withheld instead (fail-closed; lolice#1179 review).
+    oversized = any(len(v) > 65536 for v in exposed)
+    unpinnable_credential = any(v.strip() for leaf in _leaves(body) for v in _exposure_unpinnable(leaf))
+    values = values | {v if len(v) >= 4 else _Word(v) for v in exposed if len(v) <= 65536}
     if values:
         overflow = False
         with _lock:
@@ -953,6 +990,12 @@ def _pin_body(session, parent, body):
                     del _pinned_digests[cached]
         if overflow:
             _taint("pinned_values_over_limit", *_lineage(str(session or "")))
+    if oversized:
+        _taint("credential_over_limit", *_lineage(str(session or "")))
+        unpinned = True
+    if unpinnable_credential:
+        _taint("credential_unpinnable", *_lineage(str(session or "")))
+        unpinned = True
     with _lock:
         _pinned_digests[key] = (unpinned, bool(values))
         while len(_pinned_digests) > 8 * _MAX_SESSIONS:
@@ -978,22 +1021,46 @@ def _mask_value(value, pattern):
     return value
 
 
+# Attributes the observer writes itself (constants, counters, enums and ids it generates): a pinned value cannot come
+# from the model there, and masking them only broke the trace (retry "0", release "0.1.0", "delegated" with a pinned
+# short value inside; BOXP-428 TD-13). Bodies, names, tags and free-text metadata stay masked.
+_OWN_ATTRIBUTES = re.compile(
+    r"langfuse\.(?:session\.id|release|trace\.name|observation\.(?:type|level|usage_details)"
+    r"|trace\.metadata\.(?:status|coverage\.[\w.]+)"
+    r"|observation\.metadata\.(?:body_policy|parent_session_id|child_session_id))")
+# Counters the hooks pass (retry, api_call, token counts, status codes) are exempt only while they are numbers; any
+# other value a caller passes (finish_reason, provider, model, status) is masked like a body.
+_NUMERIC_ATTRIBUTES = re.compile(
+    r"langfuse\.observation\.metadata\.(?:api_call|retry|before_tokens|after_tokens|messages_removed|status_code)")
+
+
+def _masked_attribute(attribute):
+    key = str(attribute.get("key"))
+    if _OWN_ATTRIBUTES.fullmatch(key):
+        return False
+    value = (attribute.get("value") or {}).get("stringValue")
+    return not (_NUMERIC_ATTRIBUTES.fullmatch(key) and isinstance(value, str) and re.fullmatch(r"-?\d{1,12}", value))
+
+
 def _mask_pins(spans, pattern):
-    """Mask the span name and attribute values only: ids, times and attribute keys are the exporter's own."""
+    """Mask the span name and model-derived attribute values only: ids, times, keys and the observer's own metadata
+    are the exporter's."""
     return [{**span, "name": _mask_value(span.get("name"), pattern),
-             "attributes": [{**a, "value": _mask_value(a.get("value"), pattern)} for a in span.get("attributes", [])]}
+             "attributes": [{**a, "value": _mask_value(a.get("value"), pattern)} if _masked_attribute(a) else a
+                            for a in span.get("attributes", [])]}
             for span in spans]
 
 
 def _pinned_text(span):
-    return _PLACEHOLDER.sub("", json.dumps([span.get("name"), [a.get("value") for a in span.get("attributes", [])]],
-                                           ensure_ascii=False))
+    return _PLACEHOLDER.sub("", json.dumps([span.get("name"), [a.get("value") for a in span.get("attributes", [])
+                                                               if _masked_attribute(a)]], ensure_ascii=False))
 
 
 # Documentation placeholders (Authorization: Bearer <token>, Bearer YOUR_API_TOKEN, postgres://user:password@db) are masked
-# in place but are no evidence that the model saw a credential (BOXP-428 TD-12).
+# in place but are no evidence that the model saw a credential (BOXP-428 TD-12). Only the placeholder shapes count
+# ($NAME, ${...}, <...>, {{...}}, %NAME%, [...], ***): a value merely starting with % or $ is a credential (BOXP-507).
 _PLACEHOLDER_CREDENTIAL = re.compile(
-    r"(?i)[$<{%*\[].*|x+|\.+|pass(?:word|wd|phrase)?\d?|pwd|secret|(?:api[_-]?|access[_-]?|auth[_-]?)?(?:key|token)|changeme"
+    r"(?i)\$\{[^}]*\}?|\$\w+|<[^>]*>?|\{\{?[^}]*\}?\}?|%\w+%|\*+|\[[^\]]*\]?|x+|\.+|pass(?:word|wd|phrase)?\d?|pwd|secret|(?:api[_-]?|access[_-]?|auth[_-]?)?(?:key|token)|changeme"
     r"|your[\w-]*|my[\w-]*pass\w*|example\w*")
 
 
@@ -1004,22 +1071,94 @@ def _placeholder_credential(value):
                              or re.fullmatch(r"[a-z]{1,12}", value))
 
 
+def _word_credential(value):
+    """A token of a placeholder credential that is an ordinary word or masking notation (token, for, xxx, ***): such a
+    token is not pinned on its own, since that would mask the word everywhere in the lineage. The whole credential as
+    written is always pinned regardless (BOXP-507 single rule): Bearer abc. pins abc., Bearer token pins token and
+    Authorization: required for all requests pins that phrase, so a verbatim repeat in a later turn is masked
+    (lolice#1179 review). The cost is over-masking of that exact text in the lineage (THREAT_MODEL.md section 2)."""
+    value = re.sub(r"""^["'`(\[{]+|["'`.,;:)\]}/]+$""", "", value.strip())
+    return not value or bool(re.fullmatch(r"[a-z]{1,12}", value) or re.fullmatch(r"(?i)x+|\*+|\.+", value)
+                             or re.fullmatch(r"(?i)pass(?:word|wd|phrase)?\d?|pwd|secret|(?:api[_-]?|access[_-]?|auth[_-]?)?(?:key|token)|changeme", value))
+
+
 def _exposure(text):
     """Kinds of known format found in text, checked before the line mask so that a value next to a secret word counts."""
-    kinds = set()
+    return _exposure_details(text)[0]
+
+
+def _exposure_values(text):
+    """The credentials of credential-shaped known formats in text, pinned like named values (BOXP-428 TD-13): the
+    format is masked in place, and a bare restatement of the credential in a later turn is masked as a pinned value."""
+    return _exposure_details(text)[1]
+
+
+def _exposure_unpinnable(text):
+    """Credentials found only after a literal escape and made of JSON punctuation alone: never pinned, so the caller
+    withholds the lineage (lolice#1179 review)."""
+    return _exposure_details(text)[2]
+
+
+_KEY_LINE = re.compile(r"[A-Za-z0-9+/=]{16,}")
+_CREDENTIAL_WORD = re.compile(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'<>,;])+""")
+# The whole credential up to whitespace or an escape: abc,def is pinned as one value too, since its short words alone
+# match only on word boundaries and prefixabc,defsuffix would be sent (lolice#1179 review).
+_CREDENTIAL_SPAN = re.compile(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'<>])+""")
+# A structured result serializes its line breaks as \\n: "\\nAuthorization:" has no word boundary before the header
+# name, so the serialized text is also scanned with those escapes as real line breaks (lolice#1179 review).
+_ESCAPED_BREAK = re.compile(r"\\+[nrt]")
+# A header line in serialized history runs to the end of the JSON line: past this length the whole is not pinned and
+# the fragments above remain (a longer credential repeated verbatim with a literal escape is a stated residual).
+_WHOLE_PIN_MAX = 4096
+
+
+_JSON_PUNCTUATION = re.compile(r"""[\s,;:{}\[\]"'\\=]+""")
+
+
+def _exposure_details(text):
+    kinds, values = _exposure_scan(text)
+    unpinnable = set()
+    unescaped = _ESCAPED_BREAK.sub("\n", text)
+    if unescaped != text:
+        more_kinds, more_values = _exposure_scan(unescaped)
+        kinds |= more_kinds
+        # The unescaped reading finds a header that follows a literal escape (x\\nAuthorization: Bearer !!!!): its
+        # credential, symbol-only or not, is pinned whole (lolice#1179 review). Only a piece made of JSON punctuation
+        # alone (a lone "," before \\n) is not pinned, since it would match that punctuation everywhere; it withholds
+        # the lineage instead (credential_unpinnable, fail-closed) rather than being left unmasked.
+        for v in more_values:
+            if _JSON_PUNCTUATION.fullmatch(v):
+                unpinnable.add(v)
+            else:
+                values.add(v)
+    return kinds, values, unpinnable
+
+
+def _exposure_scan(text):
+    kinds, values = set(), set()
     env_pattern = _env_pattern()
     if env_pattern and env_pattern.search(text):
-        kinds.add("env")
+        kinds.add("env")  # environment values are masked in every field already
     for kind, pattern in _PATTERNS:
         if kind in _EXPOSURE_KINDS:
             for match in pattern.finditer(text):
                 value = match.group(0)
                 if kind == "header":
                     credential = re.sub(r"(?i)^(?:bearer|basic|token|digest)\s+", "", value.split(":", 1)[-1].strip())
+                    # Authorization: <scheme> <credentials> with any scheme name (custom, Negotiate4): a scheme that
+                    # reads as a placeholder word is dropped when a non-placeholder credential follows it, so
+                    # Authorization: custom abcXYZ123 counts and pins abcXYZ123 like Bearer does (lolice#1179 review).
+                    if not re.match(r"(?i)(?:set-)?cookie\b", value):
+                        scheme = re.match(r"([A-Za-z][A-Za-z0-9._-]{0,31})\s+(\S.*)$", credential, re.S)
+                        if (scheme and _placeholder_credential(scheme.group(1))
+                                and not _placeholder_credential(scheme.group(2).split()[0])):
+                            credential = scheme.group(2)
                 elif kind == "bearer":
                     credential = re.sub(r"(?i)^bearer\s+", "", value)
                 elif kind == "url_credentials":
-                    password = re.search(r":([^:@]*)@$", value)
+                    # userinfo is user:password and the user part has no colon, so the password is everything after the
+                    # first colon: https://u:hunter123:q7z@host pins hunter123:q7z, not just q7z (lolice#1179 review).
+                    password = re.match(r"(?i)[a-z][a-z0-9+.-]*://[^\s/@:]+:(.*)@$", value)
                     credential = password.group(1) if password else ""
                 elif kind == "provider_key":
                     # A prefix on an ordinary identifier (npm_config_cache: lower-case words joined by _ or -) or a short
@@ -1031,10 +1170,82 @@ def _exposure(text):
                 else:
                     credential = None
                 if credential is not None and _placeholder_credential((credential.split() or [""])[0]):
+                    # Not evidence that a credential was seen, so nothing is withheld; always pinned whole as written
+                    # (BOXP-507), even when every token is a word (Bearer abc., lolice#1179 review). Each token that is
+                    # not a word is pinned on its own too: Authorization: Bearer token ordinary zz9Kq1wE pins zz9Kq1wE.
+                    whole = credential.strip()
+                    tokens = re.findall(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'])+""", whole)
+                    if whole and not _JSON_PUNCTUATION.fullmatch(whole):
+                        if len(whole) <= _WHOLE_PIN_MAX:
+                            values.add(whole)
+                        # The placeholder token itself (cut at an escape or quote of serialized history) is pinned as
+                        # well, like the fragments of any other credential: Authorization: token ABCDEFGHIJKL extra
+                        # masks a later bare ABCDEFGHIJKL (lolice#1179 review). Over the limit only the token is handed
+                        # on: the caller pins it when it fits and withholds the lineage (credential_over_limit) when it
+                        # does not, so it is never left unpinned.
+                        # Every token, not only the first: Authorization: Bearer <token> zz9Kq1wE masks a later bare
+                        # zz9Kq1wE (lolice#1179 review). Word tokens stay unpinned and readable.
+                        for token in tokens:
+                            if not _word_credential(token):
+                                values.add(token)
                     continue
                 kinds.add(kind)
-                break
-    return kinds
+                if kind == "private_key":
+                    values.update(_KEY_LINE.findall(value))
+                elif kind == "provider_key":
+                    values.update({value, _PROVIDER_PREFIX.sub("", value)})
+                elif credential is not None:
+                    # Serialized history escapes the line break (\\n) and closes the string: the credential ends there.
+                    words = _CREDENTIAL_WORD.findall(credential)
+                    if kind == "header" and re.match(r"(?i)(?:set-)?cookie\b", value):
+                        # A cookie header carries name=value pairs: the value of each pair is the credential and is
+                        # pinned on its own (lolice#1179 review). Set-Cookie attributes (Path=/, Max-Age=3600) are not.
+                        if re.match(r"(?i)set-cookie\b", value):
+                            # Everything after the first ; of Set-Cookie is attributes (Expires=Wed, 21 Oct ...).
+                            words = _CREDENTIAL_WORD.findall(credential.split(";", 1)[0])
+                        pairs = []
+                        for word in words:
+                            # Every pair left is a cookie, even one named like an attribute (Cookie: path=x):
+                            # Set-Cookie attributes were cut off at the first ; above (lolice#1179 review).
+                            name, sep, pair_value = word.partition("=")
+                            pair_value = pair_value.strip("\"'")
+                            if not sep or pair_value:
+                                pairs.append(word)
+                            if sep and pair_value:
+                                pairs.append(pair_value)
+                        words = pairs
+                        # A cookie value may hold separators (sid=abc,def): each pair value is also pinned whole up to
+                        # whitespace, so prefixabc,defsuffix in a later turn is masked (lolice#1179 review).
+                        cookies = credential.split(";", 1)[0] if re.match(r"(?i)set-cookie\b", value) else credential
+                        for pair in cookies.split(";"):
+                            pair_value = pair.strip().partition("=")[2].strip().strip("\"'")
+                            words.extend(span for span in _CREDENTIAL_SPAN.findall(pair_value)[:1]
+                                         if span not in words)
+                    fragments = set(words)
+                    fragments.update(span for span in _CREDENTIAL_SPAN.findall(credential)[:1] if span not in words)
+                    # Single rule (BOXP-507): the credential part masked in place is also pinned whole, exactly as
+                    # written, so a later verbatim repeat is masked whatever separators or literal escapes (\\n, \\\\)
+                    # it holds. The fragments above stay; only the whole is added. A cookie pins each pair value whole.
+                    whole = []
+                    if kind == "header" and re.match(r"(?i)(?:set-)?cookie\b", value):
+                        cookies = credential.split(";", 1)[0] if re.match(r"(?i)set-cookie\b", value) else credential
+                        whole.extend(pair.strip().partition("=")[2].strip().strip("\"'") for pair in cookies.split(";"))
+                    else:
+                        whole.append(credential.strip())
+                    # A whole over the limit is still handed on when none of its fragments is pinned (65,537 "!":
+                    # the only fragment is symbol-only): the caller pins it when it fits and withholds the lineage
+                    # when it does not (credential_over_limit), so the credential is never left unpinned (lolice#1179
+                    # review). With an alphanumeric fragment pinned the long whole stays a stated residual.
+                    words_pinned = {f for f in fragments if re.search(r"[^\W_]", f)}
+                    whole = {w for w in whole if w and (len(w) <= _WHOLE_PIN_MAX
+                                                         or not any(f in w for f in words_pinned))}
+                    # A symbol-only fragment cut at an escape or separator (the "," of ",\\n=x") is not a credential
+                    # and would match JSON punctuation everywhere; a symbol-only credential pinned whole still is.
+                    values.update(f for f in fragments if f in whole or re.search(r"[^\W_]", f))
+                    values.update(whole)
+                else:
+                    values.add(value)
+    return kinds, values
 
 
 def _redact(text):
@@ -1548,6 +1759,33 @@ def _taint(reason, *sessions):
             _sessions.popitem(last=False)
 
 
+def _withheld(turn):
+    """The reason this turn's later bodies are withheld: the session's lineage (K0) or this turn (K1), or None."""
+    return _tainted(turn["session"]) or turn.get("withheld")
+
+
+def _withhold_open_turns(reason, session, parent=None):
+    """K1 known format in a tool result: withhold the rest of the turns open now in this lineage (BOXP-428 TD-13).
+    The format is masked in place and its credential is pinned to the lineage, so a later turn is sent through the mask
+    instead of being withheld for the life of the session (a long chat session, or after every restart that rescans
+    its history, would otherwise never be readable again)."""
+    with _lock:
+        nodes = set().union(*(_lineage(str(s)) for s in (session, parent) if s))
+        source = str(session or "")
+        for turn in _turns.values():
+            # Ancestors (the turn that delegated) and descendants of the session that saw the format (a child turn
+            # already open: it may repeat what this session passes it; lolice#1179 review). Descendants are taken from
+            # the detecting session only, never from its parent, so siblings are not touched (lolice#1179 review).
+            if turn["session"] in nodes or (source and source in _lineage(turn["session"])):
+                turn["withheld"] = turn.get("withheld") or reason
+
+
+def _open_withheld(session):
+    with _lock:
+        return next((t["withheld"] for t in _turns.values() if t["session"] == str(session or "") and t.get("withheld")),
+                    None)
+
+
 def _note_delegated(session):
     with _lock:
         _delegated[str(session)] = True
@@ -1618,7 +1856,9 @@ def _note_request(session, parent, messages):
                 _taint("known_source", session, parent)
         for result_text in _tool_results(message):
             reason = _evidence("", result_text)
-            if reason:
+            # A known format in history is masked in place and its credential pinned (_pin_body); it withholds nothing,
+            # or a resumed long session would be withheld on every turn while the message stays in its history.
+            if reason and reason != "known_format_in_tool_output":
                 _taint(reason, session, parent)
 
 
@@ -1671,7 +1911,9 @@ def _on_turn_start(session_id=None, turn_id=None, user_message=None, model=None,
     reason = _tainted(parent_session_id)
     if reason:  # the delegated goal may repeat what the parent saw
         _taint(reason, turn["session"])
-    if _tainted(turn["session"]):  # the user can quote a reply back
+    if parent_session_id and _open_withheld(parent_session_id):  # delegated from a turn that saw a known format
+        turn["withheld"] = _open_withheld(parent_session_id)
+    if _withheld(turn):  # the user can quote a reply back
         user_message = _WITHHELD_SESSION
     turn.update(user_message=user_message, model=model, platform=platform or "", parent=parent_session_id)
 
@@ -1685,7 +1927,7 @@ def _on_api_request(session_id=None, turn_id=None, api_request_id=None, system_p
     for message in messages:
         _pin_body(turn["session"], turn["parent"], message)
     _note_request(turn["session"], turn["parent"], messages)
-    tainted = _tainted(turn["session"])
+    tainted = _withheld(turn)
     first_request = not turn.get("requested")
     turn["requested"] = True
     if tainted and first_request and turn["user_message"] is not None:  # the evidence of a resumed session is only known here
@@ -1714,7 +1956,7 @@ def _on_api_response(session_id=None, turn_id=None, api_request_id=None, respons
         req = turn.get("requests", {}).pop(str(api_request_id), {})
     _pin_body(turn["session"], turn["parent"], response)
     message = (response or {}).get("assistant_message") if isinstance(response, dict) else None
-    output = _WITHHELD_SESSION if _tainted(turn["session"]) else _message_view({"role": "assistant", **message}) if isinstance(message, dict) else None
+    output = _WITHHELD_SESSION if _withheld(turn) else _message_view({"role": "assistant", **message}) if isinstance(message, dict) else None
     location = "local" if "local-llm" in str(base_url or "") or "llama" in str(base_url or "") else "cloud"
     _add(turn, {"key": "api:" + str(api_request_id), "name": "llm-call", "type": "generation",
                 "input": req.get("input"), "output": output, "model": response_model or model, "usage": usage,
@@ -1746,9 +1988,11 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
     args_text, result_text = _text(args), _text(result)
     _pin_body(turn["session"], turn["parent"], args)
     _pin_body(turn["session"], turn["parent"], result)
-    already = _tainted(turn["session"])
+    already = _withheld(turn)
     reason = _evidence(args_text, result_text)
-    if reason:
+    if reason == "known_format_in_tool_output":
+        _withhold_open_turns(reason, turn["session"], turn["parent"])
+    elif reason:
         _taint(reason, turn["session"], turn["parent"])
     now = time.time()
     if reason == "known_format_in_tool_output" and not already:
@@ -1794,7 +2038,7 @@ def _on_subagent(parent_session_id=None, parent_turn_id=None, child_session_id=N
     reason = _tainted(child_session_id)
     if reason:
         _taint(reason, turn["session"], turn["parent"])
-    if _tainted(turn["session"]):
+    if _withheld(turn):
         child_summary = _WITHHELD_SESSION
     now = time.time()
     _add(turn, {"key": "subagent:" + str(child_session_id), "name": "subagent", "type": "agent",
@@ -1807,7 +2051,7 @@ def _on_turn_end(session_id=None, turn_id=None, assistant_response=None):
     turn = _turn(session_id, turn_id)
     _pin_body(turn["session"], turn["parent"], assistant_response)
     _note_tickets(turn, assistant_response)
-    turn["output"] = _WITHHELD_SESSION if _tainted(turn["session"]) else assistant_response
+    turn["output"] = _WITHHELD_SESSION if _withheld(turn) else assistant_response
 
 
 @_guarded
@@ -1821,7 +2065,7 @@ def _on_session_end(session_id=None, turn_id=None, completed=None, failed=None, 
         return
     turn["status"] = "interrupted" if interrupted else "failed" if failed else "succeeded" if completed else "unknown"
     turn["exit_reason"] = turn_exit_reason
-    turn["withheld_reason"] = _tainted(turn["session"])
+    turn["withheld_reason"] = _withheld(turn)
     if not in_scope(turn):
         _count("turns_out_of_scope")
         return

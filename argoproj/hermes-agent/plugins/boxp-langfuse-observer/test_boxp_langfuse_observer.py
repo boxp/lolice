@@ -336,7 +336,7 @@ class ObserverTest(unittest.TestCase):
                         result="password: {{\npassword: {{ secrets.X }}")
         plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is {{ , laterbodymarker")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
-        self.assertIsNotNone(plugin._tainted(session))
+        self.assertIsNone(plugin._tainted(session))  # turn-scoped since TD-13: the rest of this turn is withheld
         self.assertNotIn("laterbodymarker", bodies())
 
     def test_unclosed_template_opener_on_same_line_as_closed_template(self):
@@ -355,7 +355,7 @@ class ObserverTest(unittest.TestCase):
                         result="password: {{ note password: {{ secrets.X }}")
         plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is {{ , laterbodymarker")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
-        self.assertIsNotNone(plugin._tainted(session))
+        self.assertIsNone(plugin._tainted(session))  # turn-scoped since TD-13
         self.assertNotIn("laterbodymarker", bodies())
 
     def test_short_symbol_only_values_withhold(self):
@@ -373,7 +373,7 @@ class ObserverTest(unittest.TestCase):
         plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: ==\nconfigline")
         plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is == , laterbodymarker")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
-        self.assertIsNotNone(plugin._tainted(session))
+        self.assertIsNone(plugin._tainted(session))  # turn-scoped since TD-13
         body = bodies()
         self.assertNotIn("laterbodymarker", body)
         self.assertNotIn("it is ==", body)
@@ -382,7 +382,7 @@ class ObserverTest(unittest.TestCase):
         plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: -_\nconfigline")
         plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="use a-_b , mixedlatermarker")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
-        self.assertIsNotNone(plugin._tainted(session))
+        self.assertIsNone(plugin._tainted(session))  # turn-scoped since TD-13
         body = bodies()
         self.assertNotIn("mixedlatermarker", body)
         self.assertNotIn("a-_b", body)
@@ -1351,10 +1351,21 @@ class ObserverTest(unittest.TestCase):
         self.assertNotIn("[withheld", body)
         self.assertNotIn('"withheld_', body)
 
-    def test_known_format_in_a_tool_result_masks_it_and_withholds_later_bodies(self):
-        # The model saw a credential-shaped value: it is masked and what follows in the session is withheld.
-        for result in ("Authorization: Bearer " + "plainword" + "value1", "url: postgres://app:" + "plainwordvalue@db/x",
-                       "key: " + "ghp_" + "plainwordvalue"):
+    def test_known_format_in_a_tool_result_masks_it_and_withholds_the_rest_of_the_turn(self):
+        # The model saw a credential-shaped value: it is masked and the rest of that turn is withheld. Later turns are
+        # sent through the mask, with the credential pinned, so a bare restatement stays masked (BOXP-428 TD-13: this
+        # withheld a long chat session for good).
+        for result, credential in (("Authorization: Bearer " + "plainword" + "value1", "plainwordvalue1"),
+                                   ("url: postgres://app:" + "plainwordvalue@db/x", "plainwordvalue"),
+                                   ("key: " + "ghp_" + "plainwordvalue", "plainwordvalue"),
+                                   # lolice#1179 review: a cookie header pins the value of each pair, not only name=value
+                                   ("Set-Cookie: session=" + "plainwordvalue; Path=/; HttpOnly", "plainwordvalue"),
+                                   ("Cookie: a=1; sid=" + "plainwordvalue", "plainwordvalue"),
+                                   ('Set-Cookie: sid="' + 'plainwordvalue"; Max-Age=3600', "plainwordvalue"),
+                                   # lolice#1179 review: a cookie may be named like an attribute (path, domain)
+                                   ("Cookie: path=" + "plainwordvalue", "plainwordvalue"),
+                                   ("Cookie: a=1; domain=" + "plainwordvalue", "plainwordvalue"),
+                                   ("Set-Cookie: expires=" + "plainwordvalue; Path=/", "plainwordvalue")):
             with self.subTest(result):
                 session = "kohako-g2-fmt-" + str(abs(hash(str(result))))
                 self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
@@ -1362,8 +1373,119 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn("plainwordvalue", body)
                 self.assertIn("read it", body)
                 self.assertIn("withheld_after_known_format_in_tool_output", body)
-                run_turn(session=session, turn="t2", body="plainwordvalue", tool="todo", args={}, result="ok")
-                self.assertNotIn("plainwordvalue", self._bodies())
+                self.assertIsNone(plugin._tainted(session))
+                run_turn(session=session, turn="t2", body="next turn " + credential + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(credential, body)
+                self.assertIn("nextturnmarker", body)
+
+    def test_a_credential_with_separators_is_pinned_whole(self):
+        # lolice#1179 review: a URL password abc,def was pinned only as the short words abc and def, which match on word
+        # boundaries, so prefixabc,defsuffix in a later turn was sent.
+        for result, restated in (("url: https://u:" + "abc,def@example.com", "prefixabc,defsuffix"),
+                                 ("url: https://u:" + "hunter123:q7z@example.com", "prefixhunter123:q7zsuffix"),
+                                 ("Authorization: Bearer " + "abc;def", "prefixabc;defsuffix"),
+                                 ("Cookie: a=1; sid=" + "abc,def", "prefixabc,defsuffix"),
+                                 ("Set-Cookie: sid=" + "abc,def; Path=/", "prefixabc,defsuffix")):
+            with self.subTest(result):
+                session = "kohako-g2-sep-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                run_turn(session=session, turn="t2", body="next turn " + restated + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(restated, body)
+                self.assertNotIn(restated[6:13], body)
+                self.assertIn("nextturnmarker", body)
+
+    def test_a_header_after_a_line_break_in_a_structured_result_withholds_the_turn(self):
+        # lolice#1179 review: a structured tool result serializes its line break as \\n, so "\\nAuthorization:" had no
+        # word boundary and the credential was neither evidence nor pinned.
+        for result in ({"output": "line one\nAuthorization: Bearer " + "plainwordvalue1\nline three"},
+                       {"stdout": "x\nCookie: sid=" + "plainwordvalue1"},
+                       ["a", "b\n" + "ghp_" + "plainwordvalue1"]):
+            with self.subTest(result):
+                session = "kohako-g2-nl-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                body = self._bodies()
+                self.assertNotIn("plainwordvalue1", body)
+                self.assertIn("withheld_after_known_format_in_tool_output", body)
+                run_turn(session=session, turn="t2", body="next turn plainwordvalue1 nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn("plainwordvalue1", body)
+                self.assertIn("nextturnmarker", body)
+
+    def test_a_symbol_only_known_format_credential_is_pinned(self):
+        # lolice#1179 review: a credential of a known format made only of symbols (https://u:!!!@host) was not pinned,
+        # so a bare restatement of it in a later turn was sent.
+        for result, credential in (("url: https://u:" + "!!!@example.com", "!!!"),
+                                   ("url: https://u:" + "!@example.com", "!"),
+                                   ("url: https://u:" + "#$%&@example.com", "#$%&"),
+                                   ("Authorization: Bearer " + "----", "----"),
+                                   ("Cookie: a=" + "!!; b=1", "!!")):
+            with self.subTest(result):
+                session = "kohako-g2-sym-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                self.assertIn("withheld_after_known_format_in_tool_output", self._bodies())
+                run_turn(session=session, turn="t2", body="next turn " + credential + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(" " + credential + " ", body)
+                self.assertIn("nextturnmarker", body)
+                self.assertIsNone(plugin._tainted(session))
+
+    def test_a_symbol_only_credential_nested_at_any_depth_is_pinned(self):
+        # lolice#1179 review: the strings of a structured result were walked only 8 levels deep, so a symbol-only
+        # credential nested deeper (Authorization: Bearer !!!!) was not pinned and its bare restatement was sent.
+        for depth in (1, 9, 40, 400):
+            with self.subTest(depth=depth):
+                result = "Authorization: Bearer " + "!!!!"
+                for _ in range(depth):
+                    result = {"x": [result]}
+                session = "kohako-g2-deep-" + str(depth)
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                run_turn(session=session, turn="t2", body="next turn " + "!!!!" + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(" " + "!!!!" + " ", body)
+                self.assertIn("nextturnmarker", body)
+
+    def test_a_symbol_only_credential_in_a_dict_key_is_pinned(self):
+        # lolice#1179 review: the keys of a structured result were not walked, so a credential written in a key
+        # ({"Authorization: Bearer !!!!": 1}) was not pinned and its bare restatement was sent.
+        for result in ({"Authorization: Bearer " + "!!!!": 1}, {"x": [{"Authorization: Bearer " + "!!!!": "v"}]}):
+            with self.subTest(result):
+                session = "kohako-g2-key-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                run_turn(session=session, turn="t2", body="next turn " + "!!!!" + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(" " + "!!!!" + " ", body)
+                self.assertIn("nextturnmarker", body)
+
+    def test_a_symbol_only_credential_after_a_literal_escape_is_pinned(self):
+        # lolice#1179 review: a header after a literal escape (x\\nAuthorization: Bearer !!!!) is found only in the
+        # unescaped reading, whose symbol-only credentials were dropped, so a bare restatement of !!!! was sent.
+        for result in ("x\\nAuthorization: Bearer " + "!!!!", "x\\tAuthorization: Bearer " + "!!!!",
+                       {"out": "x\\nAuthorization: Bearer " + "!!!!"}):
+            with self.subTest(result):
+                session = "kohako-g2-esc-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                run_turn(session=session, turn="t2", body="next turn " + "!!!!" + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(" " + "!!!!" + " ", body)
+                self.assertIn("nextturnmarker", body)
+                self.assertIsNone(plugin._tainted(session))
+
+    def test_a_json_punctuation_credential_after_a_literal_escape_withholds(self):
+        # A credential of JSON punctuation alone, found only after a literal escape, would mask that punctuation
+        # everywhere if pinned; the lineage is withheld instead of leaving it unmasked (lolice#1179 review).
+        session = "kohako-g2-escpunct"
+        self._value_only_reply(session, "terminal", {"command": "cat app.yaml"},
+                               result="x\\nCookie: a=" + ",,,,")
+        self.assertEqual(plugin._tainted(session), "credential_unpinnable")
 
     def test_a_name_based_hit_masks_in_place_and_keeps_later_bodies(self):
         # A secret name with a value is masked where it is, but is no evidence: ordinary code and logs match it too.
@@ -1451,8 +1573,6 @@ class ObserverTest(unittest.TestCase):
             "chat_args": {"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]},
             "anthropic_args": {"role": "assistant", "content": [{"type": "tool_use", "name": "read_file", "input": {"path": "/a/.env"}}]},
             "responses_args": {"type": "function_call", "name": "terminal", "arguments": '{"command": "kubectl get secret x -o yaml"}'},
-            "format_in_result": {"role": "tool", "content": "Authorization: Bearer " + "plainword" + "value9"},
-            "anthropic_result": {"role": "user", "content": [{"type": "tool_result", "content": "key: ghp_" + "plainwordvalue"}]},
             "responses_result": {"type": "function_call_output", "output": "PATH=/usr/bin\nHOME=/root\nOPAQUE=plainwordvalue"},
         }
         for name, shape in shapes.items():
@@ -1466,6 +1586,29 @@ class ObserverTest(unittest.TestCase):
                 plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="plainwordvalue")
                 plugin._on_session_end(session_id=session, turn_id="t", completed=True)
                 self.assertNotIn("plainwordvalue", self._bodies())
+
+    def test_known_format_in_unobserved_history_is_pinned_not_withheld(self):
+        # BOXP-428 TD-13: a resumed long session rescans its history after every restart. A known format in an old
+        # tool result is masked and its credential pinned; it does not withhold every later turn of the session.
+        shapes = {
+            "format_in_result": ({"role": "tool", "content": "Authorization: Bearer " + "plainword" + "value9"}, "plainwordvalue9"),
+            "anthropic_result": ({"role": "user", "content": [{"type": "tool_result", "content": "key: ghp_" + "plainwordvalue"}]},
+                                 "plainwordvalue"),
+            # Serialized, a header after a line break follows the two characters \\n (production shape after a restart).
+            "header_after_newline": ({"role": "tool", "content": "GET /api 200\nAuthorization: token " + "plainword" + "value7\nok"},
+                                     "plainwordvalue7"),
+        }
+        for name, (shape, credential) in shapes.items():
+            with self.subTest(name):
+                session = "kohako-g2-nohook-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="go")
+                plugin._on_api_request(session_id=session, turn_id="t", api_request_id="b", request_messages=[shape, {"role": "user", "content": "go"}])
+                self.assertIsNone(plugin._tainted(session))
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it was " + credential + " historyreadablemarker")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._bodies()
+                self.assertNotIn(credential, body)
+                self.assertIn("historyreadablemarker", body)
 
     def test_ordinary_tool_names_in_history_are_no_evidence(self):
         plugin._on_turn_start(session_id="kohako-g2-names", turn_id="t", user_message="go")
@@ -1644,6 +1787,401 @@ class ObserverTest(unittest.TestCase):
         with patch.object(plugin, "_URL", "http://127.0.0.1:9"), patch("time.sleep"):
             plugin.export_bodies(batches)
         self.assertEqual(plugin.stats()["batches_dropped"], 2)
+
+
+
+def _restart():
+    """A Hermes restart: the observer's in-memory state is gone, the session's history is not."""
+    plugin._turns.clear()
+    plugin._sessions.clear()
+    plugin._pins.clear()
+    plugin._parents.clear()
+    plugin._pinned_digests.clear()
+    plugin._scanned.clear()
+
+
+def home_turn(session, turn, user, tool, args, result, reply, history=()):
+    """One turn of a long-lived home chat session (Telegram, ticket mentioned so that it is in scope), with the
+    resent history of earlier turns as Hermes sends it on every request."""
+    plugin._on_turn_start(session_id=session, turn_id=turn, user_message=user, model="gpt", platform="telegram")
+    messages = list(history) + [{"role": "user", "content": user}]
+    plugin._on_api_request(session_id=session, turn_id=turn, api_request_id=turn + "-a", system_prompt="あなたはコハコです。",
+                           request_messages=messages, message_count=len(messages), retry_count=0, started_at=time.time())
+    plugin._on_api_response(session_id=session, turn_id=turn, api_request_id=turn + "-a",
+                            response={"assistant_message": {"content": "確認します", "tool_calls": [
+                                {"function": {"name": tool, "arguments": json.dumps(args, ensure_ascii=False)}}]}},
+                            usage={"input_tokens": 10, "output_tokens": 5}, model="gpt", provider="openai-codex",
+                            api_call_count=1, finish_reason="tool_calls", started_at=time.time(), ended_at=time.time())
+    plugin._on_tool(session_id=session, turn_id=turn, tool_call_id=turn + "-c", tool_name=tool, args=args, result=result,
+                    duration_ms=5, status="ok")
+    tool_messages = [{"role": "assistant", "tool_calls": [{"function": {"name": tool, "arguments": json.dumps(args)}}]},
+                     {"role": "tool", "content": result}]
+    plugin._on_api_request(session_id=session, turn_id=turn, api_request_id=turn + "-b", system_prompt="あなたはコハコです。",
+                           request_messages=messages + tool_messages, message_count=len(messages) + 2, retry_count=0,
+                           started_at=time.time())
+    plugin._on_api_response(session_id=session, turn_id=turn, api_request_id=turn + "-b",
+                            response={"assistant_message": {"content": reply}}, usage={"input_tokens": 10, "output_tokens": 5},
+                            model="gpt", provider="openai-codex", api_call_count=2, finish_reason="stop",
+                            started_at=time.time(), ended_at=time.time())
+    plugin._on_turn_end(session_id=session, turn_id=turn, assistant_response=reply)
+    plugin._on_session_end(session_id=session, turn_id=turn, completed=True)
+    return messages + tool_messages + [{"role": "assistant", "content": reply}]
+
+
+def observations(body_text):
+    """(name, attributes) of every span in the drained batches."""
+    out = []
+    for body in body_text:
+        for rs in json.loads(body)["resourceSpans"]:
+            for ss in rs["scopeSpans"]:
+                for span in ss["spans"]:
+                    attrs = {a["key"]: a["value"].get("stringValue", a["value"]) for a in span["attributes"]}
+                    out.append((span["name"], attrs))
+    return out
+
+
+class HomeSessionMaskRegressionTest(unittest.TestCase):
+    """BOXP-428 TD-13. Production 2026-11-11: every turn of the long Telegram home session (20261026_...) was sent as
+    withheld_after_known_format_in_tool_output, from turn start, for days, while the short webhook/cron sessions of the
+    same pod were readable. One credential-shaped known format in an earlier tool result withheld the session for good,
+    and every restart rescanned the history and withheld it again. Metadata the observer writes itself (retry "0",
+    release "0.1.0", "delegated") came out as [REDACTED:pinned]. Fixture reduced to that structure, synthetic values."""
+
+    CREDENTIAL = "ghp_" + "Td13Home" + "Q7w8E9r0"
+    SESSION = "20261026_050737_td13home"
+
+    def setUp(self):
+        ObserverTest.setUp(self)
+
+    def _first_turn(self):
+        # A tool result printing a credential-shaped header (synthetic), plus a short named value pinned as a word.
+        return home_turn(self.SESSION, "t1", "BOXP-505 のログを見て", "terminal", {"command": "tail app.log"},
+                         "GET /api 200\nAuthorization: token " + self.CREDENTIAL + "\nretry: 0 password: q7z\nok",
+                         "ログを確認しました。firstturnreplymarker")
+
+    def test_later_turns_of_the_session_are_readable_and_the_credential_stays_masked(self):
+        history = self._first_turn()
+        first = bodies()
+        self.assertNotIn(self.CREDENTIAL, first)
+        self.assertNotIn("firstturnreplymarker", first)  # the rest of that turn is withheld
+        self.assertIn("withheld_after_known_format_in_tool_output", first)
+        home_turn(self.SESSION, "t2", "BOXP-505 今日の天気とメモを確認して。なでなで", "read_file", {"path": "/notes/today.md"},
+                  "secondtoolmarker 今日のメモ\n買い物\n認証設定の説明: パスワードは管理画面で変更します\n散歩",
+                  "晴れです。さっきのキーは " + self.CREDENTIAL + " でした。secondreplymarker", history=history)
+        second = bodies()
+        for marker in ("今日の天気とメモ", "secondtoolmarker", "secondreplymarker", "あなたはコハコです", "/notes/today.md"):
+            self.assertIn(marker, second)
+        self.assertNotIn(self.CREDENTIAL, second)
+        self.assertNotIn("Td13HomeQ7w8E9r0", second)
+        self.assertNotIn("withheld_after_known_format_in_tool_output", second)
+        self.assertIsNone(plugin._tainted(self.SESSION))
+
+    def test_a_restart_that_rescans_the_history_does_not_withhold_the_session_again(self):
+        history = self._first_turn()
+        bodies()
+        _restart()
+        home_turn(self.SESSION, "t3", "BOXP-505 続きをお願い", "terminal", {"command": "ls /notes"}, "today.md\nrestarttoolmarker",
+                  "続けます。キーは " + self.CREDENTIAL + "。restartreplymarker", history=history)
+        body = bodies()
+        for marker in ("続きをお願い", "restarttoolmarker", "restartreplymarker"):
+            self.assertIn(marker, body)
+        self.assertNotIn(self.CREDENTIAL, body)
+        self.assertNotIn("withheld_after_", body)
+
+    def test_another_session_is_not_affected(self):
+        self._first_turn()
+        bodies()
+        home_turn("20261111_000016_td13other", "o1", "BOXP-505 別の会話", "terminal", {"command": "date"}, "othertoolmarker",
+                  "別セッションの返答 othersessionmarker")
+        body = bodies()
+        self.assertIn("othertoolmarker", body)
+        self.assertIn("othersessionmarker", body)
+        self.assertNotIn("withheld_after_", body)
+
+    def test_short_and_long_credentials_are_pinned(self):
+        # Review of lolice#1179: a credential of 1-3 or over 256 characters was neither pinned nor withheld.
+        for secret in ("q7z", "abcde12345" * 27):
+            with self.subTest(len(secret)):
+                session = "kohako-g2-credlen-" + str(len(secret))
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                                result="Authorization: Bearer " + secret)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                run_turn(session=session, turn="2", body="reply " + secret + " credlenmarker")
+                body = bodies()
+                self.assertNotIn(secret, body.replace("q7zz", ""))
+                self.assertIn("credlenmarker", body)
+
+    def test_oversized_credential_withholds_the_lineage(self):
+        # Review of lolice#1179: a known-format credential over 65,536 characters was not pinned, and the turn-scoped
+        # hold ended with the turn, so a later restatement was sent. Too long to pin: the lineage is withheld.
+        secret = "Q7w8E9r0" * 8193
+        session = "kohako-g2-credhuge"
+        plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                        result="Authorization: Bearer " + secret)
+        plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+        drain()
+        run_turn(session=session, turn="2", body="reply " + secret[:70000] + " hugemarker")
+        self.assertNotIn("Q7w8E9r0Q7w8E9r0", bodies())
+        self.assertEqual(plugin._tainted(session), "credential_over_limit")
+
+    def test_oversized_symbol_only_credential_withholds_the_lineage(self):
+        # Review of lolice#1179: Bearer followed by 65,537 "!" was over the whole-pin limit and its symbol-only fragment
+        # was dropped, so nothing was pinned and credential_over_limit did not fire. A whole over the limit with no
+        # pinned fragment is handed to the size check: pinned when it fits, the lineage withheld when it does not.
+        for size, session in ((65537, "kohako-g2-symhuge"), (5000, "kohako-g2-symlong")):
+            with self.subTest(size=size):
+                secret = "!" * size
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                                result="Authorization: Bearer " + secret)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                run_turn(session=session, turn="2", body="reply " + secret + " symhugemarker")
+                self.assertFalse("!" * 4097 in bodies(), "restated symbol-only credential sent")
+                if size > 65536:
+                    self.assertEqual(plugin._tainted(session), "credential_over_limit")
+
+    def test_long_placeholder_shaped_credential_is_pinned(self):
+        # lolice#1179 review: a placeholder-shaped credential (Bearer <...>) over 4096 characters was neither pinned
+        # nor withheld, so its restatement in a later turn was sent.
+        for size, session in ((4100, "kohako-g2-phlong"), (65540, "kohako-g2-phhuge")):
+            with self.subTest(size=size):
+                secret = "<" + "!" * size + ">"
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                                result="Authorization: Bearer " + secret)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                run_turn(session=session, turn="2", body="reply " + secret + " phlongmarker")
+                self.assertFalse("!" * 4097 in bodies(), "restated placeholder-shaped credential sent")
+                if size > 65536:
+                    self.assertEqual(plugin._tainted(session), "credential_over_limit")
+
+    def test_open_child_turn_is_withheld_when_the_parent_sees_a_credential(self):
+        # Review of lolice#1179: a child turn already open when its parent's tool printed a credential kept sending the
+        # rest of its own turn (the hold walked ancestors only).
+        parent, child = "kohako-g2-openparent", "kohako-g2-openchild"
+        plugin._on_turn_start(session_id=parent, turn_id="p", user_message="hello")
+        plugin._on_turn_start(session_id=child, turn_id="c", user_message="child goal", parent_session_id=parent)
+        plugin._on_tool(session_id=parent, turn_id="p", tool_name="read_file", args={},
+                        result="Authorization: Bearer " + "ghp_" + "OpenChild" + "Q7w8E9r0zz")
+        plugin._on_turn_end(session_id=child, turn_id="c", assistant_response="openchildreplymarker")
+        plugin._on_session_end(session_id=child, turn_id="c", completed=True)
+        plugin._on_session_end(session_id=parent, turn_id="p", completed=True)
+        body = bodies()
+        self.assertNotIn("openchildreplymarker", body)
+        self.assertNotIn("OpenChildQ7w8E9r0zz", body)
+        # a sibling of the parent's lineage that is not under the parent is untouched
+        self.assertIsNone(plugin._open_withheld("kohako-g2-unrelated"))
+
+    def test_child_credential_does_not_withhold_open_sibling_turns(self):
+        # Review of lolice#1179: a child's credential withheld its parent and, through the parent, every open sibling.
+        parent, child, sibling = "kohako-g2-sibparent", "kohako-g2-sibchild", "kohako-g2-sibling"
+        plugin._on_turn_start(session_id=parent, turn_id="p", user_message="hello")
+        plugin._on_turn_start(session_id=child, turn_id="c", user_message="child goal", parent_session_id=parent)
+        plugin._on_turn_start(session_id=sibling, turn_id="s", user_message="sibling goal", parent_session_id=parent)
+        plugin._on_tool(session_id=child, turn_id="c", tool_name="read_file", args={},
+                        result="Authorization: Bearer " + "ghp_" + "SibChild" + "Q7w8E9r0zz")
+        self.assertIsNotNone(plugin._open_withheld(child))
+        self.assertIsNotNone(plugin._open_withheld(parent))
+        self.assertIsNone(plugin._open_withheld(sibling))
+        plugin._on_turn_end(session_id=sibling, turn_id="s", assistant_response="siblingreplymarker")
+        plugin._on_session_end(session_id=sibling, turn_id="s", completed=True)
+        plugin._on_session_end(session_id=child, turn_id="c", completed=True)
+        plugin._on_session_end(session_id=parent, turn_id="p", completed=True)
+        body = bodies()
+        self.assertIn("siblingreplymarker", body)
+        self.assertNotIn("SibChildQ7w8E9r0zz", body)
+
+    def test_caller_metadata_is_still_masked(self):
+        # Review of lolice#1179: only the observer's own constants, ids and numbers are exempt from the pin mask.
+        session = "kohako-g2-callermeta"
+        plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                        result="Authorization: Bearer " + "plainword" + "value1")
+        plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+        drain()
+        plugin._on_turn_start(session_id=session, turn_id="2", user_message="hello")
+        plugin._on_api_response(session_id=session, turn_id="2", api_request_id="a",
+                                response={"assistant_message": {"content": "ok"}}, finish_reason="plainwordvalue1",
+                                provider="plainwordvalue1", response_model="plainwordvalue1")
+        plugin._on_session_end(session_id=session, turn_id="2", completed=True)
+        self.assertNotIn("plainwordvalue1", bodies())
+
+    def test_observer_metadata_is_not_masked_by_pinned_short_values(self):
+        history = self._first_turn()
+        bodies()
+        home_turn(self.SESSION, "t2", "BOXP-505 もう一度", "todo", {"todos": []}, "ok", "q7z ではありません。metadatamarker",
+                  history=history)
+        spans = observations([b for item in drain() for b in item])
+        self.assertTrue(spans)
+        text = json.dumps(spans, ensure_ascii=False)
+        self.assertIn("metadatamarker", text)
+        self.assertNotIn("q7z", text)  # the pinned short value is still masked in the reply
+        for name, attrs in spans:
+            self.assertEqual(attrs.get("langfuse.release"), plugin.VERSION)
+            self.assertEqual(attrs.get("langfuse.trace.metadata.coverage.g2_realtime"),
+                             "delegated text only; realtime voice session not observed")
+            if name == "llm-call":
+                self.assertEqual(attrs.get("langfuse.observation.metadata.retry"), "0")
+
+
+class CredentialWholePinPropertyTest(unittest.TestCase):
+    """BOXP-507 single rule: a credential masked in place by a known format (K1) is pinned whole, exactly as written, so
+    a later turn repeating it verbatim inside a word (prefix<credential>suffix) is masked, whatever separators, colons,
+    percent signs, literal \\n or \\\\ it holds. One property over random credentials replaces per-variant examples.
+    Fragments shorter than 4 characters repeated inside a word, and other escape layers or encodings, are residual
+    (THREAT_MODEL.md section 2)."""
+
+    ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    SPECIAL = [",", ":", "%", "\\n", "\\\\", "-", ".", "=", "+", "!", "~"]
+    FORMS = {
+        "url": lambda c: "connect https://u:" + c + "@db.internal:5432/x ok",
+        "bearer": lambda c: "GET /api\nAuthorization: Bearer " + c + "\nok",
+        "cookie": lambda c: "Cookie: theme=dark; sid=" + c,
+        "structured_url": lambda c: {"out": "line one\nurl=https://u:" + c + "@host/x\ndone"},
+    }
+
+    def setUp(self):
+        ObserverTest.setUp(self)
+
+    def _credential(self, rng, form):
+        pieces = []
+        while sum(len(p) for p in pieces) < rng.randint(6, 24):
+            pieces.append(rng.choice(self.ALPHABET) if rng.random() < 0.7 else rng.choice(self.SPECIAL))
+        credential = "".join(pieces)
+        if form in ("url", "structured_url"):
+            credential = credential.replace("\\\\", "")  # a backslash pair would not reach the URL pattern
+        if form == "cookie":
+            credential = credential.replace("=", "")
+        credential = credential.strip(":")
+        # An all lower-case alphabetic word of up to 12 letters is read as a word (TD-12 residual, THREAT_MODEL.md).
+        if re.fullmatch(r"[a-z]{1,12}", re.sub(r"[.,;:]+$", "", credential)):
+            credential += "Q7"
+        return credential
+
+    def test_verbatim_repeat_of_a_whole_credential_is_masked(self):
+        import random
+        rng = random.Random(507)
+        for form, build in self.FORMS.items():
+            for i in range(60):
+                credential = self._credential(rng, form)
+                with self.subTest(form=form, credential=credential):
+                    session = "kohako-g2-prop-%s-%d" % (form, i)
+                    plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                    plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={}, result=build(credential))
+                    plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                    drain()
+                    run_turn(session=session, turn="2", body="see prefix" + credential + "suffix propmarker")
+                    body = bodies()
+                    self.assertIn("propmarker", body)
+                    self.assertNotIn(json.dumps(credential)[1:-1], body)
+
+    def test_placeholder_shaped_credential_is_pinned_whole(self):
+        # lolice#1179 review: an all upper-case credential (Bearer ABCDEFGHIJKL) reads like a placeholder and does not
+        # withhold the turn, but it is still pinned whole, so a later verbatim repeat is masked. Word placeholders
+        # (a short lower-case word, xxxx) are not pinned and the word stays readable.
+        for i, (result, credential) in enumerate([("Authorization: Bearer ABCDEFGHIJKL", "ABCDEFGHIJKL"),
+                                                  ("Bearer ABCDEF_GHIJKL ok", "ABCDEF_GHIJKL"),
+                                                  ("postgres://app:YOUR_DB_PW@db/app", "YOUR_DB_PW"),
+                                                  ("Authorization: token ABCDEFGHIJKL extra", "ABCDEFGHIJKL"),
+                                                  ("Authorization: Bearer QWERTYUIOPAS trailing", "QWERTYUIOPAS")]):
+            with self.subTest(credential=credential):
+                session = "kohako-g2-upper-%d" % i
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={}, result=result)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                self.assertIsNone(plugin._tainted(session))
+                run_turn(session=session, turn="2", body="see " + credential + " and x" + credential + "y uppermarker")
+                body = bodies()
+                self.assertIn("uppermarker", body)
+                self.assertNotIn(credential, body)
+        session = "kohako-g2-upper-word"
+        plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                        result="Authorization: Bearer abcdef\nhttps://user:xxxx@db/app")
+        plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+        drain()
+        run_turn(session=session, turn="2", body="the abcdef and xxxx docs wordmarker")
+        # BOXP-507 single rule (lolice#1179 review): a word credential is pinned whole as written too, so its repeat is
+        # masked; the body is still sent and the rest of it stays readable.
+        body = bodies()
+        self.assertIn("docs wordmarker", body)
+        self.assertNotIn("abcdef", body)
+        self.assertNotIn('"withheld', body)
+        # Bearer abc. (an ordinary word with trailing punctuation) is pinned as written: a verbatim repeat is masked.
+        for i, (result, credential) in enumerate([("Authorization: Bearer abc.", "abc."),
+                                                  ("Authorization: Bearer token", "token"),
+                                                  ("Authorization: Bearer xxxxx", "xxxxx"),
+                                                  ("https://user:password@db/app", "password")]):
+            with self.subTest(word=credential):
+                session = "kohako-g2-word-%d" % i
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={}, result=result)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                self.assertIsNone(plugin._tainted(session))
+                run_turn(session=session, turn="2", body="see " + credential + " wordrepeatmarker")
+                body = bodies()
+                # token/password lines are also covered by the existing secret-line mask; either way the turn is sent.
+                self.assertIn('"stringValue": "sent"', body)
+                self.assertNotIn("see " + credential + " ", body)
+
+    def test_credential_after_a_custom_auth_scheme_is_pinned(self):
+        # lolice#1179 review: Authorization: <scheme> <credentials> with a scheme name that reads as an ordinary word
+        # (custom) skipped both the pin and the turn withholding, so a later bare abcXYZ123 was sent. The scheme word is
+        # dropped like Bearer/Basic and the credential after it counts as a known format and is pinned.
+        for i, (result, credential) in enumerate([("Authorization: custom abcXYZ123", "abcXYZ123"),
+                                                  ("Proxy-Authorization: Negotiate4 q7Zk2Pw9", "q7Zk2Pw9"),
+                                                  ("Authorization: myscheme a1b2c3d4 extra", "a1b2c3d4"),
+                                                  ("Authorization: Bearer <token> zz9Kq1wE", "zz9Kq1wE"),
+                                                  ("Authorization: Bearer token ordinary zz9Kq1wE", "zz9Kq1wE")]):
+            with self.subTest(credential=credential):
+                session = "kohako-g2-scheme-%d" % i
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={}, result=result)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                run_turn(session=session, turn="2", body="see " + credential + " schememarker")
+                body = bodies()
+                self.assertIn("schememarker", body)
+                self.assertNotIn(credential, body)
+        # Documentation prose after the header name does not withhold anything (the first word is a named value, as before).
+        session = "kohako-g2-scheme-doc"
+        plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                        result="Authorization: required for all requests")
+        plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+        drain()
+        self.assertIsNone(plugin._tainted(session))
+        run_turn(session=session, turn="2", body="required for all requests docmarker, and for all of them")
+        # The phrase after the header name is pinned whole as written (BOXP-507 single rule); its ordinary words are not
+        # pinned on their own, so the rest of the body stays readable.
+        body = bodies()
+        self.assertIn("docmarker, and for all of them", body)
+        self.assertNotIn("required for all requests", body)
+
+    def test_long_session_stays_readable_until_the_pin_limit(self):
+        # BOXP-507 step 2: pins are bounded per lineage (256). A long session that printed distinct cookie headers
+        # stays readable below the bound and is withheld (fail-closed) only past it: 3 values a header reach it at 37.
+        session = "kohako-g2-pincap"
+        for n in range(1, 38):
+            plugin._on_turn_start(session_id=session, turn_id=str(n), user_message="hello")
+            plugin._on_tool(session_id=session, turn_id=str(n), tool_name="read_file", args={},
+                            result="Cookie: a=v%dAAA; b=w%dBBB; c=x%dCCC" % (n, n, n))
+            plugin._on_session_end(session_id=session, turn_id=str(n), completed=True)
+            drain()
+            if n == 36:
+                self.assertIsNone(plugin._tainted(session))
+                run_turn(session=session, turn="r36", body="pincapmarker v36AAA")
+                body = bodies()
+                self.assertIn("pincapmarker", body)
+                self.assertNotIn("v36AAA", body)
+        self.assertEqual(plugin._tainted(session), "pinned_values_over_limit")
 
 
 if __name__ == "__main__":

@@ -124,6 +124,38 @@ def fire_known_format_in_output(session):
     hooks["pre_llm_call"](session_id=session, turn_id="next", user_message="plainformatvalue")
     hooks["on_session_end"](session_id=session, turn_id="next", completed=True)
 
+def fire_td13_home(session):
+    # BOXP-428 TD-13: a long Telegram home session. One tool result with a credential-shaped header withheld every
+    # later turn of the session, and a restart rescanning the history withheld it again. Now the rest of that turn is
+    # withheld, later turns (and the turn after a restart) are readable, and the credential stays masked.
+    hooks = ctx.hooks
+    tool_result = "GET /api 200\nAuthorization: token plaintd13homevalue\nok"
+    history = [{"role": "assistant", "tool_calls": [{"function": {"name": "terminal", "arguments": '{"command": "tail app.log"}'}}]},
+               {"role": "tool", "content": tool_result}]
+    turn1 = {"session_id": session, "turn_id": "t1"}
+    hooks["pre_llm_call"](**turn1, user_message="BOXP-505 ログを見て", platform="telegram")
+    hooks["post_tool_call"](**turn1, tool_call_id="c1", tool_name="terminal", args={"command": "tail app.log"}, result=tool_result)
+    hooks["post_llm_call"](**turn1, assistant_response="plaintd13homevalue")
+    hooks["on_session_end"](**turn1, completed=True)
+    turn2 = {"session_id": session, "turn_id": "t2"}
+    hooks["pre_llm_call"](**turn2, user_message="BOXP-505 td13nextturnmarker なでなで", platform="telegram")
+    hooks["pre_api_request"](**turn2, api_request_id="a2", system_prompt="td13systemmarker",
+                             request_messages=history + [{"role": "user", "content": "td13nextturnmarker"}])
+    hooks["post_tool_call"](**turn2, tool_call_id="c2", tool_name="read_file", args={"path": "/notes/today.md"},
+                            result="td13toolmarker")
+    hooks["post_llm_call"](**turn2, assistant_response="キーは plaintd13homevalue でした。td13replymarker")
+    hooks["on_session_end"](**turn2, completed=True)
+    # A restart for this session only: the observer's memory of it is gone, the session's history is not.
+    for state in (plugin._sessions, plugin._pins, plugin._parents, plugin._scanned):
+        state.pop(session, None)
+    for key in [k for k in plugin._pinned_digests if k[0] == session]:
+        del plugin._pinned_digests[key]
+    turn3 = {"session_id": session, "turn_id": "t3"}
+    hooks["pre_llm_call"](**turn3, user_message="BOXP-505 td13restartmarker", platform="telegram")
+    hooks["pre_api_request"](**turn3, api_request_id="a3", request_messages=history + [{"role": "user", "content": "x"}])
+    hooks["post_llm_call"](**turn3, assistant_response="plaintd13homevalue td13restartreplymarker")
+    hooks["on_session_end"](**turn3, completed=True)
+
 def fire_name_only_in_output(session):
     # Ordinary code that names a secret, and a secret-name assignment: the value is masked in place, and the replies
     # and the next turn stay readable (BOXP-428 production regression: these withheld whole sessions).
@@ -195,6 +227,7 @@ while True:
     fire_harmless_lineage(f"tg-lineage-{n}", f"subagent-lineage-{n}")
     fire_known_format_in_output(f"kohako-g2-format-{n}")
     fire_name_only_in_output(f"kohako-g2-nameonly-{n}")
+    fire_td13_home(f"20261026_td13home-{n}")
     fire_known_source_table(f"kohako-g2-kube-config-{n}", {"command": "cat ~/.kube/config"})
     fire_known_source_table(f"kohako-g2-pem-{n}", {"command": "cat /etc/ssl/server.pem"})
     fire_known_source_table(f"kohako-g2-gcloud-{n}", {"command": "gcloud auth print-access-token"})
