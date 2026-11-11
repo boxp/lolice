@@ -336,7 +336,7 @@ class ObserverTest(unittest.TestCase):
                         result="password: {{\npassword: {{ secrets.X }}")
         plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is {{ , laterbodymarker")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
-        self.assertIsNotNone(plugin._tainted(session))
+        self.assertIsNone(plugin._tainted(session))  # turn-scoped since TD-13: the rest of this turn is withheld
         self.assertNotIn("laterbodymarker", bodies())
 
     def test_unclosed_template_opener_on_same_line_as_closed_template(self):
@@ -355,7 +355,7 @@ class ObserverTest(unittest.TestCase):
                         result="password: {{ note password: {{ secrets.X }}")
         plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is {{ , laterbodymarker")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
-        self.assertIsNotNone(plugin._tainted(session))
+        self.assertIsNone(plugin._tainted(session))  # turn-scoped since TD-13
         self.assertNotIn("laterbodymarker", bodies())
 
     def test_short_symbol_only_values_withhold(self):
@@ -373,7 +373,7 @@ class ObserverTest(unittest.TestCase):
         plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: ==\nconfigline")
         plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it is == , laterbodymarker")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
-        self.assertIsNotNone(plugin._tainted(session))
+        self.assertIsNone(plugin._tainted(session))  # turn-scoped since TD-13
         body = bodies()
         self.assertNotIn("laterbodymarker", body)
         self.assertNotIn("it is ==", body)
@@ -382,7 +382,7 @@ class ObserverTest(unittest.TestCase):
         plugin._on_tool(session_id=session, turn_id="t", tool_name="read_file", args={}, result="password: -_\nconfigline")
         plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="use a-_b , mixedlatermarker")
         plugin._on_session_end(session_id=session, turn_id="t", completed=True)
-        self.assertIsNotNone(plugin._tainted(session))
+        self.assertIsNone(plugin._tainted(session))  # turn-scoped since TD-13
         body = bodies()
         self.assertNotIn("mixedlatermarker", body)
         self.assertNotIn("a-_b", body)
@@ -1351,10 +1351,13 @@ class ObserverTest(unittest.TestCase):
         self.assertNotIn("[withheld", body)
         self.assertNotIn('"withheld_', body)
 
-    def test_known_format_in_a_tool_result_masks_it_and_withholds_later_bodies(self):
-        # The model saw a credential-shaped value: it is masked and what follows in the session is withheld.
-        for result in ("Authorization: Bearer " + "plainword" + "value1", "url: postgres://app:" + "plainwordvalue@db/x",
-                       "key: " + "ghp_" + "plainwordvalue"):
+    def test_known_format_in_a_tool_result_masks_it_and_withholds_the_rest_of_the_turn(self):
+        # The model saw a credential-shaped value: it is masked and the rest of that turn is withheld. Later turns are
+        # sent through the mask, with the credential pinned, so a bare restatement stays masked (BOXP-428 TD-13: this
+        # withheld a long chat session for good).
+        for result, credential in (("Authorization: Bearer " + "plainword" + "value1", "plainwordvalue1"),
+                                   ("url: postgres://app:" + "plainwordvalue@db/x", "plainwordvalue"),
+                                   ("key: " + "ghp_" + "plainwordvalue", "plainwordvalue")):
             with self.subTest(result):
                 session = "kohako-g2-fmt-" + str(abs(hash(str(result))))
                 self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
@@ -1362,8 +1365,12 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn("plainwordvalue", body)
                 self.assertIn("read it", body)
                 self.assertIn("withheld_after_known_format_in_tool_output", body)
-                run_turn(session=session, turn="t2", body="plainwordvalue", tool="todo", args={}, result="ok")
-                self.assertNotIn("plainwordvalue", self._bodies())
+                self.assertIsNone(plugin._tainted(session))
+                run_turn(session=session, turn="t2", body="next turn " + credential + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(credential, body)
+                self.assertIn("nextturnmarker", body)
 
     def test_a_name_based_hit_masks_in_place_and_keeps_later_bodies(self):
         # A secret name with a value is masked where it is, but is no evidence: ordinary code and logs match it too.
@@ -1451,8 +1458,6 @@ class ObserverTest(unittest.TestCase):
             "chat_args": {"role": "assistant", "tool_calls": [{"function": {"name": "read_file", "arguments": '{"path": "/a/.env"}'}}]},
             "anthropic_args": {"role": "assistant", "content": [{"type": "tool_use", "name": "read_file", "input": {"path": "/a/.env"}}]},
             "responses_args": {"type": "function_call", "name": "terminal", "arguments": '{"command": "kubectl get secret x -o yaml"}'},
-            "format_in_result": {"role": "tool", "content": "Authorization: Bearer " + "plainword" + "value9"},
-            "anthropic_result": {"role": "user", "content": [{"type": "tool_result", "content": "key: ghp_" + "plainwordvalue"}]},
             "responses_result": {"type": "function_call_output", "output": "PATH=/usr/bin\nHOME=/root\nOPAQUE=plainwordvalue"},
         }
         for name, shape in shapes.items():
@@ -1466,6 +1471,29 @@ class ObserverTest(unittest.TestCase):
                 plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="plainwordvalue")
                 plugin._on_session_end(session_id=session, turn_id="t", completed=True)
                 self.assertNotIn("plainwordvalue", self._bodies())
+
+    def test_known_format_in_unobserved_history_is_pinned_not_withheld(self):
+        # BOXP-428 TD-13: a resumed long session rescans its history after every restart. A known format in an old
+        # tool result is masked and its credential pinned; it does not withhold every later turn of the session.
+        shapes = {
+            "format_in_result": ({"role": "tool", "content": "Authorization: Bearer " + "plainword" + "value9"}, "plainwordvalue9"),
+            "anthropic_result": ({"role": "user", "content": [{"type": "tool_result", "content": "key: ghp_" + "plainwordvalue"}]},
+                                 "plainwordvalue"),
+            # Serialized, a header after a line break follows the two characters \\n (production shape after a restart).
+            "header_after_newline": ({"role": "tool", "content": "GET /api 200\nAuthorization: token " + "plainword" + "value7\nok"},
+                                     "plainwordvalue7"),
+        }
+        for name, (shape, credential) in shapes.items():
+            with self.subTest(name):
+                session = "kohako-g2-nohook-" + name
+                plugin._on_turn_start(session_id=session, turn_id="t", user_message="go")
+                plugin._on_api_request(session_id=session, turn_id="t", api_request_id="b", request_messages=[shape, {"role": "user", "content": "go"}])
+                self.assertIsNone(plugin._tainted(session))
+                plugin._on_turn_end(session_id=session, turn_id="t", assistant_response="it was " + credential + " historyreadablemarker")
+                plugin._on_session_end(session_id=session, turn_id="t", completed=True)
+                body = self._bodies()
+                self.assertNotIn(credential, body)
+                self.assertIn("historyreadablemarker", body)
 
     def test_ordinary_tool_names_in_history_are_no_evidence(self):
         plugin._on_turn_start(session_id="kohako-g2-names", turn_id="t", user_message="go")
@@ -1645,6 +1673,132 @@ class ObserverTest(unittest.TestCase):
             plugin.export_bodies(batches)
         self.assertEqual(plugin.stats()["batches_dropped"], 2)
 
+
+
+def _restart():
+    """A Hermes restart: the observer's in-memory state is gone, the session's history is not."""
+    plugin._turns.clear()
+    plugin._sessions.clear()
+    plugin._pins.clear()
+    plugin._parents.clear()
+    plugin._pinned_digests.clear()
+    plugin._scanned.clear()
+
+
+def home_turn(session, turn, user, tool, args, result, reply, history=()):
+    """One turn of a long-lived home chat session (Telegram, ticket mentioned so that it is in scope), with the
+    resent history of earlier turns as Hermes sends it on every request."""
+    plugin._on_turn_start(session_id=session, turn_id=turn, user_message=user, model="gpt", platform="telegram")
+    messages = list(history) + [{"role": "user", "content": user}]
+    plugin._on_api_request(session_id=session, turn_id=turn, api_request_id=turn + "-a", system_prompt="あなたはコハコです。",
+                           request_messages=messages, message_count=len(messages), retry_count=0, started_at=time.time())
+    plugin._on_api_response(session_id=session, turn_id=turn, api_request_id=turn + "-a",
+                            response={"assistant_message": {"content": "確認します", "tool_calls": [
+                                {"function": {"name": tool, "arguments": json.dumps(args, ensure_ascii=False)}}]}},
+                            usage={"input_tokens": 10, "output_tokens": 5}, model="gpt", provider="openai-codex",
+                            api_call_count=1, finish_reason="tool_calls", started_at=time.time(), ended_at=time.time())
+    plugin._on_tool(session_id=session, turn_id=turn, tool_call_id=turn + "-c", tool_name=tool, args=args, result=result,
+                    duration_ms=5, status="ok")
+    tool_messages = [{"role": "assistant", "tool_calls": [{"function": {"name": tool, "arguments": json.dumps(args)}}]},
+                     {"role": "tool", "content": result}]
+    plugin._on_api_request(session_id=session, turn_id=turn, api_request_id=turn + "-b", system_prompt="あなたはコハコです。",
+                           request_messages=messages + tool_messages, message_count=len(messages) + 2, retry_count=0,
+                           started_at=time.time())
+    plugin._on_api_response(session_id=session, turn_id=turn, api_request_id=turn + "-b",
+                            response={"assistant_message": {"content": reply}}, usage={"input_tokens": 10, "output_tokens": 5},
+                            model="gpt", provider="openai-codex", api_call_count=2, finish_reason="stop",
+                            started_at=time.time(), ended_at=time.time())
+    plugin._on_turn_end(session_id=session, turn_id=turn, assistant_response=reply)
+    plugin._on_session_end(session_id=session, turn_id=turn, completed=True)
+    return messages + tool_messages + [{"role": "assistant", "content": reply}]
+
+
+def observations(body_text):
+    """(name, attributes) of every span in the drained batches."""
+    out = []
+    for body in body_text:
+        for rs in json.loads(body)["resourceSpans"]:
+            for ss in rs["scopeSpans"]:
+                for span in ss["spans"]:
+                    attrs = {a["key"]: a["value"].get("stringValue", a["value"]) for a in span["attributes"]}
+                    out.append((span["name"], attrs))
+    return out
+
+
+class HomeSessionMaskRegressionTest(unittest.TestCase):
+    """BOXP-428 TD-13. Production 2026-11-11: every turn of the long Telegram home session (20261026_...) was sent as
+    withheld_after_known_format_in_tool_output, from turn start, for days, while the short webhook/cron sessions of the
+    same pod were readable. One credential-shaped known format in an earlier tool result withheld the session for good,
+    and every restart rescanned the history and withheld it again. Metadata the observer writes itself (retry "0",
+    release "0.1.0", "delegated") came out as [REDACTED:pinned]. Fixture reduced to that structure, synthetic values."""
+
+    CREDENTIAL = "ghp_" + "Td13Home" + "Q7w8E9r0"
+    SESSION = "20261026_050737_td13home"
+
+    def setUp(self):
+        ObserverTest.setUp(self)
+
+    def _first_turn(self):
+        # A tool result printing a credential-shaped header (synthetic), plus a short named value pinned as a word.
+        return home_turn(self.SESSION, "t1", "BOXP-505 のログを見て", "terminal", {"command": "tail app.log"},
+                         "GET /api 200\nAuthorization: token " + self.CREDENTIAL + "\nretry: 0 password: q7z\nok",
+                         "ログを確認しました。firstturnreplymarker")
+
+    def test_later_turns_of_the_session_are_readable_and_the_credential_stays_masked(self):
+        history = self._first_turn()
+        first = bodies()
+        self.assertNotIn(self.CREDENTIAL, first)
+        self.assertNotIn("firstturnreplymarker", first)  # the rest of that turn is withheld
+        self.assertIn("withheld_after_known_format_in_tool_output", first)
+        home_turn(self.SESSION, "t2", "BOXP-505 今日の天気とメモを確認して。なでなで", "read_file", {"path": "/notes/today.md"},
+                  "secondtoolmarker 今日のメモ\n買い物\n認証設定の説明: パスワードは管理画面で変更します\n散歩",
+                  "晴れです。さっきのキーは " + self.CREDENTIAL + " でした。secondreplymarker", history=history)
+        second = bodies()
+        for marker in ("今日の天気とメモ", "secondtoolmarker", "secondreplymarker", "あなたはコハコです", "/notes/today.md"):
+            self.assertIn(marker, second)
+        self.assertNotIn(self.CREDENTIAL, second)
+        self.assertNotIn("Td13HomeQ7w8E9r0", second)
+        self.assertNotIn("withheld_after_known_format_in_tool_output", second)
+        self.assertIsNone(plugin._tainted(self.SESSION))
+
+    def test_a_restart_that_rescans_the_history_does_not_withhold_the_session_again(self):
+        history = self._first_turn()
+        bodies()
+        _restart()
+        home_turn(self.SESSION, "t3", "BOXP-505 続きをお願い", "terminal", {"command": "ls /notes"}, "today.md\nrestarttoolmarker",
+                  "続けます。キーは " + self.CREDENTIAL + "。restartreplymarker", history=history)
+        body = bodies()
+        for marker in ("続きをお願い", "restarttoolmarker", "restartreplymarker"):
+            self.assertIn(marker, body)
+        self.assertNotIn(self.CREDENTIAL, body)
+        self.assertNotIn("withheld_after_", body)
+
+    def test_another_session_is_not_affected(self):
+        self._first_turn()
+        bodies()
+        home_turn("20261111_000016_td13other", "o1", "BOXP-505 別の会話", "terminal", {"command": "date"}, "othertoolmarker",
+                  "別セッションの返答 othersessionmarker")
+        body = bodies()
+        self.assertIn("othertoolmarker", body)
+        self.assertIn("othersessionmarker", body)
+        self.assertNotIn("withheld_after_", body)
+
+    def test_observer_metadata_is_not_masked_by_pinned_short_values(self):
+        history = self._first_turn()
+        bodies()
+        home_turn(self.SESSION, "t2", "BOXP-505 もう一度", "todo", {"todos": []}, "ok", "q7z ではありません。metadatamarker",
+                  history=history)
+        spans = observations([b for item in drain() for b in item])
+        self.assertTrue(spans)
+        text = json.dumps(spans, ensure_ascii=False)
+        self.assertIn("metadatamarker", text)
+        self.assertNotIn("q7z", text)  # the pinned short value is still masked in the reply
+        for name, attrs in spans:
+            self.assertEqual(attrs.get("langfuse.release"), plugin.VERSION)
+            self.assertEqual(attrs.get("langfuse.trace.metadata.coverage.g2_realtime"),
+                             "delegated text only; realtime voice session not observed")
+            if name == "llm-call":
+                self.assertEqual(attrs.get("langfuse.observation.metadata.retry"), "0")
 
 if __name__ == "__main__":
     unittest.main()
