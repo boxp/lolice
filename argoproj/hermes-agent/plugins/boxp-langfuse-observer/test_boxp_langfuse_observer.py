@@ -2109,6 +2109,35 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
         run_turn(session=session, turn="2", body="the abcdef and xxxx docs wordmarker")
         self.assertIn("the abcdef and xxxx docs wordmarker", bodies())
 
+    def test_credential_after_a_custom_auth_scheme_is_pinned(self):
+        # lolice#1179 review: Authorization: <scheme> <credentials> with a scheme name that reads as an ordinary word
+        # (custom) skipped both the pin and the turn withholding, so a later bare abcXYZ123 was sent. The scheme word is
+        # dropped like Bearer/Basic and the credential after it counts as a known format and is pinned.
+        for i, (result, credential) in enumerate([("Authorization: custom abcXYZ123", "abcXYZ123"),
+                                                  ("Proxy-Authorization: Negotiate4 q7Zk2Pw9", "q7Zk2Pw9"),
+                                                  ("Authorization: myscheme a1b2c3d4 extra", "a1b2c3d4"),
+                                                  ("Authorization: Bearer <token> zz9Kq1wE", "zz9Kq1wE")]):
+            with self.subTest(credential=credential):
+                session = "kohako-g2-scheme-%d" % i
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={}, result=result)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                run_turn(session=session, turn="2", body="see " + credential + " schememarker")
+                body = bodies()
+                self.assertIn("schememarker", body)
+                self.assertNotIn(credential, body)
+        # Documentation prose after the header name does not withhold anything (the first word is a named value, as before).
+        session = "kohako-g2-scheme-doc"
+        plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                        result="Authorization: required for all requests")
+        plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+        drain()
+        self.assertIsNone(plugin._tainted(session))
+        run_turn(session=session, turn="2", body="required for all requests docmarker")
+        self.assertIn("for all requests docmarker", bodies())
+
     def test_long_session_stays_readable_until_the_pin_limit(self):
         # BOXP-507 step 2: pins are bounded per lineage (256). A long session that printed distinct cookie headers
         # stays readable below the bound and is withheld (fail-closed) only past it: 3 values a header reach it at 37.

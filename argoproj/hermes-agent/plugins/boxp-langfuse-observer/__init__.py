@@ -1144,6 +1144,14 @@ def _exposure_scan(text):
                 value = match.group(0)
                 if kind == "header":
                     credential = re.sub(r"(?i)^(?:bearer|basic|token|digest)\s+", "", value.split(":", 1)[-1].strip())
+                    # Authorization: <scheme> <credentials> with any scheme name (custom, Negotiate4): a scheme that
+                    # reads as a placeholder word is dropped when a non-placeholder credential follows it, so
+                    # Authorization: custom abcXYZ123 counts and pins abcXYZ123 like Bearer does (lolice#1179 review).
+                    if not re.match(r"(?i)(?:set-)?cookie\b", value):
+                        scheme = re.match(r"([A-Za-z][A-Za-z0-9._-]{0,31})\s+(\S.*)$", credential, re.S)
+                        if (scheme and _placeholder_credential(scheme.group(1))
+                                and not _placeholder_credential(scheme.group(2).split()[0])):
+                            credential = scheme.group(2)
                 elif kind == "bearer":
                     credential = re.sub(r"(?i)^bearer\s+", "", value)
                 elif kind == "url_credentials":
@@ -1171,9 +1179,11 @@ def _exposure_scan(text):
                         # masks a later bare ABCDEFGHIJKL (lolice#1179 review). Over the limit only the token is handed
                         # on: the caller pins it when it fits and withholds the lineage (credential_over_limit) when it
                         # does not, so it is never left unpinned.
-                        token = re.match(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'])+""", whole)
-                        if token and not _word_credential(token.group(0)):
-                            values.add(token.group(0))
+                        # Every token, not only the first: Authorization: Bearer <token> zz9Kq1wE masks a later bare
+                        # zz9Kq1wE (lolice#1179 review). Word tokens stay unpinned and readable.
+                        for token in re.findall(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'])+""", whole):
+                            if not _word_credential(token):
+                                values.add(token)
                     continue
                 kinds.add(kind)
                 if kind == "private_key":
