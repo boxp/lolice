@@ -830,6 +830,12 @@ def _named_values_raw(text):
                     continue
                 name = re.sub(r"[\"'\\\s]", "", sep.group(1))
                 tail = raw[sep.end():]
+                if raw[:sep.end()].rstrip().endswith(":") and re.fullmatch(
+                        r"(?i)(?:proxy-)?authorization|(?:set-)?cookie", name):
+                    # An HTTP credential header is the known format (K1) and is pinned there: its scheme word (Bearer)
+                    # or cookie name (sid=) is not a value, and a short, symbol-only or word credential is masked in
+                    # place only (Owner decision A, BOXP-428 TD-13).
+                    continue
                 if (raw[:sep.end()].endswith(":") and text[max(0, match.start() - 2):match.start()] == "${"
                         and tail[:1] in ("-", "=", "?", "+")):
                     # ${NAME:-default} (also :=, :?, :+): the operator is not part of the value; the default is.
@@ -1088,6 +1094,39 @@ def _word_credential(value):
                              or re.fullmatch(r"(?i)pass(?:word|wd|phrase)?\d?|pwd|secret|(?:api[_-]?|access[_-]?|auth[_-]?)?(?:key|token)|changeme", value))
 
 
+def _mask_only_credential(value):
+    """A known-format credential that is masked in place only (Owner decision A, BOXP-428 TD-13, 2026-11-11): 3
+    characters or fewer, no letter at all (symbols and digits only), or made only of ordinary words as _word_credential
+    defines them (lower-case a-z words of up to 12 letters, masking notation x/*/., password/token words). Such a
+    credential is neither pinned nor evidence for a hold: pinning it masked "1", "<", "Do" or "token" in every later
+    field of a home session that read a ticket or a skill, and its hold withheld the final reply. The accepted residual
+    is that such a value restated alone in a later turn is sent (THREAT_MODEL.md section 2). Longer credentials with a
+    capital, a digit beside letters or a non-word token are pinned and held as before."""
+    v = str(value).strip()
+    if len(v) <= 3 or not re.search(r"[^\W\d_]", v):
+        return True
+    return all(_word_credential(token) or _REDACTION_NOTATION.fullmatch(token.strip(".,;:\"'`()")) for token in v.split())
+
+
+# Redaction and placeholder notation written in notes and docs instead of a value: <token>, ＜合成値＞, [REDACTED:header].
+_REDACTION_NOTATION = re.compile(r"<[a-z_-]{1,24}>|＜[^＞]{0,24}＞|\[REDACTED:[a-z_]+\]")
+
+
+def _mask_only_header(value, credential):
+    """Owner decision A applied to one match: the credential is cut where serialized JSON closes its string (a quote
+    followed by : , } ] or the end), never at a literal escape (BOXP-507 keeps those whole), and a cookie header counts by its pair values (Cookie: a=1; b=!! has only short values)."""
+    cut = credential
+    closed = re.match(r'''([^"]*)"\s*(?:[:,}\]]|$)''', credential)
+    if closed:
+        cut = closed.group(1)  # only where a JSON string closes; a quote inside a credential does not cut it
+    if re.match(r"(?i)(?:set-)?cookie\b", value):
+        if re.match(r"(?i)set-cookie\b", value):
+            cut = cut.split(";", 1)[0]
+        pairs = [pair.strip().partition("=") for pair in cut.split(";") if pair.strip()]
+        return all(_mask_only_credential(v.strip("\"'") if sep else name) for name, sep, v in pairs)
+    return _mask_only_credential(cut)
+
+
 def _exposure(text):
     """Kinds of known format found in text, checked before the line mask so that a value next to a secret word counts."""
     return _exposure_details(text)[0]
@@ -1134,6 +1173,8 @@ def _exposure_details(text):
         # alone (a lone "," before \\n) is not pinned, since it would match that punctuation everywhere; it withholds
         # the lineage instead (credential_unpinnable, fail-closed) rather than being left unmasked.
         for v in more_values:
+            if _mask_only_credential(v):
+                continue  # Owner decision A: masked in place only, never pinned nor withheld
             if _JSON_PUNCTUATION.fullmatch(v):
                 unpinnable.add(v)
             else:
@@ -1187,6 +1228,8 @@ def _exposure_scan(text):
                     credential = None
                 else:
                     credential = None
+                if credential is not None and _mask_only_header(value, credential):
+                    continue  # masked in place only: neither evidence nor pinned (Owner decision A)
                 if credential is not None and _placeholder_credential((credential.split() or [""])[0]):
                     # Not evidence that a credential was seen, so nothing is withheld; always pinned whole as written
                     # (BOXP-507), even when every token is a word (Bearer abc., lolice#1179 review). Each token that is
@@ -1263,7 +1306,9 @@ def _exposure_scan(text):
                     values.update(whole)
                 else:
                     values.add(value)
-    return kinds, values
+    # Fragments and pair values follow the same rule: a cookie pair value "1" or a symbol-only piece is masked in place
+    # and not pinned (Owner decision A).
+    return kinds, {v for v in values if not _mask_only_credential(v)}
 
 
 def _redact(text):
