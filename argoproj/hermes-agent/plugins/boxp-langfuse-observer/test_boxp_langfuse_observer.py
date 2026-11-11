@@ -1380,6 +1380,39 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn(credential, body)
                 self.assertIn("nextturnmarker", body)
 
+    def test_a_credential_with_separators_is_pinned_whole(self):
+        # lolice#1179 review: a URL password abc,def was pinned only as the short words abc and def, which match on word
+        # boundaries, so prefixabc,defsuffix in a later turn was sent.
+        for result, restated in (("url: https://u:" + "abc,def@example.com", "prefixabc,defsuffix"),
+                                 ("Authorization: Bearer " + "abc;def", "prefixabc;defsuffix")):
+            with self.subTest(result):
+                session = "kohako-g2-sep-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                run_turn(session=session, turn="t2", body="next turn " + restated + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(restated, body)
+                self.assertNotIn(restated[6:13], body)
+                self.assertIn("nextturnmarker", body)
+
+    def test_a_header_after_a_line_break_in_a_structured_result_withholds_the_turn(self):
+        # lolice#1179 review: a structured tool result serializes its line break as \\n, so "\\nAuthorization:" had no
+        # word boundary and the credential was neither evidence nor pinned.
+        for result in ({"output": "line one\nAuthorization: Bearer " + "plainwordvalue1\nline three"},
+                       {"stdout": "x\nCookie: sid=" + "plainwordvalue1"},
+                       ["a", "b\n" + "ghp_" + "plainwordvalue1"]):
+            with self.subTest(result):
+                session = "kohako-g2-nl-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                body = self._bodies()
+                self.assertNotIn("plainwordvalue1", body)
+                self.assertIn("withheld_after_known_format_in_tool_output", body)
+                run_turn(session=session, turn="t2", body="next turn plainwordvalue1 nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn("plainwordvalue1", body)
+                self.assertIn("nextturnmarker", body)
+
     def test_a_symbol_only_known_format_credential_is_pinned(self):
         # lolice#1179 review: a credential of a known format made only of symbols (https://u:!!!@host) was not pinned,
         # so a bare restatement of it in a later turn was sent.

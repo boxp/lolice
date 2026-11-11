@@ -1073,9 +1073,25 @@ def _exposure_values(text):
 
 _KEY_LINE = re.compile(r"[A-Za-z0-9+/=]{16,}")
 _CREDENTIAL_WORD = re.compile(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'<>,;])+""")
+# The whole credential up to whitespace or an escape: abc,def is pinned as one value too, since its short words alone
+# match only on word boundaries and prefixabc,defsuffix would be sent (lolice#1179 review).
+_CREDENTIAL_SPAN = re.compile(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'<>])+""")
+# A structured result serializes its line breaks as \\n: "\\nAuthorization:" has no word boundary before the header
+# name, so the serialized text is also scanned with those escapes as real line breaks (lolice#1179 review).
+_ESCAPED_BREAK = re.compile(r"\\+[nrt]")
 
 
 def _exposure_details(text):
+    kinds, values = _exposure_scan(text)
+    unescaped = _ESCAPED_BREAK.sub("\n", text)
+    if unescaped != text:
+        more_kinds, more_values = _exposure_scan(unescaped)
+        kinds |= more_kinds
+        values |= more_values
+    return kinds, values
+
+
+def _exposure_scan(text):
     kinds, values = set(), set()
     env_pattern = _env_pattern()
     if env_pattern and env_pattern.search(text):
@@ -1128,6 +1144,7 @@ def _exposure_details(text):
                                 pairs.append(pair_value)
                         words = pairs
                     values.update(words)
+                    values.update(span for span in _CREDENTIAL_SPAN.findall(credential)[:1] if span not in words)
                 else:
                     values.add(value)
     return kinds, values
