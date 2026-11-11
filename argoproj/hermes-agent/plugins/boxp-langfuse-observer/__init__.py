@@ -970,6 +970,7 @@ def _pin_body(session, parent, body):
     # A credential too long to pin (over 65,536 characters) cannot be masked when restated; the turn-scoped hold ends
     # with the turn, so the lineage is withheld instead (fail-closed; lolice#1179 review).
     oversized = any(len(v) > 65536 for v in exposed)
+    unpinnable_credential = any(v.strip() for leaf in _leaves(body) for v in _exposure_unpinnable(leaf))
     values = values | {v if len(v) >= 4 else _Word(v) for v in exposed if len(v) <= 65536}
     if values:
         overflow = False
@@ -991,6 +992,9 @@ def _pin_body(session, parent, body):
             _taint("pinned_values_over_limit", *_lineage(str(session or "")))
     if oversized:
         _taint("credential_over_limit", *_lineage(str(session or "")))
+        unpinned = True
+    if unpinnable_credential:
+        _taint("credential_unpinnable", *_lineage(str(session or "")))
         unpinned = True
     with _lock:
         _pinned_digests[key] = (unpinned, bool(values))
@@ -1088,6 +1092,12 @@ def _exposure_values(text):
     return _exposure_details(text)[1]
 
 
+def _exposure_unpinnable(text):
+    """Credentials found only after a literal escape and made of JSON punctuation alone: never pinned, so the caller
+    withholds the lineage (lolice#1179 review)."""
+    return _exposure_details(text)[2]
+
+
 _KEY_LINE = re.compile(r"[A-Za-z0-9+/=]{16,}")
 _CREDENTIAL_WORD = re.compile(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'<>,;])+""")
 # The whole credential up to whitespace or an escape: abc,def is pinned as one value too, since its short words alone
@@ -1101,17 +1111,26 @@ _ESCAPED_BREAK = re.compile(r"\\+[nrt]")
 _WHOLE_PIN_MAX = 4096
 
 
+_JSON_PUNCTUATION = re.compile(r"""[\s,;:{}\[\]"'\\=]+""")
+
+
 def _exposure_details(text):
     kinds, values = _exposure_scan(text)
+    unpinnable = set()
     unescaped = _ESCAPED_BREAK.sub("\n", text)
     if unescaped != text:
         more_kinds, more_values = _exposure_scan(unescaped)
         kinds |= more_kinds
-        # The unescaped reading splits a credential at the restored line breaks; its symbol-only pieces (a lone ","
-        # before \\n) are fragments, not credentials, and would match JSON punctuation everywhere. The credential as
-        # written is pinned whole by the scan above (BOXP-507).
-        values |= {v for v in more_values if re.search(r"[^\W_]", v)}
-    return kinds, values
+        # The unescaped reading finds a header that follows a literal escape (x\\nAuthorization: Bearer !!!!): its
+        # credential, symbol-only or not, is pinned whole (lolice#1179 review). Only a piece made of JSON punctuation
+        # alone (a lone "," before \\n) is not pinned, since it would match that punctuation everywhere; it withholds
+        # the lineage instead (credential_unpinnable, fail-closed) rather than being left unmasked.
+        for v in more_values:
+            if _JSON_PUNCTUATION.fullmatch(v):
+                unpinnable.add(v)
+            else:
+                values.add(v)
+    return kinds, values, unpinnable
 
 
 def _exposure_scan(text):

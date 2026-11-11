@@ -1464,6 +1464,29 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn(" " + "!!!!" + " ", body)
                 self.assertIn("nextturnmarker", body)
 
+    def test_a_symbol_only_credential_after_a_literal_escape_is_pinned(self):
+        # lolice#1179 review: a header after a literal escape (x\\nAuthorization: Bearer !!!!) is found only in the
+        # unescaped reading, whose symbol-only credentials were dropped, so a bare restatement of !!!! was sent.
+        for result in ("x\\nAuthorization: Bearer " + "!!!!", "x\\tAuthorization: Bearer " + "!!!!",
+                       {"out": "x\\nAuthorization: Bearer " + "!!!!"}):
+            with self.subTest(result):
+                session = "kohako-g2-esc-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                run_turn(session=session, turn="t2", body="next turn " + "!!!!" + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(" " + "!!!!" + " ", body)
+                self.assertIn("nextturnmarker", body)
+                self.assertIsNone(plugin._tainted(session))
+
+    def test_a_json_punctuation_credential_after_a_literal_escape_withholds(self):
+        # A credential of JSON punctuation alone, found only after a literal escape, would mask that punctuation
+        # everywhere if pinned; the lineage is withheld instead of leaving it unmasked (lolice#1179 review).
+        session = "kohako-g2-escpunct"
+        self._value_only_reply(session, "terminal", {"command": "cat app.yaml"},
+                               result="x\\nCookie: a=" + ",,,,")
+        self.assertEqual(plugin._tainted(session), "credential_unpinnable")
+
     def test_a_name_based_hit_masks_in_place_and_keeps_later_bodies(self):
         # A secret name with a value is masked where it is, but is no evidence: ordinary code and logs match it too.
         # A bare restatement of the masked value elsewhere is the accepted residual (THREAT_MODEL.md 2).
