@@ -1,0 +1,13 @@
+# BOXP-501: persistent notification inbox, Web Push subscriptions and the BFF-generated
+# VAPID key pair for kohako-home. Survives Pod restarts; RWO, so the Deployment uses Recreate.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kohako-studio-data
+  namespace: kohako-studio
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1Gi

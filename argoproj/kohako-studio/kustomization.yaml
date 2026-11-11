@@ -4,6 +4,7 @@ resources:
   - namespace.yaml
   - external-secret-hermes-api-key.yaml
   - rbac.yaml
+  - pvc.yaml
   - deployment.yaml
   - service.yaml
   - networkpolicy.yaml

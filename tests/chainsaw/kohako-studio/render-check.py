@@ -33,6 +33,16 @@ volume = next(x for x in ws['volumes'] if x['name'] == 'kohako-bff-verifier')
 assert volume['projected']['sources'] == [{'serviceAccountToken': {'audience': 'kohako-bff-verifier', 'expirationSeconds': 3600, 'path': 'token'}}]
 mounts = [(c['name'], m) for c in ws['containers'] for m in c.get('volumeMounts', []) if m['name'] == 'kohako-bff-verifier']
 assert mounts == [('workspace', {'name': 'kohako-bff-verifier', 'mountPath': '/var/run/secrets/kohako-bff-verifier', 'readOnly': True})]
+# BOXP-501: notification ingest token is audience-bound and mounted only into the event dispatcher.
+volume = next(x for x in ws['volumes'] if x['name'] == 'kohako-bff-notifier')
+assert volume['projected']['sources'] == [{'serviceAccountToken': {'audience': 'kohako-bff-notifier', 'expirationSeconds': 3600, 'path': 'token'}}]
+mounts = [(c['name'], m) for c in ws['containers'] for m in c.get('volumeMounts', []) if m['name'] == 'kohako-bff-notifier']
+assert mounts == [('task-board-event-dispatcher', {'name': 'kohako-bff-notifier', 'mountPath': '/var/run/secrets/kohako-bff-notifier', 'readOnly': True})]
+assert env['KOHAKO_DATA_DIR'] == '/data' and env['KOHAKO_NOTIFIER_ENABLED'] == 'true' and env['KOHAKO_NOTIFIER_USERNAME'] == 'system:serviceaccount:codex-workspace:codex-workspace'
+assert {'name': 'data', 'mountPath': '/data'} in bff['volumeMounts']
+assert get(studio, 'Deployment', 'kohako-studio')['spec']['strategy'] == {'type': 'Recreate'}
+assert next(x for x in deploy['volumes'] if x['name'] == 'data')['persistentVolumeClaim'] == {'claimName': 'kohako-studio-data'}
+assert get(studio, 'PersistentVolumeClaim', 'kohako-studio-data')['spec']['accessModes'] == ['ReadWriteOnce']
 def permits(policy, side, namespace, selector, port):
     for rule in policy[side]:
         peer = rule['source' if side == 'ingress' else 'destination']
