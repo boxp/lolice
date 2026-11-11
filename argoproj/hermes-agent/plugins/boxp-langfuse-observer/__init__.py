@@ -1060,8 +1060,6 @@ def _exposure_values(text):
     return _exposure_details(text)[1]
 
 
-_COOKIE_ATTRIBUTES = {"path", "domain", "expires", "max-age", "samesite", "secure", "httponly", "partitioned",
-                      "priority"}
 _KEY_LINE = re.compile(r"[A-Za-z0-9+/=]{16,}")
 _CREDENTIAL_WORD = re.compile(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'<>,;])+""")
 
@@ -1109,9 +1107,9 @@ def _exposure_details(text):
                             words = _CREDENTIAL_WORD.findall(credential.split(";", 1)[0])
                         pairs = []
                         for word in words:
+                            # Every pair left is a cookie, even one named like an attribute (Cookie: path=x):
+                            # Set-Cookie attributes were cut off at the first ; above (lolice#1179 review).
                             name, sep, pair_value = word.partition("=")
-                            if name.lower() in _COOKIE_ATTRIBUTES:
-                                continue
                             pair_value = pair_value.strip("\"'")
                             if not sep or pair_value:
                                 pairs.append(word)
