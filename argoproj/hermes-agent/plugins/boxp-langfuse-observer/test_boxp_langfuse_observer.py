@@ -1385,7 +1385,9 @@ class ObserverTest(unittest.TestCase):
         # boundaries, so prefixabc,defsuffix in a later turn was sent.
         for result, restated in (("url: https://u:" + "abc,def@example.com", "prefixabc,defsuffix"),
                                  ("url: https://u:" + "hunter123:q7z@example.com", "prefixhunter123:q7zsuffix"),
-                                 ("Authorization: Bearer " + "abc;def", "prefixabc;defsuffix")):
+                                 ("Authorization: Bearer " + "abc;def", "prefixabc;defsuffix"),
+                                 ("Cookie: a=1; sid=" + "abc,def", "prefixabc,defsuffix"),
+                                 ("Set-Cookie: sid=" + "abc,def; Path=/", "prefixabc,defsuffix")):
             with self.subTest(result):
                 session = "kohako-g2-sep-" + str(abs(hash(str(result))))
                 self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)

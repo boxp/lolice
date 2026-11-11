@@ -1145,6 +1145,13 @@ def _exposure_scan(text):
                             if sep and pair_value:
                                 pairs.append(pair_value)
                         words = pairs
+                        # A cookie value may hold separators (sid=abc,def): each pair value is also pinned whole up to
+                        # whitespace, so prefixabc,defsuffix in a later turn is masked (lolice#1179 review).
+                        cookies = credential.split(";", 1)[0] if re.match(r"(?i)set-cookie\b", value) else credential
+                        for pair in cookies.split(";"):
+                            pair_value = pair.strip().partition("=")[2].strip().strip("\"'")
+                            words.extend(span for span in _CREDENTIAL_SPAN.findall(pair_value)[:1]
+                                         if span not in words)
                     values.update(words)
                     values.update(span for span in _CREDENTIAL_SPAN.findall(credential)[:1] if span not in words)
                 else:
