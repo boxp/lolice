@@ -1,0 +1,101 @@
+# BOXP-498: ComfyUI for MiniMax H3 on the single Intel GPU. It only runs inside a
+# window opened by the llama/image switcher, which owns the replica count.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: comfyui
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: comfyui
+  template:
+    metadata:
+      labels:
+        app: comfyui
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      priorityClassName: gpu-workload-high
+      nodeSelector:
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      # A prompt that is still running gets time to finish its current node.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        supplementalGroups:
+          - 44
+          - 110
+      containers:
+        - name: comfyui
+          image: ghcr.io/boxp/arch/comfyui-xpu:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8188
+          env:
+            - name: ONEAPI_DEVICE_SELECTOR
+              value: level_zero:gpu
+            - name: ZE_ENABLE_PCI_ID_DEVICE_ORDER
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: "3"
+              memory: 32Gi
+              gpu.intel.com/i915: "1"
+            limits:
+              cpu: "14"
+              # The iGPU allocates from system memory. The node has 93GiB and no
+              # swap, so the container is stopped before the node runs short.
+              memory: 72Gi
+              gpu.intel.com/i915: "1"
+          startupProbe:
+            httpGet:
+              path: /system_stats
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /system_stats
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # Loading a 20GB model can stall the web loop; only a long silence restarts.
+          livenessProbe:
+            httpGet:
+              path: /system_stats
+              port: http
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 10
+          volumeMounts:
+            # Only the ComfyUI directory: SD.Next settings and models stay out of reach.
+            - name: data
+              mountPath: /data
+              subPath: comfyui
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: sd-webui-data
+        - name: scratch
+          emptyDir:
+            sizeLimit: 20Gi

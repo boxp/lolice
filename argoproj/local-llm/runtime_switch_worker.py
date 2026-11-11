@@ -1,4 +1,7 @@
-"""Durable llama <-> Stable Diffusion switcher (BOXP-484).
+"""Durable llama <-> image backend switcher (BOXP-484, BOXP-498).
+
+One window lends the single GPU to exactly one image backend: SD.Next (`sd`) or
+ComfyUI (`comfy`). The phase names keep their BOXP-484 spelling for both.
 
 Holds no credential: every Kubernetes call goes through the existing file
 transport in /runtime-api, whose worker enforces the target allowlist and the
@@ -7,8 +10,9 @@ GPU owners. An intended write is persisted first, a write with an unknown
 outcome is never replayed, and any doubt ends in the sticky `failed` phase with
 admission still closed.
 
-The private state directory is not visible to the internet-facing gateway, which
-only shares /runtime-api/sd-switch (phase, jobs, intent, activity).
+The private state directory is not visible to the internet-facing gateways. The
+SD gateway only shares /runtime-api/sd-switch (phase, jobs, intent, activity) and
+the ComfyUI gateway only /runtime-api/comfy-switch (phase, intent).
 """
 import collections
 import fcntl
@@ -25,10 +29,12 @@ import uuid
 ROOT = Path('/runtime-api')
 LLM = 'http://llama-server.local-llm.svc.cluster.local'
 SD = 'http://stable-diffusion-webui-backend.stable-diffusion.svc.cluster.local:7860'
+COMFY = 'http://comfyui-backend.stable-diffusion.svc.cluster.local:8188'
 SCALE = '/apis/apps/v1/namespaces/{}/deployments/{}/scale'
 PATHS = {'llama': SCALE.format('local-llm', 'llama-server'),
          'sd': SCALE.format('stable-diffusion', 'stable-diffusion-webui'),
          'qwen': SCALE.format('stable-diffusion', 'qwen-image-eval'),
+         'comfy': SCALE.format('stable-diffusion', 'comfyui'),
          'gate': '/api/v1/namespaces/local-llm/configmaps/llama-server-admission'}
 
 COOLDOWN = 120
@@ -44,9 +50,17 @@ OBSERVE_INTERVAL = 10
 STABLE_NEEDED = 3
 PROBE_SPACING = 310
 TICK = 5
+# A video job runs for a long time and its author composes the next prompt in
+# the UI, so ComfyUI keeps the GPU longer than SD.Next before an idle release.
+COMFY_IDLE_RELEASE = 900
+# The first start pulls a multi-gigabyte image.
+COMFY_START_LIMIT = 2400
+COMFY_WINDOW_LIMIT = 4 * 3600
+BACKENDS = ('sd', 'comfy')
 STATUS_LIMIT = 65536
 
-Snapshot = collections.namedtuple('Snapshot', 'llama sd qwen gate llama_running sd_running objects')
+Snapshot = collections.namedtuple('Snapshot', 'llama sd qwen gate llama_running sd_running objects comfy comfy_running',
+                                  defaults=(0, 0))
 
 
 class Unavailable(Exception):
@@ -124,12 +138,12 @@ class Cluster:
             if response.get('status') != 200:
                 raise Unavailable(name + ' read failed')
             objects[name] = response['object']
-        replicas = [objects[name].get('spec', {}).get('replicas', 0) for name in ('llama', 'sd', 'qwen')]
-        running = [objects[name].get('status', {}).get('replicas', 0) for name in ('llama', 'sd')]
+        replicas = [objects[name].get('spec', {}).get('replicas', 0) for name in ('llama', 'sd', 'qwen', 'comfy')]
+        running = [objects[name].get('status', {}).get('replicas', 0) for name in ('llama', 'sd', 'comfy')]
         gate = objects['gate'].get('data', {}).get('state')
         if not isinstance(gate, str) or any(type(value) is not int or value not in (0, 1) for value in replicas):
             raise Stop('unexpected cluster value')
-        return Snapshot(*replicas, gate, *running, objects)
+        return Snapshot(*replicas[:3], gate, *running[:2], objects, replicas[3], running[2])
 
     def patch(self, field, snapshot, value):
         target = snapshot.objects[field]
@@ -170,8 +184,10 @@ def acquire_owner(path):
 
 
 class Switcher:
-    def __init__(self, state, shared, cluster, http_call=http, clock=time.time, log=None):
+    def __init__(self, state, shared, cluster, http_call=http, clock=time.time, log=None, comfy_shared=None):
         self.directory, self.shared = Path(state), Path(shared)
+        # Without its shared directory ComfyUI can neither ask for nor get a window.
+        self.comfy_shared = Path(comfy_shared) if comfy_shared else None
         self.cluster, self.http, self.clock = cluster, http_call, clock
         self.log = log or (lambda message: print(message, flush=True))
         self.stable, self.last_observed = 0, 0
@@ -187,8 +203,19 @@ class Switcher:
     def save(self):
         atomic(self.path, json.dumps(self.state).encode())
 
+    def backend(self):
+        """The image backend that owns the current or the most recent window."""
+        return self.state.get('backend', 'sd')
+
     def publish(self, phase=None):
-        atomic(self.shared / 'phase', ((phase or self.state['phase']) + '\n').encode())
+        phase = phase or self.state['phase']
+        # Only the owner of the window sees its phases, so the other gateway can
+        # never route to a backend that is not running.
+        other = phase if phase in ('llm-open', 'failed') else 'busy'
+        owner = self.backend()
+        atomic(self.shared / 'phase', ((phase if owner == 'sd' else other) + '\n').encode())
+        if self.comfy_shared:
+            atomic(self.comfy_shared / 'phase', ((phase if owner == 'comfy' else other) + '\n').encode())
 
     def enter(self, phase):
         self.state.update(phase=phase, phase_since=self.clock())
@@ -212,10 +239,13 @@ class Switcher:
 
     @staticmethod
     def triple(snapshot):
-        return {'llama': snapshot.llama, 'sd': snapshot.sd, 'gate': snapshot.gate}
+        return {'llama': snapshot.llama, 'sd': snapshot.sd, 'comfy': snapshot.comfy, 'gate': snapshot.gate}
 
-    def expect(self, snapshot, llama, sd, gates):
-        if snapshot.qwen != 0 or snapshot.llama not in llama or snapshot.sd != sd or snapshot.gate not in gates:
+    def expect(self, snapshot, llama, image, gates):
+        """`image` is the replica count of the window owner; every other GPU user must be 0."""
+        owner = self.backend()
+        foreign = snapshot.qwen != 0 or any(getattr(snapshot, name) != 0 for name in BACKENDS if name != owner)
+        if foreign or snapshot.llama not in llama or getattr(snapshot, owner) != image or snapshot.gate not in gates:
             raise Stop('cluster state drifted in ' + self.state['phase'])
 
     def write(self, snapshot, field, value, following, via=None):
@@ -239,7 +269,9 @@ class Switcher:
     def settle(self):
         """Only ever observes; never repeats the write."""
         pending = self.state['pending']
-        if self.triple(self.cluster.snapshot()) != pending['desired']:
+        observed = self.triple(self.cluster.snapshot())
+        # A write persisted before BOXP-498 has no `comfy` key; it must still be 0.
+        if observed != dict({'comfy': 0}, **pending['desired']):
             raise Stop('interrupted write did not reach its desired state')
         self.state['pending'] = None
         self.enter(pending['next'])
@@ -263,7 +295,16 @@ class Switcher:
         return counts
 
     def demand(self):
-        return self.jobs()['queued'] > 0 or (self.shared / 'intent.json').exists()
+        """The backend to open a window for, or None."""
+        wanted = []
+        if self.jobs()['queued'] > 0 or (self.shared / 'intent.json').exists():
+            wanted.append('sd')
+        if self.comfy_shared and (self.comfy_shared / 'intent.json').exists():
+            wanted.append('comfy')
+        if len(wanted) == 2:
+            # Take turns, so neither entrance can starve the other.
+            wanted.remove(self.backend())
+        return wanted[0] if wanted else None
 
     def observed_activity(self):
         try:
@@ -307,6 +348,32 @@ class Switcher:
         except (ValueError, KeyError, TypeError, AttributeError):
             return False
 
+    def comfy_busy(self):
+        """Running or pending prompts keep the GPU; an open browser tab does not."""
+        code, body = self.get(COMFY + '/queue')
+        # No HTTP answer at all is told apart from an answer that cannot be read.
+        self.comfy_answered = code is not None
+        if code != 200:
+            return None
+        try:
+            value = json.loads(body)
+            running, pending = value['queue_running'], value['queue_pending']
+            if not isinstance(running, list) or not isinstance(pending, list):
+                return None
+            return bool(running or pending)
+        except (ValueError, KeyError, TypeError):
+            return None
+
+    def image_busy(self):
+        return self.comfy_busy() if self.backend() == 'comfy' else self.sd_busy()
+
+    def image_started(self):
+        url = COMFY + '/queue' if self.backend() == 'comfy' else SD + '/sdapi/v1/progress'
+        return self.get(url)[0] == 200
+
+    def intent_path(self):
+        return (self.comfy_shared if self.backend() == 'comfy' else self.shared) / 'intent.json'
+
     def sd_busy(self):
         """True, False, or None when the backend cannot say. None is not idle."""
         code, body = self.get(SD + '/sdapi/v1/progress')
@@ -321,14 +388,33 @@ class Switcher:
         except (ValueError, KeyError, TypeError):
             return None
 
-    def track_probe(self, busy):
-        """A backend that stays unobservable must not hold the GPU forever."""
-        if busy is None:
-            since = self.state.setdefault('probe_failing_since', self.clock())
-            if self.clock() - since >= PROBE_FAILURE_LIMIT:
-                raise Stop('image backend unobservable')
-        else:
+    def track_probe(self, busy, snapshot):
+        """A backend that stays unobservable must not hold the GPU forever.
+
+        True when the window was closed here and the caller must not go on.
+        """
+        if busy is not None:
             self.state.pop('probe_failing_since', None)
+            self.state.pop('probe_answered', None)
+            return False
+        since = self.state.setdefault('probe_failing_since', self.clock())
+        comfy = self.backend() == 'comfy'
+        if comfy and getattr(self, 'comfy_answered', True):
+            self.state['probe_answered'] = True
+        if self.clock() - since < PROBE_FAILURE_LIMIT:
+            return False
+        if not comfy or self.state.get('probe_answered'):
+            # A process that answers, however unreadably, may still be working.
+            raise Stop('image backend unobservable')
+        # Not one HTTP answer in the whole period: ComfyUI is down or cannot
+        # start again, and its liveness probe restarts a container whose web
+        # loop is silent long before this limit. Keeping LLM down until an
+        # operator arrives would protect nothing, so stop ComfyUI and let the
+        # usual path wait for its pod to end before LLM starts.
+        self.state.pop('probe_failing_since', None)
+        self.state.update(reason='ComfyUI unobservable; window closed', next_cooldown=START_FAILURE_COOLDOWN)
+        self.write(snapshot, 'comfy', 0, 'stopping-sd')
+        return True
 
     def complete_window(self):
         self.state['cooldown_until'] = self.clock() + self.state.pop('next_cooldown', COOLDOWN)
@@ -337,12 +423,17 @@ class Switcher:
     # Phases
 
     def on_llm_open(self):
-        if self.clock() < self.state['cooldown_until'] or not self.demand():
+        if self.clock() < self.state['cooldown_until']:
+            return
+        wanted = self.demand()
+        if not wanted:
             return
         snapshot = self.cluster.snapshot()
-        if (snapshot.llama, snapshot.sd, snapshot.qwen) != (1, 0, 0) or not snapshot.gate.startswith('open:'):
+        if ((snapshot.llama, snapshot.sd, snapshot.qwen, snapshot.comfy) != (1, 0, 0, 0)
+                or not snapshot.gate.startswith('open:')):
             return
-        self.state['token'] = 'sd-' + uuid.uuid4().hex[:16]
+        self.state['backend'] = wanted
+        self.state['token'] = wanted + '-' + uuid.uuid4().hex[:16]
         self.write(snapshot, 'gate', 'closed:' + self.state['token'], 'draining', via='fencing')
 
     def closed(self):
@@ -371,34 +462,44 @@ class Switcher:
         if self.elapsed() > STOP_LIMIT:
             raise Stop('llama did not stop')
         if snapshot.llama_running == 0:
-            self.write(snapshot, 'sd', 1, 'starting-sd')
+            self.write(snapshot, self.backend(), 1, 'starting-sd')
 
     def on_starting_sd(self):
         snapshot = self.cluster.snapshot()
         self.expect(snapshot, (0,), 1, (self.closed(),))
-        if self.get(SD + '/sdapi/v1/progress')[0] == 200:
-            (self.shared / 'intent.json').unlink(missing_ok=True)
+        if self.image_started():
+            self.intent_path().unlink(missing_ok=True)
             self.state.update(window_started=self.clock(), last_activity=self.clock())
             self.enter('image-ready')
-        elif self.elapsed() > START_LIMIT:
+        elif self.elapsed() > (COMFY_START_LIMIT if self.backend() == 'comfy' else START_LIMIT):
             # Nothing was generated, so returning the GPU to LLM is safe.
             self.state.update(reason='image backend did not start', next_cooldown=START_FAILURE_COOLDOWN)
-            self.write(snapshot, 'sd', 0, 'stopping-sd')
+            if self.backend() == 'comfy':
+                # Nobody waits at a ComfyUI that never came up; asking again is a
+                # button press, and LLM must not be stopped again every hour.
+                self.intent_path().unlink(missing_ok=True)
+            self.write(snapshot, self.backend(), 0, 'stopping-sd')
 
     def on_image_ready(self):
         if not self.due(15):
             return
         snapshot = self.cluster.snapshot()
         self.expect(snapshot, (0,), 1, (self.closed(),))
-        busy = self.sd_busy()
-        self.track_probe(busy)
+        busy = self.image_busy()
+        if self.track_probe(busy, snapshot):
+            return
         if busy:
             self.state['last_activity'] = self.clock()
         self.save()
-        jobs = self.jobs()
-        latest = max(self.state['last_activity'], self.observed_activity())
-        idle = (not jobs['queued'] and not jobs['dispatched'] and busy is False and self.clock() - latest >= IDLE_RELEASE)
-        if idle or self.clock() - self.state['window_started'] >= WINDOW_LIMIT:
+        if self.backend() == 'comfy':
+            # ComfyUI owns its queue; the SD job store is not part of this window.
+            jobs, latest = {'queued': 0, 'dispatched': 0}, self.state['last_activity']
+            release, limit = COMFY_IDLE_RELEASE, COMFY_WINDOW_LIMIT
+        else:
+            jobs, latest = self.jobs(), max(self.state['last_activity'], self.observed_activity())
+            release, limit = IDLE_RELEASE, WINDOW_LIMIT
+        idle = (not jobs['queued'] and not jobs['dispatched'] and busy is False and self.clock() - latest >= release)
+        if idle or self.clock() - self.state['window_started'] >= limit:
             self.enter('image-draining')
 
     def on_image_draining(self):
@@ -406,19 +507,21 @@ class Switcher:
             return
         snapshot = self.cluster.snapshot()
         self.expect(snapshot, (0,), 1, (self.closed(),))
-        busy = self.sd_busy()
-        self.track_probe(busy)
+        busy = self.image_busy()
+        if self.track_probe(busy, snapshot):
+            return
         self.save()
-        self.stable = self.stable + 1 if busy is False and not self.jobs()['dispatched'] else 0
+        dispatched = self.backend() == 'sd' and self.jobs()['dispatched']
+        self.stable = self.stable + 1 if busy is False and not dispatched else 0
         if self.stable >= STABLE_NEEDED:
-            self.write(snapshot, 'sd', 0, 'stopping-sd')
+            self.write(snapshot, self.backend(), 0, 'stopping-sd')
 
     def on_stopping_sd(self):
         snapshot = self.cluster.snapshot()
         self.expect(snapshot, (0,), 0, (self.closed(), self.verify_gate()))
         if self.elapsed() > STOP_LIMIT:
             raise Stop('image backend did not stop')
-        if snapshot.sd_running != 0:
+        if getattr(snapshot, self.backend() + '_running') != 0:
             return
         if snapshot.gate == self.closed():
             self.write(snapshot, 'gate', self.verify_gate(), 'stopping-sd')
@@ -474,10 +577,10 @@ class Switcher:
             self.log('recover ignored: token mismatch')
             return
         snapshot = self.cluster.snapshot()
-        healthy = (snapshot.llama, snapshot.sd, snapshot.qwen) == (1, 0, 0) and snapshot.gate.startswith('open:')
+        users = (snapshot.llama, snapshot.sd, snapshot.qwen, snapshot.comfy)
+        healthy = users == (1, 0, 0, 0) and snapshot.gate.startswith('open:')
         # GPU is free, llama is down, admission is still ours: restore LLM.
-        stopped = ((snapshot.llama, snapshot.sd, snapshot.qwen) == (0, 0, 0)
-                   and snapshot.gate in (self.closed(), self.verify_gate()))
+        stopped = users == (0, 0, 0, 0) and snapshot.gate in (self.closed(), self.verify_gate())
         if not healthy and not stopped:
             self.log('recover ignored: observed state is not safe')
             return
@@ -506,15 +609,16 @@ class Switcher:
 
 def main():
     os.umask(0o077)
-    state, shared = ROOT / 'sd-switch-state', ROOT / 'sd-switch'
+    state, shared, comfy_shared = ROOT / 'sd-switch-state', ROOT / 'sd-switch', ROOT / 'comfy-switch'
     state.mkdir(exist_ok=True)
     shared.mkdir(exist_ok=True)
+    comfy_shared.mkdir(exist_ok=True)
     try:
         lock = acquire_owner(state / 'owner.lock')
     except OSError:
         print('another switcher owns this node', file=sys.stderr, flush=True)
         return 1
-    switcher = Switcher(state, shared, Cluster(FileTransport()))
+    switcher = Switcher(state, shared, Cluster(FileTransport()), comfy_shared=comfy_shared)
     while lock:
         switcher.run_once()
         time.sleep(TICK)
