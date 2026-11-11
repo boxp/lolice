@@ -88,11 +88,10 @@ spec:
               value: openai-codex
             - name: KOHAKO_CANDIDATE_MODEL
               value: gpt-5.6-luna
-            # BOXP-332 M7: the BFF only sends while Hermes /v1/toolsets reports exactly
-            # these enabled toolsets for the API server (gated by the kohako-g2-context
-            # plugin in hermes-agent); anything else fails closed.
+            # BOXP-503: exact /v1/toolsets match; the kohako-g2-context gate
+            # still restricts G2 to its existing allowlist and approval rules.
             - name: KOHAKO_HERMES_TOOLSETS
-              value: file,session_search,skills,terminal
+              value: browser,code_execution,connections,cronjob,delegation,file,memory,session_search,skills,terminal,todo,vision,web
             # BOXP-387: opt-in realtime voice pilot. The BFF mints a short-lived OpenAI
             # Realtime client secret through the Hermes kohako-g2-realtime plugin
             # (openai-codex subscription sign-in, no API key) and relays G2 audio to
