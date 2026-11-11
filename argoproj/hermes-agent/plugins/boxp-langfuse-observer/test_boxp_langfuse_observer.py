@@ -2011,6 +2011,33 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
                     self.assertIn("propmarker", body)
                     self.assertNotIn(json.dumps(credential)[1:-1], body)
 
+    def test_placeholder_shaped_credential_is_pinned_whole(self):
+        # lolice#1179 review: an all upper-case credential (Bearer ABCDEFGHIJKL) reads like a placeholder and does not
+        # withhold the turn, but it is still pinned whole, so a later verbatim repeat is masked. Word placeholders
+        # (a short lower-case word, xxxx) are not pinned and the word stays readable.
+        for i, (result, credential) in enumerate([("Authorization: Bearer ABCDEFGHIJKL", "ABCDEFGHIJKL"),
+                                                  ("Bearer ABCDEF_GHIJKL ok", "ABCDEF_GHIJKL"),
+                                                  ("postgres://app:YOUR_DB_PW@db/app", "YOUR_DB_PW")]):
+            with self.subTest(credential=credential):
+                session = "kohako-g2-upper-%d" % i
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={}, result=result)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                self.assertIsNone(plugin._tainted(session))
+                run_turn(session=session, turn="2", body="see " + credential + " and x" + credential + "y uppermarker")
+                body = bodies()
+                self.assertIn("uppermarker", body)
+                self.assertNotIn(credential, body)
+        session = "kohako-g2-upper-word"
+        plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                        result="Authorization: Bearer abcdef\nhttps://user:xxxx@db/app")
+        plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+        drain()
+        run_turn(session=session, turn="2", body="the abcdef and xxxx docs wordmarker")
+        self.assertIn("the abcdef and xxxx docs wordmarker", bodies())
+
     def test_long_session_stays_readable_until_the_pin_limit(self):
         # BOXP-507 step 2: pins are bounded per lineage (256). A long session that printed distinct cookie headers
         # stays readable below the bound and is withheld (fail-closed) only past it: 3 values a header reach it at 37.

@@ -1066,6 +1066,16 @@ def _placeholder_credential(value):
                              or re.fullmatch(r"[a-z]{1,12}", value))
 
 
+def _word_credential(value):
+    """A placeholder that is an ordinary word or masking notation (token, password, bearer tokens, xxx, ***, ...):
+    pinning it would mask that word everywhere, so it is not pinned (TD-12 residual, THREAT_MODEL.md section 2).
+    Every other placeholder shape (Bearer ABCDEFGHIJKL, YOUR_API_TOKEN, $TOKEN, <token>) is not evidence of a
+    credential but is still pinned whole, so a verbatim repeat in a later turn is masked (lolice#1179 review)."""
+    value = re.sub(r"""^["'`(\[{]+|["'`.,;:)\]}/]+$""", "", value.strip())
+    return not value or bool(re.fullmatch(r"[a-z]{1,12}", value) or re.fullmatch(r"(?i)x+|\*+|\.+", value)
+                             or re.fullmatch(r"(?i)pass(?:word|wd|phrase)?\d?|pwd|secret|(?:api[_-]?|access[_-]?|auth[_-]?)?(?:key|token)|changeme", value))
+
+
 def _exposure(text):
     """Kinds of known format found in text, checked before the line mask so that a value next to a secret word counts."""
     return _exposure_details(text)[0]
@@ -1131,6 +1141,11 @@ def _exposure_scan(text):
                 else:
                     credential = None
                 if credential is not None and _placeholder_credential((credential.split() or [""])[0]):
+                    # Not evidence that a credential was seen, so nothing is withheld; pinned whole unless a word.
+                    if not _word_credential((credential.split() or [""])[0]):
+                        whole = credential.strip()
+                        if whole and len(whole) <= _WHOLE_PIN_MAX:
+                            values.add(whole)
                     continue
                 kinds.add(kind)
                 if kind == "private_key":
