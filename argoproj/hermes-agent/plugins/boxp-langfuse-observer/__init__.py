@@ -1047,9 +1047,10 @@ def _pinned_text(span):
 
 
 # Documentation placeholders (Authorization: Bearer <token>, Bearer YOUR_API_TOKEN, postgres://user:password@db) are masked
-# in place but are no evidence that the model saw a credential (BOXP-428 TD-12).
+# in place but are no evidence that the model saw a credential (BOXP-428 TD-12). Only the placeholder shapes count
+# ($NAME, ${...}, <...>, {{...}}, %NAME%, [...], ***): a value merely starting with % or $ is a credential (BOXP-507).
 _PLACEHOLDER_CREDENTIAL = re.compile(
-    r"(?i)[$<{%*\[].*|x+|\.+|pass(?:word|wd|phrase)?\d?|pwd|secret|(?:api[_-]?|access[_-]?|auth[_-]?)?(?:key|token)|changeme"
+    r"(?i)\$\{[^}]*\}?|\$\w+|<[^>]*>?|\{\{?[^}]*\}?\}?|%\w+%|\*+|\[[^\]]*\]?|x+|\.+|pass(?:word|wd|phrase)?\d?|pwd|secret|(?:api[_-]?|access[_-]?|auth[_-]?)?(?:key|token)|changeme"
     r"|your[\w-]*|my[\w-]*pass\w*|example\w*")
 
 
@@ -1079,6 +1080,9 @@ _CREDENTIAL_SPAN = re.compile(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'<>])+""")
 # A structured result serializes its line breaks as \\n: "\\nAuthorization:" has no word boundary before the header
 # name, so the serialized text is also scanned with those escapes as real line breaks (lolice#1179 review).
 _ESCAPED_BREAK = re.compile(r"\\+[nrt]")
+# A header line in serialized history runs to the end of the JSON line: past this length the whole is not pinned and
+# the fragments above remain (a longer credential repeated verbatim with a literal escape is a stated residual).
+_WHOLE_PIN_MAX = 4096
 
 
 def _exposure_details(text):
@@ -1087,7 +1091,10 @@ def _exposure_details(text):
     if unescaped != text:
         more_kinds, more_values = _exposure_scan(unescaped)
         kinds |= more_kinds
-        values |= more_values
+        # The unescaped reading splits a credential at the restored line breaks; its symbol-only pieces (a lone ","
+        # before \\n) are fragments, not credentials, and would match JSON punctuation everywhere. The credential as
+        # written is pinned whole by the scan above (BOXP-507).
+        values |= {v for v in more_values if re.search(r"[^\W_]", v)}
     return kinds, values
 
 
@@ -1152,8 +1159,22 @@ def _exposure_scan(text):
                             pair_value = pair.strip().partition("=")[2].strip().strip("\"'")
                             words.extend(span for span in _CREDENTIAL_SPAN.findall(pair_value)[:1]
                                          if span not in words)
-                    values.update(words)
-                    values.update(span for span in _CREDENTIAL_SPAN.findall(credential)[:1] if span not in words)
+                    fragments = set(words)
+                    fragments.update(span for span in _CREDENTIAL_SPAN.findall(credential)[:1] if span not in words)
+                    # Single rule (BOXP-507): the credential part masked in place is also pinned whole, exactly as
+                    # written, so a later verbatim repeat is masked whatever separators or literal escapes (\\n, \\\\)
+                    # it holds. The fragments above stay; only the whole is added. A cookie pins each pair value whole.
+                    whole = []
+                    if kind == "header" and re.match(r"(?i)(?:set-)?cookie\b", value):
+                        cookies = credential.split(";", 1)[0] if re.match(r"(?i)set-cookie\b", value) else credential
+                        whole.extend(pair.strip().partition("=")[2].strip().strip("\"'") for pair in cookies.split(";"))
+                    else:
+                        whole.append(credential.strip())
+                    whole = {w for w in whole if w and len(w) <= _WHOLE_PIN_MAX}
+                    # A symbol-only fragment cut at an escape or separator (the "," of ",\\n=x") is not a credential
+                    # and would match JSON punctuation everywhere; a symbol-only credential pinned whole still is.
+                    values.update(f for f in fragments if f in whole or re.search(r"[^\W_]", f))
+                    values.update(whole)
                 else:
                     values.add(value)
     return kinds, values

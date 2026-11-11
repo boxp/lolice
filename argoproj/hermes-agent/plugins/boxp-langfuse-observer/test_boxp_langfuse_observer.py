@@ -1943,5 +1943,76 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
             if name == "llm-call":
                 self.assertEqual(attrs.get("langfuse.observation.metadata.retry"), "0")
 
+
+class CredentialWholePinPropertyTest(unittest.TestCase):
+    """BOXP-507 single rule: a credential masked in place by a known format (K1) is pinned whole, exactly as written, so
+    a later turn repeating it verbatim inside a word (prefix<credential>suffix) is masked, whatever separators, colons,
+    percent signs, literal \\n or \\\\ it holds. One property over random credentials replaces per-variant examples.
+    Fragments shorter than 4 characters repeated inside a word, and other escape layers or encodings, are residual
+    (THREAT_MODEL.md section 2)."""
+
+    ALPHABET = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    SPECIAL = [",", ":", "%", "\\n", "\\\\", "-", ".", "=", "+", "!", "~"]
+    FORMS = {
+        "url": lambda c: "connect https://u:" + c + "@db.internal:5432/x ok",
+        "bearer": lambda c: "GET /api\nAuthorization: Bearer " + c + "\nok",
+        "cookie": lambda c: "Cookie: theme=dark; sid=" + c,
+        "structured_url": lambda c: {"out": "line one\nurl=https://u:" + c + "@host/x\ndone"},
+    }
+
+    def setUp(self):
+        ObserverTest.setUp(self)
+
+    def _credential(self, rng, form):
+        pieces = []
+        while sum(len(p) for p in pieces) < rng.randint(6, 24):
+            pieces.append(rng.choice(self.ALPHABET) if rng.random() < 0.7 else rng.choice(self.SPECIAL))
+        credential = "".join(pieces)
+        if form in ("url", "structured_url"):
+            credential = credential.replace("\\\\", "")  # a backslash pair would not reach the URL pattern
+        if form == "cookie":
+            credential = credential.replace("=", "")
+        credential = credential.strip(":")
+        # An all lower-case alphabetic word of up to 12 letters is read as a word (TD-12 residual, THREAT_MODEL.md).
+        if re.fullmatch(r"[a-z]{1,12}", re.sub(r"[.,;:]+$", "", credential)):
+            credential += "Q7"
+        return credential
+
+    def test_verbatim_repeat_of_a_whole_credential_is_masked(self):
+        import random
+        rng = random.Random(507)
+        for form, build in self.FORMS.items():
+            for i in range(60):
+                credential = self._credential(rng, form)
+                with self.subTest(form=form, credential=credential):
+                    session = "kohako-g2-prop-%s-%d" % (form, i)
+                    plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                    plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={}, result=build(credential))
+                    plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                    drain()
+                    run_turn(session=session, turn="2", body="see prefix" + credential + "suffix propmarker")
+                    body = bodies()
+                    self.assertIn("propmarker", body)
+                    self.assertNotIn(json.dumps(credential)[1:-1], body)
+
+    def test_long_session_stays_readable_until_the_pin_limit(self):
+        # BOXP-507 step 2: pins are bounded per lineage (256). A long session that printed distinct cookie headers
+        # stays readable below the bound and is withheld (fail-closed) only past it: 3 values a header reach it at 37.
+        session = "kohako-g2-pincap"
+        for n in range(1, 38):
+            plugin._on_turn_start(session_id=session, turn_id=str(n), user_message="hello")
+            plugin._on_tool(session_id=session, turn_id=str(n), tool_name="read_file", args={},
+                            result="Cookie: a=v%dAAA; b=w%dBBB; c=x%dCCC" % (n, n, n))
+            plugin._on_session_end(session_id=session, turn_id=str(n), completed=True)
+            drain()
+            if n == 36:
+                self.assertIsNone(plugin._tainted(session))
+                run_turn(session=session, turn="r36", body="pincapmarker v36AAA")
+                body = bodies()
+                self.assertIn("pincapmarker", body)
+                self.assertNotIn("v36AAA", body)
+        self.assertEqual(plugin._tainted(session), "pinned_values_over_limit")
+
+
 if __name__ == "__main__":
     unittest.main()
