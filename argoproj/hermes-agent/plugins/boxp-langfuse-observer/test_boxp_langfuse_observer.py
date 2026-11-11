@@ -2107,7 +2107,29 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
         plugin._on_session_end(session_id=session, turn_id="1", completed=True)
         drain()
         run_turn(session=session, turn="2", body="the abcdef and xxxx docs wordmarker")
-        self.assertIn("the abcdef and xxxx docs wordmarker", bodies())
+        # BOXP-507 single rule (lolice#1179 review): a word credential is pinned whole as written too, so its repeat is
+        # masked; the body is still sent and the rest of it stays readable.
+        body = bodies()
+        self.assertIn("docs wordmarker", body)
+        self.assertNotIn("abcdef", body)
+        self.assertNotIn('"withheld', body)
+        # Bearer abc. (an ordinary word with trailing punctuation) is pinned as written: a verbatim repeat is masked.
+        for i, (result, credential) in enumerate([("Authorization: Bearer abc.", "abc."),
+                                                  ("Authorization: Bearer token", "token"),
+                                                  ("Authorization: Bearer xxxxx", "xxxxx"),
+                                                  ("https://user:password@db/app", "password")]):
+            with self.subTest(word=credential):
+                session = "kohako-g2-word-%d" % i
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={}, result=result)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                self.assertIsNone(plugin._tainted(session))
+                run_turn(session=session, turn="2", body="see " + credential + " wordrepeatmarker")
+                body = bodies()
+                # token/password lines are also covered by the existing secret-line mask; either way the turn is sent.
+                self.assertIn('"stringValue": "sent"', body)
+                self.assertNotIn("see " + credential + " ", body)
 
     def test_credential_after_a_custom_auth_scheme_is_pinned(self):
         # lolice#1179 review: Authorization: <scheme> <credentials> with a scheme name that reads as an ordinary word
@@ -2136,8 +2158,12 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
         plugin._on_session_end(session_id=session, turn_id="1", completed=True)
         drain()
         self.assertIsNone(plugin._tainted(session))
-        run_turn(session=session, turn="2", body="required for all requests docmarker")
-        self.assertIn("for all requests docmarker", bodies())
+        run_turn(session=session, turn="2", body="required for all requests docmarker, and for all of them")
+        # The phrase after the header name is pinned whole as written (BOXP-507 single rule); its ordinary words are not
+        # pinned on their own, so the rest of the body stays readable.
+        body = bodies()
+        self.assertIn("docmarker, and for all of them", body)
+        self.assertNotIn("required for all requests", body)
 
     def test_long_session_stays_readable_until_the_pin_limit(self):
         # BOXP-507 step 2: pins are bounded per lineage (256). A long session that printed distinct cookie headers
