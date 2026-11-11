@@ -1891,6 +1891,23 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
         self.assertNotIn("Q7w8E9r0Q7w8E9r0", bodies())
         self.assertEqual(plugin._tainted(session), "credential_over_limit")
 
+    def test_oversized_symbol_only_credential_withholds_the_lineage(self):
+        # Review of lolice#1179: Bearer followed by 65,537 "!" was over the whole-pin limit and its symbol-only fragment
+        # was dropped, so nothing was pinned and credential_over_limit did not fire. A whole over the limit with no
+        # pinned fragment is handed to the size check: pinned when it fits, the lineage withheld when it does not.
+        for size, session in ((65537, "kohako-g2-symhuge"), (5000, "kohako-g2-symlong")):
+            with self.subTest(size=size):
+                secret = "!" * size
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                                result="Authorization: Bearer " + secret)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                run_turn(session=session, turn="2", body="reply " + secret + " symhugemarker")
+                self.assertFalse("!" * 4097 in bodies(), "restated symbol-only credential sent")
+                if size > 65536:
+                    self.assertEqual(plugin._tainted(session), "credential_over_limit")
+
     def test_open_child_turn_is_withheld_when_the_parent_sees_a_credential(self):
         # Review of lolice#1179: a child turn already open when its parent's tool printed a credential kept sending the
         # rest of its own turn (the hold walked ancestors only).

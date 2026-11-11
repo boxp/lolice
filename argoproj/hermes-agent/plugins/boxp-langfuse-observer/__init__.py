@@ -1190,7 +1190,13 @@ def _exposure_scan(text):
                         whole.extend(pair.strip().partition("=")[2].strip().strip("\"'") for pair in cookies.split(";"))
                     else:
                         whole.append(credential.strip())
-                    whole = {w for w in whole if w and len(w) <= _WHOLE_PIN_MAX}
+                    # A whole over the limit is still handed on when none of its fragments is pinned (65,537 "!":
+                    # the only fragment is symbol-only): the caller pins it when it fits and withholds the lineage
+                    # when it does not (credential_over_limit), so the credential is never left unpinned (lolice#1179
+                    # review). With an alphanumeric fragment pinned the long whole stays a stated residual.
+                    words_pinned = {f for f in fragments if re.search(r"[^\W_]", f)}
+                    whole = {w for w in whole if w and (len(w) <= _WHOLE_PIN_MAX
+                                                         or not any(f in w for f in words_pinned))}
                     # A symbol-only fragment cut at an escape or separator (the "," of ",\\n=x") is not a credential
                     # and would match JSON punctuation everywhere; a symbol-only credential pinned whole still is.
                     values.update(f for f in fragments if f in whole or re.search(r"[^\W_]", f))
