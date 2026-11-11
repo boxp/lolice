@@ -19,12 +19,14 @@ K1 known formats: every string goes through redact() (_PATTERNS, element, assign
 around a secret word and the lines next to it) before it is queued, and the serialized batch is
 scanned again (_unsafe) before sending; a hit there drops the span. When a tool result carried a
 credential-shaped known format (_EXPOSURE_KINDS: private key, header, URL credentials, JWT, bearer,
-provider/cloud keys, this process's environment values), later bodies of the session are withheld
-too. A name-based hit (assignment, env entry, flag, cli password) does not withhold: the value it
+provider/cloud keys, this process's environment values), the rest of the turns open in its lineage is
+withheld, and the credential itself is pinned like a named value: later turns are sent through the mask
+(BOXP-428 TD-13: withholding the session for good hid a long home chat session for days, and every restart
+withheld it again from its history). A name-based hit (assignment, env entry, flag, cli password) does not withhold: the value it
 names (4..256 characters, _named_values) is pinned to the session lineage and masked in every field
 of its turns, escapes included, and the final guard rejects a span that still holds it, so a bare
 restatement in a later reply is not sent. A value that cannot be pinned (shorter, longer, or more
-than 64 in one text) in a tool result withholds the lineage; over 256 pinned values per lineage
+than 64 in one text) in a tool result withholds the rest of the turn; over 256 pinned values per lineage
 withholds it too (pinned_values_over_limit).
 Not guaranteed: a plain value without a secret word or known format near it, a transformed or partial
 restatement (base64, reversal...), a restatement in an unrelated session, and a short named value in a
@@ -921,6 +923,22 @@ def _link_parent(session, parent):
 _pinned_digests = collections.OrderedDict()  # (session, digest) of bodies already pinned: history is resent on every request
 
 
+def _leaves(body, depth=0):
+    """The strings of a body as written, plus its serialized text: a format at the start of a line is found in the
+    original string (serialized, the line break before it is the two characters \\n)."""
+    if depth == 0:
+        yield _text(body)
+    if isinstance(body, str):
+        if depth:
+            yield body
+    elif isinstance(body, dict) and depth < 8:
+        for item in body.values():
+            yield from _leaves(item, depth + 1)
+    elif isinstance(body, (list, tuple)) and depth < 8:
+        for item in body:
+            yield from _leaves(item, depth + 1)
+
+
 def _pin_body(session, parent, body):
     _link_parent(session, parent)
     text = _text(body)
@@ -935,6 +953,7 @@ def _pin_body(session, parent, body):
                 return unpinned
             del _pinned_digests[key]
     values, unpinned = _named_values(text)
+    values = values | {v for leaf in _leaves(body) for v in _exposure_values(leaf) if 4 <= len(v) <= 256}
     if values:
         overflow = False
         with _lock:
@@ -978,16 +997,32 @@ def _mask_value(value, pattern):
     return value
 
 
+# Attributes the observer writes itself (constants, counters, enums and ids it generates): a pinned value cannot come
+# from the model there, and masking them only broke the trace (retry "0", release "0.1.0", "delegated" with a pinned
+# short value inside; BOXP-428 TD-13). Bodies, names, tags and free-text metadata stay masked.
+_OWN_ATTRIBUTES = re.compile(
+    r"langfuse\.(?:session\.id|release|trace\.name|observation\.(?:type|level|usage_details|model\.name)"
+    r"|trace\.metadata\.(?:status|coverage\.[\w.]+)"
+    r"|observation\.metadata\.(?:body_policy|status|api_call|retry|input_scope|location|provider|finish_reason|source"
+    r"|before_tokens|after_tokens|messages_removed|status_code|retryable|parent_session_id|child_session_id))")
+
+
+def _masked_attribute(attribute):
+    return not _OWN_ATTRIBUTES.fullmatch(str(attribute.get("key")))
+
+
 def _mask_pins(spans, pattern):
-    """Mask the span name and attribute values only: ids, times and attribute keys are the exporter's own."""
+    """Mask the span name and model-derived attribute values only: ids, times, keys and the observer's own metadata
+    are the exporter's."""
     return [{**span, "name": _mask_value(span.get("name"), pattern),
-             "attributes": [{**a, "value": _mask_value(a.get("value"), pattern)} for a in span.get("attributes", [])]}
+             "attributes": [{**a, "value": _mask_value(a.get("value"), pattern)} if _masked_attribute(a) else a
+                            for a in span.get("attributes", [])]}
             for span in spans]
 
 
 def _pinned_text(span):
-    return _PLACEHOLDER.sub("", json.dumps([span.get("name"), [a.get("value") for a in span.get("attributes", [])]],
-                                           ensure_ascii=False))
+    return _PLACEHOLDER.sub("", json.dumps([span.get("name"), [a.get("value") for a in span.get("attributes", [])
+                                                               if _masked_attribute(a)]], ensure_ascii=False))
 
 
 # Documentation placeholders (Authorization: Bearer <token>, Bearer YOUR_API_TOKEN, postgres://user:password@db) are masked
@@ -1006,10 +1041,24 @@ def _placeholder_credential(value):
 
 def _exposure(text):
     """Kinds of known format found in text, checked before the line mask so that a value next to a secret word counts."""
-    kinds = set()
+    return _exposure_details(text)[0]
+
+
+def _exposure_values(text):
+    """The credentials of credential-shaped known formats in text, pinned like named values (BOXP-428 TD-13): the
+    format is masked in place, and a bare restatement of the credential in a later turn is masked as a pinned value."""
+    return _exposure_details(text)[1]
+
+
+_KEY_LINE = re.compile(r"[A-Za-z0-9+/=]{16,}")
+_CREDENTIAL_WORD = re.compile(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'<>,;])+""")
+
+
+def _exposure_details(text):
+    kinds, values = set(), set()
     env_pattern = _env_pattern()
     if env_pattern and env_pattern.search(text):
-        kinds.add("env")
+        kinds.add("env")  # environment values are masked in every field already
     for kind, pattern in _PATTERNS:
         if kind in _EXPOSURE_KINDS:
             for match in pattern.finditer(text):
@@ -1033,8 +1082,16 @@ def _exposure(text):
                 if credential is not None and _placeholder_credential((credential.split() or [""])[0]):
                     continue
                 kinds.add(kind)
-                break
-    return kinds
+                if kind == "private_key":
+                    values.update(_KEY_LINE.findall(value))
+                elif kind == "provider_key":
+                    values.update({value, _PROVIDER_PREFIX.sub("", value)})
+                elif credential is not None:
+                    # Serialized history escapes the line break (\\n) and closes the string: the credential ends there.
+                    values.update(w for w in _CREDENTIAL_WORD.findall(credential) if len(w) >= 4)
+                else:
+                    values.add(value)
+    return kinds, values
 
 
 def _redact(text):
@@ -1548,6 +1605,29 @@ def _taint(reason, *sessions):
             _sessions.popitem(last=False)
 
 
+def _withheld(turn):
+    """The reason this turn's later bodies are withheld: the session's lineage (K0) or this turn (K1), or None."""
+    return _tainted(turn["session"]) or turn.get("withheld")
+
+
+def _withhold_open_turns(reason, *sessions):
+    """K1 known format in a tool result: withhold the rest of the turns open now in this lineage (BOXP-428 TD-13).
+    The format is masked in place and its credential is pinned to the lineage, so a later turn is sent through the mask
+    instead of being withheld for the life of the session (a long chat session, or after every restart that rescans
+    its history, would otherwise never be readable again)."""
+    with _lock:
+        nodes = set().union(*(_lineage(str(s or "")) for s in sessions if s))
+        for turn in _turns.values():
+            if turn["session"] in nodes:
+                turn["withheld"] = turn.get("withheld") or reason
+
+
+def _open_withheld(session):
+    with _lock:
+        return next((t["withheld"] for t in _turns.values() if t["session"] == str(session or "") and t.get("withheld")),
+                    None)
+
+
 def _note_delegated(session):
     with _lock:
         _delegated[str(session)] = True
@@ -1618,7 +1698,9 @@ def _note_request(session, parent, messages):
                 _taint("known_source", session, parent)
         for result_text in _tool_results(message):
             reason = _evidence("", result_text)
-            if reason:
+            # A known format in history is masked in place and its credential pinned (_pin_body); it withholds nothing,
+            # or a resumed long session would be withheld on every turn while the message stays in its history.
+            if reason and reason != "known_format_in_tool_output":
                 _taint(reason, session, parent)
 
 
@@ -1671,7 +1753,9 @@ def _on_turn_start(session_id=None, turn_id=None, user_message=None, model=None,
     reason = _tainted(parent_session_id)
     if reason:  # the delegated goal may repeat what the parent saw
         _taint(reason, turn["session"])
-    if _tainted(turn["session"]):  # the user can quote a reply back
+    if parent_session_id and _open_withheld(parent_session_id):  # delegated from a turn that saw a known format
+        turn["withheld"] = _open_withheld(parent_session_id)
+    if _withheld(turn):  # the user can quote a reply back
         user_message = _WITHHELD_SESSION
     turn.update(user_message=user_message, model=model, platform=platform or "", parent=parent_session_id)
 
@@ -1685,7 +1769,7 @@ def _on_api_request(session_id=None, turn_id=None, api_request_id=None, system_p
     for message in messages:
         _pin_body(turn["session"], turn["parent"], message)
     _note_request(turn["session"], turn["parent"], messages)
-    tainted = _tainted(turn["session"])
+    tainted = _withheld(turn)
     first_request = not turn.get("requested")
     turn["requested"] = True
     if tainted and first_request and turn["user_message"] is not None:  # the evidence of a resumed session is only known here
@@ -1714,7 +1798,7 @@ def _on_api_response(session_id=None, turn_id=None, api_request_id=None, respons
         req = turn.get("requests", {}).pop(str(api_request_id), {})
     _pin_body(turn["session"], turn["parent"], response)
     message = (response or {}).get("assistant_message") if isinstance(response, dict) else None
-    output = _WITHHELD_SESSION if _tainted(turn["session"]) else _message_view({"role": "assistant", **message}) if isinstance(message, dict) else None
+    output = _WITHHELD_SESSION if _withheld(turn) else _message_view({"role": "assistant", **message}) if isinstance(message, dict) else None
     location = "local" if "local-llm" in str(base_url or "") or "llama" in str(base_url or "") else "cloud"
     _add(turn, {"key": "api:" + str(api_request_id), "name": "llm-call", "type": "generation",
                 "input": req.get("input"), "output": output, "model": response_model or model, "usage": usage,
@@ -1746,9 +1830,11 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
     args_text, result_text = _text(args), _text(result)
     _pin_body(turn["session"], turn["parent"], args)
     _pin_body(turn["session"], turn["parent"], result)
-    already = _tainted(turn["session"])
+    already = _withheld(turn)
     reason = _evidence(args_text, result_text)
-    if reason:
+    if reason == "known_format_in_tool_output":
+        _withhold_open_turns(reason, turn["session"], turn["parent"])
+    elif reason:
         _taint(reason, turn["session"], turn["parent"])
     now = time.time()
     if reason == "known_format_in_tool_output" and not already:
@@ -1794,7 +1880,7 @@ def _on_subagent(parent_session_id=None, parent_turn_id=None, child_session_id=N
     reason = _tainted(child_session_id)
     if reason:
         _taint(reason, turn["session"], turn["parent"])
-    if _tainted(turn["session"]):
+    if _withheld(turn):
         child_summary = _WITHHELD_SESSION
     now = time.time()
     _add(turn, {"key": "subagent:" + str(child_session_id), "name": "subagent", "type": "agent",
@@ -1807,7 +1893,7 @@ def _on_turn_end(session_id=None, turn_id=None, assistant_response=None):
     turn = _turn(session_id, turn_id)
     _pin_body(turn["session"], turn["parent"], assistant_response)
     _note_tickets(turn, assistant_response)
-    turn["output"] = _WITHHELD_SESSION if _tainted(turn["session"]) else assistant_response
+    turn["output"] = _WITHHELD_SESSION if _withheld(turn) else assistant_response
 
 
 @_guarded
@@ -1821,7 +1907,7 @@ def _on_session_end(session_id=None, turn_id=None, completed=None, failed=None, 
         return
     turn["status"] = "interrupted" if interrupted else "failed" if failed else "succeeded" if completed else "unknown"
     turn["exit_reason"] = turn_exit_reason
-    turn["withheld_reason"] = _tainted(turn["session"])
+    turn["withheld_reason"] = _withheld(turn)
     if not in_scope(turn):
         _count("turns_out_of_scope")
         return
