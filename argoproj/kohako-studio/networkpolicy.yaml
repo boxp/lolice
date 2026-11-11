@@ -41,6 +41,15 @@ spec:
         selector: app == 'hermes-agent'
         namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
         ports: [8642]
+    # BOXP-504: read-only Task Board projection (8090) and AI subscription usage metrics (9464)
+    # in codex-workspace for the kohako-home status strip.
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'codex-workspace'
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        ports: [8090, 9464]
     - action: Allow
       protocol: TCP
       source: {}
