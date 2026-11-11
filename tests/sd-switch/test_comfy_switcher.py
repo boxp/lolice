@@ -11,6 +11,8 @@ module = base.module
 
 EMPTY = (200, b'{"queue_running": [], "queue_pending": []}')
 RUNNING = (200, b'{"queue_running": [[0, "id", {}, {}, []]], "queue_pending": []}')
+# The request got no HTTP answer at all.
+SILENT = (None, b'')
 PENDING = (200, b'{"queue_running": [], "queue_pending": [[1, "id", {}, {}, []]]}')
 
 
@@ -127,11 +129,33 @@ class ComfyWindow(ComfyBase):
         self.advance(module.IDLE_RELEASE + 60)
         self.assertEqual(self.phase, 'image-ready')
 
-    def test_unreadable_queue_is_not_idle_and_returns_the_gpu_to_llm(self):
+    def test_unreadable_queue_is_not_idle_and_fails_closed(self):
         self.comfy_ready()
         for answer in ((500, b''), (200, b'not json'), (200, b'{"queue_running": []}'), (200, b'{"queue_running": 0, "queue_pending": 0}')):
             self.queue = answer
             self.assertIsNone(self.switcher.comfy_busy())
+        for _ in range(100):
+            self.advance(60)
+        self.assertEqual(self.phase, 'failed')
+        self.assertEqual(self.cluster.comfy, 1)
+        self.assertTrue(self.cluster.gate.startswith('closed:'))
+        self.assertEqual(self.phases(), ('failed', 'failed'))
+
+    def test_one_unreadable_answer_among_silence_fails_closed(self):
+        self.comfy_ready()
+        self.queue = SILENT
+        self.advance(600)
+        self.queue = (500, b'')
+        self.advance(60)
+        self.queue = SILENT
+        for _ in range(60):
+            self.advance(60)
+        self.assertEqual((self.phase, self.cluster.comfy), ('failed', 1))
+
+    def test_silent_backend_is_not_idle_and_returns_the_gpu_to_llm(self):
+        self.comfy_ready()
+        self.queue = SILENT
+        self.assertIsNone(self.switcher.comfy_busy())
         # Not idle: the window outlives the idle release while the queue is unreadable.
         self.advance(module.COMFY_IDLE_RELEASE + 120)
         self.assertEqual((self.phase, self.cluster.comfy), ('image-ready', 1))
@@ -150,12 +174,12 @@ class ComfyWindow(ComfyBase):
         self.advance(module.START_FAILURE_COOLDOWN - 300)
         self.assertEqual((self.phase, len(self.cluster.writes)), ('llm-open', writes))
 
-    def test_unreadable_queue_while_draining_returns_the_gpu_to_llm(self):
+    def test_silent_backend_while_draining_returns_the_gpu_to_llm(self):
         self.comfy_ready()
         self.queue = RUNNING
         self.advance(module.COMFY_WINDOW_LIMIT + 60)
         self.assertEqual(self.phase, 'image-draining')
-        self.queue = (503, b'')
+        self.queue = SILENT
         self.advance(60)
         self.advance(module.PROBE_FAILURE_LIMIT - 120)
         self.assertEqual((self.phase, self.cluster.comfy), ('image-draining', 1))

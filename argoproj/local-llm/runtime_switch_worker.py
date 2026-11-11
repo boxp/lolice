@@ -351,6 +351,8 @@ class Switcher:
     def comfy_busy(self):
         """Running or pending prompts keep the GPU; an open browser tab does not."""
         code, body = self.get(COMFY + '/queue')
+        # No HTTP answer at all is told apart from an answer that cannot be read.
+        self.comfy_answered = code is not None
         if code != 200:
             return None
         try:
@@ -393,16 +395,22 @@ class Switcher:
         """
         if busy is not None:
             self.state.pop('probe_failing_since', None)
+            self.state.pop('probe_answered', None)
             return False
         since = self.state.setdefault('probe_failing_since', self.clock())
+        comfy = self.backend() == 'comfy'
+        if comfy and getattr(self, 'comfy_answered', True):
+            self.state['probe_answered'] = True
         if self.clock() - since < PROBE_FAILURE_LIMIT:
             return False
-        if self.backend() != 'comfy':
+        if not comfy or self.state.get('probe_answered'):
+            # A process that answers, however unreadably, may still be working.
             raise Stop('image backend unobservable')
-        # ComfyUI's liveness probe restarts a silent container long before this
-        # limit, so a job that was running is already gone. Leaving LLM down
-        # until an operator arrives would protect nothing: stop ComfyUI and let
-        # the usual path wait for its pod to end before LLM starts.
+        # Not one HTTP answer in the whole period: ComfyUI is down or cannot
+        # start again, and its liveness probe restarts a container whose web
+        # loop is silent long before this limit. Keeping LLM down until an
+        # operator arrives would protect nothing, so stop ComfyUI and let the
+        # usual path wait for its pod to end before LLM starts.
         self.state.pop('probe_failing_since', None)
         self.state.update(reason='ComfyUI unobservable; window closed', next_cooldown=START_FAILURE_COOLDOWN)
         self.write(snapshot, 'comfy', 0, 'stopping-sd')
