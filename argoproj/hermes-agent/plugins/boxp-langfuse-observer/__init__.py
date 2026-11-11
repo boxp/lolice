@@ -941,7 +941,8 @@ def _leaves(body):
             if id(node) in seen:
                 continue
             seen.add(id(node))
-            items = list(node.values()) if isinstance(node, dict) else list(node)
+            # Keys too: a credential written as a key ({"Authorization: Bearer !!!!": 1}) is pinned (lolice#1179).
+            items = [x for kv in node.items() for x in kv] if isinstance(node, dict) else list(node)
             stack.extend(reversed(items))
 
 
@@ -1146,6 +1147,13 @@ def _exposure_scan(text):
                         whole = credential.strip()
                         if whole and len(whole) <= _WHOLE_PIN_MAX:
                             values.add(whole)
+                        elif whole:
+                            # Over the limit the placeholder token itself is handed on (cut at an escape or quote of
+                            # serialized history): the caller pins it when it fits and withholds the lineage
+                            # (credential_over_limit) when it does not, so it is never left unpinned (lolice#1179).
+                            token = re.match(r"""(?:(?!\\[nrt"\\]|\\u00)[^\s"'])+""", whole)
+                            if token:
+                                values.add(token.group(0))
                     continue
                 kinds.add(kind)
                 if kind == "private_key":

@@ -1451,6 +1451,19 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn(" " + "!!!!" + " ", body)
                 self.assertIn("nextturnmarker", body)
 
+    def test_a_symbol_only_credential_in_a_dict_key_is_pinned(self):
+        # lolice#1179 review: the keys of a structured result were not walked, so a credential written in a key
+        # ({"Authorization: Bearer !!!!": 1}) was not pinned and its bare restatement was sent.
+        for result in ({"Authorization: Bearer " + "!!!!": 1}, {"x": [{"Authorization: Bearer " + "!!!!": "v"}]}):
+            with self.subTest(result):
+                session = "kohako-g2-key-" + str(abs(hash(str(result))))
+                self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
+                run_turn(session=session, turn="t2", body="next turn " + "!!!!" + " nextturnmarker", tool="todo",
+                         args={}, result="ok")
+                body = self._bodies()
+                self.assertNotIn(" " + "!!!!" + " ", body)
+                self.assertIn("nextturnmarker", body)
+
     def test_a_name_based_hit_masks_in_place_and_keeps_later_bodies(self):
         # A secret name with a value is masked where it is, but is no evidence: ordinary code and logs match it too.
         # A bare restatement of the masked value elsewhere is the accepted residual (THREAT_MODEL.md 2).
@@ -1905,6 +1918,22 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
                 drain()
                 run_turn(session=session, turn="2", body="reply " + secret + " symhugemarker")
                 self.assertFalse("!" * 4097 in bodies(), "restated symbol-only credential sent")
+                if size > 65536:
+                    self.assertEqual(plugin._tainted(session), "credential_over_limit")
+
+    def test_long_placeholder_shaped_credential_is_pinned(self):
+        # lolice#1179 review: a placeholder-shaped credential (Bearer <...>) over 4096 characters was neither pinned
+        # nor withheld, so its restatement in a later turn was sent.
+        for size, session in ((4100, "kohako-g2-phlong"), (65540, "kohako-g2-phhuge")):
+            with self.subTest(size=size):
+                secret = "<" + "!" * size + ">"
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                                result="Authorization: Bearer " + secret)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                run_turn(session=session, turn="2", body="reply " + secret + " phlongmarker")
+                self.assertFalse("!" * 4097 in bodies(), "restated placeholder-shaped credential sent")
                 if size > 65536:
                     self.assertEqual(plugin._tainted(session), "credential_over_limit")
 
