@@ -26,7 +26,7 @@ withheld it again from its history). A name-based hit (assignment, env entry, fl
 names (4..256 characters, _named_values) is pinned to the session lineage and masked in every field
 of its turns, escapes included, and the final guard rejects a span that still holds it, so a bare
 restatement in a later reply is not sent. A value that cannot be pinned (shorter, longer, or more
-than 64 in one text) in a tool result withholds the rest of the turn; over 256 pinned values per lineage
+than 64 in one text) in a tool result withholds the rest of the turn; over 512 pinned values per lineage (_MAX_PINS)
 withholds it too (pinned_values_over_limit), and so does a known-format credential over 65,536 characters
 (credential_over_limit). The open-turn hold covers ancestors and descendants already open, not siblings.
 Not guaranteed: a plain value without a secret word or known format near it, a transformed or partial
@@ -921,6 +921,12 @@ def _link_parent(session, parent):
                 _parents.popitem(last=False)
 
 
+# Distinct pinned values per lineage node before the lineage is withheld (pinned_values_over_limit, fail-closed).
+# 512 keeps the masking regex at about 1.5 s per 100 KB (it runs in the session-end hook); the TD-13 readback measured
+# 207 values over every ticket text of 14 days, which a long home session can receive as notifications.
+_MAX_PINS = 512
+
+
 _pinned_digests = collections.OrderedDict()  # (session, digest) of bodies already pinned: history is resent on every request
 
 
@@ -978,7 +984,7 @@ def _pin_body(session, parent, body):
             for node in _lineage(str(session or "")):
                 current = _pins.setdefault(node, set())
                 current.update(values)
-                if len(current) > 256:
+                if len(current) > _MAX_PINS:
                     overflow = True
                     current.clear()
                 _pins.move_to_end(node)
@@ -1112,6 +1118,7 @@ _ESCAPED_BREAK = re.compile(r"\\+[nrt]")
 _WHOLE_PIN_MAX = 4096
 
 
+_NON_ASCII_TAIL = re.compile(r"[^\x00-\x7f].*", re.S)
 _JSON_PUNCTUATION = re.compile(r"""[\s,;:{}\[\]"'\\=]+""")
 
 
@@ -1145,6 +1152,12 @@ def _exposure_scan(text):
                 value = match.group(0)
                 if kind == "header":
                     credential = re.sub(r"(?i)^(?:bearer|basic|token|digest)\s+", "", value.split(":", 1)[-1].strip())
+                    # An HTTP credential is ASCII (token68, auth-param and cookie-octet exclude non-ASCII; RFC 7235
+                    # and RFC 6265): the header credential ends at the first non-ASCII character. Without this cut a
+                    # header named in Japanese prose ("Authorization: Bearer <token> 等の...") pinned the rest of the
+                    # sentence and its particles, and a long home session passed 256 pins and was withheld whole
+                    # (pinned_values_over_limit, BOXP-428 TD-13 readback).
+                    credential = _NON_ASCII_TAIL.sub("", credential)
                     # Authorization: <scheme> <credentials> with any scheme name (custom, Negotiate4): a scheme that
                     # reads as a placeholder word is dropped when a non-placeholder credential follows it, so
                     # Authorization: custom abcXYZ123 counts and pins abcXYZ123 like Bearer does (lolice#1179 review).
@@ -2066,6 +2079,8 @@ def _on_session_end(session_id=None, turn_id=None, completed=None, failed=None, 
     turn["status"] = "interrupted" if interrupted else "failed" if failed else "succeeded" if completed else "unknown"
     turn["exit_reason"] = turn_exit_reason
     turn["withheld_reason"] = _withheld(turn)
+    with _lock:
+        turn["pinned_values"] = len(set().union(*(_pins.get(n, set()) for n in _lineage(str(turn["session"] or "")))))
     if not in_scope(turn):
         _count("turns_out_of_scope")
         return
@@ -2155,6 +2170,8 @@ def build_spans(turn):
         _attr("langfuse.trace.metadata.coverage.tool_bodies", "sent through the known-format mask; withheld after a known source, an environment dump or a known format in a tool result (body_policy on each observation)"),
         _attr("langfuse.trace.metadata.coverage.truncated", str(turn["truncated"]).lower()),
         _attr("langfuse.trace.metadata.coverage.withheld_reason", turn.get("withheld_reason") or "none"),
+        # A count only (never a value): how close the lineage is to the pin limit (_MAX_PINS).
+        _attr("langfuse.trace.metadata.coverage.pinned_values", str(turn.get("pinned_values", 0))),
     ]
     end = time.time()
     root_input, root_output = _field(turn["user_message"] or ""), _field(turn["output"] or "")
