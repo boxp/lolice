@@ -18,6 +18,17 @@ spec:
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
+      # Avoid blocking the event loop on DNS during browser origin checks.
+      # Both address families must resolve locally to keep the origin check active.
+      hostAliases:
+        - ip: 127.0.0.1
+          hostnames: [comfyui.b0xp.io]
+        - ip: "::1"
+          hostnames: [comfyui.b0xp.io]
+      # Fail fast for other names in this offline pod.
+      dnsPolicy: "None"
+      dnsConfig:
+        nameservers: ["127.0.0.1"]
       priorityClassName: gpu-workload-high
       nodeSelector:
         lolice.io/gpu-worker: "true"

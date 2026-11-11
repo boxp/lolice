@@ -31,6 +31,12 @@ class ComfyBoundaryTest(unittest.TestCase):
         for forbidden in ('serviceAccountName', 'secretKeyRef', 'secretRef', 'envFrom', 'hostPath', 'hostNetwork', 'privileged'):
             self.assertNotIn(forbidden, backend)
 
+    def test_backend_resolves_public_host_locally_and_fails_dns_fast(self):
+        backend = text('stable-diffusion/comfyui-deployment.yaml')
+        for ip in ('127.0.0.1', '"::1"'):
+            self.assertIn(f'- ip: {ip}\n          hostnames: [comfyui.b0xp.io]', backend)
+        self.assertIn('dnsPolicy: "None"\n      dnsConfig:\n        nameservers: ["127.0.0.1"]', backend)
+
     def test_backend_mounts_only_its_own_directory_of_the_shared_volume(self):
         backend = text('stable-diffusion/comfyui-deployment.yaml')
         self.assertEqual(backend.count('claimName:'), 1)
