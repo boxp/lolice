@@ -669,6 +669,10 @@ spec:
           volumeMounts:
             - name: home
               mountPath: /home/boxp
+            # BOXP-501: token for the kohako-home notification inbox ingest (audience-bound).
+            - name: kohako-bff-notifier
+              mountPath: /var/run/secrets/kohako-bff-notifier
+              readOnly: true
         # BOXP-360: read-only /metrics for the AI ops ledger exposition that the
         # task-board runner writes (ai-ops/metrics.prom, enum labels only). Scraped
         # by prometheus-k8s through the ai-ops-metrics ServiceMonitor.
@@ -776,6 +780,13 @@ spec:
             sources:
               - serviceAccountToken:
                   audience: kohako-bff-verifier
+                  expirationSeconds: 3600
+                  path: token
+        - name: kohako-bff-notifier
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: kohako-bff-notifier
                   expirationSeconds: 3600
                   path: token
         - name: home
