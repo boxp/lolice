@@ -953,7 +953,10 @@ def _pin_body(session, parent, body):
                 return unpinned
             del _pinned_digests[key]
     values, unpinned = _named_values(text)
-    values = values | {v for leaf in _leaves(body) for v in _exposure_values(leaf) if 4 <= len(v) <= 256}
+    # A credential of a known format is pinned whatever its length (an exact match, a JWT can be long); a short one
+    # as a whole word, like a short named value.
+    values = values | {v if len(v) >= 4 else _Word(v) for leaf in _leaves(body) for v in _exposure_values(leaf)
+                       if 0 < len(v) <= 65536 and re.search(r"[^\W_]", v)}
     if values:
         overflow = False
         with _lock:
@@ -1001,14 +1004,21 @@ def _mask_value(value, pattern):
 # from the model there, and masking them only broke the trace (retry "0", release "0.1.0", "delegated" with a pinned
 # short value inside; BOXP-428 TD-13). Bodies, names, tags and free-text metadata stay masked.
 _OWN_ATTRIBUTES = re.compile(
-    r"langfuse\.(?:session\.id|release|trace\.name|observation\.(?:type|level|usage_details|model\.name)"
+    r"langfuse\.(?:session\.id|release|trace\.name|observation\.(?:type|level|usage_details)"
     r"|trace\.metadata\.(?:status|coverage\.[\w.]+)"
-    r"|observation\.metadata\.(?:body_policy|status|api_call|retry|input_scope|location|provider|finish_reason|source"
-    r"|before_tokens|after_tokens|messages_removed|status_code|retryable|parent_session_id|child_session_id))")
+    r"|observation\.metadata\.(?:body_policy|parent_session_id|child_session_id))")
+# Counters the hooks pass (retry, api_call, token counts, status codes) are exempt only while they are numbers; any
+# other value a caller passes (finish_reason, provider, model, status) is masked like a body.
+_NUMERIC_ATTRIBUTES = re.compile(
+    r"langfuse\.observation\.metadata\.(?:api_call|retry|before_tokens|after_tokens|messages_removed|status_code)")
 
 
 def _masked_attribute(attribute):
-    return not _OWN_ATTRIBUTES.fullmatch(str(attribute.get("key")))
+    key = str(attribute.get("key"))
+    if _OWN_ATTRIBUTES.fullmatch(key):
+        return False
+    value = (attribute.get("value") or {}).get("stringValue")
+    return not (_NUMERIC_ATTRIBUTES.fullmatch(key) and isinstance(value, str) and re.fullmatch(r"-?\d{1,12}", value))
 
 
 def _mask_pins(spans, pattern):
@@ -1088,7 +1098,7 @@ def _exposure_details(text):
                     values.update({value, _PROVIDER_PREFIX.sub("", value)})
                 elif credential is not None:
                     # Serialized history escapes the line break (\\n) and closes the string: the credential ends there.
-                    values.update(w for w in _CREDENTIAL_WORD.findall(credential) if len(w) >= 4)
+                    values.update(_CREDENTIAL_WORD.findall(credential))
                 else:
                     values.add(value)
     return kinds, values

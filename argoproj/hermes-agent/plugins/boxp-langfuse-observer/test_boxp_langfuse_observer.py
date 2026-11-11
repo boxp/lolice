@@ -1783,6 +1783,36 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
         self.assertIn("othersessionmarker", body)
         self.assertNotIn("withheld_after_", body)
 
+    def test_short_and_long_credentials_are_pinned(self):
+        # Review of lolice#1179: a credential of 1-3 or over 256 characters was neither pinned nor withheld.
+        for secret in ("q7z", "abcde12345" * 27):
+            with self.subTest(len(secret)):
+                session = "kohako-g2-credlen-" + str(len(secret))
+                plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+                plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                                result="Authorization: Bearer " + secret)
+                plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+                drain()
+                run_turn(session=session, turn="2", body="reply " + secret + " credlenmarker")
+                body = bodies()
+                self.assertNotIn(secret, body.replace("q7zz", ""))
+                self.assertIn("credlenmarker", body)
+
+    def test_caller_metadata_is_still_masked(self):
+        # Review of lolice#1179: only the observer's own constants, ids and numbers are exempt from the pin mask.
+        session = "kohako-g2-callermeta"
+        plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
+        plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
+                        result="Authorization: Bearer " + "plainword" + "value1")
+        plugin._on_session_end(session_id=session, turn_id="1", completed=True)
+        drain()
+        plugin._on_turn_start(session_id=session, turn_id="2", user_message="hello")
+        plugin._on_api_response(session_id=session, turn_id="2", api_request_id="a",
+                                response={"assistant_message": {"content": "ok"}}, finish_reason="plainwordvalue1",
+                                provider="plainwordvalue1", response_model="plainwordvalue1")
+        plugin._on_session_end(session_id=session, turn_id="2", completed=True)
+        self.assertNotIn("plainwordvalue1", bodies())
+
     def test_observer_metadata_is_not_masked_by_pinned_short_values(self):
         history = self._first_turn()
         bodies()
