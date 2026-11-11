@@ -25,6 +25,7 @@ POSITIVE_MARKERS = (
     "td12oneenvnextmarker", "td12shortreplymarker", "td12shortnextmarker",
     "td13nextturnmarker", "td13systemmarker", "td13toolmarker", "td13replymarker", "td13restartmarker",
     "td13restartreplymarker", "td13notesnextmarker", "td13notesreplymarker",
+    "td13atoolmarker", "td13areplymarker", "td13anextmarker", "件数は1 td13anextreplymarker",
 )
 
 

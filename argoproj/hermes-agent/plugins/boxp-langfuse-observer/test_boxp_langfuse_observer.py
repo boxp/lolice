@@ -84,6 +84,11 @@ class capture_turns:
         self.patch.__exit__(*exc)
 
 
+_TEST_KEY_DIR = tempfile.mkdtemp(prefix="langfuse-observer-test-key-")
+Path(_TEST_KEY_DIR, "LANGFUSE_PUBLIC_KEY").write_text("pk-lf-" + "test" * 4)
+Path(_TEST_KEY_DIR, "LANGFUSE_SECRET_KEY").write_text("sk-lf-" + "test" * 4)
+
+
 class ObserverTest(unittest.TestCase):
     def setUp(self):
         drain()
@@ -96,6 +101,9 @@ class ObserverTest(unittest.TestCase):
         plugin._delegated.clear()
         getattr(plugin, "_scanned", {}).clear()
         plugin._creds = ("pk-lf-" + "test" * 4, "sk-lf-" + "test" * 4)
+        # A worker thread left by test_worker_picks_up_key_while_running keeps reloading the key from _KEY_DIR; point it
+        # at the test key so a reload in the middle of a later test does not clear it (turns_skipped_no_key flake).
+        plugin._KEY_DIR = _TEST_KEY_DIR
         plugin._secret_values = None
 
     def test_td12_sources_and_mentions(self):
@@ -1416,28 +1424,27 @@ class ObserverTest(unittest.TestCase):
                 self.assertNotIn("plainwordvalue1", body)
                 self.assertIn("nextturnmarker", body)
 
-    def test_a_symbol_only_known_format_credential_is_pinned(self):
-        # lolice#1179 review: a credential of a known format made only of symbols (https://u:!!!@host) was not pinned,
-        # so a bare restatement of it in a later turn was sent.
-        for result, credential in (("url: https://u:" + "!!!@example.com", "!!!"),
-                                   ("url: https://u:" + "!@example.com", "!"),
-                                   ("url: https://u:" + "#$%&@example.com", "#$%&"),
-                                   ("Authorization: Bearer " + "----", "----"),
-                                   ("Cookie: a=" + "!!; b=1", "!!")):
+    def test_a_symbol_only_known_format_credential_is_masked_only(self):
+        # (Owner decision A, BOXP-428 TD-13): a known-format credential made only of symbols or digits, or of 3 characters or fewer, is masked
+        # in place; it is neither evidence for a hold nor pinned, so the final reply and the next turn stay readable.
+        for result, credential in (("url: https://u:" + "!!!@example.com", "!!!@"),
+                                   ("url: https://u:" + "#$%&@example.com", "#$%&@"),
+                                   ("Authorization: Bearer " + "----", "Bearer ----"),
+                                   ("Authorization: Bearer " + "12345678", "Bearer 12345678"),
+                                   ("Cookie: a=" + "!!; b=1", "a=!!")):
             with self.subTest(result):
                 session = "kohako-g2-sym-" + str(abs(hash(str(result))))
                 self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
-                self.assertIn("withheld_after_known_format_in_tool_output", self._bodies())
-                run_turn(session=session, turn="t2", body="next turn " + credential + " nextturnmarker", tool="todo",
+                run_turn(session=session, turn="t2", body="next turn nextturnmarker", tool="todo",
                          args={}, result="ok")
                 body = self._bodies()
-                self.assertNotIn(" " + credential + " ", body)
+                self.assertNotIn(credential, body)
+                self.assertNotIn('"withheld_', body)
                 self.assertIn("nextturnmarker", body)
                 self.assertIsNone(plugin._tainted(session))
 
-    def test_a_symbol_only_credential_nested_at_any_depth_is_pinned(self):
-        # lolice#1179 review: the strings of a structured result were walked only 8 levels deep, so a symbol-only
-        # credential nested deeper (Authorization: Bearer !!!!) was not pinned and its bare restatement was sent.
+    def test_a_symbol_only_credential_nested_at_any_depth_is_masked_only(self):
+        # (Owner decision A, BOXP-428 TD-13): nested at any depth, a symbol-only credential is masked in place and the turns stay readable.
         for depth in (1, 9, 40, 400):
             with self.subTest(depth=depth):
                 result = "Authorization: Bearer " + "!!!!"
@@ -1445,47 +1452,51 @@ class ObserverTest(unittest.TestCase):
                     result = {"x": [result]}
                 session = "kohako-g2-deep-" + str(depth)
                 self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
-                run_turn(session=session, turn="t2", body="next turn " + "!!!!" + " nextturnmarker", tool="todo",
+                run_turn(session=session, turn="t2", body="next turn nextturnmarker", tool="todo",
                          args={}, result="ok")
                 body = self._bodies()
-                self.assertNotIn(" " + "!!!!" + " ", body)
+                self.assertNotIn("Bearer " + "!!!!", body)
                 self.assertIn("nextturnmarker", body)
+                self.assertNotIn('"withheld_', body)
+                self.assertIsNone(plugin._tainted(session))
 
-    def test_a_symbol_only_credential_in_a_dict_key_is_pinned(self):
-        # lolice#1179 review: the keys of a structured result were not walked, so a credential written in a key
-        # ({"Authorization: Bearer !!!!": 1}) was not pinned and its bare restatement was sent.
+    def test_a_symbol_only_credential_in_a_dict_key_is_masked_only(self):
+        # (Owner decision A, BOXP-428 TD-13): keys of a structured result are still walked; a symbol-only credential there is masked in place.
         for result in ({"Authorization: Bearer " + "!!!!": 1}, {"x": [{"Authorization: Bearer " + "!!!!": "v"}]}):
             with self.subTest(result):
                 session = "kohako-g2-key-" + str(abs(hash(str(result))))
                 self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
-                run_turn(session=session, turn="t2", body="next turn " + "!!!!" + " nextturnmarker", tool="todo",
+                run_turn(session=session, turn="t2", body="next turn nextturnmarker", tool="todo",
                          args={}, result="ok")
                 body = self._bodies()
-                self.assertNotIn(" " + "!!!!" + " ", body)
+                self.assertNotIn("Bearer " + "!!!!", body)
                 self.assertIn("nextturnmarker", body)
+                self.assertNotIn('"withheld_', body)
+                self.assertIsNone(plugin._tainted(session))
 
-    def test_a_symbol_only_credential_after_a_literal_escape_is_pinned(self):
-        # lolice#1179 review: a header after a literal escape (x\\nAuthorization: Bearer !!!!) is found only in the
-        # unescaped reading, whose symbol-only credentials were dropped, so a bare restatement of !!!! was sent.
+    def test_a_symbol_only_credential_after_a_literal_escape_is_masked_only(self):
+        # (Owner decision A, BOXP-428 TD-13): a symbol-only credential after a literal escape is masked in place, not pinned, and does not
+        # withhold the turn or the next one. Its bare restatement later is the accepted residual.
         for result in ("x\\nAuthorization: Bearer " + "!!!!", "x\\tAuthorization: Bearer " + "!!!!",
                        {"out": "x\\nAuthorization: Bearer " + "!!!!"}):
             with self.subTest(result):
                 session = "kohako-g2-esc-" + str(abs(hash(str(result))))
                 self._value_only_reply(session, "terminal", {"command": "cat app.yaml"}, result=result)
-                run_turn(session=session, turn="t2", body="next turn " + "!!!!" + " nextturnmarker", tool="todo",
+                run_turn(session=session, turn="t2", body="next turn nextturnmarker", tool="todo",
                          args={}, result="ok")
                 body = self._bodies()
-                self.assertNotIn(" " + "!!!!" + " ", body)
+                self.assertNotIn("Bearer " + "!!!!", body)
                 self.assertIn("nextturnmarker", body)
+                self.assertNotIn('"withheld_', body)
                 self.assertIsNone(plugin._tainted(session))
 
-    def test_a_json_punctuation_credential_after_a_literal_escape_withholds(self):
-        # A credential of JSON punctuation alone, found only after a literal escape, would mask that punctuation
-        # everywhere if pinned; the lineage is withheld instead of leaving it unmasked (lolice#1179 review).
+    def test_a_json_punctuation_credential_after_a_literal_escape_is_masked_only(self):
+        # (Owner decision A, BOXP-428 TD-13): a symbol-only credential found after a literal escape is masked in place only; it no longer
+        # withholds the lineage (credential_unpinnable) and is not pinned.
         session = "kohako-g2-escpunct"
         self._value_only_reply(session, "terminal", {"command": "cat app.yaml"},
                                result="x\\nCookie: a=" + ",,,,")
-        self.assertEqual(plugin._tainted(session), "credential_unpinnable")
+        self.assertIsNone(plugin._tainted(session))
 
     def test_a_name_based_hit_masks_in_place_and_keeps_later_bodies(self):
         # A secret name with a value is masked where it is, but is no evidence: ordinary code and logs match it too.
@@ -1900,7 +1911,8 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
 
     def test_short_and_long_credentials_are_pinned(self):
         # Review of lolice#1179: a credential of 1-3 or over 256 characters was neither pinned nor withheld.
-        for secret in ("q7z", "abcde12345" * 27):
+        # A 3-character credential is masked in place only (Owner decision A); the long one is still pinned.
+        for secret in ("abcde12345" * 27,):
             with self.subTest(len(secret)):
                 session = "kohako-g2-credlen-" + str(len(secret))
                 plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
@@ -1927,10 +1939,8 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
         self.assertNotIn("Q7w8E9r0Q7w8E9r0", bodies())
         self.assertEqual(plugin._tainted(session), "credential_over_limit")
 
-    def test_oversized_symbol_only_credential_withholds_the_lineage(self):
-        # Review of lolice#1179: Bearer followed by 65,537 "!" was over the whole-pin limit and its symbol-only fragment
-        # was dropped, so nothing was pinned and credential_over_limit did not fire. A whole over the limit with no
-        # pinned fragment is handed to the size check: pinned when it fits, the lineage withheld when it does not.
+    def test_oversized_symbol_only_credential_is_masked_only(self):
+        # (Owner decision A, BOXP-428 TD-13): Bearer followed by 5,000 or 65,537 "!" is masked in place; it no longer withholds the lineage.
         for size, session in ((65537, "kohako-g2-symhuge"), (5000, "kohako-g2-symlong")):
             with self.subTest(size=size):
                 secret = "!" * size
@@ -1939,14 +1949,11 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
                                 result="Authorization: Bearer " + secret)
                 plugin._on_session_end(session_id=session, turn_id="1", completed=True)
                 drain()
-                run_turn(session=session, turn="2", body="reply " + secret + " symhugemarker")
-                self.assertFalse("!" * 4097 in bodies(), "restated symbol-only credential sent")
-                if size > 65536:
-                    self.assertEqual(plugin._tainted(session), "credential_over_limit")
+                self.assertFalse("!" * 4097 in bodies(), "symbol-only credential not masked in place")
+                self.assertIsNone(plugin._tainted(session))
 
-    def test_long_placeholder_shaped_credential_is_pinned(self):
-        # lolice#1179 review: a placeholder-shaped credential (Bearer <...>) over 4096 characters was neither pinned
-        # nor withheld, so its restatement in a later turn was sent.
+    def test_long_symbol_only_placeholder_credential_is_masked_only(self):
+        # (Owner decision A, BOXP-428 TD-13): a symbol-only credential of any length (Bearer <!!!...>) is masked in place and not withheld.
         for size, session in ((4100, "kohako-g2-phlong"), (65540, "kohako-g2-phhuge")):
             with self.subTest(size=size):
                 secret = "<" + "!" * size + ">"
@@ -1955,10 +1962,8 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
                                 result="Authorization: Bearer " + secret)
                 plugin._on_session_end(session_id=session, turn_id="1", completed=True)
                 drain()
-                run_turn(session=session, turn="2", body="reply " + secret + " phlongmarker")
-                self.assertFalse("!" * 4097 in bodies(), "restated placeholder-shaped credential sent")
-                if size > 65536:
-                    self.assertEqual(plugin._tainted(session), "credential_over_limit")
+                self.assertFalse("!" * 4097 in bodies(), "symbol-only credential not masked in place")
+                self.assertIsNone(plugin._tainted(session))
 
     def test_open_child_turn_is_withheld_when_the_parent_sees_a_credential(self):
         # Review of lolice#1179: a child turn already open when its parent's tool printed a credential kept sending the
@@ -2027,6 +2032,76 @@ class HomeSessionMaskRegressionTest(unittest.TestCase):
                              "delegated text only; realtime voice session not observed")
             if name == "llm-call":
                 self.assertEqual(attrs.get("langfuse.observation.metadata.retry"), "0")
+
+
+class OwnerDecisionAMaskOnlyTest(unittest.TestCase):
+    """BOXP-428 TD-13 readback 2026-11-11 (home Web session kohako-web-mwc4y1i2, trace 362fe33e): reading the Task Board
+    skill and a ticket whose Notes held synthetic credential examples pinned "1", "0", "<", "/)", "Do", "-", "##" and
+    masked them in every later field, and the known-format hit withheld the rest of the turn including the final reply.
+    Owner decision A: a known-format credential of 3 characters or fewer, of symbols and digits only, or of ordinary
+    words only is masked in place and is neither pinned nor evidence; longer credentials keep the turn hold and the pin.
+    Fixture: the structure of that payload with synthetic values only."""
+
+    SESSION = "kohako-web-td13a"
+    TICKET = ("## Notes\n- 修正記録: Cookie: a=1; b=2 の値は pin しない\n"
+              "- 例: Authorization: Bearer ＜トークン＞ 等の資格情報は伏せる\n"
+              "- 例: https://u:!!!@example.com と Authorization: Bearer abc. と Authorization: Bearer ----\n"
+              "- 伏せ字: Authorization: Bearer ＜合成値＞ / https://u:＜合成値＞@example.com / Bearer [REDACTED:header]\n"
+              "## Skill\n1. Do this first\n0 errors\n- item\n## Heading\n(see a/) and < b\nticketbodymarker\n")
+
+    def setUp(self):
+        ObserverTest.setUp(self)
+
+    def test_reading_a_ticket_with_short_or_word_credentials_keeps_the_turn_readable(self):
+        home_turn(self.SESSION, "t1", "BOXP-428 のチケットを読んで", "skill_view", {"name": "obsidian-task-board"},
+                  self.TICKET, "読みました。finalreplymarker")
+        body = bodies()
+        for marker in ("ticketbodymarker", "finalreplymarker", "Do this first", "0 errors", "## Heading"):
+            self.assertIn(marker, body)
+        self.assertNotIn('"withheld_', body)
+        self.assertNotIn("[REDACTED:pinned]", body)
+        self.assertIsNone(plugin._tainted(self.SESSION))
+        # The credentials are still masked in place where they were written.
+        for credential in ("u:!!!@", "Bearer abc.", "Bearer ----"):
+            self.assertNotIn(credential, body)
+        home_turn(self.SESSION, "t2", "BOXP-428 次は 1 と 0 と Do を確認", "todo", {}, "ok 1 0 < Do - ##",
+                  "1 件、0 件です。Do は完了。nextturnmarker")
+        second = bodies()
+        self.assertIn("1 件、0 件です。Do は完了。nextturnmarker", second)
+        self.assertNotIn("[REDACTED:pinned]", second)
+        self.assertNotIn('"withheld_', second)
+
+    def test_redacted_placeholders_are_not_pinned_or_held(self):
+        for i, text in enumerate(("Authorization: Bearer ＜合成値＞", "https://u:＜合成値＞@example.com",
+                                  "Authorization: Bearer [REDACTED:header]", "Cookie: sid=[REDACTED:pinned]",
+                                  "Authorization: Bearer <合成値>")):
+            with self.subTest(text):
+                session = "kohako-web-placeholder-%d" % i
+                home_turn(session, "t1", "BOXP-428 を見て", "read_file", {"path": "/notes/a.md"}, text + " phmarker",
+                          "了解 phreplymarker")
+                body = bodies()
+                self.assertIn("phreplymarker", body)
+                self.assertNotIn('"withheld_', body)
+                self.assertIsNone(plugin._tainted(session))
+                self.assertFalse(plugin._pins.get(session))
+
+    def test_long_credentials_keep_the_hold_and_the_pin_without_touching_other_sessions(self):
+        credential = "zz9Kq1wE" + "Td13Long"
+        home_turn(self.SESSION, "t1", "BOXP-428 のログを見て", "terminal", {"command": "tail app.log"},
+                  "Authorization: Bearer " + credential + "\nok", "確認しました heldreplymarker")
+        first = bodies()
+        self.assertNotIn(credential, first)
+        self.assertIn("withheld_after_known_format_in_tool_output", first)
+        home_turn(self.SESSION, "t2", "BOXP-428 の続き", "todo", {}, "ok", "さっきのは " + credential + " でした nextmarker")
+        second = bodies()
+        self.assertIn("nextmarker", second)
+        self.assertNotIn(credential, second)
+        other = "kohako-web-other-td13a"
+        home_turn(other, "t1", "BOXP-428 天気は?", "web_search", {"query": "天気"}, "晴れ 1 0 Do", "晴れです othermarker")
+        third = bodies()
+        self.assertIn("晴れです othermarker", third)
+        self.assertNotIn('"withheld_', third)
+        self.assertIsNone(plugin._tainted(other))
 
 
 class CredentialWholePinPropertyTest(unittest.TestCase):
@@ -2100,24 +2175,12 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
                 body = bodies()
                 self.assertIn("uppermarker", body)
                 self.assertNotIn(credential, body)
-        session = "kohako-g2-upper-word"
-        plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
-        plugin._on_tool(session_id=session, turn_id="1", tool_name="read_file", args={},
-                        result="Authorization: Bearer abcdef\nhttps://user:xxxx@db/app")
-        plugin._on_session_end(session_id=session, turn_id="1", completed=True)
-        drain()
-        run_turn(session=session, turn="2", body="the abcdef and xxxx docs wordmarker")
-        # BOXP-507 single rule (lolice#1179 review): a word credential is pinned whole as written too, so its repeat is
-        # masked; the body is still sent and the rest of it stays readable.
-        body = bodies()
-        self.assertIn("docs wordmarker", body)
-        self.assertNotIn("abcdef", body)
-        self.assertNotIn('"withheld', body)
-        # Bearer abc. (an ordinary word with trailing punctuation) is pinned as written: a verbatim repeat is masked.
-        for i, (result, credential) in enumerate([("Authorization: Bearer abc.", "abc."),
+        # Owner decision A (BOXP-428 TD-13): a credential made only of ordinary words (abcdef, abc., token, xxxxx,
+        # password) is masked in place but not pinned, so the same words stay readable in later turns.
+        for i, (result, credential) in enumerate([("Authorization: Bearer abcdef\nhttps://user:xxxx@db/app", "abcdef"),
+                                                  ("Authorization: Bearer abc.", "abc."),
                                                   ("Authorization: Bearer token", "token"),
-                                                  ("Authorization: Bearer xxxxx", "xxxxx"),
-                                                  ("https://user:password@db/app", "password")]):
+                                                  ("Authorization: Bearer xxxxx", "xxxxx")]):
             with self.subTest(word=credential):
                 session = "kohako-g2-word-%d" % i
                 plugin._on_turn_start(session_id=session, turn_id="1", user_message="hello")
@@ -2125,11 +2188,11 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
                 plugin._on_session_end(session_id=session, turn_id="1", completed=True)
                 drain()
                 self.assertIsNone(plugin._tainted(session))
-                run_turn(session=session, turn="2", body="see " + credential + " wordrepeatmarker")
+                run_turn(session=session, turn="2", body="see the docs wordrepeatmarker")
                 body = bodies()
-                # token/password lines are also covered by the existing secret-line mask; either way the turn is sent.
-                self.assertIn('"stringValue": "sent"', body)
-                self.assertNotIn("see " + credential + " ", body)
+                self.assertIn("see the docs wordrepeatmarker", body)
+                self.assertNotIn('"withheld_', body)
+                self.assertNotIn("[REDACTED:pinned]", body)
 
     def test_credential_after_a_custom_auth_scheme_is_pinned(self):
         # lolice#1179 review: Authorization: <scheme> <credentials> with a scheme name that reads as an ordinary word
@@ -2159,11 +2222,10 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
         drain()
         self.assertIsNone(plugin._tainted(session))
         run_turn(session=session, turn="2", body="required for all requests docmarker, and for all of them")
-        # The phrase after the header name is pinned whole as written (BOXP-507 single rule); its ordinary words are not
-        # pinned on their own, so the rest of the body stays readable.
+        # Owner decision A (BOXP-428 TD-13): a phrase of ordinary words after the header name is masked in place only
+        # and not pinned, so the same words stay readable in a later turn.
         body = bodies()
-        self.assertIn("docmarker, and for all of them", body)
-        self.assertNotIn("required for all requests", body)
+        self.assertIn("required for all requests docmarker, and for all of them", body)
 
     def test_long_session_stays_readable_until_the_pin_limit(self):
         # BOXP-507 step 2: pins are bounded per lineage (_MAX_PINS = 512). A long session that printed distinct cookie
