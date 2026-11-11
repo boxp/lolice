@@ -651,6 +651,10 @@ spec:
               value: "2-9"
             - name: CODEX_TASK_BOARD_EVENT_TIMEZONE
               value: Asia/Tokyo
+            # BOXP-501: parallel copy to the kohako-home inbox (Telegram delivery unchanged).
+            # Remove this variable to roll the home copy back.
+            - name: CODEX_TASK_BOARD_EVENT_HOME_URL
+              value: http://kohako-studio.kohako-studio.svc.cluster.local/kohako/api/v1/notifications/ingest
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
