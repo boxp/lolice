@@ -1,0 +1,1806 @@
+{
+  "rule_files": [
+    "__RULE_FILE__"
+  ],
+  "evaluation_interval": "1m",
+  "tests": [
+    {
+      "name": "LLM mode",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "ComfyUI mode",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "SD mode",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "qwen mode",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "normal transition",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1x2 0x5 0x13"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1x2 0x6 0x12"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0x8 1x13"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0x9 1x12"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "LLM target down",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "critical",
+                "job": "llama-server",
+                "namespace": "local-llm",
+                "service": "llama-server"
+              },
+              "exp_annotations": {
+                "summary": "Local LLM metrics target is down",
+                "description": "The selected local-llm metrics target has been down for more than 5 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "LLM target absent",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "critical",
+                "job": "llama-server",
+                "namespace": "local-llm",
+                "service": "llama-server"
+              },
+              "exp_annotations": {
+                "summary": "Local LLM metrics target is down",
+                "description": "The selected local-llm metrics target has been down for more than 5 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "all stopped",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x16"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x16"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x16"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x16"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x16"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x16"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x16"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x16"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x16"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "16m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "16m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "All GPU backends are unavailable",
+                "description": "No GPU backend has been available for more than 15 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "16m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "16m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "16m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "16m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "16m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "selected comfy unavailable despite LLM available",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "critical",
+                "namespace": "stable-diffusion",
+                "deployment": "comfyui"
+              },
+              "exp_annotations": {
+                "summary": "Selected GPU backend is unavailable",
+                "description": "GPU backend stable-diffusion/comfyui has been selected but unavailable for more than 15 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Multiple GPU backends are selected",
+                "description": "Two or more GPU backends have been selected for more than 2 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "LLM unavailable with target up",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "All GPU backends are unavailable",
+                "description": "No GPU backend has been available for more than 15 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "critical",
+                "namespace": "local-llm",
+                "deployment": "llama-server"
+              },
+              "exp_annotations": {
+                "summary": "Selected local LLM is unavailable",
+                "description": "Local LLM has been selected but unavailable for more than 15 minutes while its metrics target is up."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "two selected",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "critical"
+              },
+              "exp_annotations": {
+                "summary": "Multiple GPU backends are selected",
+                "description": "Two or more GPU backends have been selected for more than 2 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "missing llama-server spec_replicas",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "namespace": "local-llm",
+                "deployment": "llama-server"
+              },
+              "exp_annotations": {
+                "summary": "GPU backend deployment metrics are missing",
+                "description": "Deployment metrics for local-llm/llama-server have been missing for more than 5 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "missing llama-server status_replicas_available",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "namespace": "local-llm",
+                "deployment": "llama-server"
+              },
+              "exp_annotations": {
+                "summary": "GPU backend deployment metrics are missing",
+                "description": "Deployment metrics for local-llm/llama-server have been missing for more than 5 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "missing comfyui spec_replicas",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "namespace": "stable-diffusion",
+                "deployment": "comfyui"
+              },
+              "exp_annotations": {
+                "summary": "GPU backend deployment metrics are missing",
+                "description": "Deployment metrics for stable-diffusion/comfyui have been missing for more than 5 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "missing comfyui status_replicas_available",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "namespace": "stable-diffusion",
+                "deployment": "comfyui"
+              },
+              "exp_annotations": {
+                "summary": "GPU backend deployment metrics are missing",
+                "description": "Deployment metrics for stable-diffusion/comfyui have been missing for more than 5 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "missing stable-diffusion-webui spec_replicas",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "namespace": "stable-diffusion",
+                "deployment": "stable-diffusion-webui"
+              },
+              "exp_annotations": {
+                "summary": "GPU backend deployment metrics are missing",
+                "description": "Deployment metrics for stable-diffusion/stable-diffusion-webui have been missing for more than 5 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "missing stable-diffusion-webui status_replicas_available",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "namespace": "stable-diffusion",
+                "deployment": "stable-diffusion-webui"
+              },
+              "exp_annotations": {
+                "summary": "GPU backend deployment metrics are missing",
+                "description": "Deployment metrics for stable-diffusion/stable-diffusion-webui have been missing for more than 5 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "missing qwen-image-eval spec_replicas",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "namespace": "stable-diffusion",
+                "deployment": "qwen-image-eval"
+              },
+              "exp_annotations": {
+                "summary": "GPU backend deployment metrics are missing",
+                "description": "Deployment metrics for stable-diffusion/qwen-image-eval have been missing for more than 5 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "missing qwen-image-eval status_replicas_available",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x20"
+        },
+        {
+          "series": "up{job=\"llama-server\",namespace=\"local-llm\",service=\"llama-server\"}",
+          "values": "1+0x20"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "namespace": "stable-diffusion",
+                "deployment": "qwen-image-eval"
+              },
+              "exp_annotations": {
+                "summary": "GPU backend deployment metrics are missing",
+                "description": "Deployment metrics for stable-diffusion/qwen-image-eval have been missing for more than 5 minutes."
+              }
+            }
+          ]
+        },
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": []
+        }
+      ]
+    },
+    {
+      "name": "LLM absent over five hours",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x301"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"local-llm\",deployment=\"llama-server\"}",
+          "values": "0+0x301"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "1+0x301"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"comfyui\"}",
+          "values": "1+0x301"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x301"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"stable-diffusion-webui\"}",
+          "values": "0+0x301"
+        },
+        {
+          "series": "kube_deployment_spec_replicas{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x301"
+        },
+        {
+          "series": "kube_deployment_status_replicas_available{namespace=\"stable-diffusion\",deployment=\"qwen-image-eval\"}",
+          "values": "0+0x301"
+        },
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x301"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "301m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "301m",
+          "alertname": "GpuBackendsUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "301m",
+          "alertname": "LocalLlmBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "301m",
+          "alertname": "GpuBackendUnavailable",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "301m",
+          "alertname": "GpuBackendExclusivityViolation",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "301m",
+          "alertname": "GpuBackendMetricsMissing",
+          "exp_alerts": []
+        },
+        {
+          "eval_time": "301m",
+          "alertname": "LocalLlmUnavailableLong",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "warning",
+                "namespace": "local-llm",
+                "deployment": "llama-server"
+              },
+              "exp_annotations": {
+                "summary": "Local LLM has been unavailable for too long",
+                "description": "Local LLM has been unavailable for more than 5 hours."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
