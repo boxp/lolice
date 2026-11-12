@@ -7,6 +7,7 @@ spec:
   type: ClusterIP
   selector:
     app: kohako-studio
+    component: web
   ports:
     - name: http
       port: 80

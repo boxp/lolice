@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kohako-studio-web
+  namespace: kohako-studio
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  minReadySeconds: 5
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: {app: kohako-studio, component: web}
+  template:
+    metadata:
+      labels: {app: kohako-studio, component: web}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app: kohako-studio, component: web}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: ghcr.io/boxp/arch/kohako-studio:latest
+          imagePullPolicy: Always
+          command: [nginx, -g, "daemon off;"]
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: {path: /readyz, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          lifecycle:
+            preStop:
+              exec: {command: [sleep, "10"]}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+          volumeMounts:
+            - name: nginx-tmp
+              mountPath: /tmp/nginx
+            # ConfigMap の変更後は rollout が必要。
+            - name: upstream
+              mountPath: /etc/nginx/kohako-upstream.conf
+              subPath: kohako-upstream.conf
+              readOnly: true
+      volumes:
+        - name: nginx-tmp
+          emptyDir: {}
+        - name: upstream
+          configMap: {name: kohako-studio-web-upstream}

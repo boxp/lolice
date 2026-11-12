@@ -1,28 +1,31 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kohako-studio
+  name: kohako-studio-bff
   namespace: kohako-studio
   annotations:
-    # BOXP-501: ServerSideApply は rollingUpdate: null を「未指定」として無視し、所有者のいない既存 rollingUpdate が残って
-    # Recreate への切替が拒否されるため、この Deployment だけ client-side apply(retainKeys で rollingUpdate を除去)にする
-    argocd.argoproj.io/sync-options: ServerSideApply=false
+    argocd.argoproj.io/sync-wave: "1"
 spec:
   replicas: 1
-  # BOXP-501: the data PVC is ReadWriteOnce.
-  strategy:
-    type: Recreate
-    # RollingUpdate からの切替で既存の rollingUpdate が残り apply が拒否されるため明示的に消す
-    rollingUpdate: null
+  # RWO PVC、単一 writer JSON、メモリ内承認のため 1 を超えてはならない。
+  strategy: {type: Recreate}
   selector:
-    matchLabels:
-      app: kohako-studio
+    matchLabels: {app: kohako-studio, component: bff}
   template:
     metadata:
-      labels:
-        app: kohako-studio
+      labels: {app: kohako-studio, component: bff}
     spec:
       serviceAccountName: kohako-studio
+      terminationGracePeriodSeconds: 30
+      # web が先に image を pull したノードを優先し、停止時間を短縮する。
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: {app: kohako-studio, component: web}
+                topologyKey: kubernetes.io/hostname
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -34,6 +37,15 @@ spec:
         - name: bff
           image: ghcr.io/boxp/arch/kohako-studio:latest
           imagePullPolicy: Always
+          ports:
+            - {name: bff, containerPort: 8787}
+          readinessProbe:
+            httpGet: {path: /healthz, port: bff}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: bff}
+            initialDelaySeconds: 15
+            periodSeconds: 20
           env:
             - name: KOHAKO_ACCESS_TEAM_DOMAIN
               value: https://boxp.cloudflareaccess.com
@@ -55,7 +67,7 @@ spec:
             - name: KOHAKO_VERIFIER_USERNAME
               value: system:serviceaccount:codex-workspace:codex-workspace
             - name: KOHAKO_BFF_HOST
-              value: 127.0.0.1
+              value: 0.0.0.0
             - name: KOHAKO_BFF_PORT
               value: "8787"
             # BOXP-501: notification inbox / Web Push. Ingest accepts only the codex-workspace
@@ -77,34 +89,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
-        - name: web
-          image: ghcr.io/boxp/arch/kohako-studio:latest
-          imagePullPolicy: Always
-          command: [nginx, -g, "daemon off;"]
-          ports:
-            - name: http
-              containerPort: 8080
-          readinessProbe:
-            httpGet: {path: /healthz, port: http}
-            periodSeconds: 10
-          livenessProbe:
-            httpGet: {path: /healthz, port: http}
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          resources:
-            requests: {cpu: 10m, memory: 32Mi}
-            limits: {cpu: 250m, memory: 128Mi}
-          volumeMounts:
-            - name: nginx-tmp
-              mountPath: /tmp/nginx
       volumes:
         - name: data
-          persistentVolumeClaim:
-            claimName: kohako-studio-data
-        - name: nginx-tmp
-          emptyDir: {}
+          persistentVolumeClaim: {claimName: kohako-studio-data}
