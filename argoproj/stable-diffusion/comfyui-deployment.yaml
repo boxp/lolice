@@ -60,10 +60,16 @@ spec:
           # that point. The classic cache drops outputs that the new prompt does
           # not use when the prompt starts, and still reuses loaders that the
           # two prompts share.
+          # The classic cache alone was not enough either (reproduced 03:39 UTC,
+          # #1195): the iGPU reports the whole system memory (about 88GiB) as
+          # VRAM, so ComfyUI saw no reason to take the earlier models off the
+          # GPU. --disable-smart-memory unloads every model that the current
+          # step does not need whenever a model is loaded, and all of them when
+          # a prompt ends, so GPU memory holds only what is in use.
           # History: "--reserve-vram 48" (#1177, #1194) did not prevent this
           # (reproduced 2026-11-12 03:21 UTC with the flag set), because the
           # kill happens before anything is loaded to the GPU.
-          args: ["--cache-classic"]
+          args: ["--cache-classic", "--disable-smart-memory"]
           ports:
             - name: http
               containerPort: 8188
