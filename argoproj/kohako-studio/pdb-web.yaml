@@ -1,0 +1,9 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kohako-studio-web
+  namespace: kohako-studio
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: kohako-studio, component: web}

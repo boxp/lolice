@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kohako-studio-bff
+  namespace: kohako-studio
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  # RWO PVC、単一 writer JSON、メモリ内承認のため 1 を超えてはならない。
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: kohako-studio, component: bff}
+  template:
+    metadata:
+      labels: {app: kohako-studio, component: bff}
+    spec:
+      serviceAccountName: kohako-studio
+      terminationGracePeriodSeconds: 30
+      # web が先に image を pull したノードを優先し、停止時間を短縮する。
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels: {app: kohako-studio, component: web}
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: bff
+          image: ghcr.io/boxp/arch/kohako-studio:latest
+          imagePullPolicy: Always
+          ports:
+            - {name: bff, containerPort: 8787}
+          readinessProbe:
+            httpGet: {path: /healthz, port: bff}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: bff}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          env:
+            - name: KOHAKO_ACCESS_TEAM_DOMAIN
+              value: https://boxp.cloudflareaccess.com
+            - name: KOHAKO_ACCESS_AUD
+              value: bd491ea940b2fe8ced4ff62699c58a02bce6919da7986a513189fc44e9caec85
+            - name: KOHAKO_OWNER_EMAILS
+              value: tiyotiyouda@gmail.com
+            - name: KOHAKO_HERMES_URL
+              value: http://hermes-agent-api.hermes-agent.svc.cluster.local:8642
+            - name: KOHAKO_HERMES_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kohako-hermes-api-key
+                  key: key
+            - name: KOHAKO_HERMES_TOOLSETS
+              value: browser,code_execution,connections,cronjob,delegation,file,memory,session_search,skills,terminal,todo,vision,web
+            - name: KOHAKO_VERIFIER_ENABLED
+              value: "true"
+            - name: KOHAKO_VERIFIER_USERNAME
+              value: system:serviceaccount:codex-workspace:codex-workspace
+            - name: KOHAKO_BFF_HOST
+              value: 0.0.0.0
+            - name: KOHAKO_BFF_PORT
+              value: "8787"
+            # BOXP-501: notification inbox / Web Push. Ingest accepts only the codex-workspace
+            # ServiceAccount token issued for audience kohako-bff-notifier.
+            - name: KOHAKO_DATA_DIR
+              value: /data
+            - name: KOHAKO_NOTIFIER_ENABLED
+              value: "true"
+            - name: KOHAKO_NOTIFIER_USERNAME
+              value: system:serviceaccount:codex-workspace:codex-workspace
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: kohako-studio-data}

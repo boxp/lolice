@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kohako-studio-web-upstream
+  namespace: kohako-studio
+data:
+  kohako-upstream.conf: |
+    upstream kohako_bff { server kohako-studio-bff.kohako-studio.svc.cluster.local:8787 max_fails=0; keepalive 8; }

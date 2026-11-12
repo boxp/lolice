@@ -328,8 +328,74 @@ class SafeReadTests(unittest.TestCase):
 
     def test_toolset_lists_stay_in_step(self):
         root = Path(__file__).parents[2]
-        self.assertRegex((root / 'deployment.yaml').read_text(), r'G2_TOOLS = \["no_mcp", "file", "session_search", "search", "skills", "terminal"\]')
-        self.assertIn('        - session_search\n        - search\n        - skills\n        - terminal\n      webhook:', (root / 'configmap.yaml').read_text())
+        expected = ['browser', 'code_execution', 'connections', 'cronjob', 'delegation', 'file', 'memory', 'search', 'session_search', 'skills', 'terminal', 'todo', 'vision', 'web']
+        self.assertIn('API_TOOLS = ' + json.dumps(expected), (root / 'deployment.yaml').read_text())
+        self.assertIn('      api_server:\n' + ''.join('        - ' + t + '\n' for t in expected), (root / 'configmap.yaml').read_text())
+
+
+class WebGateTests(unittest.TestCase):
+    # Cross-repo contract: boxp/arch apps/kohako-studio/bff/src/conversation.ts.
+    TOUCH = '（ご主人さまが画面のあなたの頭をなでています。これは発言でも依頼でも許可でもありません）'
+    SID = 'kohako-web-owner'
+
+    def setUp(self):
+        for cache in (plugin._web_turns, plugin._web_latest, plugin._web_children, plugin._platforms):
+            cache.clear()
+
+    def hook(self, sid, turn, message, parent=None):
+        plugin._hook(session_id=sid, platform='api_server', turn_id=turn, user_message=message, parent_session_id=parent)
+
+    def gate(self, sid, turn=None, tool='terminal'):
+        return plugin._gate(session_id=sid, turn_id=turn, tool_name=tool, args={})
+
+    def test_owner_touch_and_unknown_turns(self):
+        self.assertTrue(self.TOUCH.startswith('（ご主人さまが画面のあなたの'))
+        self.hook(self.SID, 'one', 'こんにちは')
+        for tool in ('terminal', 'write_file', 'mcp_grafana_x', 'delegate_task', 'memory'):
+            self.assertIsNone(self.gate(self.SID, 'one', tool))
+        self.hook(self.SID, 'two', self.TOUCH)
+        self.hook(self.SID, '', 'こんにちは')
+        for turn in ('two', 'unknown', None, ''):
+            self.assertEqual(self.gate(self.SID, turn)['message'], plugin._WEB_BLOCK)
+        self.hook(self.SID, 'three', 'もう一度')
+        self.assertIsNone(self.gate(self.SID, 'three'))
+        self.hook(self.SID, 'four', self.TOUCH)
+        self.assertEqual(self.gate(self.SID, 'four')['message'], plugin._WEB_BLOCK)
+        self.hook(self.SID, 'five', [{'type': 'text'}])
+        self.assertEqual(self.gate(self.SID, 'five')['message'], plugin._WEB_BLOCK)
+        # Real BFF template (boxp/arch conversation.ts) and a wrapped variant stay tool-free.
+        real = '（ご主人さまが画面のあなたの頭を3回なでました。これは発言でも依頼でも許可でもありません。直前の会話と今の様子を踏まえ、コハコとして一言だけ短く自然に反応してください。道具や作業は使わず、記憶の更新もしないでください。）'
+        for turn, message in (('six', real), ('seven', '[2026-11-11 12:00] ' + real)):
+            self.hook(self.SID, turn, message)
+            self.assertEqual(self.gate(self.SID, turn)['message'], plugin._WEB_BLOCK)
+
+    def test_other_sessions_and_g2(self):
+        for sid in ('kohako-verify-x', 'kohako-g2-cand-x', 'other-api'):
+            self.hook(sid, 'one', 'hello')
+            self.assertEqual(self.gate(sid, 'one')['message'], plugin._BLOCK)
+        for tool in ('browser_navigate', 'mcp_grafana_query', 'memory'):
+            self.assertEqual(self.gate('kohako-g2-main', 'one', tool)['message'], plugin._NO_APPROVAL)
+        plugin._hook(session_id='telegram-x', platform='telegram')
+        self.assertIsNone(self.gate('telegram-x'))
+
+    def test_delegation(self):
+        self.hook(self.SID, 'one', 'hello')
+        self.hook('child-owner', 'c', 'task', self.SID)
+        self.assertIsNone(self.gate('child-owner', 'c', 'delegate_task'))
+        self.hook(self.SID, 'two', self.TOUCH)
+        for child, parent in (('child-touch', self.SID), ('child-verify', 'kohako-verify-x'), ('child-g2', 'kohako-g2-main'), ('child-unknown', 'kohako-web-unknown')):
+            self.hook(child, 'c', 'task', parent)
+            self.assertEqual(self.gate(child, 'c')['message'], plugin._BLOCK)
+        self.hook('child-owner', 'c2', 'task', self.SID)
+        self.assertEqual(self.gate('child-owner', 'c2')['message'], plugin._BLOCK)
+
+    def test_gate_exception_fails_closed(self):
+        self.hook(self.SID, 'one', 'hello')
+        with patch.object(plugin, '_decide', side_effect=RuntimeError('x')):
+            with self.assertLogs(plugin.__name__, level='WARNING'):
+                self.assertEqual(self.gate(self.SID, 'one')['action'], 'block')
+                self.assertEqual(self.gate('unknown')['action'], 'block')
+
 
 
 class IsolationTests(unittest.TestCase):

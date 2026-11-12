@@ -4,6 +4,11 @@ resources:
   - namespace.yaml
   - external-secret-hermes-api-key.yaml
   - rbac.yaml
-  - deployment.yaml
+  - pvc.yaml
+  - configmap-web-upstream.yaml
+  - deployment-web.yaml
+  - deployment-bff.yaml
+  - pdb-web.yaml
+  - service-bff.yaml
   - service.yaml
   - networkpolicy.yaml

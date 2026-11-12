@@ -1,0 +1,126 @@
+# BOXP-498: ComfyUI for MiniMax H3 on the single Intel GPU. It only runs inside a
+# window opened by the llama/image switcher, which owns the replica count.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: comfyui
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: comfyui
+  template:
+    metadata:
+      labels:
+        app: comfyui
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Avoid blocking the event loop on DNS during browser origin checks.
+      # Both address families must resolve locally to keep the origin check active.
+      hostAliases:
+        - ip: 127.0.0.1
+          hostnames: [comfyui.b0xp.io]
+        - ip: "::1"
+          hostnames: [comfyui.b0xp.io]
+      # Fail fast for other names in this offline pod.
+      dnsPolicy: "None"
+      dnsConfig:
+        nameservers: ["127.0.0.1"]
+      priorityClassName: gpu-workload-high
+      nodeSelector:
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      # A prompt that is still running gets time to finish its current node.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        supplementalGroups:
+          - 44
+          - 110
+      containers:
+        - name: comfyui
+          image: ghcr.io/boxp/arch/comfyui-xpu:latest
+          imagePullPolicy: Always
+          # Keep no node outputs between prompts. The default cache keeps the
+          # models of the previous workflow until the next prompt has started,
+          # so a different workflow right after it exceeds the 72Gi limit (GPU
+          # memory is charged to it as shmem; one H3 job with the turbo LoRA
+          # already peaks at about 64GiB) and the container is OOM-killed.
+          # With no cache the models die with the prompt and are freed in
+          # place. Cost: every run loads its models again.
+          # Do not replace this with unloading: on this iGPU an unload copies
+          # GPU memory to RAM before releasing it, which doubles the charge.
+          # Measured on 2026-11-12 (BOXP-498), all OOM-killed:
+          #   --reserve-vram 48 (#1194), --cache-classic (#1195),
+          #   --cache-classic --disable-smart-memory (#1196),
+          #   POST /free after a job that left 37GiB on the GPU.
+          args: ["--cache-none"]
+          ports:
+            - name: http
+              containerPort: 8188
+          env:
+            - name: ONEAPI_DEVICE_SELECTOR
+              value: level_zero:gpu
+            - name: ZE_ENABLE_PCI_ID_DEVICE_ORDER
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: "3"
+              memory: 32Gi
+              gpu.intel.com/i915: "1"
+            limits:
+              cpu: "14"
+              # The iGPU allocates from system memory. The node has 93GiB and no
+              # swap, so the container is stopped before the node runs short.
+              memory: 72Gi
+              gpu.intel.com/i915: "1"
+          startupProbe:
+            httpGet:
+              path: /system_stats
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /system_stats
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # Loading a 20GB model can stall the web loop; only a long silence restarts.
+          livenessProbe:
+            httpGet:
+              path: /system_stats
+              port: http
+            periodSeconds: 60
+            timeoutSeconds: 30
+            failureThreshold: 10
+          volumeMounts:
+            # Only the ComfyUI directory: SD.Next settings and models stay out of reach.
+            - name: data
+              mountPath: /data
+              subPath: comfyui
+            - name: scratch
+              mountPath: /scratch
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: sd-webui-data
+        - name: scratch
+          emptyDir:
+            sizeLimit: 20Gi

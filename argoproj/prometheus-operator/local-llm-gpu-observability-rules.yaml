@@ -13,15 +13,94 @@ spec:
       rules:
         - alert: LocalLlmTargetDown
           expr: |
-            absent(up{job="llama-server", namespace="local-llm", service="llama-server"})
-            or
-            up{job="llama-server", namespace="local-llm", service="llama-server"} == 0
+            (absent(up{job="llama-server", namespace="local-llm", service="llama-server"})
+             or up{job="llama-server", namespace="local-llm", service="llama-server"} == 0)
+            unless on() (kube_deployment_spec_replicas{namespace="local-llm", deployment="llama-server"} == 0)
           for: 5m
           labels:
             severity: critical
           annotations:
             summary: Local LLM metrics target is down
-            description: Prometheus cannot scrape the local-llm Envoy metrics target for more than 5 minutes.
+            description: The selected local-llm metrics target has been down for more than 5 minutes.
+        - alert: GpuBackendsUnavailable
+          expr: |
+            ((kube_deployment_status_replicas_available{namespace="local-llm", deployment="llama-server"} >= bool 1) + on()
+             (kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment="comfyui"} >= bool 1) + on()
+             (kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment="stable-diffusion-webui"} >= bool 1) + on()
+             (kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment="qwen-image-eval"} >= bool 1)) == 0
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: All GPU backends are unavailable
+            description: No GPU backend has been available for more than 15 minutes.
+        - alert: LocalLlmBackendUnavailable
+          expr: |
+            (kube_deployment_spec_replicas{namespace="local-llm", deployment="llama-server"} > 0)
+            and on(namespace, deployment)
+            (kube_deployment_status_replicas_available{namespace="local-llm", deployment="llama-server"} == 0)
+            and on() (up{job="llama-server", namespace="local-llm", service="llama-server"} == 1)
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: Selected local LLM is unavailable
+            description: Local LLM has been selected but unavailable for more than 15 minutes while its metrics target is up.
+        - alert: GpuBackendUnavailable
+          expr: |
+            (kube_deployment_spec_replicas{namespace="stable-diffusion", deployment=~"comfyui|stable-diffusion-webui|qwen-image-eval"} > 0)
+            and on(namespace, deployment)
+            (kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment=~"comfyui|stable-diffusion-webui|qwen-image-eval"} == 0)
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: Selected GPU backend is unavailable
+            description: GPU backend {{ $labels.namespace }}/{{ $labels.deployment }} has been selected but unavailable for more than 15 minutes.
+        - alert: GpuBackendExclusivityViolation
+          expr: |
+            ((kube_deployment_spec_replicas{namespace="local-llm", deployment="llama-server"} > bool 0) + on()
+             (kube_deployment_spec_replicas{namespace="stable-diffusion", deployment="comfyui"} > bool 0) + on()
+             (kube_deployment_spec_replicas{namespace="stable-diffusion", deployment="stable-diffusion-webui"} > bool 0) + on()
+             (kube_deployment_spec_replicas{namespace="stable-diffusion", deployment="qwen-image-eval"} > bool 0)) >= 2
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: Multiple GPU backends are selected
+            description: Two or more GPU backends have been selected for more than 2 minutes.
+        - alert: GpuBackendMetricsMissing
+          expr: |
+            absent(kube_deployment_spec_replicas{namespace="local-llm", deployment="llama-server"})
+            or
+            absent(kube_deployment_spec_replicas{namespace="stable-diffusion", deployment="comfyui"})
+            or
+            absent(kube_deployment_spec_replicas{namespace="stable-diffusion", deployment="stable-diffusion-webui"})
+            or
+            absent(kube_deployment_spec_replicas{namespace="stable-diffusion", deployment="qwen-image-eval"})
+            or
+            absent(kube_deployment_status_replicas_available{namespace="local-llm", deployment="llama-server"})
+            or
+            absent(kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment="comfyui"})
+            or
+            absent(kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment="stable-diffusion-webui"})
+            or
+            absent(kube_deployment_status_replicas_available{namespace="stable-diffusion", deployment="qwen-image-eval"})
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: GPU backend deployment metrics are missing
+            description: Deployment metrics for {{ $labels.namespace }}/{{ $labels.deployment }} have been missing for more than 5 minutes.
+        - alert: LocalLlmUnavailableLong
+          expr: |
+            kube_deployment_status_replicas_available{namespace="local-llm", deployment="llama-server"} == 0
+          for: 5h
+          labels:
+            severity: warning
+          annotations:
+            summary: Local LLM has been unavailable for too long
+            description: Local LLM has been unavailable for more than 5 hours.
         - alert: LocalLlmHigh5xxRate
           expr: |
             (

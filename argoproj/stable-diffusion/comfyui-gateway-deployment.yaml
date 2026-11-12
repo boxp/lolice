@@ -1,0 +1,107 @@
+# BOXP-498: always-on front of ComfyUI. No GPU and no Kubernetes identity. It can
+# see only the comfy-switch directory (phase and switch request).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: comfyui-gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: comfyui-gateway
+  template:
+    metadata:
+      labels:
+        app: comfyui-gateway
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector:
+        lolice.io/gpu-worker: "true"
+      tolerations:
+        - key: lolice.io/gpu-worker
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: envoy
+          image: docker.io/envoyproxy/envoy@sha256:4d496918618a7ebd6c71ae8285e31ebff092f3a0a5ad642d50decf4a54eb2456
+          imagePullPolicy: IfNotPresent
+          args:
+            - -c
+            - /etc/envoy/envoy.yaml
+            - --log-level
+            - warn
+          ports:
+            - name: http
+              containerPort: 8188
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            httpGet:
+              path: /__comfy/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy/envoy.yaml
+              subPath: envoy.yaml
+              readOnly: true
+            - name: comfy-switch
+              mountPath: /comfy-switch
+              readOnly: true
+        - name: intake
+          image: docker.io/library/python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
+          imagePullPolicy: IfNotPresent
+          command: [python3, -B, /code/comfy_intake.py]
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: code
+              mountPath: /code
+              readOnly: true
+            - name: comfy-switch
+              mountPath: /comfy-switch
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: comfyui-gateway-envoy
+        - name: code
+          configMap:
+            name: comfy-intake-code
+        # Created by the switcher, which is the only other party that sees it.
+        - name: comfy-switch
+          hostPath:
+            path: /var/lib/local-llm/models/boxp340-qwen-image-21/work/runtime-api/comfy-switch
+            type: Directory

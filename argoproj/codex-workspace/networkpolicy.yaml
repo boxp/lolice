@@ -28,6 +28,18 @@ spec:
       destination:
         ports:
           - 8090
+    # BOXP-504: kohako-home BFF (kohako-studio Pod) -> read-only Task Board projection and
+    # the read-only AI ops / subscription usage metrics (enum labels and numbers only).
+    # The BFF returns only derived counts/percentages to the authenticated Owner.
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'kohako-studio'
+        selector: app == 'kohako-studio'
+      destination:
+        ports:
+          - 8090
+          - 9464
     - action: Allow
       protocol: TCP
       source:

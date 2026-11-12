@@ -124,7 +124,7 @@ jobs:
           yq --version
 
       - name: Install Babashka
-        uses: DeLaGuardo/setup-clojure@13.4
+        uses: DeLaGuardo/setup-clojure@13.7.0
         with:
           bb: 1.13.229
 

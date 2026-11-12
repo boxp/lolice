@@ -1,10 +1,10 @@
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
 metadata:
-  name: kohako-studio
+  name: kohako-studio-web
   namespace: kohako-studio
 spec:
-  selector: app == 'kohako-studio'
+  selector: app == 'kohako-studio' && component == 'web'
   types: [Ingress, Egress]
   ingress:
     - action: Allow
@@ -36,11 +36,55 @@ spec:
         ports: [53]
     - action: Allow
       protocol: TCP
+      destination:
+        selector: app == 'kohako-studio' && component == 'bff'
+        ports: [8787]
+---
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: kohako-studio-bff
+  namespace: kohako-studio
+spec:
+  selector: app == 'kohako-studio' && component == 'bff'
+  types: [Ingress, Egress]
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: app == 'kohako-studio' && component == 'web'
+      destination: {ports: [8787]}
+  egress:
+    - action: Allow
+      protocol: UDP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports: [53]
+    - action: Allow
+      protocol: TCP
       source: {}
       destination:
         selector: app == 'hermes-agent'
         namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
         ports: [8642]
+    # BOXP-504: read-only Task Board projection (8090) and AI subscription usage metrics (9464)
+    # in codex-workspace for the kohako-home status strip.
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'codex-workspace'
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        ports: [8090, 9464]
     - action: Allow
       protocol: TCP
       source: {}

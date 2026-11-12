@@ -16,13 +16,23 @@ assert role['rules'] == [{'apiGroups': ['authentication.k8s.io'], 'resources': [
 binding = get(studio, 'ClusterRoleBinding', 'kohako-studio-tokenreview')
 assert binding['roleRef']['name'] == 'kohako-studio-tokenreview'
 assert binding['subjects'] == [{'kind': 'ServiceAccount', 'name': 'kohako-studio', 'namespace': 'kohako-studio'}]
-policy = get(studio, 'NetworkPolicy', 'kohako-studio')['spec']
+policy = get(studio, 'NetworkPolicy', 'kohako-studio-web')['spec']
+assert policy['selector'] == "app == 'kohako-studio' && component == 'web'"
 assert set(policy['types']) == {'Ingress', 'Egress'}
 allowed = {(r['source']['namespaceSelector'], r['source']['selector'], tuple(r['destination']['ports'])) for r in policy['ingress'] if r['action'] == 'Allow' and r['protocol'] == 'TCP'}
 assert allowed == {("kubernetes.io/metadata.name == 'even-g2-lab'", "app == 'cloudflared'", (8080,)), ("kubernetes.io/metadata.name == 'codex-workspace'", "app == 'codex-workspace'", (8080,))}
 assert len(policy['ingress']) == len(allowed)  # no other ingress, including other namespaces or ports
+# BOXP-511: web only reaches DNS and the BFF; BFF accepts only web on 8787 and owns all other egress.
+assert not any(r['destination'].get('selector') == "app == 'hermes-agent'" for r in policy['egress'])
+assert any(r['destination'].get('selector') == "app == 'kohako-studio' && component == 'bff'" and r['destination']['ports'] == [8787] for r in policy['egress'])
+policy = get(studio, 'NetworkPolicy', 'kohako-studio-bff')['spec']
+assert policy['selector'] == "app == 'kohako-studio' && component == 'bff'" and set(policy['types']) == {'Ingress', 'Egress'}
+assert policy['ingress'] == [{'action': 'Allow', 'protocol': 'TCP', 'source': {'selector': "app == 'kohako-studio' && component == 'web'"}, 'destination': {'ports': [8787]}}]
 assert any(r['destination'].get('selector') == "app == 'hermes-agent'" and r['destination']['ports'] == [8642] for r in policy['egress'])
-deploy = get(studio, 'Deployment', 'kohako-studio')['spec']['template']['spec']
+assert not any(x.get('kind') == 'Deployment' and x['metadata']['name'] == 'kohako-studio' for x in studio)
+bff_deploy = get(studio, 'Deployment', 'kohako-studio-bff')
+assert bff_deploy['spec']['replicas'] == 1  # single writer (RWO PVC + JSON store)
+deploy = bff_deploy['spec']['template']['spec']
 assert deploy['serviceAccountName'] == 'kohako-studio'
 bff = next(c for c in deploy['containers'] if c['name'] == 'bff')
 env = {x['name']: x.get('value') for x in bff['env']}
@@ -33,6 +43,25 @@ volume = next(x for x in ws['volumes'] if x['name'] == 'kohako-bff-verifier')
 assert volume['projected']['sources'] == [{'serviceAccountToken': {'audience': 'kohako-bff-verifier', 'expirationSeconds': 3600, 'path': 'token'}}]
 mounts = [(c['name'], m) for c in ws['containers'] for m in c.get('volumeMounts', []) if m['name'] == 'kohako-bff-verifier']
 assert mounts == [('workspace', {'name': 'kohako-bff-verifier', 'mountPath': '/var/run/secrets/kohako-bff-verifier', 'readOnly': True})]
+# BOXP-501: notification ingest token is audience-bound and mounted only into the event dispatcher.
+volume = next(x for x in ws['volumes'] if x['name'] == 'kohako-bff-notifier')
+assert volume['projected']['sources'] == [{'serviceAccountToken': {'audience': 'kohako-bff-notifier', 'expirationSeconds': 3600, 'path': 'token'}}]
+mounts = [(c['name'], m) for c in ws['containers'] for m in c.get('volumeMounts', []) if m['name'] == 'kohako-bff-notifier']
+assert mounts == [('task-board-event-dispatcher', {'name': 'kohako-bff-notifier', 'mountPath': '/var/run/secrets/kohako-bff-notifier', 'readOnly': True})]
+assert env['KOHAKO_DATA_DIR'] == '/data' and env['KOHAKO_NOTIFIER_ENABLED'] == 'true' and env['KOHAKO_NOTIFIER_USERNAME'] == 'system:serviceaccount:codex-workspace:codex-workspace'
+assert {'name': 'data', 'mountPath': '/data'} in bff['volumeMounts']
+assert bff_deploy['spec']['strategy'] == {'type': 'Recreate'}
+web_deploy = get(studio, 'Deployment', 'kohako-studio-web')
+assert web_deploy['spec']['replicas'] >= 2 and web_deploy['spec']['strategy'] == {'type': 'RollingUpdate', 'rollingUpdate': {'maxSurge': 1, 'maxUnavailable': 0}}
+web_spec = web_deploy['spec']['template']['spec']
+# BOXP-511: web replicas must land on distinct nodes (soft spread let descheduler RemoveDuplicates loop on one node).
+assert web_spec['topologySpreadConstraints'] == [{'maxSkew': 1, 'topologyKey': 'kubernetes.io/hostname', 'whenUnsatisfiable': 'DoNotSchedule', 'nodeTaintsPolicy': 'Honor', 'labelSelector': {'matchLabels': {'app': 'kohako-studio', 'component': 'web'}}}]
+assert web_spec.get('automountServiceAccountToken') is False and not any(v.get('persistentVolumeClaim') for v in web_spec.get('volumes', []))
+assert get(studio, 'PodDisruptionBudget', 'kohako-studio-web')['spec'] == {'minAvailable': 1, 'selector': {'matchLabels': {'app': 'kohako-studio', 'component': 'web'}}}
+assert get(studio, 'Service', 'kohako-studio')['spec']['selector'] == {'app': 'kohako-studio', 'component': 'web'}
+assert get(studio, 'Service', 'kohako-studio-bff')['spec']['selector'] == {'app': 'kohako-studio', 'component': 'bff'}
+assert next(x for x in deploy['volumes'] if x['name'] == 'data')['persistentVolumeClaim'] == {'claimName': 'kohako-studio-data'}
+assert get(studio, 'PersistentVolumeClaim', 'kohako-studio-data')['spec']['accessModes'] == ['ReadWriteOnce']
 def permits(policy, side, namespace, selector, port):
     for rule in policy[side]:
         peer = rule['source' if side == 'ingress' else 'destination']
@@ -42,6 +71,11 @@ def permits(policy, side, namespace, selector, port):
     return False
 assert permits(get(workspace, 'NetworkPolicy', 'codex-workspace-network-policy')['spec'], 'egress', 'kohako-studio', 'kohako-studio', 8080)
 assert permits(get(hermes, 'NetworkPolicy', 'hermes-agent-api-ingress')['spec'], 'ingress', 'kohako-studio', 'kohako-studio', 8642)
+# BOXP-504: kohako-home status strip reads only the read-only Task Board projection (8090) and AI metrics (9464).
+for port in (8090, 9464):
+    assert permits(policy, 'egress', 'codex-workspace', 'codex-workspace', port)
+    assert permits(get(workspace, 'NetworkPolicy', 'codex-workspace-network-policy')['spec'], 'ingress', 'kohako-studio', 'kohako-studio', port)
+assert not permits(get(workspace, 'NetworkPolicy', 'codex-workspace-network-policy')['spec'], 'ingress', 'kohako-studio', 'kohako-studio', 8080)
 secret_role = get(hermes, 'Role', 'kohako-api-server-key-reader')
 assert secret_role['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['hermes-agent-api-server-key'], 'verbs': ['get']}]
 assert {'kind': 'ServiceAccount', 'name': 'kohako-api-server-key-reader', 'namespace': 'kohako-studio'} in get(hermes, 'RoleBinding', 'kohako-api-server-key-reader')['subjects']
