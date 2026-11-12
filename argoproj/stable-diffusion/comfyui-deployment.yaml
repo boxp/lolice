@@ -57,6 +57,11 @@ spec:
           # Without a cap ComfyUI never evicts the models of an earlier job and
           # the next job is OOM-killed while loading. This leaves about 40GiB of
           # VRAM budget, so older models are unloaded before new ones load.
+          # History: #1180 reverted this flag on the suspicion that it caused i915
+          # "Fence expiration" stalls. The same stall reproduced without the flag
+          # (5 more times on 2026-11-11) and went away only when the kernel
+          # request_timeout_ms was raised, while a job run with the flag finished
+          # normally, so the stalls are unrelated to this setting.
           args: ["--reserve-vram", "48"]
           ports:
             - name: http
