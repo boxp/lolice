@@ -2324,7 +2324,11 @@ class NameOnlyCommandTest(unittest.TestCase):
              'ls ~/.ssh/id_rsa | xargs cat', 'mv /app/.env /tmp/x; cat /tmp/x', 'cp ~/.aws/credentials /tmp/c',
              'cd ~/.aws && cat credentials', 'ls $(cat /app/.env)', 'du -sh /app/.env | bash',
              'head -5 /app/.env', 'ls /app; tail ~/.ssh/id_ed25519', 'fd -x cat {} . ~/.ssh', 'ls < /app/.env; cat',
-             'sort /app/.env']
+             'sort /app/.env',
+             # An option that reads a list of names from a file prints the file's lines as names (lolice#1201 review).
+             'find -files0-from /tmp/.env', 'du --files0-from=/tmp/.env', 'du --files0-from /tmp/.env',
+             'find / -files0-from=/app/.env -name x', 'tree --fromfile /app/.env', 'du -X /app/.env /opt',
+             'du --exclude-from=/app/.env /opt', 'fd --ignore-file /app/.env x', 'ls --FILES0-FROM=/app/.env']
 
     def test_naming_a_credential_file_is_not_a_known_source(self):
         for command in self.NAME_ONLY:

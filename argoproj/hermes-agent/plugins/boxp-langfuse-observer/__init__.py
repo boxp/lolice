@@ -1641,6 +1641,11 @@ _NAME_ONLY_PROGRAMS = {"ls", "du", "df", "stat", "tree", "find", "fd", "rm", "rm
 # Filters that may follow them in a pipeline. Their own operands are still judged by the path table.
 _NAME_FILTERS = {"sort", "head", "tail", "uniq", "wc", "cut", "tr", "column", "nl", "echo", "printf", "true", "false", ":"}
 _RUNS_COMMANDS = re.compile(r"-(?:exec|execdir|ok|okdir)|-[A-Za-z]*[xX]|--exec(?:-batch)?(?:=.*)?")
+# An option that takes a file of names or patterns (du/find --files0-from, du -X/--exclude-from, tree --fromfile,
+# fd --ignore-file) reads that file and may print its lines as names, so it ends the name-only status of the
+# segment (lolice#1201 review). One rule by option name: any option word with "from" or "file" in its name, or a
+# short option group with X; a false hit (stat --file-system, ls -X) only falls back to the full path table.
+_READS_A_LIST = re.compile(r"-[-A-Za-z0-9]*(?i:from|file)[-A-Za-z0-9]*(?:=.*)?|-[A-Za-z]*X.*", re.S)
 
 
 def _path_text(text):
@@ -1676,7 +1681,9 @@ def _path_text(text):
         if any(_last_element(w) in {"xargs", "parallel"} for w in words[:idx]):
             return text
         program = _last_element(words[idx])
-        if program in _NAME_ONLY_PROGRAMS and not (program in {"find", "fd"} and any(_RUNS_COMMANDS.fullmatch(w) for w in words[idx + 1:])):
+        if (program in _NAME_ONLY_PROGRAMS
+                and not (program in {"find", "fd"} and any(_RUNS_COMMANDS.fullmatch(w) for w in words[idx + 1:]))
+                and not any(_READS_A_LIST.fullmatch(w) for w in words[idx + 1:])):
             continue
         if program not in _NAME_FILTERS:
             return text
