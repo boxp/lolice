@@ -194,6 +194,23 @@ def fire_td13_mask_only(session):
     hooks["post_llm_call"](**turn2, assistant_response="件数は1 td13anextreplymarker")
     hooks["on_session_end"](**turn2, completed=True)
 
+def fire_td13_name_only_command(session):
+    # BOXP-428 TD-13 readback 2026-11-12: a home Web cleanup chat ran a command that named a credential file and the
+    # whole session stayed withheld for hours. Programs that only name files (du, ls, find -name) are not a known
+    # source: the tool output, the reply and the next turn stay readable. cat of the same file still is (table step).
+    hooks = ctx.hooks
+    turn1 = {"session_id": session, "turn_id": "t1"}
+    hooks["pre_llm_call"](**turn1, user_message="BOXP-428 容量を確認して", platform="api_server")
+    hooks["post_tool_call"](**turn1, tool_call_id="c1", tool_name="terminal",
+                            args={"command": "du -sh /opt/data/* /opt/data/.env 2>/dev/null | sort -h | tail -5"},
+                            result="12G /opt/data/workspace\n4.0K /opt/data/.env\ntd13dutoolmarker")
+    hooks["post_llm_call"](**turn1, assistant_response="workspace が大きいです。td13dureplymarker")
+    hooks["on_session_end"](**turn1, completed=True)
+    turn2 = {"session_id": session, "turn_id": "t2"}
+    hooks["pre_llm_call"](**turn2, user_message="BOXP-428 td13dunextmarker 削除して", platform="api_server")
+    hooks["post_llm_call"](**turn2, assistant_response="削除しました。td13dunextreplymarker")
+    hooks["on_session_end"](**turn2, completed=True)
+
 def fire_name_only_in_output(session):
     # Ordinary code that names a secret, and a secret-name assignment: the value is masked in place, and the replies
     # and the next turn stay readable (BOXP-428 production regression: these withheld whole sessions).
@@ -268,6 +285,7 @@ while True:
     fire_td13_home(f"20261026_td13home-{n}")
     fire_td13_notes(f"20261026_td13notes-{n}")
     fire_td13_mask_only(f"kohako-web-td13a-{n}")
+    fire_td13_name_only_command(f"kohako-web-td13du-{n}")
     fire_known_source_table(f"kohako-g2-kube-config-{n}", {"command": "cat ~/.kube/config"})
     fire_known_source_table(f"kohako-g2-pem-{n}", {"command": "cat /etc/ssl/server.pem"})
     fire_known_source_table(f"kohako-g2-gcloud-{n}", {"command": "gcloud auth print-access-token"})
