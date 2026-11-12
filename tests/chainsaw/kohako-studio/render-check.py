@@ -54,6 +54,8 @@ assert bff_deploy['spec']['strategy'] == {'type': 'Recreate'}
 web_deploy = get(studio, 'Deployment', 'kohako-studio-web')
 assert web_deploy['spec']['replicas'] >= 2 and web_deploy['spec']['strategy'] == {'type': 'RollingUpdate', 'rollingUpdate': {'maxSurge': 1, 'maxUnavailable': 0}}
 web_spec = web_deploy['spec']['template']['spec']
+# BOXP-511: web replicas must land on distinct nodes (soft spread let descheduler RemoveDuplicates loop on one node).
+assert web_spec['topologySpreadConstraints'] == [{'maxSkew': 1, 'topologyKey': 'kubernetes.io/hostname', 'whenUnsatisfiable': 'DoNotSchedule', 'nodeTaintsPolicy': 'Honor', 'labelSelector': {'matchLabels': {'app': 'kohako-studio', 'component': 'web'}}}]
 assert web_spec.get('automountServiceAccountToken') is False and not any(v.get('persistentVolumeClaim') for v in web_spec.get('volumes', []))
 assert get(studio, 'PodDisruptionBudget', 'kohako-studio-web')['spec'] == {'minAvailable': 1, 'selector': {'matchLabels': {'app': 'kohako-studio', 'component': 'web'}}}
 assert get(studio, 'Service', 'kohako-studio')['spec']['selector'] == {'app': 'kohako-studio', 'component': 'web'}

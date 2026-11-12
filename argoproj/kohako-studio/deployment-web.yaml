@@ -18,10 +18,14 @@ spec:
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
+      # BOXP-511: ScheduleAnyway だと image locality で 2 台とも同一ノードに載り、descheduler の
+      # RemoveDuplicates が 2 分毎に片方を退避→同じノードへ再配置するループになる。ノード障害耐性も
+      # 失うため hard 制約にする。taint 付き control-plane (arm64, イメージ非対応) は domain から除外。
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
           labelSelector:
             matchLabels: {app: kohako-studio, component: web}
       securityContext:
