@@ -13,7 +13,7 @@ text = pathlib.Path(sys.argv[1]).read_text()
 spec = text.split('\nspec:\n', 1)[1]
 pathlib.Path(sys.argv[2]).write_text(''.join(line[2:] if line.startswith('  ') else line for line in spec.splitlines(keepends=True)))
 PY
-  cp "$root/tests/$test" "$tmpdir/test.yaml"
+  sed "s|__RULE_FILE__|rules.yaml|" "$root/tests/$test" > "$tmpdir/test.yaml"
   chmod 644 "$tmpdir"/*.yaml
   local status=0
   if command -v promtool >/dev/null 2>&1; then
@@ -28,3 +28,5 @@ PY
 run_one ai-ops-outcome-rules.yaml ai-ops-outcome-rules.test.yaml
 run_one ai-provider-quota-rules.yaml ai-provider-quota-rules.test.yaml
 run_one ai-subscription-forecast-rules.yaml ai-subscription-forecast-rules.test.yaml
+
+run_one local-llm-gpu-observability-rules.yaml local-llm-gpu-observability-rules.test.yaml
