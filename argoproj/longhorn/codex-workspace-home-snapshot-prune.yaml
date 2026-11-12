@@ -65,6 +65,10 @@ spec:
         spec:
           restartPolicy: Never
           serviceAccountName: codex-workspace-home-snapshot-prune
+          # 大きい workspace イメージを、既に同じ digest を持ち物理空きに余裕がある golyat-4 でだけ動かす。
+          # 容量が逼迫した golyat-1〜3 へイメージを新たに pull させない。
+          nodeSelector:
+            kubernetes.io/hostname: golyat-4
           securityContext:
             runAsNonRoot: true
             runAsUser: 65534
@@ -75,6 +79,7 @@ spec:
             - name: prune
               # シェルと kubectl を含む既存の固定イメージ。
               image: ghcr.io/boxp/arch/codex-workspace@sha256:2851cf372f3c6d21afc8f50ed8c95240711486790fbacaf278fd417427d213e1
+              imagePullPolicy: IfNotPresent
               command: ["/bin/sh", "-c"]
               args:
                 - |
