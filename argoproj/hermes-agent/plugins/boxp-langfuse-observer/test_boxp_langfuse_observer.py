@@ -2301,3 +2301,65 @@ class CredentialWholePinPropertyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NameOnlyCommandTest(unittest.TestCase):
+    """BOXP-428 TD-13 readback 2026-11-12 (home Web session kohako-web-mwcvbwv8, trace 54b4027e, observation
+    6020c76e): during a disk-cleanup chat one terminal call matched the K0 path table and every later turn of the
+    session, also after a Hermes restart (history rescan), stayed withheld for 4.5 hours. The command itself is
+    withheld, so the trigger is unknown; programs that only name files (du -sh /opt/data/.env, ls -la ~/.ssh,
+    find / -name id_rsa) match the table without reading anything. They no longer count as a known source; any
+    program that reads, copies, moves or runs on the names still does. Synthetic paths only."""
+
+    SESSION = "kohako-web-td13-nameonly"
+
+    def setUp(self):
+        ObserverTest.setUp(self)
+
+    NAME_ONLY = ['du -sh /opt/data/.env /opt/data/sessions', 'ls -la ~/.ssh', 'find / -name id_rsa 2>/dev/null',
+                 'du -sh /opt/data/* /opt/data/.env | sort -h | tail -5', 'stat -c %s /app/.env', 'ls ~/.aws/ | wc -l',
+                 'rm -rf /opt/data/workspace/kohako-studio/.env.local', 'find ~/.ssh -type f | head -3',
+                 'test -f /app/.env && echo present', 'sudo du -sh /root/.ssh']
+    READS = ['cat /opt/data/.env', 'ls ~/.ssh; cat ~/.ssh/id_rsa', 'find ~/.ssh -name id_rsa -exec cat {} \;',
+             'ls ~/.ssh/id_rsa | xargs cat', 'mv /app/.env /tmp/x; cat /tmp/x', 'cp ~/.aws/credentials /tmp/c',
+             'cd ~/.aws && cat credentials', 'ls $(cat /app/.env)', 'du -sh /app/.env | bash',
+             'head -5 /app/.env', 'ls /app; tail ~/.ssh/id_ed25519', 'fd -x cat {} . ~/.ssh', 'ls < /app/.env; cat',
+             'sort /app/.env',
+             # An option that reads a list of names from a file prints the file's lines as names (lolice#1201 review).
+             'find -files0-from /tmp/.env', 'du --files0-from=/tmp/.env', 'du --files0-from /tmp/.env',
+             'find / -files0-from=/app/.env -name x', 'tree --fromfile /app/.env', 'du -X /app/.env /opt',
+             'du --exclude-from=/app/.env /opt', 'fd --ignore-file /app/.env x', 'ls --FILES0-FROM=/app/.env']
+
+    def test_naming_a_credential_file_is_not_a_known_source(self):
+        for command in self.NAME_ONLY:
+            with self.subTest(command=command):
+                self.assertFalse(plugin._withhold(json.dumps({"command": command})))
+        for command in self.READS:
+            with self.subTest(command=command):
+                self.assertTrue(plugin._withhold(json.dumps({"command": command})))
+
+    def test_the_rule_name_is_recorded_without_the_command(self):
+        self.assertEqual(plugin._withhold(json.dumps({"command": "cat /app/.env"})), "path_table")
+        self.assertEqual(plugin._withhold(json.dumps({"path": "/app/.env"})), "path_argument")
+        self.assertEqual(plugin._withhold(json.dumps({"command": "printenv"})), "environment")
+        home_turn(self.SESSION + "-rule", "t1", "BOXP-428 確認", "terminal", {"command": "cat /app/.env"}, "V", "ok")
+        body = bodies()
+        self.assertIn("path_table", body)
+        self.assertNotIn("/app/.env", body)
+
+    def test_a_cleanup_chat_stays_readable_across_turns_and_a_restart(self):
+        history = home_turn(self.SESSION, "t1", "BOXP-428 容量を確認して", "terminal",
+                            {"command": "du -sh /opt/data/* /opt/data/.env | sort -h | tail -5"},
+                            "12G /opt/data/workspace\n4.0K /opt/data/.env\nduoutputmarker", "workspace が大きいです。cleanupreplymarker")
+        first = bodies()
+        for marker in ("duoutputmarker", "cleanupreplymarker", "du -sh /opt/data"):
+            self.assertIn(marker, first)
+        self.assertNotIn('"withheld_', first)
+        # A restart forgets the session; the resent history is scanned again and must not withhold it.
+        ObserverTest.setUp(self)
+        home_turn(self.SESSION, "t2", "BOXP-428 削除して", "terminal", {"command": "rm -rf /opt/data/workspace/kohako-studio"},
+                  "", "削除しました。nextturnmarker", history=history)
+        second = bodies()
+        self.assertIn("nextturnmarker", second)
+        self.assertNotIn('"withheld_', second)
+        self.assertIsNone(plugin._tainted(self.SESSION))

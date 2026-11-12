@@ -1632,13 +1632,82 @@ def _segment_env(text, depth=0):
     return any(_words_env([w[2] for w in seg], depth) for seg in _segments(_shell_words(text)))
 
 
+# Programs that only name files: their output is names, sizes, modes or nothing, never what a file holds. A
+# credential file named by one of them (du -sh /opt/data/.env, ls -la ~/.ssh, find / -name id_rsa) is not read, so the
+# K0 path table does not apply to that segment (BOXP-428 TD-13). cp/mv/ln/cd are not here: they let a later command
+# read the file under a name the table does not know.
+_NAME_ONLY_PROGRAMS = {"ls", "du", "df", "stat", "tree", "find", "fd", "rm", "rmdir", "mkdir", "touch", "chmod", "chown",
+                       "test", "[", "which", "type", "basename", "dirname", "realpath", "readlink"}
+# Filters that may follow them in a pipeline. Their own operands are still judged by the path table.
+_NAME_FILTERS = {"sort", "head", "tail", "uniq", "wc", "cut", "tr", "column", "nl", "echo", "printf", "true", "false", ":"}
+_RUNS_COMMANDS = re.compile(r"-(?:exec|execdir|ok|okdir)|-[A-Za-z]*[xX]|--exec(?:-batch)?(?:=.*)?")
+# An option that takes a file of names or patterns (du/find --files0-from, du -X/--exclude-from, tree --fromfile,
+# fd --ignore-file) reads that file and may print its lines as names, so it ends the name-only status of the
+# segment (lolice#1201 review). One rule by option name: any option word with "from" or "file" in its name, or a
+# short option group with X; a false hit (stat --file-system, ls -X) only falls back to the full path table.
+_READS_A_LIST = re.compile(r"-[-A-Za-z0-9]*(?i:from|file)[-A-Za-z0-9]*(?:=.*)?|-[A-Za-z]*X.*", re.S)
+
+
+def _path_text(text):
+    """The part of an executed command the K0 path table is applied to. A command made only of name-only programs
+    and the filters above leaves out the operands of the name-only programs; redirection targets are always kept.
+    Any other program, xargs, a command substitution or a process substitution keeps the whole text (fail closed)."""
+    if re.search(r"\$\(|`|[<>]\(", text):
+        return text
+    try:
+        tokens = _shell_words(text)
+    except (ValueError, TypeError, RecursionError):
+        return text
+    commands, words, redirects, redirect_next = [], [], [], False
+    for token in tokens + [(0, 0, ';', False, True)]:
+        value, is_op = token[2], token[4]
+        if is_op and value in '<>':
+            redirect_next = True
+        elif is_op:
+            if words or redirects:
+                commands.append((words, redirects))
+            words, redirects, redirect_next = [], [], False
+        elif redirect_next:
+            redirects.append(value)
+            redirect_next = False
+        else:
+            words.append(value)
+    kept = []
+    for words, redirects in commands:
+        kept.append(' ' + ' '.join(redirects))
+        idx = _program_index(words)
+        if idx is None:
+            continue
+        if any(_last_element(w) in {"xargs", "parallel"} for w in words[:idx]):
+            return text
+        program = _last_element(words[idx])
+        if (program in _NAME_ONLY_PROGRAMS
+                and not (program in {"find", "fd"} and any(_RUNS_COMMANDS.fullmatch(w) for w in words[idx + 1:]))
+                and not any(_READS_A_LIST.fullmatch(w) for w in words[idx + 1:])):
+            continue
+        if program not in _NAME_FILTERS:
+            return text
+        kept.append(' ' + ' '.join(words))
+    return '\n'.join(kept)
+
+
 def _command_source(command):
+    """The K0 rule a command matches (a short, non-secret name), or None."""
     if len(command) > 256 * 1024 or command.count('<<') > 4096:
-        return True
+        return "unscannable"
     text = _executed_text(command)
     shell = _executed_text(command, code=False)
-    return bool(_SENSITIVE_PATH.search(text) or _SENSITIVE_COMMAND.search(text) or _CLUSTER_SECRET.search(text)
-                or _env_access(text) or _segment_env(shell) or _reads_token_file(shell))
+    if _SENSITIVE_PATH.search(_path_text(text)):
+        return "path_table"
+    if _SENSITIVE_COMMAND.search(text):
+        return "command_table"
+    if _CLUSTER_SECRET.search(text):
+        return "cluster_object"
+    if _env_access(text) or _segment_env(shell):
+        return "environment"
+    if _reads_token_file(shell):
+        return "named_file"
+    return None
 
 
 def _path_source(path):
@@ -1652,15 +1721,15 @@ def _withhold(args_text):
             args = json.loads(args_text)
         except (ValueError, TypeError):
             if args_text.lstrip().startswith('{'):
-                return bool(_SENSITIVE_PATH.search(args_text) or _SENSITIVE_COMMAND.search(args_text)
+                return "unparsed" if (_SENSITIVE_PATH.search(args_text) or _SENSITIVE_COMMAND.search(args_text)
                             or ('secret' in args_text.lower() and _CLUSTER_CLI.search(args_text)) or _reads_token_file(args_text)
                             or re.search(r'(?i)\benviron\b|\bprocess\.env\b|\bgetenv\b|\bprintenv\b|(?-i:[%$]ENV\b|\bENV(?:\.|\[))', args_text)
-                            or _env_access(args_text) or _segment_env(args_text))
+                            or _env_access(args_text) or _segment_env(args_text)) else None
             args = args_text
         if isinstance(args, dict):
             for key in _PATH_KEYS:
                 if key in args and args[key] is not None and _path_source(args[key]):
-                    return True
+                    return "path_argument"
             for key in _COMMAND_KEYS:
                 if key not in args or args[key] is None:
                     continue
@@ -1669,13 +1738,14 @@ def _withhold(args_text):
                     command = [str(x) for x in command]
                     flag = next((i for i, w in enumerate(command) if re.fullmatch(r'-[A-Za-z]*[ce]', w)), None)
                     command = command[flag + 1] if command and _interpreter(command[0]) and flag is not None and flag + 1 < len(command) else ' '.join(shlex.quote(x) for x in command)
-                if _command_source(str(command)):
-                    return True
-            return False
+                rule = _command_source(str(command))
+                if rule:
+                    return rule
+            return None
         text = str(args)
-        return _command_source(text) or (not re.search(r'\s', text.strip()) and _path_source(text.strip()))
+        return _command_source(text) or ("path_argument" if not re.search(r'\s', text.strip()) and _path_source(text.strip()) else None)
     except (ValueError, TypeError, RecursionError):
-        return True
+        return "scan_error"
 
 
 def _last_element(word):
@@ -2071,7 +2141,10 @@ def _on_tool(session_id=None, turn_id=None, tool_call_id=None, tool_name=None, a
                 "input": tool_input, "output": tool_output,
                 "start": now - (duration_ms or 0) / 1000, "end": now,
                 "level": "ERROR" if error_type or status in ("error", "failed") else None,
-                "metadata": {"status": status, "error_type": error_type, "body_policy": policy}})
+                "metadata": {"status": status, "error_type": error_type, "body_policy": policy,
+                             # which K0 rule matched (a fixed rule name, never the path or command), so a withheld
+                             # session can be traced to its trigger without its body (BOXP-428 TD-13)
+                             "k0_rule": (_withhold(args_text) or None) if reason == "known_source" else None}})
 
 
 @_guarded
