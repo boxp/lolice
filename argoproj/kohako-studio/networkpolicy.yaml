@@ -85,6 +85,13 @@ spec:
         selector: app == 'codex-workspace'
         namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
         ports: [8090, 9464]
+    # BOXP-522: local AivisSpeech Engine (コハク／ノーマル) for kohako-home read-aloud.
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'kohako-studio' && component == 'tts'
+        ports: [10101]
     - action: Allow
       protocol: TCP
       source: {}
@@ -97,6 +104,44 @@ spec:
       destination:
         nets: [192.168.10.99/32, 192.168.10.102/32, 192.168.10.103/32, 192.168.10.104/32]
         ports: [6443]
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        notNets: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 192.178.0.0/16]
+        ports: [443]
+---
+# BOXP-522: AivisSpeech Engine. Only the BFF may call it. Egress 443 is for the one-time model
+# download from AivisHub (コハク AIVMX) and the BERT cache from Hugging Face; reply text never leaves.
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: kohako-studio-tts
+  namespace: kohako-studio
+spec:
+  selector: app == 'kohako-studio' && component == 'tts'
+  types: [Ingress, Egress]
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: app == 'kohako-studio' && component == 'bff'
+      destination: {ports: [10101]}
+  egress:
+    - action: Allow
+      protocol: UDP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports: [53]
     - action: Allow
       protocol: TCP
       source: {}

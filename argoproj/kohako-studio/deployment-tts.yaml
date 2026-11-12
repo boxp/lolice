@@ -1,0 +1,83 @@
+# BOXP-522: local CPU text-to-speech for kohako-home (AivisSpeech Engine, voice コハク／ノーマル).
+# Reached only from the BFF (Owner-authenticated); no GPU, no external text submission.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kohako-studio-tts
+  namespace: kohako-studio
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: kohako-studio, component: tts}
+  template:
+    metadata:
+      labels: {app: kohako-studio, component: tts}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+                  # golyat-4 hosts the shared iGPU LLM / image generation; keep TTS CPU load off it.
+                  - {key: kubernetes.io/hostname, operator: NotIn, values: [golyat-4]}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: In, values: [golyat-1]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: engine
+          image: ghcr.io/aivis-project/aivisspeech-engine:cpu-1.2.0@sha256:5799c94c3594501be80eeda62106f15439a858c1630d25d1385576581433b192
+          imagePullPolicy: IfNotPresent
+          command: ["/opt/aivisspeech-engine/.venv/bin/python", "/launcher/launch.py"]
+          workingDir: /opt/aivisspeech-engine
+          env:
+            - {name: XDG_DATA_HOME, value: /data}
+            - {name: HOME, value: /tmp/home}
+            - {name: HF_HUB_DISABLE_TELEMETRY, value: "1"}
+            - {name: OMP_NUM_THREADS, value: "2"}
+          ports:
+            - {name: tts, containerPort: 10101}
+          startupProbe:
+            httpGet: {path: /version, port: tts}
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /version, port: tts}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /version, port: tts}
+            periodSeconds: 30
+            timeoutSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 500m, memory: 1536Mi}
+            limits: {cpu: "2", memory: 3Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+            - {name: launcher, mountPath: /launcher, readOnly: true}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: kohako-studio-tts-data}
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        - name: launcher
+          configMap: {name: kohako-studio-tts-launcher}

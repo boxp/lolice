@@ -78,6 +78,9 @@ spec:
               value: "true"
             - name: KOHAKO_NOTIFIER_USERNAME
               value: system:serviceaccount:codex-workspace:codex-workspace
+            # BOXP-522: local AivisSpeech Engine; the BFF resolves コハク／ノーマル by speaker UUID + style name.
+            - name: KOHAKO_TTS_URL
+              value: http://kohako-studio-tts.kohako-studio.svc.cluster.local:10101
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
