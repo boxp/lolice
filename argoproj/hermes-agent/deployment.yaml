@@ -21,6 +21,8 @@ spec:
         boxp.io/task-board-webhook-route-revision: "2026-11-10-BOXP-491-prefilter"
         # BOXP-462: bump when alertmanager_webhook_route.json / alertmanager_relay.* change.
         boxp.io/alertmanager-webhook-route-revision: "2026-11-08-v1"
+        # BOXP-501: bump when kohako_home_reminder_route.json / kohako_home_reminder.* change.
+        boxp.io/kohako-home-reminder-route-revision: "2026-11-12-v1"
     spec:
       automountServiceAccountToken: false
       nodeSelector:
@@ -74,6 +76,9 @@ spec:
                   except Exception:
                       subs = {}
               subs.update(managed)
+              # BOXP-501: kohako-home reminder route (global WEBHOOK_SECRET, no own secret).
+              with open("/bootstrap/kohako_home_reminder_route.json") as fh:
+                  subs.update(json.load(fh))
               # BOXP-462: Alertmanager relay route. Its token is the route's own
               # secret (not the task-board WEBHOOK_SECRET) and comes only from the
               # Secret env; without it the route is registered disabled (fail closed).
@@ -307,6 +312,12 @@ spec:
                 chmod 0600 /opt/data/.env
                 echo "[bootstrap] removed auto-generated API_SERVER_KEY from .env (managed key comes from env)"
               fi
+              # BOXP-501: kohako-home reminder/fallback formatter (deliver_only route, no LLM).
+              cp /bootstrap/kohako_home_reminder.sh /opt/data/scripts/kohako_home_reminder.sh
+              cp /bootstrap/kohako_home_reminder.clj /opt/data/scripts/kohako_home_reminder.clj
+              chmod 0755 /opt/data/scripts/kohako_home_reminder.sh
+              chmod 0644 /opt/data/scripts/kohako_home_reminder.clj
+              chown 1000:10000 /opt/data/scripts/kohako_home_reminder.sh /opt/data/scripts/kohako_home_reminder.clj
               # BOXP-462: Alertmanager relay formatter (deliver_only route, no LLM).
               cp /bootstrap/alertmanager_relay.sh /opt/data/scripts/alertmanager_relay.sh
               cp /bootstrap/alertmanager_relay.clj /opt/data/scripts/alertmanager_relay.clj

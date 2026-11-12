@@ -154,6 +154,29 @@ data:
       (log! decision reason)
       (print (if (= decision "pass") raw "[SILENT]")))
 
+  # BOXP-501: 家(kohako-home)を主配信にした Task Board 通知の Telegram 催促・fallback 受信口。
+  # codex-workspace の dispatcher が既存 task-board と同じ global WEBHOOK_SECRET の HMAC で送る(route 専用 secret なし)。
+  # deliver_only なので LLM を起動しない。静音判定と一回送信の管理は dispatcher 側で行う。
+  kohako_home_reminder_route.json: |
+    {"kohako-home-reminder": {"script": "kohako_home_reminder.sh", "prompt": "{message}", "deliver_only": true, "deliver": "telegram", "mirror_to_session": true, "enabled": true}}
+
+  kohako_home_reminder.sh: |
+    #!/bin/sh
+    exec bb /opt/data/scripts/kohako_home_reminder.clj
+
+  kohako_home_reminder.clj: |
+    (require '[cheshire.core :as json] '[clojure.string :as str])
+    (try
+      (let [payload (json/parse-string (slurp *in*) true)
+            kind (:kind payload) text (:text payload)]
+        (when-not (and (#{"reminder" "fallback"} kind) (string? text) (not (str/blank? text)))
+          (throw (ex-info "invalid payload" {})))
+        (let [clean (str/replace text #"[\p{Cc}\p{Cf}&&[^\n]]" "")
+              limit (if (= kind "reminder") 300 3800)]
+          (when (str/blank? clean) (throw (ex-info "invalid text" {})))
+          (println (json/generate-string {:message (subs clean 0 (min limit (count clean)))}))))
+      (catch Exception _ (System/exit 1)))
+
   # BOXP-462: Alertmanager -> Hermes の汎用受信口。Alertmanager の webhook_configs が
   # X-Gitlab-Token（Hermes webhook の token 検証方式。route 専用の secret）で送る。
   # deliver_only なので LLM を起動しない（アラートの受信が利用枠をさらに消費する自己増幅を避ける）。
