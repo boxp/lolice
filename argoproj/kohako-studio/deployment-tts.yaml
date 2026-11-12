@@ -47,6 +47,9 @@ spec:
           env:
             - {name: XDG_DATA_HOME, value: /data}
             - {name: HOME, value: /tmp/home}
+            # Keep the ~650MB BERT / Hugging Face cache on the PVC, not the 256Mi /tmp emptyDir.
+            - {name: HF_HOME, value: /data/huggingface}
+            - {name: XDG_CACHE_HOME, value: /data/cache}
             - {name: HF_HUB_DISABLE_TELEMETRY, value: "1"}
             - {name: OMP_NUM_THREADS, value: "2"}
           ports:
