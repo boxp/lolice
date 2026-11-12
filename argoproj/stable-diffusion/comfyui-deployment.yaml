@@ -52,6 +52,17 @@ spec:
         - name: comfyui
           image: ghcr.io/boxp/arch/comfyui-xpu:latest
           imagePullPolicy: Always
+          # The iGPU reports the whole system memory (about 88GiB) as VRAM, but
+          # GPU memory and process memory are charged to the same 72Gi limit.
+          # Without a cap ComfyUI never evicts the models of an earlier job and
+          # the next job is OOM-killed while loading. This leaves about 40GiB of
+          # VRAM budget, so older models are unloaded before new ones load.
+          # History: #1180 reverted this flag on the suspicion that it caused i915
+          # "Fence expiration" stalls. The same stall reproduced without the flag
+          # (5 more times on 2026-11-11) and went away only when the kernel
+          # request_timeout_ms was raised, while a job run with the flag finished
+          # normally, so the stalls are unrelated to this setting.
+          args: ["--reserve-vram", "48"]
           ports:
             - name: http
               containerPort: 8188
