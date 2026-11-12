@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kohako-studio-bff
+  namespace: kohako-studio
+spec:
+  type: ClusterIP
+  selector: {app: kohako-studio, component: bff}
+  ports:
+    - {name: bff, port: 8787, targetPort: bff}

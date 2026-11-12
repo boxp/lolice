@@ -1,10 +1,10 @@
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
 metadata:
-  name: kohako-studio
+  name: kohako-studio-web
   namespace: kohako-studio
 spec:
-  selector: app == 'kohako-studio'
+  selector: app == 'kohako-studio' && component == 'web'
   types: [Ingress, Egress]
   ingress:
     - action: Allow
@@ -19,6 +19,41 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
         selector: app == 'codex-workspace'
       destination: {ports: [8080]}
+  egress:
+    - action: Allow
+      protocol: UDP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'kohako-studio' && component == 'bff'
+        ports: [8787]
+---
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: kohako-studio-bff
+  namespace: kohako-studio
+spec:
+  selector: app == 'kohako-studio' && component == 'bff'
+  types: [Ingress, Egress]
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: app == 'kohako-studio' && component == 'web'
+      destination: {ports: [8787]}
   egress:
     - action: Allow
       protocol: UDP
