@@ -82,6 +82,25 @@ data:
                                     target = "backend"
                                   end
                                 end
+                                -- Set the route before httpCall can trigger route lookup.
+                                headers:replace("x-comfy-route", target)
+                                handle:clearRouteCache()
+                                if target == "backend" and phase == "image-ready" and method == "POST" and route == "/prompt" then
+                                  -- Cached models from a different workflow can exceed the 72Gi limit.
+                                  -- /free runs between jobs, without disrupting a running job, before the next job.
+                                  -- Even repeated workflows must reload their models as a result.
+                                  local free_ok, response = pcall(function()
+                                    return handle:httpCall("comfyui_backend", {
+                                      [":method"] = "POST",
+                                      [":path"] = "/free",
+                                      [":authority"] = "comfyui-backend.stable-diffusion.svc.cluster.local",
+                                      ["content-type"] = "application/json"
+                                    }, '{"unload_models":true,"free_memory":true}', 5000)
+                                  end)
+                                  if not free_ok or not response or response[":status"] ~= "200" then
+                                    handle:logWarn("ComfyUI /free failed; forwarding prompt")
+                                  end
+                                end
                                 -- Always overwritten, so a client cannot choose the route.
                                 headers:replace("x-comfy-route", target)
                                 handle:clearRouteCache()

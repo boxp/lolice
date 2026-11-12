@@ -13,7 +13,33 @@ spec = importlib.util.spec_from_file_location('sd_gateway_envoy', Path(__file__)
 base = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(base)
 ROOT, docker = base.ROOT, base.docker
-SERVER = base.SERVER.replace('7861', '8189')
+SERVER = r'''
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+import json, threading
+from pathlib import Path
+
+def make(name):
+    class Handler(BaseHTTPRequestHandler):
+        def reply(self):
+            if self.path == '/ws' and name == 'backend':
+                self.send_response(101); self.send_header('Upgrade', 'websocket')
+                self.send_header('Connection', 'Upgrade'); self.end_headers(); return
+            if self.path == '/free' and name == 'backend':
+                length = int(self.headers.get('Content-Length', 0))
+                with open('/tmp/free-calls', 'a') as f:
+                    f.write(json.dumps({'headers': dict(self.headers), 'body': self.rfile.read(length).decode()}) + '\n')
+                status = int(Path('/tmp/free-status').read_text()) if Path('/tmp/free-status').exists() else 200
+                if status == 0:
+                    self.close_connection = True; return
+                self.send_response(status); self.send_header('Content-Length', '0'); self.end_headers(); return
+            self.send_response(200); self.send_header('Content-Length', str(len(name))); self.end_headers()
+            self.wfile.write(name.encode())
+        do_GET = do_POST = reply
+        def log_message(self, *args): pass
+    return Handler
+threading.Thread(target=ThreadingHTTPServer(('127.0.0.1', 8189), make('backend')).serve_forever, daemon=True).start()
+ThreadingHTTPServer(('127.0.0.1', 8090), make('intake')).serve_forever()
+'''
 CLIENT = base.CLIENT.replace('7860', '8188')
 INTAKE, BACKEND = [200, 'intake'], [200, 'backend']
 
@@ -76,6 +102,45 @@ class ComfyGatewayRoutingTest(unittest.TestCase):
         else:
             docker('exec', self.envoy, '/bin/sh', '-c',
                    f'printf "%s\\n" "{value}" > /comfy-switch/.next && mv /comfy-switch/.next /comfy-switch/phase')
+
+    def reset_free(self, status=200):
+        docker('exec', self.backend, 'sh', '-c', f'rm -f /tmp/free-calls; echo {status} > /tmp/free-status')
+
+    def free_calls(self):
+        result = docker('exec', self.backend, 'sh', '-c', 'cat /tmp/free-calls 2>/dev/null || true')
+        return [json.loads(line) for line in result.splitlines()]
+
+    def test_free_before_each_ready_prompt(self):
+        self.phase('image-ready')
+        for path in ('/prompt', '/api/prompt'):
+            self.reset_free()
+            self.assertEqual(self.request('POST', path, {'Origin': 'https://example.com', 'x-comfy-route': 'intake'}), BACKEND)
+            calls = self.free_calls()
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]['body'], '{"unload_models":true,"free_memory":true}')
+            headers = {k.lower(): v for k, v in calls[0]['headers'].items()}
+            self.assertNotIn('origin', headers)
+            self.assertEqual(headers['content-type'], 'application/json')
+
+    def test_free_is_not_called_for_other_requests_or_phases(self):
+        for phase, method, path in (('image-ready', 'GET', '/prompt'),
+                                    ('image-ready', 'POST', '/upload/image'),
+                                    ('image-draining', 'POST', '/prompt'),
+                                    ('image-draining', 'POST', '/queue'),
+                                    ('llm-open', 'POST', '/prompt')):
+            self.phase(phase)
+            self.reset_free()
+            self.request(method, path)
+            self.assertEqual(self.free_calls(), [], (phase, method, path))
+
+    def test_free_failure_still_forwards_prompt(self):
+        self.phase('image-ready')
+        for status in (503, 0):
+            self.reset_free(status)
+            self.assertEqual(self.request('POST', '/prompt'), BACKEND)
+            self.assertEqual(len(self.free_calls()), 1)
+        logs = subprocess.run(['docker', 'logs', self.envoy], capture_output=True, text=True, check=True)
+        self.assertIn('ComfyUI /free failed; forwarding prompt', logs.stdout + logs.stderr)
 
     def test_not_ready_is_fail_closed_to_intake(self):
         for phase in (None, 'broken!', 'llm-open', 'busy', 'starting-sd', 'stopping-sd', 'failed'):
