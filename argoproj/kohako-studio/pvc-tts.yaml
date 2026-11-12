@@ -1,0 +1,12 @@
+# BOXP-522: AivisSpeech Engine data (コハク AIVMX ~255MB + BERT ~650MB cache). New volume, not an expansion.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kohako-studio-tts-data
+  namespace: kohako-studio
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi

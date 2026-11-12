@@ -1,0 +1,19 @@
+# BOXP-522: AivisSpeech Engine launcher for the kohako-home voice「コハク／ノーマル」.
+# The engine installs AivisHub's default models (コハク + まお) on every start and sends a startup
+# event. We only need コハク (model 22e8ed77-..., ACML 1.0), so restrict the default list to it and
+# make startup events a no-op. Sentry is disabled with --disable_sentry. Pinned to engine 1.2.0.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kohako-studio-tts-launcher
+  namespace: kohako-studio
+data:
+  launch.py: |
+    import runpy, sys, uuid
+    sys.path.insert(0, "/opt/aivisspeech-engine")
+    from voicevox_engine.utility import aivishub_client as c
+    KOHAKU = c.AivisSpeechDefaultModelProperty(model_uuid=uuid.UUID("22e8ed77-94fe-4ef2-871f-a86f94e9a579"), latest_version="1.1.0")
+    c.AivisHubClient.fetch_default_models = lambda self: [KOHAKU]
+    c.AivisHubClient.send_event = lambda self, *a, **k: None
+    sys.argv = ["run.py", "--host", "0.0.0.0", "--port", "10101", "--disable_sentry", "--disable_mutable_api", "--load_all_models"]
+    runpy.run_path("/opt/aivisspeech-engine/run.py", run_name="__main__")
