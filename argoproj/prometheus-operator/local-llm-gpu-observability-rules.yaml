@@ -15,7 +15,7 @@ spec:
           expr: |
             (absent(up{job="llama-server", namespace="local-llm", service="llama-server"})
              or up{job="llama-server", namespace="local-llm", service="llama-server"} == 0)
-            and on() (kube_deployment_spec_replicas{namespace="local-llm", deployment="llama-server"} > 0)
+            unless on() (kube_deployment_spec_replicas{namespace="local-llm", deployment="llama-server"} == 0)
           for: 5m
           labels:
             severity: critical

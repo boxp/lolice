@@ -49,9 +49,7 @@ for name in "${names[@]}"; do
   # also normalizes the Kubernetes YAML without requiring a language runtime.
   kubectl create --dry-run=client --validate=false -f "$rule_manifest" -o json \
     | jq '{groups: .spec.groups}' > "$generated_rule_file"
-  sed -e "s|__RULE_FILE__|$generated_rule_file|" \
-      -e "s|^  - rules.yaml$|  - $generated_rule_file|" \
-      -e "s|"rules.yaml"|"$generated_rule_file"|" "$test_file" > "$generated_test_file"
+  sed "s|__RULE_FILE__|$generated_rule_file|" "$test_file" > "$generated_test_file"
 
   echo "==> $name"
   "$promtool_bin" check rules "$generated_rule_file" || failed=1

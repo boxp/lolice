@@ -1801,6 +1801,36 @@
           ]
         }
       ]
+    },
+    {
+      "name": "LLM target absent while deployment metrics are missing",
+      "interval": "1m",
+      "input_series": [
+        {
+          "series": "up{job=\"intel-gpu-exporter\",namespace=\"intel-device-plugins\",service=\"intel-gpu-exporter\"}",
+          "values": "1+0x20"
+        }
+      ],
+      "alert_rule_test": [
+        {
+          "eval_time": "20m",
+          "alertname": "LocalLlmTargetDown",
+          "exp_alerts": [
+            {
+              "exp_labels": {
+                "severity": "critical",
+                "job": "llama-server",
+                "namespace": "local-llm",
+                "service": "llama-server"
+              },
+              "exp_annotations": {
+                "summary": "Local LLM metrics target is down",
+                "description": "The selected local-llm metrics target has been down for more than 5 minutes."
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
