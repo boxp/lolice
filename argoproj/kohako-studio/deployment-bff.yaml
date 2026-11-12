@@ -81,6 +81,10 @@ spec:
             # BOXP-522: local AivisSpeech Engine; the BFF resolves コハク／ノーマル by speaker UUID + style name.
             - name: KOHAKO_TTS_URL
               value: http://kohako-studio-tts.kohako-studio.svc.cluster.local:10101
+            # BOXP-524: kohako-home voice input. Reuses the in-cluster whisper.cpp (CPU, no outbound) from BOXP-332;
+            # audio is forwarded in memory only and never stored.
+            - name: KOHAKO_STT_URL
+              value: http://kohako-stt.even-g2-lab.svc.cluster.local:8080
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
