@@ -52,24 +52,14 @@ spec:
         - name: comfyui
           image: ghcr.io/boxp/arch/comfyui-xpu:latest
           imagePullPolicy: Always
-          # GPU memory (shmem) and process memory are charged to the same 72Gi
-          # limit. The default RAM-pressure cache keeps the node outputs of an
-          # earlier, different workflow (including its models, about 40GiB on
-          # the GPU) until a node of the next job has finished, but the next job
-          # first reads its own model files into RAM and is OOM-killed before
-          # that point. The classic cache drops outputs that the new prompt does
-          # not use when the prompt starts, and still reuses loaders that the
-          # two prompts share.
-          # The classic cache alone was not enough either (reproduced 03:39 UTC,
-          # #1195): the iGPU reports the whole system memory (about 88GiB) as
-          # VRAM, so ComfyUI saw no reason to take the earlier models off the
-          # GPU. --disable-smart-memory unloads every model that the current
-          # step does not need whenever a model is loaded, and all of them when
-          # a prompt ends, so GPU memory holds only what is in use.
-          # History: "--reserve-vram 48" (#1177, #1194) did not prevent this
-          # (reproduced 2026-11-12 03:21 UTC with the flag set), because the
-          # kill happens before anything is loaded to the GPU.
-          args: ["--cache-classic", "--disable-smart-memory"]
+          # No memory-related args on purpose. Running a different workflow
+          # right after another one can exceed the 72Gi limit (GPU memory is
+          # charged to it as shmem) and restart the container once. Three args
+          # were tried on 2026-11-12 with the same two-job sequence and each
+          # was still OOM-killed, so they were removed again (BOXP-498):
+          #   --reserve-vram 48 (#1194), --cache-classic (#1195),
+          #   --cache-classic --disable-smart-memory (#1196).
+          # One H3 job with the turbo LoRA already peaks at about 64GiB.
           ports:
             - name: http
               containerPort: 8188
