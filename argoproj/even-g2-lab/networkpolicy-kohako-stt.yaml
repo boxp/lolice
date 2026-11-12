@@ -1,4 +1,5 @@
 # BOXP-332 (M5): only the even-g2-main pod (kohako-bff sidecar) may reach whisper-server.
+# BOXP-524: the kohako-studio BFF (kohako-home voice input) may reach it too.
 # Egress is DNS + public HTTPS for the init container's pinned, sha256-checked model
 # download (Calico cannot scope egress per container; whisper-server itself makes no
 # outbound calls). Nothing in the cluster's private ranges is reachable.
@@ -17,6 +18,14 @@ spec:
       protocol: TCP
       source:
         selector: app == 'even-g2-main'
+      destination:
+        ports:
+          - 8080
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: app == 'kohako-studio' && component == 'bff'
+        namespaceSelector: kubernetes.io/metadata.name == 'kohako-studio'
       destination:
         ports:
           - 8080

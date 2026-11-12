@@ -37,7 +37,11 @@ assert deploy['serviceAccountName'] == 'kohako-studio'
 bff = next(c for c in deploy['containers'] if c['name'] == 'bff')
 env = {x['name']: x.get('value') for x in bff['env']}
 assert env['KOHAKO_ACCESS_AUD'] == 'bd491ea940b2fe8ced4ff62699c58a02bce6919da7986a513189fc44e9caec85'
-assert env['KOHAKO_VERIFIER_ENABLED'] == 'true' and 'KOHAKO_STT_URL' not in env
+assert env['KOHAKO_VERIFIER_ENABLED'] == 'true'
+# BOXP-524: voice input reuses only the in-cluster whisper.cpp (even-g2-lab/kohako-stt); no external STT.
+assert env['KOHAKO_STT_URL'] == 'http://kohako-stt.even-g2-lab.svc.cluster.local:8080'
+bff_policy = get(studio, 'NetworkPolicy', 'kohako-studio-bff')['spec']
+assert [r['destination'] for r in bff_policy['egress'] if r['destination'].get('selector') == "app == 'kohako-stt'"] == [{'selector': "app == 'kohako-stt'", 'namespaceSelector': "kubernetes.io/metadata.name == 'even-g2-lab'", 'ports': [8080]}]
 ws = get(workspace, 'Deployment', 'codex-workspace')['spec']['template']['spec']
 volume = next(x for x in ws['volumes'] if x['name'] == 'kohako-bff-verifier')
 assert volume['projected']['sources'] == [{'serviceAccountToken': {'audience': 'kohako-bff-verifier', 'expirationSeconds': 3600, 'path': 'token'}}]
