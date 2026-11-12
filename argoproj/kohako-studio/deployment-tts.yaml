@@ -70,9 +70,12 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          # BOXP-522 local measurement (same image/launcher): resident ~2.1GiB after load, peak 3.3-3.6GiB
+          # during the first synthesis; 3Gi was OOMKilled. ONNX Runtime sizes its thread pool to the node's
+          # cores, so a 2-CPU quota on a 4-core node throttles it; allow bursting to all 4 cores.
           resources:
-            requests: {cpu: 500m, memory: 1536Mi}
-            limits: {cpu: "2", memory: 3Gi}
+            requests: {cpu: 500m, memory: 2560Mi}
+            limits: {cpu: "4", memory: 5Gi}
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: tmp, mountPath: /tmp}
