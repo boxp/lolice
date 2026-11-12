@@ -1,0 +1,126 @@
+# Completed の S3 backup に対応する backup 用 snapshot を削除し、容量の上乗せを抑える。
+# BOXP-526 Owner 承認 B により codex-workspace-home の当該 volume だけを対象とする。
+# クラスタ内の最新 backup 時点の復元点は失われるが、S3 backup は残る。
+# 次回 backup は前回 snapshot との差分が使えず全体を読む代償がある。
+# このファイルと kustomization の行を削除すれば従来の保持に戻る。
+# Longhorn v1.9.1 では snapshot CR の delete により削除と purge が行われる前提。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: codex-workspace-home-snapshot-prune
+  namespace: longhorn-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-workspace-home-snapshot-prune
+  namespace: longhorn-system
+rules:
+  - apiGroups: ["longhorn.io"]
+    resources: ["snapshots"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: ["longhorn.io"]
+    resources: ["backups"]
+    verbs: ["get", "list"]
+  - apiGroups: ["longhorn.io"]
+    resources: ["volumes"]
+    resourceNames: ["pvc-f81b80fe-11e7-4539-b36a-dbe28416f524"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-workspace-home-snapshot-prune
+  namespace: longhorn-system
+subjects:
+  - kind: ServiceAccount
+    name: codex-workspace-home-snapshot-prune
+    namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codex-workspace-home-snapshot-prune
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: codex-workspace-home-snapshot-prune
+  namespace: longhorn-system
+spec:
+  schedule: "20 * * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 300
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: codex-workspace-home-snapshot-prune
+        spec:
+          restartPolicy: Never
+          serviceAccountName: codex-workspace-home-snapshot-prune
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: prune
+              # シェルと kubectl を含む既存の固定イメージ。
+              image: ghcr.io/boxp/arch/codex-workspace@sha256:2851cf372f3c6d21afc8f50ed8c95240711486790fbacaf278fd417427d213e1
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  TARGET=pvc-f81b80fe-11e7-4539-b36a-dbe28416f524
+                  PREFIX=c-u66405-
+                  kubectl() { command kubectl --namespace=longhorn-system --cache-dir=/tmp/kube-cache "$@"; }
+                  health=$(kubectl get volumes.longhorn.io "$TARGET" -o jsonpath='{.status.robustness}')
+                  if [ "$health" != healthy ]; then
+                    echo "skip: volume not healthy"
+                    exit 0
+                  fi
+                  snapshots=$(kubectl get snapshots.longhorn.io -l "longhornvolume=$TARGET" -o jsonpath='{.items[*].metadata.name}')
+                  for snapshot in $snapshots; do
+                    case "$snapshot" in "$PREFIX"*) ;; *) continue ;; esac
+                    volume=$(kubectl get snapshots.longhorn.io "$snapshot" -o jsonpath='{.spec.volume}')
+                    user_created=$(kubectl get snapshots.longhorn.io "$snapshot" -o jsonpath='{.status.userCreated}')
+                    removed=$(kubectl get snapshots.longhorn.io "$snapshot" -o jsonpath='{.status.markRemoved}')
+                    [ "$volume" = "$TARGET" ] && [ "$user_created" = true ] && [ "$removed" != true ] || continue
+                    backups=$(kubectl get backups.longhorn.io -l "backup-volume=$TARGET" -o jsonpath='{.items[*].metadata.name}')
+                    for backup in $backups; do
+                      backup_snapshot=$(kubectl get backups.longhorn.io "$backup" -o jsonpath='{.status.snapshotName}')
+                      state=$(kubectl get backups.longhorn.io "$backup" -o jsonpath='{.status.state}')
+                      if [ "$backup_snapshot" = "$snapshot" ] && [ "$state" = Completed ]; then
+                        size=$(kubectl get snapshots.longhorn.io "$snapshot" -o jsonpath='{.status.size}')
+                        echo "deleting snapshot=$snapshot size=$size backup=$backup"
+                        kubectl delete snapshots.longhorn.io "$snapshot" --wait=false
+                        echo "delete requested snapshot=$snapshot size=$size backup=$backup"
+                        break
+                      fi
+                    done
+                  done
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}

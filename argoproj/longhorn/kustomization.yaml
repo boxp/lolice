@@ -9,3 +9,4 @@ resources:
   - recurring-jobs.yaml
   - filesystem-trim-migration.yaml
   - filesystem-trim-label-sync.yaml
+  - codex-workspace-home-snapshot-prune.yaml
