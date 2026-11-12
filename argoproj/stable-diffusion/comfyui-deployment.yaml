@@ -52,14 +52,20 @@ spec:
         - name: comfyui
           image: ghcr.io/boxp/arch/comfyui-xpu:latest
           imagePullPolicy: Always
-          # No memory-related args on purpose. Running a different workflow
-          # right after another one can exceed the 72Gi limit (GPU memory is
-          # charged to it as shmem) and restart the container once. Three args
-          # were tried on 2026-11-12 with the same two-job sequence and each
-          # was still OOM-killed, so they were removed again (BOXP-498):
+          # Keep no node outputs between prompts. The default cache keeps the
+          # models of the previous workflow until the next prompt has started,
+          # so a different workflow right after it exceeds the 72Gi limit (GPU
+          # memory is charged to it as shmem; one H3 job with the turbo LoRA
+          # already peaks at about 64GiB) and the container is OOM-killed.
+          # With no cache the models die with the prompt and are freed in
+          # place. Cost: every run loads its models again.
+          # Do not replace this with unloading: on this iGPU an unload copies
+          # GPU memory to RAM before releasing it, which doubles the charge.
+          # Measured on 2026-11-12 (BOXP-498), all OOM-killed:
           #   --reserve-vram 48 (#1194), --cache-classic (#1195),
-          #   --cache-classic --disable-smart-memory (#1196).
-          # One H3 job with the turbo LoRA already peaks at about 64GiB.
+          #   --cache-classic --disable-smart-memory (#1196),
+          #   POST /free after a job that left 37GiB on the GPU.
+          args: ["--cache-none"]
           ports:
             - name: http
               containerPort: 8188
