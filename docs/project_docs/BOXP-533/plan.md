@@ -16,7 +16,7 @@ golyat-1 の `/dev/sdg1` と golyat-3 の `/dev/sdd1` はそれぞれ ext4 983G 
 
 ## 方針
 
-- `langfuse-longhorn` StorageClass を 2 replica にし、変更不能な parameters は Argo CD の Force/Replace で StorageClass を再作成して反映する。既存 PV/PVC は維持し、新規 volume に適用する。Delete reclaim と backup 対象外は維持する。
+- `langfuse-longhorn` StorageClass を 2 replica・`replicaSoftAntiAffinity: "disabled"`（global の soft anti-affinity=true を継承させず別 node を強制）にし、変更不能な parameters は Argo CD の Force/Replace で StorageClass を再作成して反映する。既存 PV/PVC は維持し、新規 volume に適用する。Delete reclaim と backup 対象外は維持する。
 - Longhorn Application の Sync hook Job（filesystem-trim-migration と同型）で既存 3 volume の replica 数を 2、replicaSoftAntiAffinity を disabled にする。対象名を RBAC で限定し、既存 replica を保持したままオンラインで追加・再構築する。PVC 再作成で volume 名が変わる場合は Job を削除または更新する。
 
 ## マージ後の確認

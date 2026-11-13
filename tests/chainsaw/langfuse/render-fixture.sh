@@ -3,7 +3,7 @@
 # - cloudflared と langfuse-cloudflared (Cloudflare tunnel / AWS Parameter Store が必要。本番で確認)
 # - ExternalSecret langfuse-oidc (Parameter Store。Access for SaaS の値なので合成値の Secret に置換。実経路は本番で確認)
 # - NEXTAUTH_URL (kind に TLS の公開 hostname が無いので Service の URL)。MCP proxy の Host も同じ値に揃える
-# - Longhorn StorageClass (kind は local-path。2 replica、reclaim と backup 対象外は下の静的検査と本番で確認)
+# - Longhorn StorageClass (kind は local-path。2 replica・別 node 強制、reclaim と backup 対象外は下の静的検査と本番で確認)
 set -euo pipefail
 : "${REPO_ROOT:?REPO_ROOT is required}"
 tmp="$(mktemp -d)"
@@ -17,6 +17,7 @@ yq -o=json -I=0 '.' "$tmp/render.yaml" | jq -s '.' > "$tmp/docs.json"
 jq -e '
   ([.[] | select(.kind == "StorageClass" and .metadata.name == "langfuse-longhorn")] | length == 1) and
   (.[] | select(.kind == "StorageClass") | .reclaimPolicy == "Delete" and .parameters.numberOfReplicas == "2"
+     and .parameters.replicaSoftAntiAffinity == "disabled"
      and ((.parameters.recurringJobSelector // "") == "")) and
   ([.[] | select(.kind == "StatefulSet") | .spec.volumeClaimTemplates[].metadata.labels // {} | keys[]
      | select(test("recurring-job"))] | length == 0)

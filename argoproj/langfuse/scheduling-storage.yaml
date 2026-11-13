@@ -28,6 +28,8 @@ reclaimPolicy: Delete
 volumeBindingMode: Immediate
 parameters:
   numberOfReplicas: "2"
+  # global の replica-soft-anti-affinity=true を継承すると 2 本が同一 node に載りうるため、新規 volume も別 node を強制する。
+  replicaSoftAntiAffinity: "disabled"
   dataLocality: best-effort
   staleReplicaTimeout: "30"
   fsType: ext4
