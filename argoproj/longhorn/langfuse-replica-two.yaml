@@ -1,0 +1,146 @@
+# BOXP-533: 作成済み Volume.spec.numberOfReplicas は StorageClass から更新されないため、
+# 既存の Langfuse 3 volume をここで変更する。replicaSoftAntiAffinity=disabled により、
+# global の replica-soft-anti-affinity=true より優先して 2 replica を別ノードに置く。
+# 同一ノード上の 2 replica は成功としない。patch は冪等で、replica / volume / snapshot を
+# 削除せず、Role の resourceNames で対象もこの 3 volume に限定する。
+# Longhorn は新 replica をオンラインで追加・再構築し、既存 replica を保持する。
+# PVC を再作成すると volume 名が変わり、新 volume は StorageClass から 2 replica を得る。
+# 固定名が存在しない場合 kubectl patch は失敗するため、PVC 再作成時はこのファイルを削除または更新する。
+#
+# longhorn Application は app 全体で Replace=true のため、不変な Job を通常リソースにすると再 sync 時の
+# replace が失敗し得る。filesystem-trim-migration.yaml と同じく Sync hook（BeforeHookCreation）にし、
+# Application 全体の sync ごとに冪等に再適用する。selective sync では hook は実行されない。
+# hook が失敗すると longhorn の sync が失敗するので、対象 volume が無くなったら必ずこのファイルを外すこと。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: langfuse-replica-two
+  namespace: longhorn-system
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: langfuse-replica-two
+  namespace: longhorn-system
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+rules:
+  - apiGroups: ["longhorn.io"]
+    resources: ["volumes"]
+    verbs: ["get", "patch"]
+    resourceNames:
+      - pvc-4724f3ae-1c78-4cd7-806e-f8e1557bded7
+      - pvc-dba0ceae-dc34-4ff8-924f-fbd2fc24c8f6
+      - pvc-73aa4c95-7b31-4fde-93cb-22703789c09a
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: langfuse-replica-two
+  namespace: longhorn-system
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+subjects:
+  - kind: ServiceAccount
+    name: langfuse-replica-two
+    namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: langfuse-replica-two
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: langfuse-replica-two
+  namespace: longhorn-system
+  labels:
+    app.kubernetes.io/name: langfuse-replica-two
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    # 次の sync まで Job を残し、ログで結果を確認できるようにする。
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: langfuse-replica-two
+    spec:
+      restartPolicy: Never
+      serviceAccountName: langfuse-replica-two
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: patch
+          image: registry.k8s.io/kubectl:v1.37.2@sha256:fe049faa65ae483ac200009a949a68fa4c9985daea12c9cb1195c9c7965301fc
+          command: ["/bin/kubectl"]
+          args:
+            - --namespace=longhorn-system
+            - --cache-dir=/tmp/kube-cache
+            - patch
+            - volumes.longhorn.io
+            - pvc-4724f3ae-1c78-4cd7-806e-f8e1557bded7
+            - pvc-dba0ceae-dc34-4ff8-924f-fbd2fc24c8f6
+            - pvc-73aa4c95-7b31-4fde-93cb-22703789c09a
+            - --type=merge
+            - -p
+            - '{"spec":{"numberOfReplicas":2,"replicaSoftAntiAffinity":"disabled"}}'
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: report
+          image: registry.k8s.io/kubectl:v1.37.2@sha256:fe049faa65ae483ac200009a949a68fa4c9985daea12c9cb1195c9c7965301fc
+          command: ["/bin/kubectl"]
+          args:
+            - --namespace=longhorn-system
+            - --cache-dir=/tmp/kube-cache
+            - get
+            - volumes.longhorn.io
+            - pvc-4724f3ae-1c78-4cd7-806e-f8e1557bded7
+            - pvc-dba0ceae-dc34-4ff8-924f-fbd2fc24c8f6
+            - pvc-73aa4c95-7b31-4fde-93cb-22703789c09a
+            - --output=custom-columns=NAME:.metadata.name,REPLICAS:.spec.numberOfReplicas,ANTIAFFINITY:.spec.replicaSoftAntiAffinity,STATE:.status.state,ROBUSTNESS:.status.robustness
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
