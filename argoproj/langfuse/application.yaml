@@ -3,6 +3,12 @@ kind: Application
 metadata:
   name: langfuse
   namespace: argocd
+  annotations:
+    # BOXP-533: StorageClass.parameters は不変のため、server-side diff の dry-run が
+    # langfuse-longhorn の numberOfReplicas 変更で "field is immutable" となり比較自体が失敗し、
+    # 自動同期が走らない。client-side diff に戻し、SC 側の Force=true,Replace=true で作り直させる
+    # （BOXP-501 の kohako-studio と同じ対処）。
+    argocd.argoproj.io/compare-options: ServerSideDiff=false
 spec:
   destination:
     namespace: langfuse

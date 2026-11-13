@@ -10,6 +10,9 @@
 # longhorn Application は app 全体で Replace=true のため、不変な Job を通常リソースにすると再 sync 時の
 # replace が失敗し得る。filesystem-trim-migration.yaml と同じく Sync hook（BeforeHookCreation）にし、
 # Application 全体の sync ごとに冪等に再適用する。selective sync では hook は実行されない。
+# ServiceAccount / Role / RoleBinding は通常リソース（wave 0）にする。hook だけの追加では Application が
+# OutOfSync にならず自動 sync が起きないため（BOXP-533 初回 merge 後に Job が未実行だった）、通常リソースの差分で
+# 自動 sync を起こし、同じ sync の wave 1 で Job hook を走らせる。
 # hook が失敗すると longhorn の sync が失敗するので、対象 volume が無くなったら必ずこのファイルを外すこと。
 apiVersion: v1
 kind: ServiceAccount
@@ -17,8 +20,6 @@ metadata:
   name: langfuse-replica-two
   namespace: longhorn-system
   annotations:
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "0"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -27,8 +28,6 @@ metadata:
   name: langfuse-replica-two
   namespace: longhorn-system
   annotations:
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "0"
 rules:
   - apiGroups: ["longhorn.io"]
@@ -45,8 +44,6 @@ metadata:
   name: langfuse-replica-two
   namespace: longhorn-system
   annotations:
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "0"
 subjects:
   - kind: ServiceAccount
