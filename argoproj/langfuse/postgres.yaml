@@ -47,7 +47,7 @@ spec:
       containers:
         - name: postgres
           # major 更新はデータ形式が非互換で起動しない。pg_upgrade か再作成を決めるまで renovate.json で 16 に固定する。
-          image: docker.io/postgres:16.15
+          image: docker.io/postgres:16.16
           args:
             - -c
             - max_connections=50
