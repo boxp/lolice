@@ -24,13 +24,15 @@ spec:
             nodeSelectorTerms:
               - matchExpressions:
                   - {key: kubernetes.io/arch, operator: In, values: [amd64]}
-                  # golyat-4 hosts the shared iGPU LLM / image generation; keep TTS CPU load off it.
-                  - {key: kubernetes.io/hostname, operator: NotIn, values: [golyat-4]}
+          # BOXP-522 TD-01: on golyat-1 (4-core N-series, ~2.3 cores already busy) synthesis ran at ~0.5x real time,
+          # leaving long pauses between read-aloud groups. golyat-4 (16 cores, ~1.5 busy on average) reaches ~1.48x
+          # real time with 8 CPUs (serial OMP 8 = 1.48x vs 2 parallel x OMP 4 = 1.46x, so serial keeps lower latency).
+          # The iGPU stays with llama-server; TTS only uses CPU and is capped below so most cores remain for other workloads. Falls back to other amd64 nodes if unavailable.
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               preference:
                 matchExpressions:
-                  - {key: kubernetes.io/hostname, operator: In, values: [golyat-1]}
+                  - {key: kubernetes.io/hostname, operator: In, values: [golyat-4]}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -51,7 +53,8 @@ spec:
             - {name: HF_HOME, value: /data/huggingface}
             - {name: XDG_CACHE_HOME, value: /data/cache}
             - {name: HF_HUB_DISABLE_TELEMETRY, value: "1"}
-            - {name: OMP_NUM_THREADS, value: "2"}
+            # One synthesis at a time uses all 8 CPUs of the limit (real-time ratio ~0.68 per request).
+            - {name: OMP_NUM_THREADS, value: "8"}
           ports:
             - {name: tts, containerPort: 10101}
           startupProbe:
@@ -73,9 +76,10 @@ spec:
           # BOXP-522 local measurement (same image/launcher): resident ~2.1GiB after load, peak 3.3-3.6GiB
           # during the first synthesis; 3Gi was OOMKilled. ONNX Runtime sizes its thread pool to the node's
           # cores, so a 2-CPU quota on a 4-core node throttles it; allow bursting to all 4 cores.
+          # BOXP-522 TD-01: 8 CPUs so synthesis keeps ahead of playback; measured peak 3.3GiB with OMP 8 under a 6g limit.
           resources:
-            requests: {cpu: 500m, memory: 2560Mi}
-            limits: {cpu: "4", memory: 5Gi}
+            requests: {cpu: "1", memory: 3Gi}
+            limits: {cpu: "8", memory: 6Gi}
           volumeMounts:
             - {name: data, mountPath: /data}
             - {name: tmp, mountPath: /tmp}
