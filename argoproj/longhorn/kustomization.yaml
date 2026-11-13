@@ -7,5 +7,6 @@ resources:
   - cloudflare-deployment.yaml
   - settings.yaml
   - recurring-jobs.yaml
+  - langfuse-replica-two.yaml
   - filesystem-trim-migration.yaml
   - filesystem-trim-label-sync.yaml

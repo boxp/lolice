@@ -10,19 +10,26 @@ preemptionPolicy: Never
 globalDefault: false
 description: "BOXP-428: Langfuse observability stack, lowest priority"
 ---
-# One replica, reclaim Delete, and no recurring-job labels: these volumes hold short-lived
-# observation bodies, so they are deliberately outside Longhorn backups. Do not add a
-# recurring-job group without revisiting the retention design (docs/project_docs/BOXP-428).
+# BOXP-533: USB SSD 増設後の Owner 判断で replica を 2 にし、単一ノード障害に備える。
+# これはバックアップの代替ではない。短期保持のデータは引き続き Longhorn backup 対象外で、
+# recurring-job group は付けない（保持設計は docs/project_docs/BOXP-428 を参照）。
+# StorageClass の parameters は変更できないため Force/Replace で StorageClass のみを再作成する。
+# 既存の PV/PVC は影響を受けず、この変更は新規 volume のみに適用される。
+# 既存 volume は argoproj/longhorn/langfuse-replica-two.yaml で変更する。
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: langfuse-longhorn
+  annotations:
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
 provisioner: driver.longhorn.io
 allowVolumeExpansion: true
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
 parameters:
-  numberOfReplicas: "1"
+  numberOfReplicas: "2"
+  # global の replica-soft-anti-affinity=true を継承すると 2 本が同一 node に載りうるため、新規 volume も別 node を強制する。
+  replicaSoftAntiAffinity: "disabled"
   dataLocality: best-effort
   staleReplicaTimeout: "30"
   fsType: ext4
