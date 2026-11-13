@@ -33,7 +33,7 @@ spec:
       containers:
         - name: api-transport
           # Already deployed workspace digest; no API keys or workspace volume.
-          image: ghcr.io/boxp/arch/codex-workspace@sha256:dd79137490a534eb0c5c8e2cfa7a66b32a99e696c4cc7db98d210e0886437387
+          image: ghcr.io/boxp/arch/codex-workspace@sha256:41edb6c4ce9be029ce5f8bd086cf59cb8547108f862c782592b44731b9ac3594
           command: [python3, -B, /code/runtime_api_worker.py]
           env:
             - name: PYTHONUNBUFFERED
@@ -62,7 +62,7 @@ spec:
         # BOXP-484: durable llama/SD switcher. It reaches the API only through
         # the file transport above, so it deliberately has no identity volume.
         - name: sd-switch
-          image: ghcr.io/boxp/arch/codex-workspace@sha256:dd79137490a534eb0c5c8e2cfa7a66b32a99e696c4cc7db98d210e0886437387
+          image: ghcr.io/boxp/arch/codex-workspace@sha256:41edb6c4ce9be029ce5f8bd086cf59cb8547108f862c782592b44731b9ac3594
           command: [python3, -B, /code/runtime_switch_worker.py]
           env:
             - name: PYTHONUNBUFFERED
