@@ -28,7 +28,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: worker
-          image: docker.io/langfuse/langfuse-worker:4.78.0
+          image: docker.io/langfuse/langfuse-worker:4.79.0
           env:
             - name: TELEMETRY_ENABLED
               value: "false"
