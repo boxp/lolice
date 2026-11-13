@@ -30,3 +30,13 @@ Argo CD の sync と Job ログを確認する。各 volume の `numberOfReplica
 ## ロールバック
 
 必要な場合のみ対象 volume を 1 replica に戻す。replica の削減は冗長性を失いデータ安全性に影響するため、健全性と残す replica の状態を確認し、データ消失リスクを理解した上で明示的に判断して実施する。StorageClass も必要に応じて元に戻す。
+
+## 追補: 初回 merge (#1219) 後の反映不全と修正
+
+- langfuse app: `ServerSideApply=true` に伴う server-side diff の dry-run が、StorageClass.parameters 変更を
+  `field is immutable` として拒否し `ComparisonError` で比較自体が失敗、自動同期が起きなかった
+  （SC は numberOfReplicas=1 のまま）。BOXP-501 (kohako-studio) と同じく Application に
+  `argocd.argoproj.io/compare-options: ServerSideDiff=false` を付け、client-side diff で OutOfSync を検出させ、
+  SC 側の `Force=true,Replace=true` で作り直させる。
+- longhorn app: 追加物が hook だけだったため OutOfSync にならず自動 sync が走らず、Job が未実行だった。
+  ServiceAccount / Role / RoleBinding を通常リソース (wave 0) にし、その差分で自動 sync を起こして wave 1 の Job hook を実行させる。
