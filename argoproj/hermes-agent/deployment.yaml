@@ -421,7 +421,10 @@ spec:
             - gateway
             - run
           env:
-            # BOXP-553: deliver Alertmanager to home and Telegram.
+            # BOXP-553: deliver Alertmanager to home and Telegram. The Telegram bot token, home
+            # channel and topic are not set here: the gateway loads /opt/data/.env (PVC) into its
+            # environment at start, and the plugin reads the same TELEGRAM_BOT_TOKEN /
+            # TELEGRAM_HOME_CHANNEL / TELEGRAM_HOME_CHANNEL_THREAD_ID that `deliver: telegram` uses.
             - name: BOXP_NOTIFY_ENABLED
               value: "1"
             - name: BOXP_NOTIFY_TELEGRAM_MODE
