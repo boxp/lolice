@@ -1,0 +1,11 @@
+name: boxp-notify
+label: BOXP notify
+kind: platform
+version: 0.0.1
+description: >
+  BOXP-546 prototype (NOT deployed). Send-only notification channel: the
+  official webhook / cron `deliver` target that writes the home inbox,
+  de-duplicates by event id, grants silence only on a Notes receipt and
+  forwards to Telegram as a fallback. Uses only gateway.platforms.base and
+  gateway.config; no core patches.
+author: boxp

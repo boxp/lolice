@@ -32,6 +32,23 @@ class RouteTest(unittest.TestCase):
         self.assertIn('/opt/data/scripts/kohako_home_reminder.clj', deployment)
         self.assertIn('/webhooks/kohako-home-reminder', (ROOT / 'argoproj/codex-workspace/deployment.yaml').read_text())
 
+    def test_alertmanager_channel_and_plugin_rendered(self):
+        route = json.loads(self.config['alertmanager_webhook_route.json'])['alertmanager']
+        self.assertEqual(route['deliver'], 'boxp_notify')
+        self.assertEqual(route['deliver_extra'], {'chat_id': 'direct:alertmanager'})
+        self.assertFalse(route['mirror_to_session'])
+        self.assertTrue(route['deliver_only'])
+        rendered = subprocess.check_output(['kustomize', 'build', str(ROOT / 'argoproj/hermes-agent')], text=True)
+        docs = list(yaml.safe_load_all(rendered))
+        deployment = next(d for d in docs if d['kind'] == 'Deployment' and d['metadata']['name'] == 'hermes-agent')
+        pod = deployment['spec']['template']['spec']
+        volume = next(v for v in pod['volumes'] if v['name'] == 'boxp-notify-plugin')
+        cm = next(d for d in docs if d['kind'] == 'ConfigMap' and d['metadata']['name'] == volume['configMap']['name'])
+        self.assertEqual(set(cm['data']), {'plugin.yaml', '__init__.py'})
+        init = next(c for c in pod['initContainers'] if c['name'] == 'bootstrap-config')
+        self.assertTrue(any(m['name'] == 'boxp-notify-plugin' and m['mountPath'] == '/bootstrap-plugins/boxp-notify' for m in init['volumeMounts']))
+        self.assertIn('boxp-notify', yaml.safe_load(self.config['config.yaml'])['plugins']['enabled'])
+
     def test_valid_and_limits(self):
         for kind, limit in [('reminder', 300), ('fallback', 3800)]:
             result = self.run_route({'kind': kind, 'text': 'あ\u0001' + '文' * 4000})

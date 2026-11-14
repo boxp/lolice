@@ -20,7 +20,7 @@ spec:
         # the Pod and the new route definition takes effect.
         boxp.io/task-board-webhook-route-revision: "2026-11-10-BOXP-491-prefilter"
         # BOXP-462: bump when alertmanager_webhook_route.json / alertmanager_relay.* change.
-        boxp.io/alertmanager-webhook-route-revision: "2026-11-14-BOXP-501-copy"
+        boxp.io/alertmanager-webhook-route-revision: "2026-11-14-BOXP-553-channel"
         # BOXP-501: bump when kohako_home_reminder_route.json / kohako_home_reminder.* change.
         boxp.io/kohako-home-reminder-route-revision: "2026-11-12-v1"
     spec:
@@ -168,6 +168,13 @@ spec:
               chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
               chmod 2775 "$plugin_dir"
               chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              # BOXP-553: install the notification channel plugin.
+              plugin_dir=/opt/data/plugins/boxp-notify
+              mkdir -p "$plugin_dir"
+              cp /bootstrap-plugins/boxp-notify/plugin.yaml /bootstrap-plugins/boxp-notify/__init__.py "$plugin_dir/"
+              chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              chmod 2775 "$plugin_dir"
+              chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
               # BOXP-332: enable the plugins without rewriting hand-edited YAML.
               python3 - <<'PYCONFIG'
               import os, re
@@ -182,7 +189,8 @@ spec:
               for name, note in [("kohako-g2-context", "BOXP-332: owner-DM-only reference context from Kohako G2."),
                                  ("boxp-ai-ops-observer", "BOXP-360: metadata-only AI ops ledger."),
                                  ("kohako-g2-realtime", "BOXP-387: Kohako G2 realtime client-secret mint (openai-codex sign-in)."),
-                                 ("boxp-langfuse-observer", "BOXP-428: in-scope delegation turns to the in-cluster Langfuse.")]:
+                                 ("boxp-langfuse-observer", "BOXP-428: in-scope delegation turns to the in-cluster Langfuse."),
+                                 ("boxp-notify", "BOXP-553: notification channel.")]:
                   with open(path) as fh:
                       text = fh.read()
                   cfg = safe_load(text) or {}
@@ -402,6 +410,9 @@ spec:
             - name: boxp-langfuse-observer-plugin
               mountPath: /bootstrap-plugins/boxp-langfuse-observer
               readOnly: true
+            - name: boxp-notify-plugin
+              mountPath: /bootstrap-plugins/boxp-notify
+              readOnly: true
       containers:
         - name: hermes-agent
           image: ghcr.io/boxp/arch/hermes-agent:latest
@@ -410,6 +421,13 @@ spec:
             - gateway
             - run
           env:
+            # BOXP-553: deliver Alertmanager to home and Telegram.
+            - name: BOXP_NOTIFY_ENABLED
+              value: "1"
+            - name: BOXP_NOTIFY_TELEGRAM_MODE
+              value: fallback
+            - name: BOXP_NOTIFY_TELEGRAM_MODE_ALERTMANAGER
+              value: both
             # BOXP-332: only this Telegram owner can receive G2 reference context.
             - name: KOHAKO_G2_CONTEXT_OWNER_TELEGRAM_USER_ID
               value: "8202126858"
@@ -664,6 +682,9 @@ spec:
         - name: boxp-langfuse-observer-plugin
           configMap:
             name: hermes-agent-boxp-langfuse-observer-plugin
+        - name: boxp-notify-plugin
+          configMap:
+            name: hermes-agent-boxp-notify-plugin
         # BOXP-428: optional so that a missing ingest key leaves the plugin idle, not the Pod down.
         - name: langfuse-ingest-key
           secret:
