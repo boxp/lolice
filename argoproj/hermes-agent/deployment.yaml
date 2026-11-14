@@ -186,6 +186,69 @@ spec:
               except Exception as exc:
                   print(f"[bootstrap] WARNING display migration failed validation; not rewriting config.yaml: {exc}")
               PYDISPLAY
+              # BOXP-556: the startup API-turn recovery scans the whole messages table on the
+              # event loop (upstream session_ingress_media._history_mentions). With the 3 GB
+              # state.db and a cold page cache it outlasts the default loop watchdog (3 strikes,
+              # about 90-120 s), which killed the gateway twice per Pod start on both v0.22.5 and
+              # v0.23.1. Widen the official setting; a real wedge still restarts, only later.
+              python3 - <<'PYWATCHDOG'
+              import os, re
+              try:
+                  import yaml
+                  safe_load = yaml.safe_load
+              except ImportError:
+                  from ruamel.yaml import YAML
+                  safe_load = YAML(typ="safe", pure=True).load
+              path = "/opt/data/config.yaml"
+              want = 20
+              with open(path) as fh:
+                  text = fh.read()
+              try:
+                  cfg = safe_load(text) or {}
+                  gateway = cfg.get("gateway")
+                  if "loop_watchdog_max_strikes" in cfg or (isinstance(gateway, dict) and "loop_watchdog_max_strikes" in gateway):
+                      print("[bootstrap] gateway loop watchdog tolerance already configured")
+                  else:
+                      key = f"loop_watchdog_max_strikes: {want}"
+                      new = None
+                      if "gateway" not in cfg:
+                          new = (text.rstrip("\n") + "\n\n# BOXP-556: tolerate the slow startup scan of state.db (default 3 strikes).\n"
+                                 f"gateway:\n  {key}\n")
+                      elif gateway is None or isinstance(gateway, dict):
+                          # An existing gateway section keeps its other settings; only the key is added.
+                          lines = text.splitlines(keepends=True)
+                          block = [i for i, line in enumerate(lines) if re.fullmatch(r"gateway:\s*(?:#.*)?\n?", line)]
+                          flow = [i for i, line in enumerate(lines) if re.fullmatch(r"gateway:\s*\{.*\}\s*(?:#.*)?\n?", line)]
+                          if len(block) == 1 and not flow:
+                              at = block[0]
+                              indent = "  "
+                              if gateway:
+                                  child = next(line for line in lines[at + 1:] if line.strip() and not line.lstrip().startswith("#"))
+                                  indent = child[:len(child) - len(child.lstrip())]
+                              if not lines[at].endswith("\n"):
+                                  lines[at] += "\n"
+                              lines.insert(at + 1, f"{indent}{key}\n")
+                              new = "".join(lines)
+                          elif len(flow) == 1 and not block:
+                              head, rest = lines[flow[0]].split("{", 1)
+                              lines[flow[0]] = head + "{" + key + (", " if gateway else "") + rest
+                              new = "".join(lines)
+                      if new is None:
+                          raise ValueError("gateway section has an unsupported shape")
+                      result = safe_load(new)
+                      assert result["gateway"] == {**(gateway or {}), "loop_watchdog_max_strikes": want}
+                      assert {k: v for k, v in result.items() if k != "gateway"} == {k: v for k, v in cfg.items() if k != "gateway"}
+                      tmp = path + ".tmp"
+                      with open(tmp, "w") as fh:
+                          fh.write(new)
+                      st = os.stat(path)
+                      os.chown(tmp, st.st_uid, st.st_gid)
+                      os.chmod(tmp, st.st_mode & 0o7777)
+                      os.replace(tmp, path)
+                      print("[bootstrap] configured gateway loop watchdog tolerance")
+              except Exception as exc:
+                  print(f"[bootstrap] WARNING gateway watchdog migration failed validation; not rewriting config.yaml: {exc}")
+              PYWATCHDOG
               # BOXP-332: install the managed user plugin on every bootstrap.
               plugin_dir=/opt/data/plugins/kohako-g2-context
               mkdir -p "$plugin_dir"
