@@ -41,6 +41,10 @@ configMapGenerator:
     files:
       - plugins/boxp-langfuse-observer/plugin.yaml
       - plugins/boxp-langfuse-observer/__init__.py
+  - name: hermes-agent-boxp-notify-plugin
+    files:
+      - plugins/boxp-notify/plugin.yaml
+      - plugins/boxp-notify/__init__.py
   - name: hermes-agent-ai-ops-metrics
     files:
       - ai-ops-metrics/server.py

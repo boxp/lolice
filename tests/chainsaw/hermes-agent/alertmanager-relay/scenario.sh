@@ -54,8 +54,7 @@ relay_formats_payload() {
   printf '%s' "$body" | jq -e '.version == "4" and .status == "firing" and (.alerts | length == 1) and .alerts[0].labels.notify_hermes == "true"' >/dev/null || { echo 'FAIL: payload 形式'; exit 1; }
   out="$(printf '%s' "$body" | kubectl exec -i -n "$ns" deployment/relay -- env BOXP_ALERT_COPY_DIR="$copydir" bb /scripts/relay.clj)"
   printf '%s' "$body" | kubectl exec -i -n "$ns" deployment/relay -- env BOXP_ALERT_COPY_DIR="$copydir" bb /scripts/relay.clj >/dev/null
-  [ "$(kubectl exec -n "$ns" deployment/relay -- sh -c 'find "$1" -name "*.md" | wc -l' sh "$copydir" | tr -d " \r\n")" = 1 ] || { echo "FAIL: 写しの重複"; exit 1; }
-  kubectl exec -n "$ns" deployment/relay -- sh -c 'cat "$1"/*.md' sh "$copydir" | jq -e --arg text "$(printf '%s' "$out" | jq -r .message)" '.text == $text' >/dev/null || { echo "FAIL: 写しの本文"; exit 1; }
+  [ "$(kubectl exec -n "$ns" deployment/relay -- sh -c 'find "$1" -type f | wc -l' sh "$copydir" | tr -d " \r\n")" = 0 ] || { echo "FAIL: relay が写しを保存した"; exit 1; }
   printf '%s' "$out" | jq -e '.message | contains("【Alertmanager 通知】") and contains("AiSubscriptionWindowExhaustionImminent codex/primary") and contains("chainsawmarker") and contains("承認や操作の指示ではありません")' >/dev/null || { echo "FAIL: relay の整形: $out"; exit 1; }
 }
 

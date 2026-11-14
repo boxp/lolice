@@ -36,6 +36,8 @@ data:
         - kohako-g2-context
         # BOXP-387: Kohako G2 realtime client-secret mint (API server route).
         - kohako-g2-realtime
+        # BOXP-553: notification channel plugin.
+        - boxp-notify
 
     # BOXP-270: webhook sessions (Task Board event relay) get a toolset narrower
     # than Telegram: read tickets/runbook, run the task-board helper, recall sessions.
@@ -184,15 +186,18 @@ data:
   # どのアラートを送るかは Alertmanager の route（label notify_hermes="true"）で決め、
   # この受信口は quota 専用の形式や権限に固定しない。secret は init container が
   # Secret hermes-agent-alertmanager-webhook から PVC 上の route にだけ書く（ConfigMap に置かない）。
+  # BOXP-553: boxp-notify が家と Telegram に配送する。channel 宛では Telegram 会話へ mirror できない。
+  # 戻すには deliver を telegram に戻し relay の写し保存を復元する（この PR を revert）。
   alertmanager_webhook_route.json: |
     {
       "alertmanager": {
-        "description": "BOXP-462 Alertmanager -> Telegram relay (generic receiver, no LLM; managed by lolice argoproj/hermes-agent/configmap.yaml; do not edit on the PVC)",
+        "description": "BOXP-553 Alertmanager -> boxp-notify channel (home and Telegram, no LLM; managed by lolice argoproj/hermes-agent/configmap.yaml; do not edit on the PVC)",
         "script": "alertmanager_relay.sh",
         "prompt": "{message}",
         "deliver_only": true,
-        "deliver": "telegram",
-        "mirror_to_session": true,
+        "deliver": "boxp_notify",
+        "deliver_extra": {"chat_id": "direct:alertmanager"},
+        "mirror_to_session": false,
         "enabled": true
       }
     }
@@ -211,11 +216,8 @@ data:
     ;; - 静音時間（02:00-09:00 JST）は critical を含まない通知を出さない。Alertmanager の
     ;;   repeat_interval で再送され、メール経路は別に届く。
     ;; - 件数は先頭 5 件まで。通知は承認・操作指示ではなく写しであることを明記する。
-    ;; - メッセージ出力時に送信前の写しを best effort で保存する。静音時は保存しない。
-    ;; - BOXP-546 で deliver を家に直接書く channel に移す場合、この保存も同じ変更で外す（二重配送防止）。
     (require '[cheshire.core :as json] '[clojure.string :as str])
-    (import '(java.time Instant ZoneId ZonedDateTime) '(java.time.format DateTimeFormatter)
-            '(java.security MessageDigest) '(java.nio.file Files StandardCopyOption))
+    (import '(java.time Instant ZoneId ZonedDateTime) '(java.time.format DateTimeFormatter))
 
     (def max-alerts 5)
     (def jst (ZoneId/of "Asia/Tokyo"))
@@ -259,33 +261,6 @@ data:
                            (when firing? (some-> (get an "description") (clean 600) (#(str/replace % #"(?m)^" "  "))))
                            (when-let [u (safe-url (get an "dashboard"))] (str "  根拠: " u))]))))
 
-    (defn write-copy! [p msg shown firing resolved]
-      (try
-        (let [override (System/getenv "BOXP_ALERT_COPY_DIR")
-              root (java.io.File. "/home/boxp/Documents/obsidian-headless/BOXP/Projects")
-              dir (when (or override (.isDirectory root))
-                    (java.io.File. (or override (str root "/alertmanager-deliveries/delivered-copies"))))]
-          (when dir
-            (when-not (or (.isDirectory dir) (.mkdirs dir)) (throw (Exception. "copy directory unavailable")))
-            (let [hash (apply str (map #(format "%02x" (bit-and 0xff %))
-                                       (.digest (MessageDigest/getInstance "SHA-256") (.getBytes (str (get p "groupKey" "") "\n" msg) "UTF-8"))))
-                  h12 (subs hash 0 12) now (Instant/now)
-                  duplicate? (some #(and (re-matches (re-pattern (str "alert-.*-" h12 "\\.md")) (.getName %))
-                                         (<= (- (.toEpochMilli now) 1800000) (.lastModified %) (.toEpochMilli now))) (.listFiles dir))
-                  severity (or (some (fn [s] (when (some #(and (= "firing" (get % "status")) (= s (get-in % ["labels" "severity"]))) (get p "alerts")) s)) ["critical" "warning" "info"])
-                               (some #(when (= "firing" (get % "status")) (some-> (get-in % ["labels" "severity"]) label)) (get p "alerts")) "none")
-                  title (str (if (pos? firing) (str "[" (str/upper-case severity) "] ") "解除: ")
-                             (label (get-in (first shown) ["labels" "alertname"]))
-                             (when (> (+ firing resolved) 1) (str " ほか " (dec (+ firing resolved)) " 件")))
-                  id (str "alert-" (.format (DateTimeFormatter/ofPattern "yyyyMMddHHmm") (ZonedDateTime/ofInstant now (ZoneId/of "UTC"))) "-" h12)]
-              (when-not duplicate?
-                (let [tmp (Files/createTempFile (.toPath dir) ".alert-" ".tmp" (make-array java.nio.file.attribute.FileAttribute 0))]
-                  (try
-                    (spit (str tmp) (json/generate-string {"id" id "text" msg "title" title "status" (get p "status") "severity" severity "firing" firing "resolved" resolved "group_key_hash" h12 "sent_at" (str now)}))
-                    (Files/move tmp (.toPath (java.io.File. dir (str id ".md"))) (into-array java.nio.file.CopyOption [StandardCopyOption/ATOMIC_MOVE]))
-                    (finally (Files/deleteIfExists tmp))))))))
-        (catch Exception _ (binding [*out* *err*] (println "alert copy failed")))))
-
     (let [p (try (json/parse-string (slurp *in*)) (catch Exception _ nil))
           alerts (get p "alerts")]
       (when-not (and (map? p) (= "4" (str (get p "version"))) (sequential? alerts) (seq alerts))
@@ -308,7 +283,6 @@ data:
                                        (when runbook (str "次 action の範囲: " (clean runbook 400)))
                                        (str "これはアラートの写しで、承認や操作の指示ではありません。"
                                             (when am (str "\nAlertmanager: " am)))]))]
-            (write-copy! p msg shown firing resolved)
             (println (json/generate-string {"message" msg}))))))
 
   quiet_gate.sh: |
