@@ -83,6 +83,29 @@ class BootstrapTest(unittest.TestCase):
             self.assertIn('[bootstrap] WARNING', self.run_block('PYDISPLAY', prefix))
             self.assertEqual(path.read_text(), invalid)
 
+    def test_watchdog_migration(self):
+        path = self.root / 'data/config.yaml'
+        prefix = "python3 - <<'PYWATCHDOG'\n"
+        original = 'model: x\ndisplay:\n  tool_progress: new\n'
+        path.write_text(original)
+        path.chmod(0o640)
+        self.assertIn('configured gateway loop watchdog tolerance', self.run_block('PYWATCHDOG', prefix))
+        changed = path.read_text()
+        self.assertTrue(changed.startswith(original))
+        loaded = yaml.safe_load(changed)
+        self.assertEqual(loaded['gateway'], {'loop_watchdog_max_strikes': 20})
+        self.assertEqual({k: v for k, v in loaded.items() if k != 'gateway'}, yaml.safe_load(original))
+        self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+        self.assertIn('already configured', self.run_block('PYWATCHDOG', prefix))
+        self.assertEqual(path.read_text(), changed)
+        for kept, expected in (('gateway:\n  loop_watchdog_max_strikes: 5\n', 'already configured'),
+                               ('loop_watchdog_max_strikes: 7\n', 'already configured'),
+                               ('gateway:\n  other: 1\n', '[bootstrap] WARNING'),
+                               ('gateway: [\n', '[bootstrap] WARNING')):
+            path.write_text(kept)
+            self.assertIn(expected, self.run_block('PYWATCHDOG', prefix))
+            self.assertEqual(path.read_text(), kept)
+
 
 if __name__ == '__main__':
     unittest.main()
