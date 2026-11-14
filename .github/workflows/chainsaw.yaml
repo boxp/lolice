@@ -128,6 +128,11 @@ jobs:
         with:
           bb: 1.13.229
 
+      - name: Hermes bootstrap unit tests
+        run: |
+          python3 -m pip install PyYAML
+          python3 -B -m unittest discover -s tests/hermes-agent -p "test_*.py" -v
+
       - name: Task Board webhook filter unit tests
         run: bb tests/hermes-agent/task-board-webhook-filter-test.bb
 
