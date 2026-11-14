@@ -423,6 +423,8 @@ async def deliver(cfg: dict, path: Path, record: dict) -> dict:
         record["telegram_chunks"] = progress["chunks"]
     record.update(home=home, telegram=telegram, telegram_detail=detail,
                   attempts=int(record.get("attempts", 0)) + 1, updated_at=now().isoformat())
+    if (home or telegram) and not record.get("reached_at"):
+        record["reached_at"] = record["updated_at"]  # the age limit of the other egress counts from here
     record["state"] = "delivered" if egress_complete(mode, target, home, telegram) else "pending"
     atomic_json(path, record)
     return record
@@ -522,8 +524,11 @@ async def recover(cfg: dict) -> int:
             if not record or record.get("state") != "pending":
                 continue
             if (record.get("home") or record.get("telegram")) and _age(record) > cfg["pending_max_age"]:
-                # Reached the Owner through one egress; the other has failed for this long (a rejected
-                # message would otherwise be retried every pass, forever). Nothing unreached is ever dropped.
+                # Reached the Owner through one egress; the other has failed for this long since then (a
+                # rejected message would otherwise be retried every pass, forever). The limit counts from
+                # the first egress that succeeded, not from creation: after an outage of both that outlasts
+                # the limit, the egress that comes back later still gets the full window. Nothing unreached
+                # is ever dropped.
                 record.update(state="expired", updated_at=now().isoformat())
                 atomic_json(path, record)
                 journal(cfg, "expired", key=record.get("key") or path.stem, home=bool(record.get("home")),
@@ -538,8 +543,9 @@ async def recover(cfg: dict) -> int:
 
 
 def _age(record: dict) -> float:
+    """Seconds since the receipt first reached the Owner (0 when that time is unknown: keep retrying)."""
     try:
-        return (now() - datetime.fromisoformat(str(record.get("created_at")))).total_seconds()
+        return (now() - datetime.fromisoformat(str(record.get("reached_at")))).total_seconds()
     except ValueError:
         return 0.0
 
