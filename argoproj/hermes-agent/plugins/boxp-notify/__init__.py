@@ -250,16 +250,46 @@ def alert_summary(text: str, extra: str) -> tuple[str, int]:
     return title[:200], firing
 
 
+def direct_key(cfg: dict, name: str, digest: str) -> str:
+    """Key of one agent-less relay notification: the same text counts as a retry only while nothing else
+    from that relay was accepted in between (or while its own delivery is still unfinished).
+
+    Nothing but the text reaches the channel, and an alert that resolves and fires again with the same
+    start minute produces the same text as its first notification. A key made of text and time alone would
+    drop that second firing as a duplicate. So each accepted notification gets a sequence number, and the
+    last ones are remembered per relay: the same text again is a retry when it is the latest notification
+    of the relay, or when its receipt is still pending (a webhook retry after both egresses failed), inside
+    two time buckets. After a different notification (the resolve) it is a new one. When unsure this sends
+    twice rather than not at all.
+    """
+    path = cfg["state"] / "direct-recent" / (file_ident(name) + ".json")
+    recent = read_json(path) or {}
+    window = 2 * max(1, cfg["cron_bucket_seconds"])
+    stamp = now().timestamp()
+    entries = [e for e in recent.get("entries", []) if isinstance(e, dict) and stamp - float(e.get("at", 0)) < window]
+    for index in range(len(entries) - 1, -1, -1):
+        entry = entries[index]
+        if entry.get("digest") != digest:
+            continue
+        latest = index == len(entries) - 1
+        if latest or (read_json(receipt_path(cfg, entry["key"])) or {}).get("state") == "pending":
+            return entry["key"]
+        break  # delivered, and something else came after it: this is the alert firing again
+    seq = int(recent.get("seq", 0)) + 1
+    key = f"direct-{name}-{digest}-{seq}"
+    atomic_json(path, {"seq": seq, "entries": (entries + [{"digest": digest, "key": key, "at": stamp}])[-64:]})
+    return key
+
+
 def dedup_key(cfg: dict, target: dict, decision: dict, metadata: Optional[dict]) -> str:
     if target["kind"] == "task-board":
         return f"tb-{target['event']}.{decision['slot']}"
     digest = hashlib.sha256(decision["text"].encode()).hexdigest()[:16]
     bucket = int(now().timestamp()) // max(1, cfg["cron_bucket_seconds"])
-    if target["kind"] == "direct":  # a repeat of the same alert text in a later bucket is a new notification
-        previous = f"direct-{target['name']}-{digest}-{bucket - 1}"
-        if receipt_path(cfg, previous).exists():  # a retry that straddles the bucket edge is still one
-            return previous
-        return f"direct-{target['name']}-{digest}-{bucket}"
+    if target["kind"] == "direct":
+        if decision["action"] != "deliver":
+            return f"direct-{target['name']}-{digest}-{bucket}"
+        return direct_key(cfg, str(target["name"]), digest)
     # cron: no run id reaches the channel. job id + text + a coarse time bucket separates two runs
     # that produce the same text, while a retry of one run inside the bucket collapses.
     job = str((metadata or {}).get("job_id") or target["name"] or "unknown")
