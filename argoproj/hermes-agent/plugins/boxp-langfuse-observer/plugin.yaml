@@ -9,6 +9,7 @@ provides_hooks:
   - api_request_error
   - post_tool_call
   - post_compaction
+  - subagent_start
   - subagent_stop
   - post_llm_call
   - on_session_end

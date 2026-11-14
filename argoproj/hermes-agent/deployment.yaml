@@ -18,7 +18,7 @@ spec:
         # from the ConfigMap into the PVC only at Pod start. Bump this value
         # whenever task_board_webhook_route.json or the derived channel route changes
         # so Argo CD rolls the Pod and the new route definitions take effect.
-        boxp.io/task-board-webhook-route-revision: "2026-11-14-BOXP-554-channel"
+        boxp.io/task-board-webhook-route-revision: "2026-11-14-BOXP-556-channel-only"
         # BOXP-462: bump when alertmanager_webhook_route.json / alertmanager_relay.* change.
         boxp.io/alertmanager-webhook-route-revision: "2026-11-14-BOXP-553-channel"
         # BOXP-501: bump when kohako_home_reminder_route.json / kohako_home_reminder.* change.
@@ -64,7 +64,7 @@ spec:
               # no secret of its own; the gateway validates it with the global
               # WEBHOOK_SECRET env. Other dynamic subscriptions are preserved.
               python3 - <<'PY'
-              import copy, json, os
+              import json, os
               path = "/opt/data/webhook_subscriptions.json"
               with open("/bootstrap/task_board_webhook_route.json") as fh:
                   managed = json.load(fh)
@@ -75,25 +75,13 @@ spec:
                           subs = json.load(fh) or {}
                   except Exception:
                       subs = {}
+              # BOXP-556: the only Task Board route is task-board-channel (delivered by the
+              # boxp-notify channel). The former Telegram route `task-board` depended on the
+              # removed core patch for silence, de-duplication and the home copy, so it is
+              # deleted from the persisted file instead of being left reachable.
+              if subs.pop("task-board", None) is not None:
+                  print("[bootstrap] removed the former task-board webhook route")
               subs.update(managed)
-              # BOXP-554: derive the channel route without changing the rollback route.
-              channel = copy.deepcopy(managed["task-board"])
-              channel.update(deliver="boxp_notify", deliver_extra={"chat_id": "tb:{event_id}"},
-                             mirror_to_session=False,
-                             description="BOXP-554 channel route derived from task-board at Pod start")
-              replacements = [
-                  ("最終応答がそのまま Telegram へ届き、同じ文面が Telegram 会話の履歴にも `[Webhook delivery: task-board]` 付きの通知結果として残る（mirror_to_session）。",
-                   "最終応答は通知用 channel が家（kohako-home）の受信箱へ届ける（照合通知と、家へ届けられない時は Telegram）。"),
-                  ("Owner の返信は Telegram セッションで受けるため、返信に必要な文脈（要点・必要入力）は本文と Notes の summary の両方に残す。",
-                   "Owner の返信は家の会話で受け、Telegram の会話履歴には残らないため、返信に必要な文脈（要点・必要入力）は本文と Notes の summary の両方に残す。"),
-              ]
-              for old, new in replacements:
-                  if channel["prompt"].count(old) != 1:
-                      print("[bootstrap] WARNING task-board prompt replacement count is not one; channel route disabled")
-                      channel["enabled"] = False
-                  else:
-                      channel["prompt"] = channel["prompt"].replace(old, new, 1)
-              subs["task-board-channel"] = channel
               # BOXP-501: kohako-home reminder route (global WEBHOOK_SECRET, no own secret).
               with open("/bootstrap/kohako_home_reminder_route.json") as fh:
                   subs.update(json.load(fh))
@@ -221,6 +209,13 @@ spec:
               chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
               chmod 2775 "$plugin_dir"
               chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              # BOXP-556: authenticated vault image transport.
+              plugin_dir=/opt/data/plugins/kohako-vault-image
+              mkdir -p "$plugin_dir"
+              cp /bootstrap-plugins/kohako-vault-image/plugin.yaml /bootstrap-plugins/kohako-vault-image/__init__.py "$plugin_dir/"
+              chown 1000:10000 "$plugin_dir" "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
+              chmod 2775 "$plugin_dir"
+              chmod 0644 "$plugin_dir/plugin.yaml" "$plugin_dir/__init__.py"
               # BOXP-428: Langfuse observer (sends in-scope delegation turns inside the cluster).
               plugin_dir=/opt/data/plugins/boxp-langfuse-observer
               mkdir -p "$plugin_dir"
@@ -248,6 +243,7 @@ spec:
               # BOXP-360: the same idempotent edit also enables the metadata-only AI ops observer.
               for name, note in [("kohako-g2-context", "BOXP-332: owner-DM-only reference context from Kohako G2."),
                                  ("boxp-ai-ops-observer", "BOXP-360: metadata-only AI ops ledger."),
+                                 ("kohako-vault-image", "BOXP-556: authenticated vault images."),
                                  ("kohako-g2-realtime", "BOXP-387: Kohako G2 realtime client-secret mint (openai-codex sign-in)."),
                                  ("boxp-langfuse-observer", "BOXP-428: in-scope delegation turns to the in-cluster Langfuse."),
                                  ("boxp-notify", "BOXP-553: notification channel.")]:
@@ -463,6 +459,9 @@ spec:
               readOnly: true
             - name: boxp-ai-ops-observer-plugin
               mountPath: /bootstrap-plugins/boxp-ai-ops-observer
+              readOnly: true
+            - name: kohako-vault-image-plugin
+              mountPath: /bootstrap-plugins/kohako-vault-image
               readOnly: true
             - name: kohako-g2-realtime-plugin
               mountPath: /bootstrap-plugins/kohako-g2-realtime
@@ -742,6 +741,9 @@ spec:
         - name: boxp-ai-ops-observer-plugin
           configMap:
             name: hermes-agent-boxp-ai-ops-observer-plugin
+        - name: kohako-vault-image-plugin
+          configMap:
+            name: hermes-agent-kohako-vault-image-plugin
         - name: kohako-g2-realtime-plugin
           configMap:
             name: hermes-agent-kohako-g2-realtime-plugin

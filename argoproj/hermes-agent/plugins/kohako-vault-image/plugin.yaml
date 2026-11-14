@@ -1,0 +1,4 @@
+name: kohako-vault-image
+version: 0.1.0
+description: Authenticated read-only image transport for the Kohako vault.
+author: boxp

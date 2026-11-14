@@ -24,7 +24,7 @@ import time
 import unicodedata
 from collections import OrderedDict
 from datetime import datetime, timezone
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, urlunsplit, quote, parse_qsl
 
 _log = logging.getLogger(__name__)
 _lock = threading.Lock()
@@ -369,9 +369,71 @@ def _curl_tokens(command):
     return tokens
 
 
+_HTTP_SCHEMES = frozenset({"http", "https"})
+
+def normalize_url_for_request(url: str) -> str:
+    """ASCII-safe HTTP URL for Hermes-owned URL tools (IRI -> URI, e.g. ``https://wttr.in/Köln``).
+    Preserves URL syntax and existing percent escapes while IDNA-encoding the host and
+    percent-encoding non-ASCII path/query/fragment text. URL tool inputs only — never shell commands."""
+    if not isinstance(url, str):
+        return url
+    raw = url.strip()
+    if not raw:
+        return raw
+
+    # Repair model-emitted whitespace between scheme separator and authority
+    # (``https:// docs.example``); that position is never meaningful in HTTP URLs.
+    raw = re.sub(r"^([A-Za-z][A-Za-z0-9+.-]*://)\s+", r"\1", raw)
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return raw
+    if parsed.scheme.lower() not in _HTTP_SCHEMES:
+        return raw
+    netloc, hostname = parsed.netloc, parsed.hostname
+    if hostname:
+        try:
+            ascii_host = hostname.encode("idna").decode("ascii")
+        except UnicodeError:
+            ascii_host = hostname
+        if ascii_host != hostname:
+            netloc = netloc.replace(hostname, ascii_host, 1)
+    safe = "/%:@!$&'()*+,;="
+    return urlunsplit((parsed.scheme, netloc, quote(parsed.path, safe=safe),
+                       quote(parsed.query, safe=safe + "?"), quote(parsed.fragment, safe=safe + "?")))
+
+
+# Unambiguously credential-bearing query param names. Deliberately narrow: bare
+# English words that double as page facets (``code``, ``key``, ``auth``,
+# ``session``, ``sig``) are EXCLUDED so ordinary browsing is not blocked.
+_SENSITIVE_QUERY_PARAM_NAMES = frozenset({
+    "access_token", "api_key", "apikey", "auth_token", "authorization", "awsaccesskeyid",
+    "client_secret", "credential", "credentials", "jwt", "password", "passwd", "secret",
+    "session_id", "signature", "token", "x_amz_security_token", "x_amz_signature",
+    "x-amz-security-token", "x-amz-signature"})
+
+
+def sensitive_query_param_name(url: str) -> str | None:
+    """First credential-named query parameter in ``url`` (with a value), if any. Checked before
+    handing URLs to third-party fetch/browser backends: catches opaque magic links, OAuth codes,
+    signed-URL signatures and custom ``?token=...`` values that prefix-based redaction misses."""
+    if not isinstance(url, str) or "?" not in url:
+        return None
+    try:
+        parsed = urlsplit(url.strip())
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in _HTTP_SCHEMES or not parsed.query:
+        return None
+    return next((key for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+                 if value and unquote(key).lower() in _SENSITIVE_QUERY_PARAM_NAMES), None)
+
+
+
 def _curl_target(raw):
     """Validated (url, host, port, ips) of a public URL carrying no credential, else None."""
-    from tools.url_safety import is_safe_url, normalize_url_for_request, sensitive_query_param_name
+    if any(c in raw for c in '{}[]\\') or any(c.isspace() for c in raw):
+        return None
     if not raw.startswith(('https://', 'http://')):
         return None
     url = normalize_url_for_request(raw)
@@ -382,17 +444,22 @@ def _curl_target(raw):
     port = parts.port or _DEFAULT_PORTS.get(parts.scheme)
     if port != _DEFAULT_PORTS.get(parts.scheme) or '@' in parts.netloc or not _URL_HOST.fullmatch(host):
         return None
-    if any(host == name or host.endswith('.' + name) for name in _INTERNAL_HOSTS):
+    if host in ('metadata.google.internal', 'metadata.goog') or any(
+            host == name or host.endswith('.' + name) for name in _INTERNAL_HOSTS):
         return None
     if sensitive_query_param_name(url) or _SECRET.search(url) or _SECRET.search(unquote(url)):
-        return None
-    if not is_safe_url(url):
         return None
     ips = []
     for info in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM):
         ip = ipaddress.ip_address(info[4][0])
         # is_global is independent of Hermes's allow-private settings and trusted-host exceptions.
-        if not ip.is_global or not is_safe_url(f'{parts.scheme}://{ip if ip.version == 4 else f"[{ip}]"}/'):
+        embedded = ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) else None
+        if isinstance(ip, ipaddress.IPv6Address) and ip in ipaddress.ip_network("::ffff:0:0:0/96"):
+            embedded = ipaddress.IPv4Address(int(ip) & 0xffffffff)
+        checked = embedded or ip
+        if (not ip.is_global or not checked.is_global or checked.is_reserved
+                or checked.is_multicast or checked.is_loopback or checked.is_link_local
+                or checked.is_unspecified or checked == ipaddress.ip_address("100.100.100.200")):
             return None
         if ip not in ips:
             ips.append(ip)

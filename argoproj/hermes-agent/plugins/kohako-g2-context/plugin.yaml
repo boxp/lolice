@@ -1,5 +1,5 @@
 name: kohako-g2-context
-version: 1.6.0
+version: 1.7.0
 description: Reference G2 conversations and gate API tools for G2 and Kohako home Owner turns (BOXP-503).
 author: boxp
 provides_hooks:

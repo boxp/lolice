@@ -4,10 +4,13 @@ kind: platform
 version: 0.1.0
 description: >
   Send-only notification channel (BOXP-546 prototype; Alertmanager since
-  BOXP-553, Task Board and cron since BOXP-554). The official webhook / cron
+  BOXP-553, Task Board and cron since BOXP-554, new cron jobs since BOXP-556).
+  The official webhook / cron
   `deliver` target that writes the home inbox, de-duplicates by event id,
   grants silence only on a Notes receipt, holds Task Board sends in quiet
   hours, and sends to Telegram (reconciliation notices and fallback; both for
   Alertmanager and cron). Uses only gateway.platforms.base and
   gateway.config; no core patches.
 author: boxp
+provides_hooks:
+  - pre_tool_call

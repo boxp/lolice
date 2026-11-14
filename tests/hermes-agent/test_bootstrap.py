@@ -34,33 +34,37 @@ class BootstrapTest(unittest.TestCase):
         code = code.replace('os.chown(tmp, 1000, 10000)', 'os.chown(tmp, os.getuid(), os.getgid())')
         return subprocess.run(['python3', '-c', code], text=True, capture_output=True, check=True).stdout
 
-    def test_route_and_failure_closed(self):
-        source = json.loads(self.data['task_board_webhook_route.json'])['task-board']
-        self.run_block('PY', "python3 - <<'PY'\n")
-        routes = json.loads((self.root / 'data/webhook_subscriptions.json').read_text())
-        self.assertEqual(routes['task-board'], source)
-        channel = routes['task-board-channel']
+    def test_channel_route_only(self):
+        """BOXP-556: task-board-channel is the only Task Board route; the former Telegram route is removed."""
+        managed = json.loads(self.data['task_board_webhook_route.json'])
+        self.assertEqual(list(managed), ['task-board-channel'])
+        channel = managed['task-board-channel']
         self.assertEqual(channel['deliver'], 'boxp_notify')
         self.assertEqual(channel['deliver_extra'], {'chat_id': 'tb:{event_id}'})
         self.assertFalse(channel['mirror_to_session'])
-        for key in source.keys() - {'deliver', 'deliver_extra', 'mirror_to_session', 'description', 'prompt'}:
-            self.assertEqual(channel[key], source[key])
+        self.assertTrue(channel['enabled'])
+        self.assertEqual(channel['script'], 'task_board_webhook_filter.sh')
         self.assertIn('Owner の返信は家の会話で受け', channel['prompt'])
         self.assertIn('最終応答は通知用 channel が家', channel['prompt'])
-        sentences = (
-            '最終応答がそのまま Telegram へ届き、同じ文面が Telegram 会話の履歴にも `[Webhook delivery: task-board]` 付きの通知結果として残る（mirror_to_session）。',
-            'Owner の返信は Telegram セッションで受けるため、返信に必要な文脈（要点・必要入力）は本文と Notes の summary の両方に残す。',
-        )
-        for sentence in sentences:
-            for duplicate in (False, True):
-                broken = json.loads(self.data['task_board_webhook_route.json'])
-                prompt = broken['task-board']['prompt']
-                broken['task-board']['prompt'] = prompt + sentence if duplicate else prompt.replace(sentence, '')
-                (self.root / 'bootstrap/task_board_webhook_route.json').write_text(json.dumps(broken))
-                self.assertIn('[bootstrap] WARNING', self.run_block('PY', "python3 - <<'PY'\n"))
-                routes = json.loads((self.root / 'data/webhook_subscriptions.json').read_text())
-                self.assertFalse(routes['task-board-channel']['enabled'])
-                self.assertEqual(routes['task-board'], broken['task-board'])
+        for gone in ('mirror_to_session）', 'Telegram セッションで受ける', '[Webhook delivery: task-board]'):
+            self.assertNotIn(gone, channel['prompt'])
+        # A PVC written by the previous bootstrap: the old route, the derived channel route, a dynamic one.
+        old = {'task-board': {'deliver': 'telegram', 'mirror_to_session': True, 'enabled': True},
+               'task-board-channel': {'deliver': 'boxp_notify', 'enabled': False, 'prompt': 'stale'},
+               'dynamic': {'deliver': 'log'}}
+        (self.root / 'data/webhook_subscriptions.json').write_text(json.dumps(old))
+        out = self.run_block('PY', "python3 - <<'PY'\n")
+        self.assertIn('[bootstrap] removed the former task-board webhook route', out)
+        routes = json.loads((self.root / 'data/webhook_subscriptions.json').read_text())
+        self.assertNotIn('task-board', routes)
+        self.assertEqual(routes['task-board-channel'], channel)
+        self.assertEqual(routes['dynamic'], {'deliver': 'log'})
+        self.assertIn('kohako-home-reminder', routes)
+        self.assertFalse(routes['alertmanager']['enabled'])  # no secret in this fixture: fail closed
+        # A second Pod start changes nothing and reports no removal.
+        before = (self.root / 'data/webhook_subscriptions.json').read_text()
+        self.assertNotIn('removed the former', self.run_block('PY', "python3 - <<'PY'\n"))
+        self.assertEqual((self.root / 'data/webhook_subscriptions.json').read_text(), before)
 
     def test_display_migration(self):
         path = self.root / 'data/config.yaml'
