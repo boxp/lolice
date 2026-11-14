@@ -192,7 +192,7 @@ spec:
               # about 90-120 s), which killed the gateway twice per Pod start on both v0.22.5 and
               # v0.23.1. Widen the official setting; a real wedge still restarts, only later.
               python3 - <<'PYWATCHDOG'
-              import os
+              import os, re
               try:
                   import yaml
                   safe_load = yaml.safe_load
@@ -208,14 +208,36 @@ spec:
                   gateway = cfg.get("gateway")
                   if "loop_watchdog_max_strikes" in cfg or (isinstance(gateway, dict) and "loop_watchdog_max_strikes" in gateway):
                       print("[bootstrap] gateway loop watchdog tolerance already configured")
-                  elif "gateway" in cfg:
-                      print("[bootstrap] WARNING gateway section exists without loop_watchdog_max_strikes; not rewriting config.yaml")
                   else:
-                      new = (text.rstrip("\n") + "\n\n# BOXP-556: tolerate the slow startup scan of state.db (default 3 strikes).\n"
-                             f"gateway:\n  loop_watchdog_max_strikes: {want}\n")
+                      key = f"loop_watchdog_max_strikes: {want}"
+                      new = None
+                      if "gateway" not in cfg:
+                          new = (text.rstrip("\n") + "\n\n# BOXP-556: tolerate the slow startup scan of state.db (default 3 strikes).\n"
+                                 f"gateway:\n  {key}\n")
+                      elif gateway is None or isinstance(gateway, dict):
+                          # An existing gateway section keeps its other settings; only the key is added.
+                          lines = text.splitlines(keepends=True)
+                          block = [i for i, line in enumerate(lines) if re.fullmatch(r"gateway:\s*(?:#.*)?\n?", line)]
+                          flow = [i for i, line in enumerate(lines) if re.fullmatch(r"gateway:\s*\{.*\}\s*(?:#.*)?\n?", line)]
+                          if len(block) == 1 and not flow:
+                              at = block[0]
+                              indent = "  "
+                              if gateway:
+                                  child = next(line for line in lines[at + 1:] if line.strip() and not line.lstrip().startswith("#"))
+                                  indent = child[:len(child) - len(child.lstrip())]
+                              if not lines[at].endswith("\n"):
+                                  lines[at] += "\n"
+                              lines.insert(at + 1, f"{indent}{key}\n")
+                              new = "".join(lines)
+                          elif len(flow) == 1 and not block:
+                              head, rest = lines[flow[0]].split("{", 1)
+                              lines[flow[0]] = head + "{" + key + (", " if gateway else "") + rest
+                              new = "".join(lines)
+                      if new is None:
+                          raise ValueError("gateway section has an unsupported shape")
                       result = safe_load(new)
-                      assert result["gateway"] == {"loop_watchdog_max_strikes": want}
-                      assert {k: v for k, v in result.items() if k != "gateway"} == cfg
+                      assert result["gateway"] == {**(gateway or {}), "loop_watchdog_max_strikes": want}
+                      assert {k: v for k, v in result.items() if k != "gateway"} == {k: v for k, v in cfg.items() if k != "gateway"}
                       tmp = path + ".tmp"
                       with open(tmp, "w") as fh:
                           fh.write(new)

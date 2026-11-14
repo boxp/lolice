@@ -100,11 +100,28 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual(path.read_text(), changed)
         for kept, expected in (('gateway:\n  loop_watchdog_max_strikes: 5\n', 'already configured'),
                                ('loop_watchdog_max_strikes: 7\n', 'already configured'),
-                               ('gateway:\n  other: 1\n', '[bootstrap] WARNING'),
-                               ('gateway: [\n', '[bootstrap] WARNING')):
+                               ('gateway: [\n', '[bootstrap] WARNING'),
+                               ('gateway: [a]\n', '[bootstrap] WARNING'),
+                               ('gateway: 3\n', '[bootstrap] WARNING'),
+                               ('gateway: {a: 1,\n  b: 2}\n', '[bootstrap] WARNING')):
             path.write_text(kept)
             self.assertIn(expected, self.run_block('PYWATCHDOG', prefix))
             self.assertEqual(path.read_text(), kept)
+        # An existing gateway section keeps its other settings and gains the key.
+        for before, after in (
+                ('model: x\ngateway:\n  other: 1\n  nested:\n    a: b\nlast: 1\n',
+                 'model: x\ngateway:\n  loop_watchdog_max_strikes: 20\n  other: 1\n  nested:\n    a: b\nlast: 1\n'),
+                ('gateway:  # note\n\n    # c\n    other: 1\n',
+                 'gateway:  # note\n    loop_watchdog_max_strikes: 20\n\n    # c\n    other: 1\n'),
+                ('gateway:\nlast: 1\n', 'gateway:\n  loop_watchdog_max_strikes: 20\nlast: 1\n'),
+                ('model: x\ngateway:', 'model: x\ngateway:\n  loop_watchdog_max_strikes: 20\n'),
+                ('gateway: {}\n', 'gateway: {loop_watchdog_max_strikes: 20}\n'),
+                ('gateway: {other: 1}  # c\n', 'gateway: {loop_watchdog_max_strikes: 20, other: 1}  # c\n')):
+            path.write_text(before)
+            self.assertIn('configured gateway loop watchdog tolerance', self.run_block('PYWATCHDOG', prefix))
+            self.assertEqual(path.read_text(), after)
+            self.assertIn('already configured', self.run_block('PYWATCHDOG', prefix))
+            self.assertEqual(path.read_text(), after)
 
 
 if __name__ == '__main__':
