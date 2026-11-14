@@ -32,3 +32,12 @@
 ## 境界
 
 既存 model の削除、driver / kernel の変更、node reboot、権限追加、恒久的な既定変更はしない。sd-switch（画像/動画の GPU 切替）は gate の compare-and-set で排他され、llama=1・gate open の時しか動かない。
+
+## 終了と復帰
+
+有限試験の終了後、この復帰 PR で診断モードを戻す（#1247 の argoproj 差分の revert）。
+
+- `argoproj/local-llm/deployment.yaml`: replicas 1
+- `argoproj/strata-eval/manifests/deployment.yaml`: replicas 0、通常 command、memory limit 56GiB、`/w` の mount を削除
+
+node 上の `/var/lib/local-llm/models/boxp557`（測定記録とスクリプト）と取得した IQ3_S weights は削除しない（恒久採用ではないが、既存 model の削除と同様に Owner 判断とする）。merge 後: strata pod 消滅 → runtime file queue で scale 1 → 受付を閉じたまま Gemma 実推論 → 受付 open。
