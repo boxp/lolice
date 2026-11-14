@@ -258,9 +258,11 @@ def direct_key(cfg: dict, name: str, digest: str) -> str:
     start minute produces the same text as its first notification. A key made of text and time alone would
     drop that second firing as a duplicate. So each accepted notification gets a sequence number, and the
     last ones are remembered per relay: the same text again is a retry when it is the latest notification
-    of the relay, or when its receipt is still pending (a webhook retry after both egresses failed), inside
-    two time buckets. After a different notification (the resolve) it is a new one. When unsure this sends
-    twice rather than not at all.
+    of the relay, or when its receipt is pending and has reached neither egress (the webhook was told
+    failure and retries), inside two time buckets. After a different notification (the resolve) it is a new
+    one, also while the first is half delivered: upstream was told success for that one and does not retry
+    it, so the same text is the alert firing again and goes to both egresses, while recovery finishes the
+    first one separately. When unsure this sends twice rather than not at all.
     """
     path = cfg["state"] / "direct-recent" / (file_ident(name) + ".json")
     recent = read_json(path) or {}
@@ -272,9 +274,11 @@ def direct_key(cfg: dict, name: str, digest: str) -> str:
         if entry.get("digest") != digest:
             continue
         latest = index == len(entries) - 1
-        if latest or (read_json(receipt_path(cfg, entry["key"])) or {}).get("state") == "pending":
+        receipt = read_json(receipt_path(cfg, entry["key"])) or {}
+        unreached = receipt.get("state") == "pending" and not (receipt.get("home") or receipt.get("telegram"))
+        if latest or unreached:
             return entry["key"]
-        break  # delivered, and something else came after it: this is the alert firing again
+        break  # it reached the Owner, and something else came after it: this is the alert firing again
     seq = int(recent.get("seq", 0)) + 1
     key = f"direct-{name}-{digest}-{seq}"
     atomic_json(path, {"seq": seq, "entries": (entries + [{"digest": digest, "key": key, "at": stamp}])[-64:]})
