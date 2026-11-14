@@ -22,6 +22,7 @@
 
 ## 手順
 
+0. node 上に `/var/lib/local-llm/models/boxp557` を boxp（uid/gid 1000）所有・775 で作成する（`hostPath.type: Directory` は自動作成しない。2026-11-14 21:40 UTC に作成済みで `stat` で `boxp:boxp 775` を確認）。merge 前に再度 `stat` で存在を確認し、無ければ merge しない。
 1. 受付 close（`closed:BOXP-557-<run>`）→ upstream active/pending 0 → scale 0 → GPU とメモリの解放を確認 → この PR を merge。
 2. backend は live と同じ image（llama.cpp b11669）。BOXP-383 batch7 の llama.cpp 側と同じ flag・fixture・bench（15 要求：日本語 prose、code、8k 長文、JSON、tool）。
 3. 上限: llama 枠 30 分、GPU 全体 45 分。ready の上限 600 秒。
