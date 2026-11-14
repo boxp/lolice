@@ -20,7 +20,7 @@ spec:
         # the Pod and the new route definition takes effect.
         boxp.io/task-board-webhook-route-revision: "2026-11-10-BOXP-491-prefilter"
         # BOXP-462: bump when alertmanager_webhook_route.json / alertmanager_relay.* change.
-        boxp.io/alertmanager-webhook-route-revision: "2026-11-08-v1"
+        boxp.io/alertmanager-webhook-route-revision: "2026-11-14-BOXP-501-copy"
         # BOXP-501: bump when kohako_home_reminder_route.json / kohako_home_reminder.* change.
         boxp.io/kohako-home-reminder-route-revision: "2026-11-12-v1"
     spec:
