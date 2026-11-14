@@ -638,8 +638,9 @@ spec:
               value: /home/boxp/.codex-task-board
             - name: CODEX_TASK_BOARD_VAULT
               value: /home/boxp/Documents/obsidian-headless/BOXP
+            # BOXP-554: rollback by setting this back to /webhooks/task-board; the old route and core patch remain.
             - name: CODEX_TASK_BOARD_EVENT_WEBHOOK_URL
-              value: http://hermes-agent-webhook.hermes-agent.svc.cluster.local:8644/webhooks/task-board
+              value: http://hermes-agent-webhook.hermes-agent.svc.cluster.local:8644/webhooks/task-board-channel
             - name: CODEX_TASK_BOARD_HOME_REMINDER_URL
               value: http://hermes-agent-webhook.hermes-agent.svc.cluster.local:8644/webhooks/kohako-home-reminder
             - name: CODEX_TASK_BOARD_EVENT_WEBHOOK_SECRET

@@ -16,9 +16,9 @@ spec:
       annotations:
         # BOXP-270: the init container copies the Task Board webhook route
         # from the ConfigMap into the PVC only at Pod start. Bump this value
-        # whenever task_board_webhook_route.json changes so Argo CD rolls
-        # the Pod and the new route definition takes effect.
-        boxp.io/task-board-webhook-route-revision: "2026-11-10-BOXP-491-prefilter"
+        # whenever task_board_webhook_route.json or the derived channel route changes
+        # so Argo CD rolls the Pod and the new route definitions take effect.
+        boxp.io/task-board-webhook-route-revision: "2026-11-14-BOXP-554-channel"
         # BOXP-462: bump when alertmanager_webhook_route.json / alertmanager_relay.* change.
         boxp.io/alertmanager-webhook-route-revision: "2026-11-14-BOXP-553-channel"
         # BOXP-501: bump when kohako_home_reminder_route.json / kohako_home_reminder.* change.
@@ -64,7 +64,7 @@ spec:
               # no secret of its own; the gateway validates it with the global
               # WEBHOOK_SECRET env. Other dynamic subscriptions are preserved.
               python3 - <<'PY'
-              import json, os
+              import copy, json, os
               path = "/opt/data/webhook_subscriptions.json"
               with open("/bootstrap/task_board_webhook_route.json") as fh:
                   managed = json.load(fh)
@@ -76,6 +76,24 @@ spec:
                   except Exception:
                       subs = {}
               subs.update(managed)
+              # BOXP-554: derive the channel route without changing the rollback route.
+              channel = copy.deepcopy(managed["task-board"])
+              channel.update(deliver="boxp_notify", deliver_extra={"chat_id": "tb:{event_id}"},
+                             mirror_to_session=False,
+                             description="BOXP-554 channel route derived from task-board at Pod start")
+              replacements = [
+                  ("最終応答がそのまま Telegram へ届き、同じ文面が Telegram 会話の履歴にも `[Webhook delivery: task-board]` 付きの通知結果として残る（mirror_to_session）。",
+                   "最終応答は通知用 channel が家（kohako-home）の受信箱へ届ける（照合通知と、家へ届けられない時は Telegram）。"),
+                  ("Owner の返信は Telegram セッションで受けるため、返信に必要な文脈（要点・必要入力）は本文と Notes の summary の両方に残す。",
+                   "Owner の返信は家の会話で受け、Telegram の会話履歴には残らないため、返信に必要な文脈（要点・必要入力）は本文と Notes の summary の両方に残す。"),
+              ]
+              for old, new in replacements:
+                  if channel["prompt"].count(old) != 1:
+                      print("[bootstrap] WARNING task-board prompt replacement count is not one; channel route disabled")
+                      channel["enabled"] = False
+                  else:
+                      channel["prompt"] = channel["prompt"].replace(old, new, 1)
+              subs["task-board-channel"] = channel
               # BOXP-501: kohako-home reminder route (global WEBHOOK_SECRET, no own secret).
               with open("/bootstrap/kohako_home_reminder_route.json") as fh:
                   subs.update(json.load(fh))
@@ -138,6 +156,48 @@ spec:
                   os.replace(tmp, path)
                   print("[bootstrap] appended platform_toolsets.webhook to config.yaml")
               PY
+              # BOXP-554: suppress webhook warning notifications without rewriting hand edits.
+              python3 - <<'PYDISPLAY'
+              import os, re
+              try:
+                  import yaml
+                  safe_load = yaml.safe_load
+              except ImportError:
+                  from ruamel.yaml import YAML
+                  safe_load = YAML(typ="safe", pure=True).load
+              path = "/opt/data/config.yaml"
+              with open(path) as fh:
+                  text = fh.read()
+              try:
+                  cfg = safe_load(text)
+                  display = cfg.get("display") if isinstance(cfg, dict) else None
+                  platforms = display.get("platforms") if isinstance(display, dict) else None
+                  webhook = platforms.get("webhook") if isinstance(platforms, dict) else None
+                  already = isinstance(webhook, dict) and webhook.get("suppress_warning_notifications") is True
+                  lines = text.splitlines(keepends=True)
+                  headers = [i for i, line in enumerate(lines) if re.fullmatch(r"display:\s*(?:#.*)?\n?", line)]
+                  if already:
+                      print("[bootstrap] webhook warning suppression already configured")
+                  elif len(headers) == 1 and isinstance(display, dict) and "platforms" not in display:
+                      lines.insert(headers[0] + 1, "  platforms:\n    webhook:\n      suppress_warning_notifications: true\n")
+                      new = "".join(lines)
+                      result = safe_load(new)
+                      assert result["display"]["platforms"]["webhook"]["suppress_warning_notifications"] is True
+                      assert {k: v for k, v in result.items() if k != "display"} == {k: v for k, v in cfg.items() if k != "display"}
+                      assert {k: v for k, v in result["display"].items() if k != "platforms"} == display
+                      tmp = path + ".tmp"
+                      with open(tmp, "w") as fh:
+                          fh.write(new)
+                      st = os.stat(path)
+                      os.chown(tmp, st.st_uid, st.st_gid)
+                      os.chmod(tmp, st.st_mode & 0o7777)
+                      os.replace(tmp, path)
+                      print("[bootstrap] configured webhook warning suppression")
+                  else:
+                      print("[bootstrap] WARNING display has an unsupported shape; not rewriting config.yaml")
+              except Exception as exc:
+                  print(f"[bootstrap] WARNING display migration failed validation; not rewriting config.yaml: {exc}")
+              PYDISPLAY
               # BOXP-332: install the managed user plugin on every bootstrap.
               plugin_dir=/opt/data/plugins/kohako-g2-context
               mkdir -p "$plugin_dir"
@@ -430,6 +490,9 @@ spec:
             - name: BOXP_NOTIFY_TELEGRAM_MODE
               value: fallback
             - name: BOXP_NOTIFY_TELEGRAM_MODE_ALERTMANAGER
+              value: both
+            # BOXP-554: cron channel deliveries continue to reach home and Telegram.
+            - name: BOXP_NOTIFY_TELEGRAM_MODE_CRON
               value: both
             # BOXP-332: only this Telegram owner can receive G2 reference context.
             - name: KOHAKO_G2_CONTEXT_OWNER_TELEGRAM_USER_ID
