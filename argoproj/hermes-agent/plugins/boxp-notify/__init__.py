@@ -1,9 +1,10 @@
-"""Send-only notification channel (platform plugin). BOXP-546 prototype, BOXP-553 stage 1, BOXP-554 stage 2.
+"""Send-only notification channel (platform plugin). BOXP-546 prototype, BOXP-553 stage 1, BOXP-554 stage 2,
+BOXP-556 stage 3 (the Hermes image carries no core patch any more).
 
 A copy of this file is deployed from lolice ``argoproj/hermes-agent/plugins/boxp-notify``. Stage 1 moved the
-Alertmanager relay (``direct:alertmanager``) here. Stage 2 moves the Task Board and cron notifications; the
-core patches ``fix-task-board-delivery`` / ``fix-cron-delivery-copy`` stay in the image as the rollback path
-and do not see these deliveries (the patch reacts to the route name ``task-board`` and to Telegram targets):
+Alertmanager relay (``direct:alertmanager``) here, stage 2 the Task Board and cron notifications. Since
+stage 3 the former core patches ``fix-task-board-delivery`` / ``fix-cron-delivery-copy`` are gone, so this
+channel is the only place that keeps the home inbox copy, the silence proof and the de-duplication:
 
 * ``deliver: boxp_notify`` + ``deliver_extra.chat_id: "tb:{event_id}"`` on the webhook route
   ``task-board-channel``, ``deliver: "boxp_notify:cron"`` on a cron job.
@@ -15,6 +16,9 @@ and do not see these deliveries (the patch reacts to the route name ``task-board
   the reminder readiness decide between home-primary and Telegram-primary. Reconciliation notices go to
   Telegram as before.
 * cron: home and Telegram (``BOXP_NOTIFY_TELEGRAM_MODE_CRON=both``), as before the switch.
+* New cron jobs: a ``pre_tool_call`` hook rewrites the ``deliver`` of the agent's ``cronjob_manage`` create/update
+  calls from Telegram (or the creating chat) to ``boxp_notify:cron``. Without the cron patch a job addressed
+  to Telegram would reach Telegram only and never the home inbox.
 
 Only ``gateway.platforms.base`` and ``gateway.config`` are imported from Hermes.
 """
@@ -926,6 +930,58 @@ async def _standalone_send(pconfig, chat_id, message, *, thread_id=None, media_f
     return {"success": True, "message_id": result.message_id} if result.success else {"error": result.error}
 
 
+CRON_TARGET = f"{NAME}:cron"
+CRON_TOOL = "cronjob_manage"  # the tool of the ``cronjob`` toolset (same name on v0.22.5 and v0.23.1)
+
+
+def cron_deliver_rewrite(tool_name: Any, args: Any) -> Optional[dict]:
+    """``pre_tool_call`` directive that sends a new cron job's output through this channel.
+
+    The ``cronjob_manage`` tool addresses a job to the chat it was created from when ``deliver`` is omitted
+    (``origin``), which for the Owner is Telegram. Those elements, ``all`` (every home channel, i.e.
+    Telegram) and explicit ``telegram[:chat[:thread]]`` targets become ``boxp_notify:cron``; anything else
+    (``local``, another platform, an existing ``boxp_notify`` target) is left as written. An update is
+    touched only when it sets ``deliver``. ``failure_deliver`` falls back to ``deliver`` and is not changed.
+    """
+    if tool_name != CRON_TOOL or not isinstance(args, dict):
+        return None
+    action = str(args.get("action") or "").strip().lower()
+    if action not in ("create", "update"):
+        return None
+    raw = args.get("deliver")
+    items = raw if isinstance(raw, (list, tuple)) else ([] if raw is None else str(raw).split(","))
+    parts = [part for part in (str(item).strip() for item in items) if part]
+    if not parts:
+        if action != "create":
+            return None
+        parts = ["origin"]
+    out: list[str] = []
+    changed = False
+    for part in parts:
+        low = part.lower()
+        if low in ("origin", "all", "telegram") or low.startswith("telegram:"):
+            part, changed = CRON_TARGET, True
+        if part not in out:
+            out.append(part)
+    if not changed:
+        return None
+    return {"action": "modify", "args": {"deliver": ",".join(out)}}
+
+
+def _cron_hook(*, tool_name=None, args=None, **_kwargs):
+    try:
+        if _env("BOXP_NOTIFY_ENABLED") != "1" or _env("BOXP_NOTIFY_CRON_REWRITE", "1") != "1":
+            return None
+        directive = cron_deliver_rewrite(tool_name, args)
+        if directive is not None:
+            journal(settings(), "cron_deliver_rewritten", action=str(args.get("action")),
+                    before=str(args.get("deliver"))[:200], after=directive["args"]["deliver"][:200])
+        return directive
+    except Exception:
+        logger.exception("boxp-notify cron deliver rewrite failed")
+        return None
+
+
 def _enabled() -> Optional[dict]:
     # No home channel on purpose: lifecycle broadcasts go to home channels, and every target must be explicit.
     return {} if _env("BOXP_NOTIFY_ENABLED") == "1" else None
@@ -939,3 +995,4 @@ def register(ctx) -> None:
         # Cron accepts a plugin platform as a `deliver` target only when it names this variable. It is left
         # unset: targets are always explicit (`boxp_notify:<name>`), there is no default home channel.
         cron_deliver_env_var="BOXP_NOTIFY_HOME_CHANNEL", standalone_sender_fn=_standalone_send)
+    ctx.register_hook("pre_tool_call", _cron_hook)

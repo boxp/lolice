@@ -133,6 +133,15 @@ jobs:
           python3 -m pip install PyYAML
           python3 -B -m unittest discover -s tests/hermes-agent -p "test_*.py" -v
 
+      - name: Hermes plugin unit tests
+        run: |
+          python3 -m pip install aiohttp
+          for dir in argoproj/hermes-agent/plugins/*/; do
+            ls "$dir"test_*.py >/dev/null 2>&1 || continue
+            echo "== $dir"
+            python3 -B -m unittest discover -s "$dir" -p "test_*.py"
+          done
+
       - name: Task Board webhook filter unit tests
         run: bb tests/hermes-agent/task-board-webhook-filter-test.bb
 

@@ -221,28 +221,6 @@ class SafeReadTests(unittest.TestCase):
     DNS = {'evil.example.com': ['93.184.216.34', '10.0.0.5'], 'rebind.example.com': ['127.0.0.1'], 'flip.example.com': ['10.0.0.9']}
 
     def setUp(self):
-        from urllib.parse import parse_qsl, urlsplit
-        def is_safe_url(url):
-            host = urlsplit(url).hostname or ''
-            if host == 'official-block.example.com':
-                return False
-            if host == 'flip.example.com':
-                return True
-            try:
-                import ipaddress
-                addresses = [ipaddress.ip_address(host)]
-            except ValueError:
-                addresses = [__import__('ipaddress').ip_address(a) for a in self.DNS.get(host, [self.PUBLIC])]
-            return all(a.is_global for a in addresses)
-        safety = types.ModuleType('tools.url_safety')
-        safety.is_safe_url = is_safe_url
-        safety.normalize_url_for_request = lambda url: __import__('urllib.parse').parse.quote(url, safe="%/:?#&=+;,@!$'()*-._~[]{}\\ ")
-        safety.sensitive_query_param_name = lambda url: next((k for k, v in parse_qsl(urlsplit(url).query) if v and k.lower() in self.SENSITIVE), None)
-        tools = types.ModuleType('tools')
-        tools.url_safety = safety
-        modules = patch.dict(sys.modules, {'tools': tools, 'tools.url_safety': safety})
-        modules.start()
-        self.addCleanup(modules.stop)
         def getaddrinfo(host, port, **kwargs):
             if host == 'nodns.example.com':
                 raise OSError('dns')
@@ -293,7 +271,7 @@ class SafeReadTests(unittest.TestCase):
             'curl https://user:pw@example.com', 'curl https://example.com@evil.example.com', 'curl https://example.com:8443/', 'curl http://example.com:443/',
             'curl http://localhost', 'curl http://localhost.', 'curl http://127.0.0.1', 'curl http://[::1]/', 'curl http://2130706433/', 'curl http://0x7f.0.0.1/', 'curl http://169.254.169.254/', 'curl http://10.0.0.1/', 'curl http://1.1.1.1/',
             'curl http://kubernetes.default.svc/', 'curl http://hermes-agent-api.hermes-agent.svc.cluster.local:8642/', 'curl http://a.svc.cluster.local/', 'curl https://foo.ts.net/', 'curl https://x.b0xp.io/', 'curl https://b0xp.io/', 'curl https://foo.internal/', 'curl https://printer.local/',
-            'curl https://evil.example.com/', 'curl https://rebind.example.com/', 'curl https://flip.example.com/', 'curl https://official-block.example.com/', 'curl https://nodns.example.com/', 'curl https://empty.example.com/',
+            'curl https://evil.example.com/', 'curl https://rebind.example.com/', 'curl https://flip.example.com/', 'curl https://nodns.example.com/', 'curl https://empty.example.com/',
             f"curl '{u}?token=abc'", f"curl '{u}?API_KEY=abc'", f'curl {u}/ghp_abcdef', f'curl {u}/%67hp_abc', f'curl {u}/sk-abc', f'curl {u}/{"a" * 32}',
             "curl 'https://example.com/{a,b}'", "curl 'https://example.com/[1-3]'", "curl 'https://example.com\\@evil.example.com'", "curl 'https://example.com/a b'", f'curl {u}​', f'curl　{u}',
         ]
@@ -308,9 +286,19 @@ class SafeReadTests(unittest.TestCase):
         for extra in ({'workdir': '/tmp'}, {'background': True}, {'pty': True}):
             self.assertEqual(self.gate('terminal', {'command': 'curl https://example.com', **extra})['message'], plugin._HIDDEN_ARGS)
 
-    def test_missing_official_check_keeps_approval(self):
+    def test_url_safety_without_hermes_import(self):
+        with patch.dict(sys.modules, {'tools': None, 'tools.url_safety': None}):
+            for host in ('metadata.goog', 'evil.example.com', 'rebind.example.com'):
+                self.assertEqual(self.gate('terminal', {'command': 'curl https://' + host})['action'], 'approve')
+            for address in ('100.100.100.200', '224.0.0.1', '::ffff:10.0.0.1', '::ffff:0:10.0.0.1'):
+                self.DNS = {'example.com': [address]}
+                self.assertEqual(self.gate('terminal', {'command': 'curl https://example.com'})['action'], 'approve')
+            self.DNS = {}
+            self.assertEqual(self.gate('terminal', {'command': "curl 'https://example.com/?%2574oken=x'"})['action'], 'approve')
+
+    def test_no_internal_url_safety_import_needed(self):
         with patch.dict(sys.modules, {'tools.url_safety': None}):
-            self.assertEqual(self.gate('terminal', {'command': 'curl https://example.com'})['action'], 'approve')
+            self.assertEqual(self.gate('terminal', {'command': 'curl https://example.com'})['action'], 'modify')
 
     def test_web_search(self):
         for args in ({'query': 'Even G2 天気'}, {'query': 'x', 'limit': 5}, {'query': 'a　b', 'limit': None}):
