@@ -950,6 +950,16 @@ def _telegram_home(chat: Any, thread: Any) -> bool:
     return bool(home_chat) and as_text(chat) == home_chat and as_text(thread) == home_thread
 
 
+def _gateway_telegram_here() -> bool:
+    """Whether a bare ``telegram`` cron target (the gateway's Telegram home channel, in the cron topic when
+    ``TELEGRAM_CRON_THREAD_ID`` is set) is exactly where this channel's Telegram copy goes."""
+    cfg = settings()
+    if not cfg["telegram_chat"] or str(cfg["telegram_chat"]) != _env("TELEGRAM_HOME_CHANNEL"):
+        return False
+    return str(cfg["telegram_thread"] or "") == (_env("TELEGRAM_CRON_THREAD_ID")
+                                                 or _env("TELEGRAM_HOME_CHANNEL_THREAD_ID"))
+
+
 def _only_telegram_home() -> bool:
     """Whether the home Telegram chat is the only home channel of this gateway.
 
@@ -957,10 +967,7 @@ def _only_telegram_home() -> bool:
     mean exactly the home Telegram chat only then. Another platform's ``*_HOME_CHANNEL`` or any
     ``home_channel`` in config.yaml makes this false, and such a target stays as written."""
     cfg = settings()
-    if not cfg["telegram_chat"] or str(cfg["telegram_chat"]) != _env("TELEGRAM_HOME_CHANNEL"):
-        return False
-    if str(cfg["telegram_thread"] or "") != (_env("TELEGRAM_CRON_THREAD_ID")
-                                             or _env("TELEGRAM_HOME_CHANNEL_THREAD_ID")):
+    if not _gateway_telegram_here():
         return False
     for key, value in os.environ.items():
         if key.endswith("_HOME_CHANNEL") and key != "TELEGRAM_HOME_CHANNEL" and str(value).strip():
@@ -997,7 +1004,7 @@ def _moves_here(target: str, origin: Any) -> bool:
     creating chat (dict), ``None`` for none recorded, ``False`` for unknown (then nothing is assumed)."""
     low = target.lower()
     if low == "telegram":
-        return True
+        return _gateway_telegram_here()
     if low == "all":
         return _only_telegram_home()
     if low == "origin":
@@ -1030,7 +1037,8 @@ def cron_deliver_rewrite(tool_name: Any, args: Any) -> Optional[dict]:
 
     The ``cronjob_manage`` tool addresses a job to the chat it was created from when ``deliver`` is omitted
     (``origin``). A target becomes ``boxp_notify:cron`` only when it means exactly the home Telegram chat
-    and topic: a bare ``telegram``, an explicit ``telegram:<chat>[:<thread>]`` naming them, an omitted
+    and topic: a bare ``telegram`` (when the gateway's Telegram home and cron topic are that chat and
+    topic), an explicit ``telegram:<chat>[:<thread>]`` naming them, an omitted
     ``deliver`` / ``origin`` when the creating chat is that chat (or is the home UI / G2, for which cron
     falls back to the first home channel, and Telegram is the only one), and ``all`` when Telegram is the
     only home channel. Anything else (``local``, another platform or a chat on it, another Telegram chat or
