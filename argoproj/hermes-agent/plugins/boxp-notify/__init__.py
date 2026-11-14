@@ -250,19 +250,24 @@ def alert_summary(text: str, extra: str) -> tuple[str, int]:
     return title[:200], firing
 
 
-def direct_key(cfg: dict, name: str, digest: str) -> str:
+def direct_key(cfg: dict, name: str, digest: str, superseded: Optional[list] = None) -> str:
     """Key of one agent-less relay notification: the same text counts as a retry only while nothing else
-    from that relay was accepted in between (or while its own delivery is still unfinished).
+    from that relay was accepted in between.
 
     Nothing but the text reaches the channel, and an alert that resolves and fires again with the same
     start minute produces the same text as its first notification. A key made of text and time alone would
     drop that second firing as a duplicate. So each accepted notification gets a sequence number, and the
-    last ones are remembered per relay: the same text again is a retry when it is the latest notification
-    of the relay, or when its receipt is pending and has reached neither egress (the webhook was told
-    failure and retries), inside two time buckets. After a different notification (the resolve) it is a new
-    one, also while the first is half delivered: upstream was told success for that one and does not retry
-    it, so the same text is the alert firing again and goes to both egresses, while recovery finishes the
-    first one separately. When unsure this sends twice rather than not at all.
+    last ones are remembered per relay: the same text again is a retry only when it is the latest
+    notification of the relay, inside two time buckets. After a different notification (the resolve) it is
+    a new one and goes to both egresses.
+
+    What happens to the earlier one with the same text depends on whether it reached the Owner. Half
+    delivered: upstream was told success and does not retry it, so recovery finishes it separately. Reached
+    neither egress (both were down, the webhook was told failure): the new text may be the webhook's retry
+    of it (another alert group came in between) or the alert firing again after its resolve. The two cannot
+    be told apart, and they need not be: the new notification takes the place of the unreached one
+    (``superseded`` collects its key), so the Owner gets that text once, after whatever came in between.
+    Treating it as the old receipt instead would lose a second firing; keeping both would send a retry twice.
     """
     path = cfg["state"] / "direct-recent" / (file_ident(name) + ".json")
     recent = read_json(path) or {}
@@ -273,19 +278,19 @@ def direct_key(cfg: dict, name: str, digest: str) -> str:
         entry = entries[index]
         if entry.get("digest") != digest:
             continue
-        latest = index == len(entries) - 1
-        receipt = read_json(receipt_path(cfg, entry["key"])) or {}
-        unreached = receipt.get("state") == "pending" and not (receipt.get("home") or receipt.get("telegram"))
-        if latest or unreached:
+        if index == len(entries) - 1:
             return entry["key"]
-        break  # it reached the Owner, and something else came after it: this is the alert firing again
+        if superseded is not None:
+            superseded.append(entry["key"])  # replaced below, if it turns out to have reached nothing
+        break  # something else came after it: a new notification
     seq = int(recent.get("seq", 0)) + 1
     key = f"direct-{name}-{digest}-{seq}"
     atomic_json(path, {"seq": seq, "entries": (entries + [{"digest": digest, "key": key, "at": stamp}])[-64:]})
     return key
 
 
-def dedup_key(cfg: dict, target: dict, decision: dict, metadata: Optional[dict]) -> str:
+def dedup_key(cfg: dict, target: dict, decision: dict, metadata: Optional[dict],
+              superseded: Optional[list] = None) -> str:
     if target["kind"] == "task-board":
         return f"tb-{target['event']}.{decision['slot']}"
     digest = hashlib.sha256(decision["text"].encode()).hexdigest()[:16]
@@ -293,7 +298,7 @@ def dedup_key(cfg: dict, target: dict, decision: dict, metadata: Optional[dict])
     if target["kind"] == "direct":
         if decision["action"] != "deliver":
             return f"direct-{target['name']}-{digest}-{bucket}"
-        return direct_key(cfg, str(target["name"]), digest)
+        return direct_key(cfg, str(target["name"]), digest, superseded)
     # cron: no run id reaches the channel. job id + text + a coarse time bucket separates two runs
     # that produce the same text, while a retry of one run inside the bucket collapses.
     job = str((metadata or {}).get("job_id") or target["name"] or "unknown")
@@ -461,7 +466,20 @@ async def claim(path: Path):
 async def send_once(cfg: dict, chat_id: str, content: str, metadata: Optional[dict]) -> SendResult:
     target = parse_target(chat_id)
     decision = decide(cfg, target, content)
-    key = dedup_key(cfg, target, decision, metadata)
+    superseded: list = []
+    key = dedup_key(cfg, target, decision, metadata, superseded)
+    for old in superseded:
+        # An earlier notification with this text that reached neither egress is replaced by this one. Under
+        # its own claim, and only if recovery has not reached the Owner with it meanwhile. Should the gateway
+        # die right here, the webhook was not told success and retries: that retry is this new key again.
+        old_path = receipt_path(cfg, old)
+        async with claim(old_path):
+            record = read_json(old_path)
+            if (record and record.get("state") == "pending"
+                    and not (record.get("home") or record.get("telegram"))):
+                record.update(state="superseded", superseded_by=key, updated_at=now().isoformat())
+                atomic_json(old_path, record)
+                journal(cfg, "superseded", key=old, by=key)
     # One claim per key at a time: two concurrent redeliveries of one event, or a redelivery and the
     # recovery pass, must not both run the egress.
     async with claim(receipt_path(cfg, key)):
@@ -478,7 +496,7 @@ async def _send_claimed(cfg: dict, target: dict, decision: dict, key: str, chat_
         # Progress lines and lifecycle broadcasts ("shutting down") are never a notification result.
         journal(cfg, "status_dropped", **base)
         return SendResult(success=True, message_id=key)
-    if existing and existing.get("state") in {"delivered", "suppressed", "expired"}:
+    if existing and existing.get("state") in {"delivered", "suppressed", "expired", "superseded"}:
         journal(cfg, "duplicate_dropped", **base, first_state=existing["state"])
         return SendResult(success=True, message_id=key)
     if target["kind"] == "task-board" and decision["slot"] == "notice":
@@ -519,10 +537,10 @@ async def recover(cfg: dict) -> int:
     if cfg["no_recovery"]:
         return done
     directory = cfg["state"] / "receipts"
-    for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
-        record = read_json(path)
-        if not record or record.get("state") != "pending":
-            continue
+    pending = [(str(record.get("created_at") or ""), path)
+               for path in (directory.glob("*.json") if directory.is_dir() else [])
+               for record in [read_json(path)] if record and record.get("state") == "pending"]
+    for _, path in sorted(pending):  # oldest first: a resolve and a second firing arrive in their order
         async with claim(path):
             record = read_json(path)  # a send that held the claim may have finished it meanwhile
             if not record or record.get("state") != "pending":
