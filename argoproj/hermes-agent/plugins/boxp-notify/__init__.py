@@ -940,15 +940,37 @@ CRON_TARGET = f"{NAME}:cron"
 CRON_TOOL = "cronjob_manage"  # the tool of the ``cronjob`` toolset (same name on v0.22.5 and v0.23.1)
 
 
-def _cron_targets(raw: Any) -> tuple[list[str], str, bool]:
+def _telegram_home(chat: Any, thread: Any) -> bool:
+    """Whether a Telegram chat and topic are exactly where this channel's Telegram copy goes. Any other
+    chat or topic stays on Telegram as written: moving it here would silently send it to the home chat."""
+    cfg = settings()
+    home_chat, home_thread = str(cfg["telegram_chat"] or ""), str(cfg["telegram_thread"] or "")
+    as_text = lambda value: "" if value is None else str(value).strip()
+    return bool(home_chat) and as_text(chat) == home_chat and as_text(thread) == home_thread
+
+
+def _moves_here(target: str, origin: Any) -> bool:
+    low = target.lower()
+    if low in ("all", "telegram"):
+        return True
+    if low == "origin":  # the creating chat; a stored job records it, a job being created does not yet
+        if isinstance(origin, dict) and str(origin.get("platform") or "").lower() == "telegram":
+            return _telegram_home(origin.get("chat_id"), origin.get("thread_id"))
+        return True
+    if low.startswith("telegram:"):
+        chat, _, thread = target.split(":", 1)[1].partition(":")
+        return _telegram_home(chat, thread)
+    return False
+
+
+def _cron_targets(raw: Any, origin: Any = None) -> tuple[list[str], str, bool]:
     """``(elements as written, the value with Telegram elements replaced, whether anything changed)``."""
     items = raw if isinstance(raw, (list, tuple)) else ([] if raw is None else str(raw).split(","))
     parts = [part for part in (str(item).strip() for item in items) if part]
     out: list[str] = []
     changed = False
     for part in parts:
-        low = part.lower()
-        if low in ("origin", "all", "telegram") or low.startswith("telegram:"):
+        if _moves_here(part, origin):
             part, changed = CRON_TARGET, True
         if part not in out:
             out.append(part)
@@ -960,8 +982,9 @@ def cron_deliver_rewrite(tool_name: Any, args: Any) -> Optional[dict]:
 
     The ``cronjob_manage`` tool addresses a job to the chat it was created from when ``deliver`` is omitted
     (``origin``), which for the Owner is Telegram. Those elements, ``all`` (every home channel, i.e.
-    Telegram) and explicit ``telegram[:chat[:thread]]`` targets become ``boxp_notify:cron``; anything else
-    (``local``, another platform, an existing ``boxp_notify`` target) is left as written. An update is
+    Telegram), a bare ``telegram`` and an explicit ``telegram:<chat>[:<thread>]`` naming the home chat and
+    topic become ``boxp_notify:cron``; anything else (``local``, another platform, another Telegram chat
+    or topic, an existing ``boxp_notify`` target) is left as written. An update is
     touched only for the fields it sets. ``failure_deliver`` follows the same rule when given (an omitted
     one falls back to ``deliver``).
     """
@@ -1007,7 +1030,8 @@ def cron_jobs_to_migrate(cfg: dict) -> list[tuple[str, dict[str, str]]]:
     """Stored cron jobs that would still run and deliver to Telegram: ``[(job id, {field: new value})]``.
 
     Jobs saved before the hook existed, or created outside the agent (``hermes cron create``), never pass
-    ``pre_tool_call``. Finished or disabled jobs are left alone. A stored job with no ``deliver`` is local.
+    ``pre_tool_call``. Finished or disabled jobs are left alone, and so is a job addressed to a Telegram chat
+    or topic other than the home one (explicitly, or as the ``origin`` it was created from). A stored job with no ``deliver`` is local.
     """
     try:
         data = json.loads((cfg["hermes_home"] / "cron/jobs.json").read_text())
@@ -1022,7 +1046,7 @@ def cron_jobs_to_migrate(cfg: dict) -> list[tuple[str, dict[str, str]]]:
             continue
         fields = {}
         for field in ("deliver", "failure_deliver"):
-            _parts, value, changed = _cron_targets(job.get(field))
+            _parts, value, changed = _cron_targets(job.get(field), job.get("origin"))
             if changed:
                 fields[field] = value
         if fields:
