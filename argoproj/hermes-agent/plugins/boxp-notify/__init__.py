@@ -32,6 +32,7 @@ import re
 import tempfile
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -231,18 +232,21 @@ def vault_receipt(cfg: dict, event: str, state: str, classification: Optional[st
         return False
 
 
-def silence_receipt(cfg: dict, event: str, proof: str) -> None:
+def silence_receipt(cfg: dict, event: str, proof: str) -> bool:
     """A digest ends without a send, and a deferred event enters the digest, only on this proof of an
-    intentional silence. It never replaces the evidence of an earlier send."""
+    intentional silence. It never replaces the evidence of an earlier send.
+
+    False only when the receipt this silence needs could not be written: the dispatcher would then see
+    neither the hold nor the end of the event, so the caller must not report the silence as done."""
     expected = "silent" if "-digest-" in event else "deferred"
     if proof != expected:
-        return
+        return True
     if (read_json(cfg["vault"] / TB / "delivery-receipts" / f"{event}.md") or {}).get("state") in {"sent", "uncertain"}:
-        return
+        return True
     for slot in ("report", "notice"):
         if (read_json(receipt_path(cfg, f"tb-{event}.{slot}")) or {}).get("state") in {"delivered", "pending"}:
-            return
-    vault_receipt(cfg, event, "silent", proof)
+            return True
+    return vault_receipt(cfg, event, "silent", proof)
 
 
 def home_primary(cfg: dict) -> bool:
@@ -430,6 +434,11 @@ def dedup_key(cfg: dict, target: dict, decision: dict, metadata: Optional[dict],
     job = str((metadata or {}).get("job_id") or target["name"] or "unknown")
     if decision["action"] != "deliver":
         return f"cron-{job}-{digest}-{bucket}"
+    if not (metadata or {}).get("job_id"):
+        # No job id either (the out-of-process sender): every job shares the target name, so the same text
+        # from two jobs could not be told from a retry and the later one would be dropped. Losing a
+        # notification is worse than a repeated one: without a job id nothing is treated as a retry.
+        return f"cron-{job}-{digest}-{uuid.uuid4().hex[:16]}"
     return direct_key(cfg, job, digest, superseded, window=max(1, cfg["cron_dedup_seconds"]), prefix="cron")
 
 
@@ -701,10 +710,17 @@ async def _send_claimed(cfg: dict, target: dict, decision: dict, key: str, chat_
     tracked = target["kind"] == "task-board" and bool(target.get("ticket"))
     if existing and existing.get("state") in {"suppressed", "held"} and decision["action"] == "deliver":
         existing = None  # nothing was sent under this key: a silence or a hold never consumes the report
+    if tracked and existing and existing.get("state") == "suppressed" and decision["action"] == "suppress":
+        existing = None  # the same silence again: write its receipt again, the dispatcher wants a fresh one
     if existing and existing.get("state") in {"delivered", "suppressed", "expired", "superseded"}:
-        if tracked and existing["state"] == "delivered":
-            # The dispatcher only trusts a receipt newer than its own delivery attempt.
-            vault_receipt(cfg, target["event"], "sent", existing["decision"].get("receipt_class"))
+        if tracked and existing["state"] in {"delivered", "expired"}:
+            # The dispatcher only trusts a receipt newer than its own delivery attempt. If that receipt
+            # cannot be written now, this redelivery is not confirmed: fail so it is retried (nothing is
+            # sent again, the stored state stays as it is).
+            if not vault_receipt(cfg, target["event"], "sent", existing["decision"].get("receipt_class")):
+                journal(cfg, "duplicate_unrecorded", **base, first_state=existing["state"])
+                return SendResult(success=False, error="boxp-notify: delivery receipt unrecorded",
+                                  retryable=True)
         journal(cfg, "duplicate_dropped", **base, first_state=existing["state"])
         return SendResult(success=True, message_id=key)
     if target["kind"] == "task-board" and decision["slot"] == "notice":
@@ -716,8 +732,11 @@ async def _send_claimed(cfg: dict, target: dict, decision: dict, key: str, chat_
             journal(cfg, "notice_after_report_dropped", **base, report_state=report["state"])
             return SendResult(success=True, message_id=key)
     if decision["action"] == "suppress":
-        if tracked:
-            silence_receipt(cfg, target["event"], decision["proof"])
+        if tracked and not silence_receipt(cfg, target["event"], decision["proof"]):
+            # Same rule as the hold below: without the receipt the dispatcher can neither fold the event
+            # into the digest nor close it, so this is a retryable failure and nothing is stored as done.
+            journal(cfg, "silence_unrecorded", **base, proof=decision.get("proof"))
+            return SendResult(success=False, error="boxp-notify: silence unrecorded", retryable=True)
         if not existing:
             atomic_json(path, {"state": "suppressed", "target": target, "decision": decision,
                                "created_at": now().isoformat()})
@@ -742,6 +761,11 @@ async def _send_claimed(cfg: dict, target: dict, decision: dict, key: str, chat_
                           **(task_board_plan(cfg, target, decision) if target["kind"] == "task-board" else {})}
     if not existing:
         atomic_json(path, record)  # durable intent before any egress
+    elif tracked:
+        # A redelivery of an event still pending here: the dispatcher needs a receipt newer than this
+        # attempt, so the one written before no longer counts. If it cannot be written now the record
+        # stays pending and recovery writes it.
+        record.pop("vault_receipt", None)
     record = await deliver(cfg, path, record)
     reached = record["home"] or record["telegram"]
     journal(cfg, "delivered" if record["state"] == "delivered" else
@@ -781,7 +805,13 @@ async def recover(cfg: dict) -> int:
                     atomic_json(path, record)
                     journal(cfg, "quiet_held", key=record.get("key") or path.stem, recovered=True)
                 continue
-            if (record.get("home") or record.get("telegram")) and _age(record) > cfg["pending_max_age"]:
+            unconfirmed = (target["kind"] == "task-board" and bool(target.get("ticket"))
+                           and record.get("vault_receipt") != "sent")
+            # A Task Board event whose "sent" receipt is not in the vault yet never expires: the
+            # dispatcher can only close the event from that receipt, so it is retried until the vault
+            # is writable again, however long that takes (nothing already sent is sent again).
+            if (not unconfirmed and (record.get("home") or record.get("telegram"))
+                    and _age(record) > cfg["pending_max_age"]):
                 # Reached the Owner through one egress; the other has failed for this long since then (a
                 # rejected message would otherwise be retried every pass, forever). The limit counts from
                 # the first egress that succeeded, not from creation: after an outage of both that outlasts
@@ -881,8 +911,9 @@ class BoxpNotifyAdapter(BasePlatformAdapter):
 async def _standalone_send(pconfig, chat_id, message, *, thread_id=None, media_files=None, **_kwargs) -> dict:
     """Out-of-process cron delivery (a cron run outside the gateway has no live adapter).
 
-    Same decision, receipt and egress as ``send``. No job id reaches this path, so the cron key falls back
-    to the target name. Pending receipts are finished by the gateway's recovery loop.
+    Same decision, receipt and egress as ``send``. No job id reaches this path, so jobs cannot be told
+    apart here and nothing is treated as a retry of an earlier send (see ``dedup_key``). Pending receipts
+    are finished by the gateway's recovery loop.
     """
     cfg = settings()
     journal(cfg, "standalone_send_called", chat_id=str(chat_id), length=len(message or ""),
