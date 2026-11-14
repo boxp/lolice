@@ -46,7 +46,7 @@ spec:
         fsGroup: 65532
       containers:
         - name: minio
-          image: cgr.dev/chainguard/minio:latest@sha256:ddfab4c402bf32e7701600d16d8c40dbccfab4c4e5340eef4c324394349c7926
+          image: cgr.dev/chainguard/minio:latest@sha256:0f9fda72fbc6bd3560ea903aec2ceefa20f6ba82628d67656f37fb370c39ae9c
           command: ["sh", "-c"]
           args:
             - mkdir -p /data/langfuse && exec minio server --address :9000 --console-address :9001 /data
