@@ -54,9 +54,11 @@
 (def ticket-links
   (by-name "票" {"links" [{:title "この票だけ表示" :url "/d/ai-ops-ticket-usage/?${__url_time_range}&${datasource:queryparam}&var-ticket=${__value.raw}"}
                           {:title "Langfuse で記録を開く" :url "https://langfuse.b0xp.io/project/ai-ops/sessions/${__value.raw}"}]
-                 "custom.width" 340
-                 ;; 「票番号 題名」が列幅で切れないよう、票の列だけ折り返して全文を出す
-                 "custom.wrapText" true}))
+                 "custom.width" 460
+                 ;; 折り返すと Grafana は行の高さを値（票番号）の長さで測るため、長い題名が行からはみ出し先頭の票番号が隠れる。
+                 ;; 1 行表示にして票番号を常に先頭に残し、切れた題名は「セルの中身を見る」（inspect）で全文を確かめる。
+                 "custom.wrapText" false
+                 "custom.inspect" true}))
 ;; ---- 票の題名（認証済みの Grafana の中だけで、Prometheus の ai_ops_ticket_title_info から引く） ----
 ;; 題名は repo に置かない。すべての票ファイルと run のある票について、票ファイルの見出しから現在の題名を出す。
 ;; 題名が取れない票は title="" になり、表示は票番号だけのまま（推測で埋めない）。

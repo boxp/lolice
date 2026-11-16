@@ -149,10 +149,14 @@
               },
               {
                 "id": "custom.width",
-                "value": 340
+                "value": 460
               },
               {
                 "id": "custom.wrapText",
+                "value": false
+              },
+              {
+                "id": "custom.inspect",
                 "value": true
               }
             ]
@@ -362,10 +366,14 @@
               },
               {
                 "id": "custom.width",
-                "value": 340
+                "value": 460
               },
               {
                 "id": "custom.wrapText",
+                "value": false
+              },
+              {
+                "id": "custom.inspect",
                 "value": true
               }
             ]

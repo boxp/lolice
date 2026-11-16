@@ -41,6 +41,6 @@ jq -e '.templating.list[] | select(.name == "ticket") | .datasource.type == "pro
 jq -e '[.. | objects | .rawSql? // empty | select(contains("${ticket:singlequote}")) | contains("'"'"'__all__'"'"' IN (${ticket:singlequote}) OR")] | length > 0 and all' "$dashboard" >/dev/null
 # 票の列を持つ表は題名を値の対応で付け、値（票番号）とリンクは変えない
 jq -e '[.panels[] | select(any(.fieldConfig.overrides[]?; .matcher.options == "票")) | (.transformations[0].id == "configFromData" and .transformations[0].options.applyTo.options == "票" and any(.targets[]; .refId == "T" and (.expr | contains("ai_ops_ticket_title_info"))))] | length == 2 and all' "$dashboard" >/dev/null
-# 題名が列幅で切れないよう票の列は折り返す
-jq -e '[.panels[] | .fieldConfig.overrides[]? | select(.matcher.options == "票") | any(.properties[]; .id == "custom.wrapText" and .value == true)] | length == 2 and all' "$dashboard" >/dev/null
+# 票の列は折り返さず（折り返すと行の高さが足りず票番号が隠れる）、全文は inspect で見る
+jq -e '[.panels[] | .fieldConfig.overrides[]? | select(.matcher.options == "票") | (any(.properties[]; .id == "custom.wrapText" and .value == false) and any(.properties[]; .id == "custom.inspect" and .value == true))] | length == 2 and all' "$dashboard" >/dev/null
 echo 'ticket usage tests passed'
