@@ -183,7 +183,7 @@
     :options {:legend {:displayMode "list" :placement "bottom" :calcs []} :tooltip {:mode "multi"}}}
    comparison
    (text 11 "推定の根拠と限界" basis)])
-(def sizes [[24 15] [24 1] [24 11] [24 11] [12 9] [12 9] [24 4] [24 1] [12 9] [12 9] [24 15]])
+(def sizes [[24 19] [24 1] [24 11] [24 11] [12 9] [12 9] [24 5] [24 1] [12 9] [12 9] [24 19]])
 (defn pack [sizes] (loop [ss sizes x 0 y 0 h 0 out []] (if-let [[w hh] (first ss)] (let [wrap (> (+ x w) 24) x (if wrap 0 x) y (if wrap (+ y h) y) h (if wrap 0 h)] (recur (rest ss) (+ x w) y (max h hh) (conj out {:x x :y y :w w :h hh}))) out)))
 (def all-value {:text "すべて" :value ["$__all"]})
 (def vars
