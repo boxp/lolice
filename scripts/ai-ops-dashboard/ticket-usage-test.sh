@@ -24,3 +24,6 @@ jq -e '(.panels | map(select(.type == "row" and (.title | startswith("アカウ�
 jq -e '[(.panels[].title), (.templating.list[].label), (.. | objects | .rawSql? // empty | [scan("AS `([^`]*)`")[0]] | .[])] | map(select(test("\\b(bin|pt|used%|ticket_label|runs|models|routes|first_JST|last_JST)\\b|_sum\\b"; "i"))) | length == 0' "$dashboard" >/dev/null
 if command -v kustomize >/dev/null; then kustomize build argoproj/prometheus-operator >/dev/null; else echo 'kustomize がないため build をスキップ'; fi
 echo 'ticket usage tests passed'
+# organize は単一フレームにしか効かないため、複数クエリのパネルは先に結合する
+jq -e '[.panels[] | select((.targets | length) > 1) | .transformations[0].id == "joinByField"] | length > 0 and all' "$dashboard" >/dev/null
+jq -e '.panels[] | select(.id == 10) | .transformations[0].options.byField == "w" and (.targets[1].rawSql | contains("AS w,"))' "$dashboard" >/dev/null

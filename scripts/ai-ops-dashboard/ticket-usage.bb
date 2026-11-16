@@ -119,7 +119,8 @@
 (def comparison-sql
   (str/join " UNION ALL "
             (for [w ws :let [mid (per-row w :mid)]]
-              (str "SELECT '" (:label w) "' AS " (q "週枠") ", " (est w :mid) " AS " (q "推定の合計（%）") ", " (range-text w) " AS " (q "推定幅（%）") ", "
+              ;; 結合キーは Prometheus の label 名 w に合わせ、結合後に「週枠」へ改名する（organize は単一フレームでしか効かないため）
+              (str "SELECT '" (:label w) "' AS w, " (est w :mid) " AS " (q "推定の合計（%）") ", " (range-text w) " AS " (q "推定幅（%）") ", "
                    "sumIf(" mid ", ticket != '') AS " (q "うち票に割り当てた分（%）") ", sumIf(" mid ", ticket = '') AS " (q "うち票なしの分（%）")
                    " FROM ai_ops_usage_v1 " where-all))))
 (def comparison
@@ -128,9 +129,8 @@
    :datasource mixed
    :targets [{:refId "A" :datasource prom :expr (str "sum by (w) (" (named (str "sum_over_time(" delta-base "[$__range:1m])")) ")") :instant true :range false :format "table"}
              (assoc (ch-target "table" comparison-sql) :refId "B")]
-   :transformations [{:id "organize" :options {:renameByName {"w" "週枠"}}}
-                     {:id "joinByField" :options {:byField "週枠" :mode "outer"}}
-                     {:id "organize" :options {:excludeByName {"Time" true} :renameByName {"Value" "実測の増加（%）"}}}
+   :transformations [{:id "joinByField" :options {:byField "w" :mode "outer"}}
+                     {:id "organize" :options {:excludeByName {"Time" true} :renameByName {"w" "週枠" "Value" "実測の増加（%）"}}}
                      {:id "calculateField" :options {:mode "binary" :alias "推定で説明できない分（%）" :binary {:left "実測の増加（%）" :operator "-" :right "推定の合計（%）"} :replaceFields false}}
                      {:id "organize" :options {:indexByName {"週枠" 0 "実測の増加（%）" 1 "推定の合計（%）" 2 "推定幅（%）" 3 "推定で説明できない分（%）" 4 "うち票に割り当てた分（%）" 5 "うち票なしの分（%）" 6}}}]
    :fieldConfig {:defaults (merge plain-color {:noValue "記録なし" :unit "none" :custom {:align "auto" :wrapHeaderText true :cellOptions {:type "auto"}}})

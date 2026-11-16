@@ -800,24 +800,16 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "SELECT 'Claude 共有週枠' AS `週枠`, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `推定の合計（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6), 2), 2))) AS `推定幅（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6, ticket != '') AS `うち票に割り当てた分（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6, ticket = '') AS `うち票なしの分（%）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) UNION ALL SELECT 'Fable 専用週枠' AS `週枠`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `推定の合計（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6), 2), 2))) AS `推定幅（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6, ticket != '') AS `うち票に割り当てた分（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6, ticket = '') AS `うち票なしの分（%）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) UNION ALL SELECT 'Codex 週枠' AS `週枠`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `推定の合計（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6), 2), 2))) AS `推定幅（%）`, sumIf(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6, ticket != '') AS `うち票に割り当てた分（%）`, sumIf(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6, ticket = '') AS `うち票なしの分（%）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time)",
+          "rawSql": "SELECT 'Claude 共有週枠' AS w, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `推定の合計（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6), 2), 2))) AS `推定幅（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6, ticket != '') AS `うち票に割り当てた分（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6, ticket = '') AS `うち票なしの分（%）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) UNION ALL SELECT 'Fable 専用週枠' AS w, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `推定の合計（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6), 2), 2))) AS `推定幅（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6, ticket != '') AS `うち票に割り当てた分（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6, ticket = '') AS `うち票なしの分（%）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) UNION ALL SELECT 'Codex 週枠' AS w, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `推定の合計（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6), 2), 2))) AS `推定幅（%）`, sumIf(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6, ticket != '') AS `うち票に割り当てた分（%）`, sumIf(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6, ticket = '') AS `うち票なしの分（%）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time)",
           "refId": "B"
         }
       ],
       "title": "推定の合計と実測の比較（アカウント全体）",
       "transformations": [
         {
-          "id": "organize",
-          "options": {
-            "renameByName": {
-              "w": "週枠"
-            }
-          }
-        },
-        {
           "id": "joinByField",
           "options": {
-            "byField": "週枠",
+            "byField": "w",
             "mode": "outer"
           }
         },
@@ -828,7 +820,8 @@
               "Time": true
             },
             "renameByName": {
-              "Value": "実測の増加（%）"
+              "Value": "実測の増加（%）",
+              "w": "週枠"
             }
           }
         },
