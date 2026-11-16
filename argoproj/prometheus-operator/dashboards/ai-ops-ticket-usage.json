@@ -17,7 +17,7 @@
       },
       "id": 1,
       "options": {
-        "content": "票（チケット）ごとに、どのモデルがどれだけ動き、Claude と Codex の週枠をどれだけ減らしたか（推定）を見て、**票の担当モデルを決める**ための画面です。\n\n**読む順番**\n1. 「票ごとの枠負担」で、週枠を多く減らした票を探します（列の見出しを押すと並べ替え）。\n2. 票は「票番号 題名」で表示します（題名は Task Board の票ファイルの現在の見出し。取れない票は票番号だけ）。票名を押して「この票だけ表示」を選ぶと、上段がその票だけになります。「モデル × 経路ごとの枠負担」で、親の作業・委譲した子・レビューのどこが重いかを見ます。\n3. 「モデル別の枠負担」で、モデルごとの重さを比べます。同じトークン数なら Fable は Opus の約 4 倍 Claude 共有週枠を減らし、さらに Fable 専用週枠も減らします。軽いモデルで済む作業が重いモデルに割り当てられていれば、担当変更の候補です。\n4. 下段「アカウント全体の実測」で、推定の合計が実際の週枠の減り方とどれだけ合っているかを確かめます。\n\n**値の種類**\n- **実測**: 実際に記録された値です。トークン数は Langfuse の記録、週枠の使用率は Claude / Codex が返す値（1% 単位、アカウント全体）です。\n- **推定**: トークン数 × モデルごとの係数で計算した値です。Claude / Codex は票ごとの消費を返さないため、票ごとの枠消費はすべて推定です。「推定（%）」は中央値、「推定幅（%）」は係数の下限〜上限で計算した範囲です。\n- 単位「%」は**週枠に対する割合**（例: 2.5 は週枠の 2.5% を使った）、「トークン（百万）」は 100 万トークン単位です。\n\n**週枠の種類**（どれも 7 日ごとにリセット）\n- **Claude 共有週枠**: Claude の全モデルで共有する 7 日枠\n- **Fable 専用週枠**: Fable だけが減らす 7 日枠（Fable は共有週枠も同時に減らす）\n- **Codex 週枠**: Hermes を含む Codex 全体で共有する 7 日枠\n\n**選択の効き方**\n- 上の「票」「モデル」「経路」「提供元」は**上段（推定と記録）だけ**に効きます。下段「アカウント全体の実測」は常にアカウント全体の値で、選んだ票の実測ではありません。\n- 「集計間隔」は推移グラフの 1 点がまとめる時間の長さです。\n- 「(票なし)」は Hermes（Telegram・家の Web・Webhook・定期実行）など票番号のない利用で、どの票にも割り当てません。",
+        "content": "票（チケット）ごとに、どのモデルがどれだけ動き、Claude と Codex の週枠をどれだけ減らしたか（推定）を見て、**票の担当モデルを決める**ための画面です。\n\n**読む順番**\n1. 「票ごとの枠負担」で、週枠を多く減らした票を探します（列の見出しを押すと並べ替え）。\n2. 票の隣の「題名」列で内容を確かめます（題名は Task Board の票ファイルの現在の見出し。取れない票は空欄のまま票番号だけ）。票番号を押して「この票だけ表示」を選ぶと、上段がその票だけになります。「モデル × 経路ごとの枠負担」で、親の作業・委譲した子・レビューのどこが重いかを見ます。\n3. 「モデル別の枠負担」で、モデルごとの重さを比べます。同じトークン数なら Fable は Opus の約 4 倍 Claude 共有週枠を減らし、さらに Fable 専用週枠も減らします。軽いモデルで済む作業が重いモデルに割り当てられていれば、担当変更の候補です。\n4. 下段「アカウント全体の実測」で、推定の合計が実際の週枠の減り方とどれだけ合っているかを確かめます。\n\n**値の種類**\n- **実測**: 実際に記録された値です。トークン数は Langfuse の記録、週枠の使用率は Claude / Codex が返す値（1% 単位、アカウント全体）です。\n- **推定**: トークン数 × モデルごとの係数で計算した値です。Claude / Codex は票ごとの消費を返さないため、票ごとの枠消費はすべて推定です。「推定（%）」は中央値、「推定幅（%）」は係数の下限〜上限で計算した範囲です。\n- 単位「%」は**週枠に対する割合**（例: 2.5 は週枠の 2.5% を使った）、「トークン（百万）」は 100 万トークン単位です。\n\n**週枠の種類**（どれも 7 日ごとにリセット）\n- **Claude 共有週枠**: Claude の全モデルで共有する 7 日枠\n- **Fable 専用週枠**: Fable だけが減らす 7 日枠（Fable は共有週枠も同時に減らす）\n- **Codex 週枠**: Hermes を含む Codex 全体で共有する 7 日枠\n\n**選択の効き方**\n- 上の「票」「モデル」「経路」「提供元」は**上段（推定と記録）だけ**に効きます。下段「アカウント全体の実測」は常にアカウント全体の値で、選んだ票の実測ではありません。\n- 「集計間隔」は推移グラフの 1 点がまとめる時間の長さです。\n- 「(票なし)」は Hermes（Telegram・家の Web・Webhook・定期実行）など票番号のない利用で、どの票にも割り当てません。",
         "mode": "markdown"
       },
       "title": "この画面の読み方",
@@ -41,7 +41,7 @@
         "type": "datasource",
         "uid": "-- Mixed --"
       },
-      "description": "選んだ期間に各票が使ったトークン数（実測）と、それで減った週枠の推定です。票名を押すと、その票だけの表示に切り替えられます。",
+      "description": "選んだ期間に各票が使ったトークン数（実測）と、それで減った週枠の推定です。票番号を押すと、その票だけの表示に切り替えられます。",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -149,11 +149,31 @@
               },
               {
                 "id": "custom.width",
-                "value": 340
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "題名"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 420
               },
               {
                 "id": "custom.wrapText",
                 "value": true
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              },
+              {
+                "id": "noValue",
+                "value": "（題名なし）"
               }
             ]
           },
@@ -179,12 +199,17 @@
       },
       "id": 3,
       "options": {
-        "cellHeight": "sm",
+        "cellHeight": "md",
         "footer": {
           "show": false
         },
         "showHeader": true,
-        "sortBy": []
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Claude 共有週枠 推定（%）"
+          }
+        ]
       },
       "targets": [
         {
@@ -204,7 +229,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "label_join(max by (ticket,title) (ai_ops_ticket_title_info{job=\"codex-workspace-ai-ops-metrics\"}), \"display\", \" \", \"ticket\", \"title\")",
+          "expr": "max by (ticket,title) (ai_ops_ticket_title_info{job=\"codex-workspace-ai-ops-metrics\"})",
           "format": "table",
           "instant": true,
           "legendFormat": "",
@@ -215,35 +240,60 @@
       "title": "票ごとの枠負担",
       "transformations": [
         {
-          "id": "configFromData",
+          "id": "renameByRegex",
           "options": {
-            "applyTo": {
-              "id": "byName",
-              "options": "票"
-            },
-            "configRefId": "T",
-            "mappings": [
+            "regex": "^ticket$",
+            "renamePattern": "票"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^title$",
+            "renamePattern": "題名"
+          }
+        },
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "票",
+            "mode": "outerTabular"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^(.*) [AT]$",
+            "renamePattern": "$1"
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
               {
-                "fieldName": "ticket",
-                "handlerKey": "mappings.value"
-              },
-              {
-                "fieldName": "display",
-                "handlerKey": "mappings.text"
-              },
-              {
-                "fieldName": "title",
-                "handlerKey": "__ignore"
-              },
-              {
-                "fieldName": "Time",
-                "handlerKey": "__ignore"
-              },
-              {
-                "fieldName": "Value",
-                "handlerKey": "__ignore"
+                "config": {
+                  "id": "isNull",
+                  "options": {}
+                },
+                "fieldName": "実行回数"
               }
-            ]
+            ],
+            "match": "any",
+            "type": "exclude"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true
+            },
+            "indexByName": {
+              "票": 0,
+              "題名": 1
+            }
           }
         }
       ],
@@ -362,11 +412,31 @@
               },
               {
                 "id": "custom.width",
-                "value": 340
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "題名"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 420
               },
               {
                 "id": "custom.wrapText",
                 "value": true
+              },
+              {
+                "id": "custom.inspect",
+                "value": true
+              },
+              {
+                "id": "noValue",
+                "value": "（題名なし）"
               }
             ]
           },
@@ -392,12 +462,17 @@
       },
       "id": 4,
       "options": {
-        "cellHeight": "sm",
+        "cellHeight": "md",
         "footer": {
           "show": false
         },
         "showHeader": true,
-        "sortBy": []
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Claude 共有週枠 推定（%）"
+          }
+        ]
       },
       "targets": [
         {
@@ -417,7 +492,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "label_join(max by (ticket,title) (ai_ops_ticket_title_info{job=\"codex-workspace-ai-ops-metrics\"}), \"display\", \" \", \"ticket\", \"title\")",
+          "expr": "max by (ticket,title) (ai_ops_ticket_title_info{job=\"codex-workspace-ai-ops-metrics\"})",
           "format": "table",
           "instant": true,
           "legendFormat": "",
@@ -428,35 +503,60 @@
       "title": "モデル × 経路ごとの枠負担",
       "transformations": [
         {
-          "id": "configFromData",
+          "id": "renameByRegex",
           "options": {
-            "applyTo": {
-              "id": "byName",
-              "options": "票"
-            },
-            "configRefId": "T",
-            "mappings": [
+            "regex": "^ticket$",
+            "renamePattern": "票"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^title$",
+            "renamePattern": "題名"
+          }
+        },
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "票",
+            "mode": "outerTabular"
+          }
+        },
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "^(.*) [AT]$",
+            "renamePattern": "$1"
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
               {
-                "fieldName": "ticket",
-                "handlerKey": "mappings.value"
-              },
-              {
-                "fieldName": "display",
-                "handlerKey": "mappings.text"
-              },
-              {
-                "fieldName": "title",
-                "handlerKey": "__ignore"
-              },
-              {
-                "fieldName": "Time",
-                "handlerKey": "__ignore"
-              },
-              {
-                "fieldName": "Value",
-                "handlerKey": "__ignore"
+                "config": {
+                  "id": "isNull",
+                  "options": {}
+                },
+                "fieldName": "実行回数"
               }
-            ]
+            ],
+            "match": "any",
+            "type": "exclude"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true
+            },
+            "indexByName": {
+              "票": 0,
+              "題名": 1
+            }
           }
         }
       ],

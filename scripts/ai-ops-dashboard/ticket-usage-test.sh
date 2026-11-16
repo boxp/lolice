@@ -39,8 +39,9 @@ jq -e '.panels[] | select(.id == 7) | [.fieldConfig.overrides[] | select(.matche
 jq -e '.templating.list[] | select(.name == "ticket") | .datasource.type == "prometheus" and (.query.query | contains("ai_ops_ticket_title_info")) and .allValue == "'"'"'__all__'"'"'" and (.regex | contains("?<text>") and contains("?<value>")) and .allowCustomValue == true' "$dashboard" >/dev/null
 # 「すべて」は選択肢の列挙ではなく絞り込みなし（題名の系列に無い票の利用も落とさない）
 jq -e '[.. | objects | .rawSql? // empty | select(contains("${ticket:singlequote}")) | contains("'"'"'__all__'"'"' IN (${ticket:singlequote}) OR")] | length > 0 and all' "$dashboard" >/dev/null
-# 票の列を持つ表は題名を値の対応で付け、値（票番号）とリンクは変えない
-jq -e '[.panels[] | select(any(.fieldConfig.overrides[]?; .matcher.options == "票")) | (.transformations[0].id == "configFromData" and .transformations[0].options.applyTo.options == "票" and any(.targets[]; .refId == "T" and (.expr | contains("ai_ops_ticket_title_info"))))] | length == 2 and all' "$dashboard" >/dev/null
-# 題名が列幅で切れないよう票の列は折り返す
-jq -e '[.panels[] | .fieldConfig.overrides[]? | select(.matcher.options == "票") | any(.properties[]; .id == "custom.wrapText" and .value == true)] | length == 2 and all' "$dashboard" >/dev/null
+# 票の列を持つ表は、題名の系列を票の列で外部結合して「題名」列を出す（値の対応では行の高さと inspect が票番号のままになるため使わない）
+jq -e '[.panels[] | select(any(.fieldConfig.overrides[]?; .matcher.options == "票")) | ([.transformations[].id] == ["renameByRegex", "renameByRegex", "joinByField", "renameByRegex", "filterByValue", "organize"] and .transformations[2].options == {byField: "票", mode: "outerTabular"} and .transformations[4].options.filters[0].fieldName == "実行回数" and any(.targets[]; .refId == "T" and (.expr | contains("ai_ops_ticket_title_info"))) and (.options.sortBy[0].displayName | endswith(" 推定（%）")))] | length == 2 and all' "$dashboard" >/dev/null
+jq -e '[.. | objects | select(.id? == "configFromData")] | length == 0' "$dashboard" >/dev/null
+# 題名の列は折り返して全文を出し、inspect でも本当の題名を見られる。題名が無い票は「記録なし」と取り違えない表示にする
+jq -e '[.panels[] | .fieldConfig.overrides[]? | select(.matcher.options == "題名") | ([.properties[] | {(.id): .value}] | add) | .["custom.wrapText"] == true and .["custom.inspect"] == true and .noValue == "（題名なし）"] | length == 2 and all' "$dashboard" >/dev/null
 echo 'ticket usage tests passed'

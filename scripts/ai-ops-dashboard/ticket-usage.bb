@@ -54,30 +54,39 @@
 (def ticket-links
   (by-name "票" {"links" [{:title "この票だけ表示" :url "/d/ai-ops-ticket-usage/?${__url_time_range}&${datasource:queryparam}&var-ticket=${__value.raw}"}
                           {:title "Langfuse で記録を開く" :url "https://langfuse.b0xp.io/project/ai-ops/sessions/${__value.raw}"}]
-                 "custom.width" 340
-                 ;; 「票番号 題名」が列幅で切れないよう、票の列だけ折り返して全文を出す
-                 "custom.wrapText" true}))
+                 "custom.width" 130}))
+;; 題名は票番号とは別の列にする。値の対応で票の列に題名を付けると、行の高さとセルの中身（inspect）が元の票番号で決まり、
+;; 長い題名が切れたり全文を確かめられなかったりするため。題名の列は本当の文字列なので、折り返しで全文が出る。
+;; 題名の系列に無い票（(票なし) など）は、利用の「記録なし」と取り違えないよう「（題名なし）」と出す。
+(def title-column (by-name "題名" {"custom.width" 420 "custom.wrapText" true "custom.inspect" true "noValue" "（題名なし）"}))
 ;; ---- 票の題名（認証済みの Grafana の中だけで、Prometheus の ai_ops_ticket_title_info から引く） ----
 ;; 題名は repo に置かない。すべての票ファイルと run のある票について、票ファイルの見出しから現在の題名を出す。
 ;; 題名が取れない票は title="" になり、表示は票番号だけのまま（推測で埋めない）。
 (def titles-job "{job=\"codex-workspace-ai-ops-metrics\"}")
 (def titled (str "max by (ticket,title) (ai_ops_ticket_title_info" titles-job ")"))
-;; 表示名「BOXP-N 題名」。題名が空なら票番号だけ。
+;; 票の選択欄の表示名「BOXP-N 題名」。題名が空なら票番号だけ。
 (def ticket-display
   (str "label_join(" titled ", \"display\", \" \", \"ticket\", \"title\")"))
-(def title-target {:refId "T" :datasource prom :expr ticket-display :instant true :range false :format "table" :legendFormat ""})
-;; 票の列の値（票番号）を、題名つきの表示名へ値の対応で置き換える。並べ替えと「この票だけ表示」は票番号のまま。
-(def ticket-title-config
-  {:id "configFromData" :options {:configRefId "T" :applyTo {:id "byName" :options "票"}
-                                  :mappings [{:fieldName "ticket" :handlerKey "mappings.value"} {:fieldName "display" :handlerKey "mappings.text"}
-                                             {:fieldName "title" :handlerKey "__ignore"} {:fieldName "Time" :handlerKey "__ignore"} {:fieldName "Value" :handlerKey "__ignore"}]}})
+(def title-target {:refId "T" :datasource prom :expr titled :instant true :range false :format "table" :legendFormat ""})
+;; 題名の系列（ticket, title）を票の列で表へ結合する。票ごとに 1 行の題名を、表の各行（同じ票が複数行あってもよい）へ付ける。
+;; 結合は外部結合にし、題名の系列だけにある票（期間内に記録の無い票）の行は「実行回数」が空なので取り除く。
+;; これで題名の系列に無い票（(票なし) など）の行も落とさず、題名の欄が空のまま票番号だけ残る（推測で埋めない）。
+(def ticket-title-join
+  [{:id "renameByRegex" :options {:regex "^ticket$" :renamePattern "票"}}
+   {:id "renameByRegex" :options {:regex "^title$" :renamePattern "題名"}}
+   {:id "joinByField" :options {:byField "票" :mode "outerTabular"}}
+   ;; 結合で付く refId の接尾辞（" A" " T"）を外し、列名の書式・並べ替えの設定が効くようにする
+   {:id "renameByRegex" :options {:regex "^(.*) [AT]$" :renamePattern "$1"}}
+   {:id "filterByValue" :options {:type "exclude" :match "any" :filters [{:fieldName "実行回数" :config {:id "isNull" :options {}}}]}}
+   {:id "organize" :options {:excludeByName {"Time" true "Value" true} :indexByName {"票" 0 "題名" 1}}}])
 (defn table [id title description sql & {:keys [overrides sort titles]}]
   {:id id :title title :description description :type "table" :datasource (if titles mixed ch)
    :targets (if titles [(ch-target "table" sql) title-target] [(ch-target "table" sql)])
-   :transformations (if titles [ticket-title-config] [])
+   :transformations (if titles ticket-title-join [])
    :fieldConfig {:defaults (merge plain-color {:noValue "記録なし" :unit "none" :custom {:align "auto" :wrapHeaderText true :cellOptions {:type "auto"}}})
                  :overrides (vec (concat table-overrides overrides))}
-   :options {:showHeader true :cellHeight "sm" :footer {:show false} :sortBy (if sort [{:displayName sort :desc true}] [])}})
+   ;; 題名を折り返す表は、日本語 2 行の題名が行に収まるよう最小の行の高さを上げる
+   :options {:showHeader true :cellHeight (if titles "md" "sm") :footer {:show false} :sortBy (if sort [{:displayName sort :desc true}] [])}})
 (defn row [id title] {:id id :type "row" :title title :collapsed false :panels []})
 (defn text [id title content] {:id id :type "text" :title title :options {:mode "markdown" :content content}})
 
@@ -104,7 +113,7 @@
 
 **読む順番**
 1. 「票ごとの枠負担」で、週枠を多く減らした票を探します（列の見出しを押すと並べ替え）。
-2. 票は「票番号 題名」で表示します（題名は Task Board の票ファイルの現在の見出し。取れない票は票番号だけ）。票名を押して「この票だけ表示」を選ぶと、上段がその票だけになります。「モデル × 経路ごとの枠負担」で、親の作業・委譲した子・レビューのどこが重いかを見ます。
+2. 票の隣の「題名」列で内容を確かめます（題名は Task Board の票ファイルの現在の見出し。取れない票は空欄のまま票番号だけ）。票番号を押して「この票だけ表示」を選ぶと、上段がその票だけになります。「モデル × 経路ごとの枠負担」で、親の作業・委譲した子・レビューのどこが重いかを見ます。
 3. 「モデル別の枠負担」で、モデルごとの重さを比べます。同じトークン数なら Fable は Opus の約 " fable-ratio " 倍 Claude 共有週枠を減らし、さらに Fable 専用週枠も減らします。軽いモデルで済む作業が重いモデルに割り当てられていれば、担当変更の候補です。
 4. 下段「アカウント全体の実測」で、推定の合計が実際の週枠の減り方とどれだけ合っているかを確かめます。
 
@@ -169,15 +178,15 @@
   [(text 1 "この画面の読み方" guide)
    (row 2 "票ごとの枠負担（推定）— 上の選択に連動")
    (table 3 "票ごとの枠負担"
-          "選んだ期間に各票が使ったトークン数（実測）と、それで減った週枠の推定です。票名を押すと、その票だけの表示に切り替えられます。"
+          "選んだ期間に各票が使ったトークン数（実測）と、それで減った週枠の推定です。票番号を押すと、その票だけの表示に切り替えられます。"
           (str "SELECT " ticket-expr " AS " (q "票") ", arrayStringConcat(arraySort(groupUniqArray(model)), ', ') AS " (q "使ったモデル") ", " burden-cols
                " FROM ai_ops_usage_v1 " where-selected " GROUP BY " (q "票") " ORDER BY " (col-est first-window) " DESC, " col-mtok " DESC LIMIT 200")
-          :overrides [ticket-links (by-name "使ったモデル" {"custom.width" 220})] :titles true)
+          :overrides [ticket-links title-column (by-name "使ったモデル" {"custom.width" 220})] :titles true :sort (str (:label first-window) " 推定（%）"))
    (table 4 "モデル × 経路ごとの枠負担"
           "票の中で、どのモデルがどの経路（親の作業・委譲した子・レビュー・Hermes など）で週枠を減らしたかの内訳です。票を 1 つ選ぶと、その票の担当モデルを見直す材料になります。"
           (str "SELECT " ticket-expr " AS " (q "票") ", model AS " (q "モデル") ", route AS " (q "経路") ", " burden-cols
                " FROM ai_ops_usage_v1 " where-selected " GROUP BY " (q "票") ", " (q "モデル") ", " (q "経路") " ORDER BY " (col-est first-window) " DESC, " col-mtok " DESC LIMIT 200")
-          :overrides [ticket-links (by-name "経路" {"custom.width" 220})] :titles true)
+          :overrides [ticket-links title-column (by-name "経路" {"custom.width" 220})] :titles true :sort (str (:label first-window) " 推定（%）"))
    (table 5 "モデル別の枠負担"
           "モデルごとの合計です。「1 回あたりのトークン（万）」はそのモデルの実行 1 回の平均の大きさです（1 万トークン単位）。"
           (str "SELECT model AS " (q "モデル") ", uniqExactIf(ticket, ticket != '') AS " (q "票の数") ", " burden-cols
