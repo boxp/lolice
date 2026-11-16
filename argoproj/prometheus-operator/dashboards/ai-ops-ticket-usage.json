@@ -1176,6 +1176,7 @@
       },
       {
         "allValue": "__all__",
+        "allowCustomValue": true,
         "current": {
           "text": "すべて",
           "value": [

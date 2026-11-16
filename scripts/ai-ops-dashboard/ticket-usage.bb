@@ -54,7 +54,7 @@
                           {:title "Langfuse で記録を開く" :url "https://langfuse.b0xp.io/project/ai-ops/sessions/${__value.raw}"}]
                  "custom.width" 340}))
 ;; ---- 票の題名（認証済みの Grafana の中だけで、Prometheus の ai_ops_ticket_title_info から引く） ----
-;; 題名は repo に置かない。直近 21 日に run がある票だけ、票ファイルの見出しから現在の題名を出す。
+;; 題名は repo に置かない。すべての票ファイルと run のある票について、票ファイルの見出しから現在の題名を出す。
 ;; 題名が取れない票は title="" になり、表示は票番号だけのまま（推測で埋めない）。
 (def titles-job "{job=\"codex-workspace-ai-ops-metrics\"}")
 (def titled (str "max by (ticket,title) (ai_ops_ticket_title_info" titles-job ")"))
@@ -207,12 +207,13 @@
 (def all-value {:text "すべて" :value ["$__all"]})
 (def vars
   (concat [{:name "datasource" :label "Prometheus" :type "datasource" :query "prometheus" :hide 2 :current {:text "default" :value "default"}}
-           ;; 選択肢は「BOXP-N 題名」で表示し、値は票番号。直近 21 日に run がある票と「(票なし)」。
+           ;; 選択肢は「BOXP-N 題名」で表示し、値は票番号。すべての票ファイル・run のある票と「(票なし)」。
+           ;; それでも一覧に無い票（票ファイルを消した票など）は、票番号の直接入力（allowCustomValue）か表の「この票だけ表示」で選べる。
            {:name "ticket" :label "票" :type "query" :datasource prom
             :query {:qryType 3 :refId "PrometheusVariableQueryEditor-VariableQuery"
                     :query (str "query_result(" ticket-display " or label_replace(label_replace(vector(1), \"display\", \"(票なし) Hermes など票番号のない利用\", \"\", \"\"), \"ticket\", \"(票なし)\", \"\", \"\"))")}
             :regex "/display=\"(?<text>[^\"]*)\".*ticket=\"(?<value>[^\"]*)\"/" :sort 8
-            :multi true :includeAll true :allValue all-ticket :refresh 2 :current all-value}]
+            :multi true :includeAll true :allValue all-ticket :allowCustomValue true :refresh 2 :current all-value}]
           (for [[n label] [["model" "モデル"] ["route" "経路"] ["provider" "提供元"]]]
             {:name n :label label :type "query" :datasource ch :query (str "SELECT DISTINCT " n " FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY " n) :refresh 2 :includeAll true :multi true :current all-value})
           [{:name "bin" :label "集計間隔" :type "custom" :query "1時間 : 1h,6時間 : 6h,1日 : 1d" :current {:text "6時間" :value "6h"}

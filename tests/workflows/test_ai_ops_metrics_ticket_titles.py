@@ -46,12 +46,24 @@ class TicketTitleTest(unittest.TestCase):
         self.assertIn('ai_ops_ticket_title_info{ticket="BOXP-2",title=""} 1', out)
         self.assertIn('ai_ops_ticket_title_info{ticket="BOXP-3",title=""} 1', out)
 
-    def test_old_runs_and_non_ticket_dirs_are_skipped(self):
-        self.ticket('BOXP-4', '# BOXP-4: 古い\n', age_days=30)
+    def test_every_ticket_file_and_run_is_listed_regardless_of_age(self):
+        # 選択欄から Langfuse の利用記録がある票を落とさない: run の新旧や有無に関係なく出す
+        self.ticket('BOXP-4', '# BOXP-4: 古い run\n', age_days=400)
+        (self.tickets / 'BOXP-6.md').write_text('# BOXP-6: run のない票\n')
         (self.runs / 'not-a-ticket').mkdir()
+        (self.tickets / 'README.md').write_text('# x\n')
         out = self.output()
-        self.assertNotIn('BOXP-4', out)
+        self.assertIn('ai_ops_ticket_title_info{ticket="BOXP-4",title="古い run"} 1', out)
+        self.assertIn('ai_ops_ticket_title_info{ticket="BOXP-6",title="run のない票"} 1', out)
         self.assertNotIn('not-a-ticket', out)
+        self.assertNotIn('README', out)
+        self.assertIn('ai_ops_ticket_title_truncated 0', out)
+
+    def test_newest_ids_first(self):
+        for tid in ('BOXP-9', 'BOXP-100', 'BOXP-20'):
+            self.ticket(tid, f'# {tid}: t\n')
+        order = [l.split('"')[1] for l in self.output().splitlines() if l.startswith('ai_ops_ticket_title_info{')]
+        self.assertEqual(order, ['BOXP-100', 'BOXP-20', 'BOXP-9'])
 
     def test_label_value_is_sanitized_and_bounded(self):
         self.ticket('BOXP-5', '# BOXP-5: a"b\\c\td ' + 'x' * 100 + '\n')

@@ -8,10 +8,10 @@ BOXP-372: also serves the subscription usage exposition (rate-limit windows and 
 state, no IDs or bodies) with its own ai_subscription_metrics_file_present / _age_seconds.
 
 BOXP-570: also serves ai_ops_ticket_title_info{ticket,title} so the authenticated Grafana
-dashboard can show each ticket ID with its current title. Only tickets with a Task Board run
-in the last TICKET_TITLE_DAYS days (the Langfuse usage it is joined with is kept 14 days) are
-listed, at most TICKET_TITLE_LIMIT, with the title from the ticket file's "# BOXP-N: title"
-heading. A missing file or heading gives title="" (the dashboard then shows the ID only);
+dashboard can show each ticket ID with its current title. Every ticket file and every ticket
+with a run directory is listed (so no ticket in the Langfuse usage drops out of the selector),
+at most TICKET_TITLE_LIMIT (newest IDs first), with the title from the ticket file's
+"# BOXP-N: title" heading. A missing file or heading gives title="" (the dashboard then shows the ID only);
 nothing is guessed. Titles stay inside the cluster (Prometheus, Grafana); no body is read
 beyond the heading.
 """
@@ -30,8 +30,7 @@ PORT = int(os.environ.get("PORT", "9464"))
 MAX_BYTES = 1024 * 1024
 TICKET_RUNS_DIR = os.environ.get("TICKET_RUNS_DIR", "")
 TICKETS_DIR = os.environ.get("TICKETS_DIR", "")
-TICKET_TITLE_DAYS = 21
-TICKET_TITLE_LIMIT = 500
+TICKET_TITLE_LIMIT = 5000
 TICKET_TITLE_CHARS = 60
 TICKET_TITLE_TTL = 300
 TICKET_ID = re.compile(r"BOXP-\d{1,6}")
@@ -185,7 +184,7 @@ def prepaid_metrics(directory):
 def ticket_title(tickets_dir, ticket):
     try:
         with open(os.path.join(tickets_dir, ticket + ".md"), "rb") as fh:
-            head = fh.read(64 * 1024).decode("utf-8", "replace")
+            head = fh.read(16 * 1024).decode("utf-8", "replace")
     except OSError:
         return ""
     m = re.search(r"^# " + re.escape(ticket) + r":[ \t]*(.+)$", head, re.M)
@@ -198,30 +197,27 @@ def ticket_title(tickets_dir, ticket):
 
 
 def ticket_title_metrics(runs_dir, tickets_dir, now=None):
-    now = time.time() if now is None else now
-    recent = []
-    try:
-        entries = list(os.scandir(runs_dir))
-    except OSError:
-        entries = []
-    for entry in entries:
-        if not TICKET_ID.fullmatch(entry.name):
+    # Every ticket file (the Task Board's ticket set) plus every ticket with a run directory, so any
+    # ticket that can appear in the Langfuse usage is selectable; a run without a file keeps title="".
+    ids = set()
+    for directory, suffix in ((tickets_dir, ".md"), (runs_dir, "")):
+        if not directory:
             continue
         try:
-            if not entry.is_dir(follow_symlinks=False):
-                continue
-            mtime = entry.stat(follow_symlinks=False).st_mtime
+            names = [e.name for e in os.scandir(directory)]
         except OSError:
             continue
-        if now - mtime <= TICKET_TITLE_DAYS * 86400:
-            recent.append((mtime, entry.name))
-    recent.sort(reverse=True)
-    lines = ["# HELP ai_ops_ticket_title_info Current title of tickets with a recent Task Board run (empty if unknown).",
+        for name in names:
+            tid = name[:-len(suffix)] if suffix and name.endswith(suffix) else (name if not suffix else "")
+            if TICKET_ID.fullmatch(tid):
+                ids.add(tid)
+    ordered = sorted(ids, key=lambda t: int(t.split("-", 1)[1]), reverse=True)
+    lines = ["# HELP ai_ops_ticket_title_info Current title of each Task Board ticket (empty if unknown).",
              "# TYPE ai_ops_ticket_title_info gauge"]
-    lines += [f'ai_ops_ticket_title_info{{ticket="{t}",title="{ticket_title(tickets_dir, t)}"}} 1' for _, t in recent[:TICKET_TITLE_LIMIT]]
+    lines += [f'ai_ops_ticket_title_info{{ticket="{t}",title="{ticket_title(tickets_dir, t)}"}} 1' for t in ordered[:TICKET_TITLE_LIMIT]]
     lines += ["# HELP ai_ops_ticket_title_truncated Whether tickets were left out by the series limit.",
               "# TYPE ai_ops_ticket_title_truncated gauge",
-              f"ai_ops_ticket_title_truncated {int(len(recent) > TICKET_TITLE_LIMIT)}"]
+              f"ai_ops_ticket_title_truncated {int(len(ordered) > TICKET_TITLE_LIMIT)}"]
     return ("\n".join(lines) + "\n").encode()
 
 
@@ -246,7 +242,7 @@ class Handler(BaseHTTPRequestHandler):
             out += sub_body + file_metrics("ai_subscription_metrics", "subscription usage", sub_present, sub_age)
         if PREPAID_DIR:
             out += prepaid_metrics(PREPAID_DIR)
-        if TICKET_RUNS_DIR and TICKETS_DIR:
+        if TICKETS_DIR:
             out += cached_ticket_titles()
         self._send(200, out, "text/plain; version=0.0.4")
 

@@ -36,7 +36,7 @@ jq -e '.panels[] | select(.id == 10) | .gridPos.w == 24' "$dashboard" >/dev/null
 # 記録の欠け表の長い見出しが折り返しで切れないよう幅を確保する
 jq -e '.panels[] | select(.id == 7) | [.fieldConfig.overrides[] | select(.matcher.options == "推定に入らないトークン（百万）") | .properties[0].value] == [250]' "$dashboard" >/dev/null
 # 票の表示は「票番号 題名」。題名は Prometheus（認証済み Grafana 内）から引き、repo には置かない
-jq -e '.templating.list[] | select(.name == "ticket") | .datasource.type == "prometheus" and (.query.query | contains("ai_ops_ticket_title_info")) and .allValue == "__all__" and (.regex | contains("?<text>") and contains("?<value>"))' "$dashboard" >/dev/null
+jq -e '.templating.list[] | select(.name == "ticket") | .datasource.type == "prometheus" and (.query.query | contains("ai_ops_ticket_title_info")) and .allValue == "__all__" and (.regex | contains("?<text>") and contains("?<value>")) and .allowCustomValue == true' "$dashboard" >/dev/null
 # 「すべて」は選択肢の列挙ではなく絞り込みなし（題名の系列に無い票の利用も落とさない）
 jq -e '[.. | objects | .rawSql? // empty | select(contains("${ticket:singlequote}")) | contains("'"'"'__all__'"'"' IN (${ticket:singlequote}) OR")] | length > 0 and all' "$dashboard" >/dev/null
 # 票の列を持つ表は題名を値の対応で付け、値（票番号）とリンクは変えない
