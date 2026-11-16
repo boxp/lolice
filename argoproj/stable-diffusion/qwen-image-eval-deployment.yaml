@@ -43,7 +43,7 @@ spec:
           # this name, so the effective digest follows sdnext-ipex; the eval
           # records the running pod imageID instead of relying on this pin.
           # diffusers/transformers are installed into /work/pylib at test time.
-          image: ghcr.io/boxp/arch/sdnext-ipex@sha256:e4d3ff1aeed35778efcd859348fc1257699f73ea60400521a6a518f38695b333
+          image: ghcr.io/boxp/arch/sdnext-ipex@sha256:b696c80887bc1de4c0e0ebf1747dc1a4bd8cdf3c9649962d933332c0d0fcad9c
           imagePullPolicy: IfNotPresent
           command:
             - /usr/bin/tini
