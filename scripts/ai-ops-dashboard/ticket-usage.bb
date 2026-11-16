@@ -173,7 +173,7 @@
                ", sum(other_tokens) / 1e6 AS " (q "種類不明のトークン（百万）")
                ", (SELECT min(start_time) FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 30 DAY) AS " (q "最も古い記録")
                " FROM ai_ops_usage_v1 " where-selected)
-          :overrides [(by-name "係数のないモデル" {"custom.width" 280})])
+          :overrides [(by-name "係数のないモデル" {"custom.width" 240}) (by-name "推定に入らないトークン（百万）" {"custom.width" 250})])
    (row 8 "アカウント全体の実測 — 上の選択には連動しません")
    {:id 9 :type "timeseries" :title "週枠の使用率（実測・アカウント全体）"
     :description "Claude / Codex が返す週枠の使用率です（1% 単位）。リセットで 0 付近に戻ります。票ごとの値ではありません。"

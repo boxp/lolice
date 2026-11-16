@@ -34,3 +34,5 @@ jq -e '[.panels[] | select(.id == 6 or .id == 9) | [.fieldConfig.overrides[] | {
 # 重なった棒で週枠が隠れないよう、推定の推移は線で描く。比較表は全列が見えるよう全幅にする
 jq -e '.panels[] | select(.id == 6) | .fieldConfig.defaults.custom.drawStyle == "line"' "$dashboard" >/dev/null
 jq -e '.panels[] | select(.id == 10) | .gridPos.w == 24' "$dashboard" >/dev/null
+# 記録の欠け表の長い見出しが折り返しで切れないよう幅を確保する
+jq -e '.panels[] | select(.id == 7) | [.fieldConfig.overrides[] | select(.matcher.options == "推定に入らないトークン（百万）") | .properties[0].value] == [250]' "$dashboard" >/dev/null

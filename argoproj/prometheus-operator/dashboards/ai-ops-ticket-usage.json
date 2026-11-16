@@ -696,7 +696,19 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 280
+                "value": 240
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "推定に入らないトークン（百万）"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 250
               }
             ]
           }
