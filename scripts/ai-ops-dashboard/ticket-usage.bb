@@ -16,7 +16,9 @@
 (def ticket-expr "if(ticket = '', '(票なし)', ticket)")
 ;; 票の選択肢は題名つきの Prometheus 系列から作るため、「すべて」は選択肢の列挙ではなく絞り込みなしにする
 ;; （題名の系列に無い票の利用を落とさない）。
+;; Grafana は独自の allValue を書式（:singlequote）を通さずそのまま埋め込むため、SQL 文字列として引用符つきで持つ。
 (def all-ticket "__all__")
+(def all-ticket-value (str "'" all-ticket "'"))
 (def where-selected (str "WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND ('" all-ticket "' IN (${ticket:singlequote}) OR " ticket-expr " IN (${ticket:singlequote}))"))
 (def where-all "WHERE $__timeFilter(start_time)")
 (def models (sort (distinct (mapcat (comp keys :coef) ws))))
@@ -213,7 +215,7 @@
             :query {:qryType 3 :refId "PrometheusVariableQueryEditor-VariableQuery"
                     :query (str "query_result(" ticket-display " or label_replace(label_replace(vector(1), \"display\", \"(票なし) Hermes など票番号のない利用\", \"\", \"\"), \"ticket\", \"(票なし)\", \"\", \"\"))")}
             :regex "/display=\"(?<text>[^\"]*)\".*ticket=\"(?<value>[^\"]*)\"/" :sort 8
-            :multi true :includeAll true :allValue all-ticket :allowCustomValue true :refresh 2 :current all-value}]
+            :multi true :includeAll true :allValue all-ticket-value :allowCustomValue true :refresh 2 :current all-value}]
           (for [[n label] [["model" "モデル"] ["route" "経路"] ["provider" "提供元"]]]
             {:name n :label label :type "query" :datasource ch :query (str "SELECT DISTINCT " n " FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY " n) :refresh 2 :includeAll true :multi true :current all-value})
           [{:name "bin" :label "集計間隔" :type "custom" :query "1時間 : 1h,6時間 : 6h,1日 : 1d" :current {:text "6時間" :value "6h"}

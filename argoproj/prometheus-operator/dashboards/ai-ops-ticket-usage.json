@@ -1175,7 +1175,7 @@
         "type": "datasource"
       },
       {
-        "allValue": "__all__",
+        "allValue": "'__all__'",
         "allowCustomValue": true,
         "current": {
           "text": "すべて",

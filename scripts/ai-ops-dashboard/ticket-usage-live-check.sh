@@ -9,9 +9,11 @@ trap 'rm -rf "$tmp"' EXIT
 prom_uid=$(curl -fsS -H "Authorization: Bearer $GRAFANA_SERVICE_ACCOUNT_TOKEN" "$GRAFANA_URL/api/datasources" | jq -r '[.[] | select(.type == "prometheus" and .isDefault)][0].uid')
 query() { curl -fsS -H "Authorization: Bearer $GRAFANA_SERVICE_ACCOUNT_TOKEN" -H 'Content-Type: application/json' --data-binary @"$1" "$GRAFANA_URL/api/ds/query"; }
 ok() { jq -e '(.results | to_entries | length > 0) and all(.results[]; (.error // "") == "" and (.status // 200) < 400)' "$1" >/dev/null || { jq -r '[.results[]?.error // empty] + [.message // empty] | join("; ")' "$1" >&2; exit 1; }; }
+# 「すべて」選択時の Grafana と同じく、allValue を書式なしでそのまま埋め込む
+ticket_all=$(jq -r '.templating.list[] | select(.name == "ticket") | .allValue' "$dashboard")
 jq -c '.panels[] | . as $p | .targets[]? | select(has("rawSql")) | {title: $p.title, sql: .rawSql}' "$dashboard" | while IFS= read -r panel; do
   title=$(jq -r .title <<<"$panel")
-  sql=$(jq -r '.sql | gsub("\\$__timeFilter\\(start_time\\)"; "start_time >= now() - INTERVAL 7 DAY") | gsub("\\$__interval_s"; "3600") | gsub(" AND (model|route|provider) IN \\(\\$\\{(model|route|provider):singlequote\\}\\)"; "") | gsub(" AND if\\(ticket[^$]*\\$\\{ticket:singlequote\\}\\)"; "")' <<<"$panel")
+  sql=$(jq -r '.sql | gsub("\\$__timeFilter\\(start_time\\)"; "start_time >= now() - INTERVAL 7 DAY") | gsub("\\$__interval_s"; "3600") | gsub(" AND (model|route|provider) IN \\(\\$\\{(model|route|provider):singlequote\\}\\)"; "") | gsub("\\$\\{ticket:singlequote\\}"; $t)' --arg t "$ticket_all" <<<"$panel")
   jq -n --arg sql "$sql" '{queries:[{refId:"A",datasource:{uid:"langfuse-clickhouse",type:"grafana-clickhouse-datasource"},rawSql:$sql,format:1,queryType:"sql",editorType:"sql"}],from:"now-7d",to:"now"}' > "$tmp/request"
   query "$tmp/request" > "$tmp/response"; ok "$tmp/response"
   printf 'ClickHouse %s: %s 行\n' "$title" "$(jq '[.results.A.frames[]?.data.values[0] | length] | add // 0' "$tmp/response")"
