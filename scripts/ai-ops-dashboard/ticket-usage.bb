@@ -95,7 +95,7 @@
 
 **選択の効き方**
 - 上の「票」「モデル」「経路」「提供元」は**上段（推定と記録）だけ**に効きます。下段「アカウント全体の実測」は常にアカウント全体の値で、選んだ票の実測ではありません。
-- 「集計間隔」はグラフの 1 本の棒がまとめる時間の長さです。
+- 「集計間隔」は推移グラフの 1 点がまとめる時間の長さです。
 - 「(票なし)」は Hermes（Telegram・家の Web・Webhook・定期実行）など票番号のない利用で、どの票にも割り当てません。"))
 (def coef-table (str/join "\n" (for [w ws [m [l h]] (sort-by key (:coef w))] (str "| " (:label w) " | " m " | " (num l) "〜" (num h) " | " (:r2 w) " |"))))
 (def basis (str
@@ -161,19 +161,19 @@
                ", sum(total_tokens) / 1e4 / nullIf(uniqExact(trace_id), 0) AS " (q "1 回あたりのトークン（万）")
                " FROM ai_ops_usage_v1 " where-selected " GROUP BY " (q "モデル") " ORDER BY " (col-est first-window) " DESC, " col-mtok " DESC"))
    {:id 6 :type "timeseries" :title "推定した週枠消費の推移"
-    :description "集計間隔ごとに、選んだ票・モデルが減らした週枠の推定（中央値）です。週枠ごとに別の棒で、積み上げていません。"
+    :description "集計間隔ごとに、選んだ票・モデルが減らした週枠の推定（中央値）です。週枠ごとに別の線で、積み上げていません（1 点が集計間隔 1 つ分）。"
     :datasource ch :interval "$bin" :maxDataPoints 2016
     :targets [(ch-target "timeseries" (str "SELECT " bin " AS time, " (str/join ", " (for [w ws] (str (est w :mid) " AS " (q (:label w))))) " FROM ai_ops_usage_v1 " where-selected " GROUP BY time ORDER BY time"))]
-    :fieldConfig {:defaults {:noValue "記録なし" :unit "percent" :decimals 2 :custom {:drawStyle "bars" :fillOpacity 80 :spanNulls false :stacking {:mode "none" :group "A"}}} :overrides window-colors}
+    :fieldConfig {:defaults {:noValue "記録なし" :unit "percent" :decimals 2 :custom {:drawStyle "line" :lineWidth 2 :fillOpacity 0 :showPoints "always" :pointSize 6 :spanNulls false :stacking {:mode "none" :group "A"}}} :overrides window-colors}
     :options {:legend {:displayMode "list" :placement "bottom" :calcs []} :tooltip {:mode "multi"}}}
    (table 7 "記録の欠けと推定に入らない量"
           "推定が小さくなる原因の量です。数が大きいほど推定は実際より小さく出ます。"
-          (str "SELECT count() AS " (q "LLM 呼び出し数") ", countIf(has_usage = 0) AS " (q "トークン数が記録されていない呼び出し") ", countIf(route = '(未分類)') AS " (q "経路が分からない呼び出し")
+          (str "SELECT count() AS " (q "LLM 呼び出し数") ", countIf(has_usage = 0) AS " (q "トークン数のない呼び出し") ", countIf(route = '(未分類)') AS " (q "経路不明の呼び出し")
                ", sumIf(total_tokens, " no-coef ") / 1e6 AS " col-nocoef ", arrayStringConcat(arraySort(groupUniqArrayIf(model, " no-coef ")), ', ') AS " (q "係数のないモデル")
-               ", sum(other_tokens) / 1e6 AS " (q "種類の分からないトークン（百万）")
-               ", (SELECT min(start_time) FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 30 DAY) AS " (q "残っている最も古い記録")
+               ", sum(other_tokens) / 1e6 AS " (q "種類不明のトークン（百万）")
+               ", (SELECT min(start_time) FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 30 DAY) AS " (q "最も古い記録")
                " FROM ai_ops_usage_v1 " where-selected)
-          :overrides [(by-name "係数のないモデル" {"custom.width" 360})])
+          :overrides [(by-name "係数のないモデル" {"custom.width" 280})])
    (row 8 "アカウント全体の実測 — 上の選択には連動しません")
    {:id 9 :type "timeseries" :title "週枠の使用率（実測・アカウント全体）"
     :description "Claude / Codex が返す週枠の使用率です（1% 単位）。リセットで 0 付近に戻ります。票ごとの値ではありません。"
@@ -183,7 +183,7 @@
     :options {:legend {:displayMode "list" :placement "bottom" :calcs []} :tooltip {:mode "multi"}}}
    comparison
    (text 11 "推定の根拠と限界" basis)])
-(def sizes [[24 19] [24 1] [24 11] [24 11] [12 9] [12 9] [24 5] [24 1] [12 9] [12 9] [24 19]])
+(def sizes [[24 19] [24 1] [24 11] [24 11] [12 9] [12 9] [24 5] [24 1] [24 9] [24 5] [24 19]])
 (defn pack [sizes] (loop [ss sizes x 0 y 0 h 0 out []] (if-let [[w hh] (first ss)] (let [wrap (> (+ x w) 24) x (if wrap 0 x) y (if wrap (+ y h) y) h (if wrap 0 h)] (recur (rest ss) (+ x w) y (max h hh) (conj out {:x x :y y :w w :h hh}))) out)))
 (def all-value {:text "すべて" :value ["$__all"]})
 (def vars

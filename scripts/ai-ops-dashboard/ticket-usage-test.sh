@@ -31,3 +31,6 @@ jq -e '.panels[] | select(.id == 10) | .transformations[0].options.byField == "w
 jq -e '.panels[] | select(.id == 10) | .transformations[1].options.renameByName | has("推定の合計（%） B") and has("推定幅（%） B")' "$dashboard" >/dev/null
 # 推移と使用率で同じ週枠は同じ色
 jq -e '[.panels[] | select(.id == 6 or .id == 9) | [.fieldConfig.overrides[] | {n: .matcher.options, c: .properties[0].value.fixedColor}]] | .[0] == .[1] and (.[0] | length) >= 3' "$dashboard" >/dev/null
+# 重なった棒で週枠が隠れないよう、推定の推移は線で描く。比較表は全列が見えるよう全幅にする
+jq -e '.panels[] | select(.id == 6) | .fieldConfig.defaults.custom.drawStyle == "line"' "$dashboard" >/dev/null
+jq -e '.panels[] | select(.id == 10) | .gridPos.w == 24' "$dashboard" >/dev/null
