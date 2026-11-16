@@ -10,93 +10,466 @@
   "panels": [
     {
       "gridPos": {
-        "h": 14,
+        "h": 15,
         "w": 24,
         "x": 0,
         "y": 0
       },
       "id": 1,
       "options": {
-        "content": "token は Langfuse の実測（GENERATION 単位、保持 14 日、Task Board は run 終了後に export）。枠 used% と実増分は Prometheus の実測（アカウント全体、1%刻み、reset 区間は除外）。票別の pt は token × 係数の**推定**で quota 実測ではありません。\n\n| 窓 | モデル | 下限〜上限 | R² |\n|---|---|---|---|\n| Claude shared_7d | claude-fable-5-1 | 0.072〜0.101 | 0.85〜0.92 |\n| Claude shared_7d | claude-fable-5-2 | 0.072〜0.101 | 0.85〜0.92 |\n| Claude shared_7d | claude-opus-5-5 | 0.02〜0.023 | 0.85〜0.92 |\n| Claude fable_7d (Fable 専用) | claude-fable-5-1 | 0.16〜0.21 | 0.87〜0.93 |\n| Claude fable_7d (Fable 専用) | claude-fable-5-2 | 0.16〜0.21 | 0.87〜0.93 |\n| Claude fable_7d (Fable 専用) | claude-opus-5-5 | 0.0〜0.003 | 0.87〜0.93 |\n| Codex primary | gpt-6.1-sol | 0.069〜0.083 | 0.73〜0.78 |\n| Codex primary | gpt-6.1-terra | 0.074〜0.081 | 0.73〜0.78 |\n\n対象期間: 2026-11-09T07:00:00Z〜2026-11-16T07:00:00Z、推定日: 2026-11-16。出典: BOXP-567 6h/12h 回帰 (Projects/model-usage-attribution/evidence/ols-6h.txt, ols-12h.txt)。基準: total_tokens (cache read を含む全 token)、単位: pt / 100万 token。期間外は外挿で、モデル更新や構成変化で変わるため毎週見直します。\n\n窓の種類: Claude shared_7d は全 Claude モデル共有、fable_7d は Fable 専用（Fable は両方を同時に減らします）、Codex primary は Hermes を含む Codex 共有です。推定 pt は token から計算するので reset の影響を受けません。実測の増加 pt は reset を含む区間を除外するため、reset をまたぐ期間では実測が推定より小さく見えます。\n\n同時実行の run は token が加算されるだけなので重複しません（run ごとの used% 差分は重なるため使いません）。Hermes（Telegram/家の Web/Webhook/cron）は票番号がないので「(票なし)」1 区分で、票へ配りません。5 時間窓と同時実行制限は未観測です。Langfuse の Claude 親は local 記録より約 26% 少ない既知の欠落があり（BOXP-567、例 BOXP-428 が丸ごと欠落）、票別値は過小になりえます。cache read を含む total を基準にしています。会話本文は表示しません。",
+        "content": "票（チケット）ごとに、どのモデルがどれだけ動き、Claude と Codex の週枠をどれだけ減らしたか（推定）を見て、**票の担当モデルを決める**ための画面です。\n\n**読む順番**\n1. 「票ごとの枠負担」で、週枠を多く減らした票を探します（列の見出しを押すと並べ替え）。\n2. 票名を押して「この票だけ表示」を選ぶと、上段がその票だけになります。「モデル × 経路ごとの枠負担」で、親の作業・委譲した子・レビューのどこが重いかを見ます。\n3. 「モデル別の枠負担」で、モデルごとの重さを比べます。同じトークン数なら Fable は Opus の約 4 倍 Claude 共有週枠を減らし、さらに Fable 専用週枠も減らします。軽いモデルで済む作業が重いモデルに割り当てられていれば、担当変更の候補です。\n4. 下段「アカウント全体の実測」で、推定の合計が実際の週枠の減り方とどれだけ合っているかを確かめます。\n\n**値の種類**\n- **実測**: 実際に記録された値です。トークン数は Langfuse の記録、週枠の使用率は Claude / Codex が返す値（1% 単位、アカウント全体）です。\n- **推定**: トークン数 × モデルごとの係数で計算した値です。Claude / Codex は票ごとの消費を返さないため、票ごとの枠消費はすべて推定です。「推定（%）」は中央値、「推定幅（%）」は係数の下限〜上限で計算した範囲です。\n- 単位「%」は**週枠に対する割合**（例: 2.5 は週枠の 2.5% を使った）、「トークン（百万）」は 100 万トークン単位です。\n\n**週枠の種類**（どれも 7 日ごとにリセット）\n- **Claude 共有週枠**: Claude の全モデルで共有する 7 日枠\n- **Fable 専用週枠**: Fable だけが減らす 7 日枠（Fable は共有週枠も同時に減らす）\n- **Codex 週枠**: Hermes を含む Codex 全体で共有する 7 日枠\n\n**選択の効き方**\n- 上の「票」「モデル」「経路」「提供元」は**上段（推定と記録）だけ**に効きます。下段「アカウント全体の実測」は常にアカウント全体の値で、選んだ票の実測ではありません。\n- 「集計間隔」はグラフの 1 本の棒がまとめる時間の長さです。\n- 「(票なし)」は Hermes（Telegram・家の Web・Webhook・定期実行）など票番号のない利用で、どの票にも割り当てません。",
         "mode": "markdown"
       },
-      "title": "見方・実測と推定の区別",
+      "title": "この画面の読み方",
       "type": "text"
     },
     {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 15
       },
+      "id": 2,
+      "panels": [],
+      "title": "票ごとの枠負担（推定）— 上の選択に連動",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "langfuse-clickhouse"
+      },
+      "description": "選んだ期間に各票が使ったトークン数（実測）と、それで減った週枠の推定です。票名を押すと、その票だけの表示に切り替えられます。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "wrapHeaderText": true
+          },
+          "noValue": "記録なし",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*（%）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*（百万）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*推定幅（%）$"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "票"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "この票だけ表示",
+                    "url": "/d/ai-ops-ticket-usage/?${__url_time_range}&${datasource:queryparam}&var-ticket=${__value.raw}"
+                  },
+                  {
+                    "title": "Langfuse で記録を開く",
+                    "url": "https://langfuse.b0xp.io/project/ai-ops/sessions/${__value.raw}"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "使ったモデル"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "langfuse-clickhouse"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "pluginVersion": "4.23.4",
+          "queryType": "table",
+          "rawSql": "SELECT if(ticket = '', '(票なし)', ticket) AS `票`, arrayStringConcat(arraySort(groupUniqArray(model)), ', ') AS `使ったモデル`, uniqExact(trace_id) AS `実行回数`, sum(total_tokens) / 1e6 AS `トークン（百万）`, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `Claude 共有週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6), 2), 2))) AS `Claude 共有週枠 推定幅（%）`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `Fable 専用週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6), 2), 2))) AS `Fable 専用週枠 推定幅（%）`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `Codex 週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6), 2), 2))) AS `Codex 週枠 推定幅（%）`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) / 1e6 AS `推定に入らないトークン（百万）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY `票` ORDER BY `Claude 共有週枠 推定（%）` DESC, `トークン（百万）` DESC LIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "票ごとの枠負担",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "langfuse-clickhouse"
+      },
+      "description": "票の中で、どのモデルがどの経路（親の作業・委譲した子・レビュー・Hermes など）で週枠を減らしたかの内訳です。票を 1 つ選ぶと、その票の担当モデルを見直す材料になります。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "wrapHeaderText": true
+          },
+          "noValue": "記録なし",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*（%）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*（百万）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*推定幅（%）$"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "票"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "この票だけ表示",
+                    "url": "/d/ai-ops-ticket-usage/?${__url_time_range}&${datasource:queryparam}&var-ticket=${__value.raw}"
+                  },
+                  {
+                    "title": "Langfuse で記録を開く",
+                    "url": "https://langfuse.b0xp.io/project/ai-ops/sessions/${__value.raw}"
+                  }
+                ]
+              },
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "経路"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "langfuse-clickhouse"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "pluginVersion": "4.23.4",
+          "queryType": "table",
+          "rawSql": "SELECT if(ticket = '', '(票なし)', ticket) AS `票`, model AS `モデル`, route AS `経路`, uniqExact(trace_id) AS `実行回数`, sum(total_tokens) / 1e6 AS `トークン（百万）`, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `Claude 共有週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6), 2), 2))) AS `Claude 共有週枠 推定幅（%）`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `Fable 専用週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6), 2), 2))) AS `Fable 専用週枠 推定幅（%）`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `Codex 週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6), 2), 2))) AS `Codex 週枠 推定幅（%）`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) / 1e6 AS `推定に入らないトークン（百万）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY `票`, `モデル`, `経路` ORDER BY `Claude 共有週枠 推定（%）` DESC, `トークン（百万）` DESC LIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "モデル × 経路ごとの枠負担",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "langfuse-clickhouse"
+      },
+      "description": "モデルごとの合計です。「1 回あたりのトークン（百万）」はそのモデルの実行 1 回の平均の大きさです。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "wrapHeaderText": true
+          },
+          "noValue": "記録なし",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*（%）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*（百万）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*推定幅（%）$"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "langfuse-clickhouse"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "pluginVersion": "4.23.4",
+          "queryType": "table",
+          "rawSql": "SELECT model AS `モデル`, uniqExactIf(ticket, ticket != '') AS `票の数`, uniqExact(trace_id) AS `実行回数`, sum(total_tokens) / 1e6 AS `トークン（百万）`, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `Claude 共有週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6), 2), 2))) AS `Claude 共有週枠 推定幅（%）`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `Fable 専用週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6), 2), 2))) AS `Fable 専用週枠 推定幅（%）`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `Codex 週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6), 2), 2))) AS `Codex 週枠 推定幅（%）`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) / 1e6 AS `推定に入らないトークン（百万）`, sum(total_tokens) / 1e6 / nullIf(uniqExact(trace_id), 0) AS `1 回あたりのトークン（百万）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY `モデル` ORDER BY `Claude 共有週枠 推定（%）` DESC, `トークン（百万）` DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "モデル別の枠負担",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "langfuse-clickhouse"
+      },
+      "description": "集計間隔ごとに、選んだ票・モデルが減らした週枠の推定（中央値）です。週枠ごとに別の棒で、積み上げていません。",
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "spanNulls": false
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
           },
           "decimals": 2,
-          "noValue": "未計測",
+          "noValue": "記録なし",
           "unit": "percent"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 14
-      },
-      "id": 2,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "max by (provider,name,limit,window) (ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"} unless on(provider,limit,name,window,pod) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} <= time()))",
-          "instant": false,
-          "legendFormat": "{{provider}} {{name}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "利用枠 used%（実測）",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "bars",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            }
-          },
-          "decimals": 2,
-          "noValue": "未計測",
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
+        "h": 9,
         "w": 12,
         "x": 12,
-        "y": 14
+        "y": 38
       },
-      "id": 3,
+      "id": 6,
       "interval": "$bin",
       "maxDataPoints": 2016,
       "options": {
@@ -104,61 +477,9 @@
           "calcs": [],
           "displayMode": "list",
           "placement": "bottom"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum_over_time(((max by (provider,name,limit,window) (ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"}) - max by (provider,name,limit,window) (ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"} offset 1m)) unless on(provider,name,limit,window) (abs(max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"}) - max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} offset 1m)) > 3600))[$__interval:1m])",
-          "instant": false,
-          "legendFormat": "{{provider}} {{name}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "実測：bin ごとの増加 pt（reset 区間除外）",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "grafana-clickhouse-datasource",
-        "uid": "langfuse-clickhouse"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "bars",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            }
-          },
-          "decimals": 2,
-          "noValue": "未計測",
-          "unit": "none"
         },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 22
-      },
-      "id": 4,
-      "interval": "$bin",
-      "maxDataPoints": 2016,
-      "options": {
-        "legend": {
-          "calcs": [
-            "sum"
-          ],
-          "displayMode": "list",
-          "placement": "bottom"
+        "tooltip": {
+          "mode": "multi"
         }
       },
       "targets": [
@@ -171,11 +492,11 @@
           "format": 0,
           "pluginVersion": "4.23.4",
           "queryType": "timeseries",
-          "rawSql": "SELECT toStartOfInterval(start_time, toIntervalSecond($__interval_s)) AS time, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `Claude shared_7d`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `Claude fable_7d (Fable 専用)`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `Codex primary` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY time ORDER BY time",
+          "rawSql": "SELECT toStartOfInterval(start_time, toIntervalSecond($__interval_s)) AS time, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `Claude 共有週枠`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `Fable 専用週枠`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `Codex 週枠` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY time ORDER BY time",
           "refId": "A"
         }
       ],
-      "title": "推定：bin ごとの pt（中央値・窓別）",
+      "title": "推定した週枠消費の推移",
       "type": "timeseries"
     },
     {
@@ -183,203 +504,105 @@
         "type": "grafana-clickhouse-datasource",
         "uid": "langfuse-clickhouse"
       },
+      "description": "推定が小さくなる原因の量です。数が大きいほど推定は実際より小さく出ます。",
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "spanNulls": false
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
           },
-          "decimals": 2,
-          "noValue": "未計測",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "wrapHeaderText": true
+          },
+          "noValue": "記録なし",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
           "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 22
-      },
-      "id": 5,
-      "interval": "$bin",
-      "maxDataPoints": 2016,
-      "options": {
-        "showHeader": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-clickhouse-datasource",
-            "uid": "langfuse-clickhouse"
-          },
-          "editorType": "sql",
-          "format": 1,
-          "pluginVersion": "4.23.4",
-          "queryType": "table",
-          "rawSql": "SELECT 'Claude shared_7d' AS `窓`, sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6) AS `推定 下限`, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `推定 中央`, sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6) AS `推定 上限`, sumIf(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6, ticket != '') AS `票あり 中央`, sumIf(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6, ticket = '') AS `票なし 中央`, sumIf(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6, ticket != '') + sumIf(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6, ticket = '') - sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `票あり+票なし-中央 差分`, (SELECT sum(n) FROM (SELECT sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS n FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY toStartOfInterval(start_time, toIntervalSecond($__interval_s)))) - sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `bin 合計-中央 差分`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) AS `係数なし token` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) UNION ALL SELECT 'Claude fable_7d (Fable 専用)' AS `窓`, sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6) AS `推定 下限`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `推定 中央`, sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6) AS `推定 上限`, sumIf(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6, ticket != '') AS `票あり 中央`, sumIf(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6, ticket = '') AS `票なし 中央`, sumIf(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6, ticket != '') + sumIf(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6, ticket = '') - sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `票あり+票なし-中央 差分`, (SELECT sum(n) FROM (SELECT sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS n FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY toStartOfInterval(start_time, toIntervalSecond($__interval_s)))) - sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `bin 合計-中央 差分`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) AS `係数なし token` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) UNION ALL SELECT 'Codex primary' AS `窓`, sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6) AS `推定 下限`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `推定 中央`, sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6) AS `推定 上限`, sumIf(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6, ticket != '') AS `票あり 中央`, sumIf(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6, ticket = '') AS `票なし 中央`, sumIf(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6, ticket != '') + sumIf(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6, ticket = '') - sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `票あり+票なし-中央 差分`, (SELECT sum(n) FROM (SELECT sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS n FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY toStartOfInterval(start_time, toIntervalSecond($__interval_s)))) - sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `bin 合計-中央 差分`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) AS `係数なし token` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote})",
-          "refId": "A"
-        }
-      ],
-      "title": "選択期間の照合（推定）",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "description": "推定 中央との比較は ticket/model/route/provider がすべて All の場合のみ。実測が推定より大きい分は、Langfuse に届かなかった run（Claude 親の欠落など）、Pod 外の利用、係数の誤差のどれかで、票へは配れません。",
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "spanNulls": false
-          },
-          "decimals": 2,
-          "noValue": "未計測",
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 24,
-        "x": 0,
-        "y": 30
-      },
-      "id": 6,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "sum_over_time(((max by (provider,name,limit,window) (ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"}) - max by (provider,name,limit,window) (ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"} offset 1m)) unless on(provider,name,limit,window) (abs(max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"}) - max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} offset 1m)) > 3600))[$__range:1m])",
-          "instant": true,
-          "legendFormat": "{{provider}} {{name}}",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "実測：選択期間の増加 pt（reset 区間除外）",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "grafana-clickhouse-datasource",
-        "uid": "langfuse-clickhouse"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "spanNulls": false
-          },
-          "noValue": "未計測",
-          "unit": "short"
         },
         "overrides": [
           {
             "matcher": {
-              "id": "byName",
-              "options": "ticket_label"
+              "id": "byRegexp",
+              "options": ".*（%）$"
             },
             "properties": [
               {
-                "id": "links",
-                "value": [
-                  {
-                    "title": "Langfuse セッション",
-                    "url": "https://langfuse.b0xp.io/project/ai-ops/sessions/${__value.raw}"
-                  },
-                  {
-                    "title": "この票だけ表示",
-                    "url": "/d/ai-ops-ticket-usage/?${__url_time_range}&var-ticket=${__value.raw}"
-                  }
-                ]
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*（百万）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*推定幅（%）$"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "係数のないモデル"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 360
               }
             ]
           }
         ]
       },
       "gridPos": {
-        "h": 12,
-        "w": 24,
-        "x": 0,
-        "y": 35
-      },
-      "id": 7,
-      "options": {
-        "showHeader": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-clickhouse-datasource",
-            "uid": "langfuse-clickhouse"
-          },
-          "editorType": "sql",
-          "format": 1,
-          "pluginVersion": "4.23.4",
-          "queryType": "table",
-          "rawSql": "SELECT if(ticket = '', '(票なし)', ticket) AS ticket_label, groupUniqArray(model) AS models, groupUniqArray(route) AS routes, uniqExact(trace_id) AS runs, sum(input_tokens) AS input_tokens_sum, sum(cache_read_tokens) AS cache_read_tokens_sum, sum(cache_write_tokens) AS cache_write_tokens_sum, sum(output_tokens) AS output_tokens_sum, sum(total_tokens) AS total_tokens_sum, sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6) AS `Claude shared_7d 推定 pt 下限`, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `Claude shared_7d 推定 pt 中央`, sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6) AS `Claude shared_7d 推定 pt 上限`, sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6) AS `Claude fable_7d (Fable 専用) 推定 pt 下限`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `Claude fable_7d (Fable 専用) 推定 pt 中央`, sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6) AS `Claude fable_7d (Fable 専用) 推定 pt 上限`, sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6) AS `Codex primary 推定 pt 下限`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `Codex primary 推定 pt 中央`, sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6) AS `Codex primary 推定 pt 上限`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) AS `係数なし token`, 100.0 * sumIf(total_tokens, start_time < toDateTime64('2026-11-09 07:00:00',3,'UTC') OR start_time >= toDateTime64('2026-11-16 07:00:00',3,'UTC')) / nullIf(sum(total_tokens), 0) AS `係数期間外 %`, min(start_time) AS first_JST, max(start_time) AS last_JST FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY ticket_label ORDER BY total_tokens_sum DESC LIMIT 200",
-          "refId": "A"
-        }
-      ],
-      "title": "票別（選択期間）",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "grafana-clickhouse-datasource",
-        "uid": "langfuse-clickhouse"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "spanNulls": false
-          },
-          "noValue": "未計測",
-          "unit": "short"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "ticket_label"
-            },
-            "properties": [
-              {
-                "id": "links",
-                "value": [
-                  {
-                    "title": "Langfuse セッション",
-                    "url": "https://langfuse.b0xp.io/project/ai-ops/sessions/${__value.raw}"
-                  },
-                  {
-                    "title": "この票だけ表示",
-                    "url": "/d/ai-ops-ticket-usage/?${__url_time_range}&var-ticket=${__value.raw}"
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 12,
+        "h": 4,
         "w": 24,
         "x": 0,
         "y": 47
       },
-      "id": 8,
+      "id": 7,
       "options": {
-        "showHeader": true
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": []
       },
       "targets": [
         {
@@ -391,164 +614,261 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "SELECT if(ticket = '', '(票なし)', ticket) AS ticket_label, model, route, uniqExact(trace_id) AS runs, sum(input_tokens) AS input_tokens_sum, sum(cache_read_tokens) AS cache_read_tokens_sum, sum(cache_write_tokens) AS cache_write_tokens_sum, sum(output_tokens) AS output_tokens_sum, sum(total_tokens) AS total_tokens_sum, sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6) AS `Claude shared_7d 推定 pt 下限`, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `Claude shared_7d 推定 pt 中央`, sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6) AS `Claude shared_7d 推定 pt 上限`, sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6) AS `Claude fable_7d (Fable 専用) 推定 pt 下限`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `Claude fable_7d (Fable 専用) 推定 pt 中央`, sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6) AS `Claude fable_7d (Fable 専用) 推定 pt 上限`, sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6) AS `Codex primary 推定 pt 下限`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `Codex primary 推定 pt 中央`, sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6) AS `Codex primary 推定 pt 上限`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) AS `係数なし token`, 100.0 * sumIf(total_tokens, start_time < toDateTime64('2026-11-09 07:00:00',3,'UTC') OR start_time >= toDateTime64('2026-11-16 07:00:00',3,'UTC')) / nullIf(sum(total_tokens), 0) AS `係数期間外 %`, min(start_time) AS first_JST, max(start_time) AS last_JST FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY ticket_label, model, route ORDER BY total_tokens_sum DESC LIMIT 200",
+          "rawSql": "SELECT count() AS `LLM 呼び出し数`, countIf(has_usage = 0) AS `トークン数が記録されていない呼び出し`, countIf(route = '(未分類)') AS `経路が分からない呼び出し`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) / 1e6 AS `推定に入らないトークン（百万）`, arrayStringConcat(arraySort(groupUniqArrayIf(model, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra'))), ', ') AS `係数のないモデル`, sum(other_tokens) / 1e6 AS `種類の分からないトークン（百万）`, (SELECT min(start_time) FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 30 DAY) AS `残っている最も古い記録` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote})",
           "refId": "A"
         }
       ],
-      "title": "票 × 実モデル × 経路",
+      "title": "記録の欠けと推定に入らない量",
       "type": "table"
     },
     {
-      "datasource": {
-        "type": "grafana-clickhouse-datasource",
-        "uid": "langfuse-clickhouse"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "bars",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "normal"
-            }
-          },
-          "noValue": "未計測",
-          "unit": "short"
-        },
-        "overrides": []
-      },
+      "collapsed": false,
       "gridPos": {
-        "h": 8,
+        "h": 1,
         "w": 24,
         "x": 0,
-        "y": 59
+        "y": 51
       },
-      "id": 9,
-      "interval": "$bin",
-      "maxDataPoints": 2016,
-      "options": {
-        "legend": {
-          "calcs": [
-            "sum"
-          ],
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-clickhouse-datasource",
-            "uid": "langfuse-clickhouse"
-          },
-          "editorType": "sql",
-          "format": 0,
-          "pluginVersion": "4.23.4",
-          "queryType": "timeseries",
-          "rawSql": "SELECT toStartOfInterval(start_time, toIntervalSecond($__interval_s)) AS time, model, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS value FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY time, model ORDER BY time",
-          "refId": "A"
-        }
-      ],
-      "title": "token / bin（実モデル別、cache read 除く）",
-      "type": "timeseries"
+      "id": 8,
+      "panels": [],
+      "title": "アカウント全体の実測 — 上の選択には連動しません",
+      "type": "row"
     },
     {
       "datasource": {
-        "type": "grafana-clickhouse-datasource",
-        "uid": "langfuse-clickhouse"
+        "type": "prometheus",
+        "uid": "${datasource}"
       },
+      "description": "Claude / Codex が返す週枠の使用率です（1% 単位）。リセットで 0 付近に戻ります。票ごとの値ではありません。",
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "drawStyle": "bars",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "normal"
-            }
-          },
-          "noValue": "未計測",
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 67
-      },
-      "id": 10,
-      "interval": "$bin",
-      "maxDataPoints": 2016,
-      "options": {
-        "legend": {
-          "calcs": [
-            "sum"
-          ],
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-clickhouse-datasource",
-            "uid": "langfuse-clickhouse"
-          },
-          "editorType": "sql",
-          "format": 0,
-          "pluginVersion": "4.23.4",
-          "queryType": "timeseries",
-          "rawSql": "SELECT toStartOfInterval(start_time, toIntervalSecond($__interval_s)) AS time, model, sum(cache_read_tokens) AS value FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY time, model ORDER BY time",
-          "refId": "A"
-        }
-      ],
-      "title": "cache read token / bin（実モデル別）",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "grafana-clickhouse-datasource",
-        "uid": "langfuse-clickhouse"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
+            "lineWidth": 2,
             "spanNulls": false
           },
-          "noValue": "未計測",
-          "unit": "short"
+          "decimals": 0,
+          "max": 100,
+          "min": 0,
+          "noValue": "記録なし",
+          "unit": "percent"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "label_replace(label_replace(label_replace(max by (provider,name,limit,window) (ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"} unless on(provider,limit,name,window,pod) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} <= time())), \"w\", \"Claude 共有週枠\", \"name\", \"shared_7d\"), \"w\", \"Fable 専用週枠\", \"name\", \"fable_7d\"), \"w\", \"Codex 週枠\", \"name\", \"primary\")",
+          "instant": false,
+          "legendFormat": "{{w}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "週枠の使用率（実測・アカウント全体）",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "-- Mixed --"
+      },
+      "description": "選んだ期間について、全員分の推定の合計と、実際に週枠が増えた量を並べます。上の票やモデルの選択は効きません。「推定で説明できない分」が大きいほど、記録の欠けや係数のずれが大きいことを示します。",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "text",
+            "mode": "fixed"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "wrapHeaderText": true
+          },
+          "noValue": "記録なし",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*（%）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*（百万）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*推定幅（%）$"
+            },
+            "properties": [
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "id": 10,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (w) (label_replace(label_replace(label_replace(sum_over_time(((max by (provider,name,limit,window) (ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"}) - max by (provider,name,limit,window) (ai_subscription_window_used_percent{job=\"codex-workspace-ai-ops-metrics\"} offset 1m)) unless on(provider,name,limit,window) (abs(max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"}) - max by (provider,name,limit,window) (ai_subscription_window_resets_at_seconds{job=\"codex-workspace-ai-ops-metrics\"} offset 1m)) > 3600))[$__range:1m]), \"w\", \"Claude 共有週枠\", \"name\", \"shared_7d\"), \"w\", \"Fable 専用週枠\", \"name\", \"fable_7d\"), \"w\", \"Codex 週枠\", \"name\", \"primary\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "langfuse-clickhouse"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "pluginVersion": "4.23.4",
+          "queryType": "table",
+          "rawSql": "SELECT 'Claude 共有週枠' AS w, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `推定の合計（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6), 2), 2))) AS `推定幅（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6, ticket != '') AS `うち票に割り当てた分（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6, ticket = '') AS `うち票なしの分（%）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) UNION ALL SELECT 'Fable 専用週枠' AS w, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `推定の合計（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6), 2), 2))) AS `推定幅（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6, ticket != '') AS `うち票に割り当てた分（%）`, sumIf(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6, ticket = '') AS `うち票なしの分（%）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) UNION ALL SELECT 'Codex 週枠' AS w, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `推定の合計（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6), 2), 2))) AS `推定幅（%）`, sumIf(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6, ticket != '') AS `うち票に割り当てた分（%）`, sumIf(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6, ticket = '') AS `うち票なしの分（%）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time)",
+          "refId": "B"
+        }
+      ],
+      "title": "推定の合計と実測の比較（アカウント全体）",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "w",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "実測の増加（%）",
+              "w": "週枠"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "alias": "推定で説明できない分（%）",
+            "binary": {
+              "left": "実測の増加（%）",
+              "operator": "-",
+              "right": "推定の合計（%）"
+            },
+            "mode": "binary",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "うち票なしの分（%）": 6,
+              "うち票に割り当てた分（%）": 5,
+              "実測の増加（%）": 1,
+              "推定で説明できない分（%）": 4,
+              "推定の合計（%）": 2,
+              "推定幅（%）": 3,
+              "週枠": 0
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "gridPos": {
+        "h": 15,
         "w": 24,
         "x": 0,
-        "y": 75
+        "y": 61
       },
       "id": 11,
       "options": {
-        "showHeader": true
+        "content": "**係数**（100 万トークンで週枠の何 % が減るか）\n\n| 週枠 | モデル | 100 万トークンあたりの消費（%） | 当てはまりの良さ（R²、1 に近いほど良い） |\n|---|---|---|---|\n| Claude 共有週枠 | claude-fable-5-1 | 0.072〜0.101 | 0.85〜0.92 |\n| Claude 共有週枠 | claude-fable-5-2 | 0.072〜0.101 | 0.85〜0.92 |\n| Claude 共有週枠 | claude-opus-5-5 | 0.02〜0.023 | 0.85〜0.92 |\n| Fable 専用週枠 | claude-fable-5-1 | 0.16〜0.21 | 0.87〜0.93 |\n| Fable 専用週枠 | claude-fable-5-2 | 0.16〜0.21 | 0.87〜0.93 |\n| Fable 専用週枠 | claude-opus-5-5 | 0.0〜0.003 | 0.87〜0.93 |\n| Codex 週枠 | gpt-6.1-sol | 0.069〜0.083 | 0.73〜0.78 |\n| Codex 週枠 | gpt-6.1-terra | 0.074〜0.081 | 0.73〜0.78 |\n\n- 求めた期間: 2026-11-09 16:00 〜 2026-11-16 16:00（日本時間）、2026-11-16 算出。出典: BOXP-567 6h/12h 回帰 (Projects/model-usage-attribution/evidence/ols-6h.txt, ols-12h.txt)。\n- 数え方: キャッシュ読み込みを含む全トークン数に掛けています。期間外の値はこの係数をそのまま当てはめたもので、モデルの更新や使い方の変化でずれるため毎週見直します。\n- 表にないモデル（Haiku・Sonnet など）は推定に入れず「推定に入らないトークン」に出します。その分だけ推定は小さくなります。\n\n**推定が実測より小さくなる理由**\n- Langfuse に届かない記録があります。Claude の親セッションは手元の記録より約 26% 少ないことが分かっています（BOXP-567）。Task Board の記録は run の終了後に送られるため、実行中の run はまだ入っていません。\n- Pod の外（手元の端末など）で使った分は記録されません。\n- 実測の増加はリセットをまたぐ 1 分を除いて数えるため、リセットを含む期間では実測のほうが小さく出ることもあります。\n\n**記録の範囲**: Langfuse の記録は 14 日で消えます。5 時間枠と同時実行の上限は観測していません。会話の本文は表示しません。",
+        "mode": "markdown"
       },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-clickhouse-datasource",
-            "uid": "langfuse-clickhouse"
-          },
-          "editorType": "sql",
-          "format": 1,
-          "pluginVersion": "4.23.4",
-          "queryType": "table",
-          "rawSql": "SELECT count() AS `GENERATION 数`, countIf(has_usage=0) AS `usage 未取得`, countIf(route='(未分類)') AS `未分類`, sum(other_tokens) AS other_tokens_sum, groupUniqArrayIf(model, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) AS `係数なしモデル一覧`, sumIf(total_tokens, ticket='') AS `票なし token`, (SELECT min(start_time) FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 30 DAY) AS `データ最古` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote})",
-          "refId": "A"
-        }
-      ],
-      "title": "欠測・帰属不能",
-      "type": "table"
+      "title": "推定の根拠と限界",
+      "type": "text"
     }
   ],
   "refresh": "",
@@ -563,24 +883,15 @@
           "text": "default",
           "value": "default"
         },
-        "label": "Data source",
+        "hide": 2,
+        "label": "Prometheus",
         "name": "datasource",
         "query": "prometheus",
         "type": "datasource"
       },
       {
         "current": {
-          "text": "1h",
-          "value": "1h"
-        },
-        "label": "bin",
-        "name": "bin",
-        "query": "5m,15m,1h,6h",
-        "type": "custom"
-      },
-      {
-        "current": {
-          "text": "All",
+          "text": "すべて",
           "value": [
             "$__all"
           ]
@@ -599,7 +910,7 @@
       },
       {
         "current": {
-          "text": "All",
+          "text": "すべて",
           "value": [
             "$__all"
           ]
@@ -609,26 +920,7 @@
           "uid": "langfuse-clickhouse"
         },
         "includeAll": true,
-        "label": "provider",
-        "multi": true,
-        "name": "provider",
-        "query": "SELECT DISTINCT provider FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY provider",
-        "refresh": 2,
-        "type": "query"
-      },
-      {
-        "current": {
-          "text": "All",
-          "value": [
-            "$__all"
-          ]
-        },
-        "datasource": {
-          "type": "grafana-clickhouse-datasource",
-          "uid": "langfuse-clickhouse"
-        },
-        "includeAll": true,
-        "label": "model",
+        "label": "モデル",
         "multi": true,
         "name": "model",
         "query": "SELECT DISTINCT model FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY model",
@@ -637,7 +929,7 @@
       },
       {
         "current": {
-          "text": "All",
+          "text": "すべて",
           "value": [
             "$__all"
           ]
@@ -647,12 +939,58 @@
           "uid": "langfuse-clickhouse"
         },
         "includeAll": true,
-        "label": "route",
+        "label": "経路",
         "multi": true,
         "name": "route",
         "query": "SELECT DISTINCT route FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY route",
         "refresh": 2,
         "type": "query"
+      },
+      {
+        "current": {
+          "text": "すべて",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "langfuse-clickhouse"
+        },
+        "includeAll": true,
+        "label": "提供元",
+        "multi": true,
+        "name": "provider",
+        "query": "SELECT DISTINCT provider FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY provider",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "6時間",
+          "value": "6h"
+        },
+        "label": "集計間隔",
+        "name": "bin",
+        "options": [
+          {
+            "selected": false,
+            "text": "1時間",
+            "value": "1h"
+          },
+          {
+            "selected": true,
+            "text": "6時間",
+            "value": "6h"
+          },
+          {
+            "selected": false,
+            "text": "1日",
+            "value": "1d"
+          }
+        ],
+        "query": "1時間 : 1h,6時間 : 6h,1日 : 1d",
+        "type": "custom"
       }
     ]
   },
@@ -661,6 +999,6 @@
     "to": "now"
   },
   "timezone": "Asia/Tokyo",
-  "title": "AI Ops 票別・実モデル別 使用量と推定枠消費",
+  "title": "AI Ops 票ごとの枠負担（推定）と週枠の実測",
   "uid": "ai-ops-ticket-usage"
 }

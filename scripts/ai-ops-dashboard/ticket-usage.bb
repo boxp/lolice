@@ -1,50 +1,195 @@
 #!/usr/bin/env bb
+;; 票ごとの枠負担 dashboard (uid ai-ops-ticket-usage) を生成する。
+;; 目的: 票ごとに「どのモデルが・どの経路で・どの週枠をどれだけ減らしたか（推定）」を読み、担当モデルを決める。
+;; 上段は画面上部の選択（票・モデル・経路・提供元）に連動する推定、下段は選択に連動しないアカウント全体の実測。
 (require '[cheshire.core :as json] '[clojure.string :as str] '[clojure.edn :as edn] '[babashka.process :as proc])
+(import '[java.time Instant ZoneId] '[java.time.format DateTimeFormatter])
+
 (def coeff (edn/read-string (slurp "scripts/ai-ops-dashboard/quota-coefficients.edn")))
 (def ws (:windows coeff))
 (def path "argoproj/prometheus-operator/dashboards/ai-ops-ticket-usage.json")
 (def ch {:type "grafana-clickhouse-datasource" :uid "langfuse-clickhouse"})
 (def prom {:type "prometheus" :uid "${datasource}"})
-(def where "WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote})")
+(def mixed {:type "datasource" :uid "-- Mixed --"})
+
+;; ---- SQL の部品 ----
+(def ticket-expr "if(ticket = '', '(票なし)', ticket)")
+(def where-selected (str "WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND " ticket-expr " IN (${ticket:singlequote})"))
+(def where-all "WHERE $__timeFilter(start_time)")
 (def models (sort (distinct (mapcat (comp keys :coef) ws))))
 (def no-coef (str "model NOT IN (" (str/join ", " (map #(str "'" % "'") models)) ")"))
 (defn num [n] (str (bigdec n)))
-(defn expr [w mode] (str "multiIf(" (str/join ", " (mapcat (fn [[m [l h]]] [(str "model = '" m "'") (num (case mode :low l :high h :mid (/ (+ (bigdec l) (bigdec h)) 2M)))]) (sort-by key (:coef w)))) ", 0) * total_tokens / 1e6"))
-(defn sumexpr [w mode] (str "sum(" (expr w mode) ")"))
-(defn sql-date [s] (-> s (str/replace "T" " ") (str/replace "Z" "")))
-(def period (str "start_time < toDateTime64('" (sql-date (:valid-from coeff)) "',3,'UTC') OR start_time >= toDateTime64('" (sql-date (:valid-to coeff)) "',3,'UTC')"))
-(defn sql [id title type q] {:id id :title title :type type :datasource ch :targets [{:refId "A" :datasource ch :editorType "sql" :queryType (if (= type "timeseries") "timeseries" "table") :format (if (= type "timeseries") 0 1) :rawSql q :pluginVersion "4.23.4"}] :fieldConfig {:defaults {:noValue "未計測" :unit "short" :custom {:spanNulls false}} :overrides []} :options (if (= type "table") {:showHeader true} {:legend {:displayMode "list" :placement "bottom" :calcs ["sum"]}})})
-(defn binned [p] (assoc p :interval "$bin" :maxDataPoints 2016))
-(defn bars [p stack] (-> p binned (assoc-in [:fieldConfig :defaults :custom] {:spanNulls false :drawStyle "bars" :stacking {:mode stack :group "A"}})))
-(defn ptunit [p] (-> p (assoc-in [:fieldConfig :defaults :unit] "none") (assoc-in [:fieldConfig :defaults :decimals] 2)))
+(defn coef-of [mode [l h]] (case mode :low l :high h :mid (/ (+ (bigdec l) (bigdec h)) 2M)))
+(defn per-row [w mode] (str "multiIf(" (str/join ", " (mapcat (fn [[m c]] [(str "model = '" m "'") (num (coef-of mode c))]) (sort-by key (:coef w)))) ", 0) * total_tokens / 1e6"))
+(defn est [w mode] (str "sum(" (per-row w mode) ")"))
+(defn range-text [w] (str "concat(toString(toDecimal64(round(" (est w :low) ", 2), 2)), '〜', toString(toDecimal64(round(" (est w :high) ", 2), 2)))"))
+(defn q [s] (str "`" s "`"))
+(def col-mtok (q "トークン（百万）"))
+(def col-nocoef (q "推定に入らないトークン（百万）"))
+(defn col-est [w] (q (str (:label w) " 推定（%）")))
+(defn col-range [w] (q (str (:label w) " 推定幅（%）")))
+(def burden-cols
+  (str "uniqExact(trace_id) AS " (q "実行回数") ", "
+       "sum(total_tokens) / 1e6 AS " col-mtok ", "
+       (str/join ", " (for [w ws] (str (est w :mid) " AS " (col-est w) ", " (range-text w) " AS " (col-range w)))) ", "
+       "sumIf(total_tokens, " no-coef ") / 1e6 AS " col-nocoef))
+(def first-window (first ws))
+(def bin "toStartOfInterval(start_time, toIntervalSecond($__interval_s))")
+
+;; ---- panel の部品 ----
+(defn ch-target [type sql] {:refId "A" :datasource ch :editorType "sql" :queryType (if (= type "timeseries") "timeseries" "table") :format (if (= type "timeseries") 0 1) :rawSql sql :pluginVersion "4.23.4"})
+(def plain-color {:color {:mode "fixed" :fixedColor "text"} :thresholds {:mode "absolute" :steps [{:color "text" :value nil}]}})
+(defn by-regex [re props] {:matcher {:id "byRegexp" :options re} :properties (vec (for [[k v] props] {:id k :value v}))})
+(defn by-name [n props] {:matcher {:id "byName" :options n} :properties (vec (for [[k v] props] {:id k :value v}))})
+(def table-overrides
+  [(by-regex ".*（%）$" {"decimals" 2 "unit" "none"})
+   (by-regex ".*（百万）$" {"decimals" 1 "unit" "none"})
+   (by-regex ".*推定幅（%）$" {"custom.align" "center"})])
+(def ticket-links
+  (by-name "票" {"links" [{:title "この票だけ表示" :url "/d/ai-ops-ticket-usage/?${__url_time_range}&${datasource:queryparam}&var-ticket=${__value.raw}"}
+                          {:title "Langfuse で記録を開く" :url "https://langfuse.b0xp.io/project/ai-ops/sessions/${__value.raw}"}]
+                 "custom.width" 120}))
+(defn table [id title description sql & {:keys [overrides sort]}]
+  {:id id :title title :description description :type "table" :datasource ch :targets [(ch-target "table" sql)]
+   :fieldConfig {:defaults (merge plain-color {:noValue "記録なし" :unit "none" :custom {:align "auto" :wrapHeaderText true :cellOptions {:type "auto"}}})
+                 :overrides (vec (concat table-overrides overrides))}
+   :options {:showHeader true :cellHeight "sm" :footer {:show false} :sortBy (if sort [{:displayName sort :desc true}] [])}})
+(defn row [id title] {:id id :type "row" :title title :collapsed false :panels []})
+(defn text [id title content] {:id id :type "text" :title title :options {:mode "markdown" :content content}})
+
+;; ---- Prometheus（アカウント全体の実測） ----
 (def job "{job=\"codex-workspace-ai-ops-metrics\"}")
+(defn named [expr] (reduce (fn [e w] (str "label_replace(" e ", \"w\", \"" (:label w) "\", \"name\", \"" (get-in w [:prom :name]) "\")")) expr ws))
 (defn metric [name offset] (str "max by (provider,name,limit,window) (" name job (when offset " offset 1m") ")"))
 (def u (metric "ai_subscription_window_used_percent" false))
 (def u1 (metric "ai_subscription_window_used_percent" true))
 (def r (metric "ai_subscription_window_resets_at_seconds" false))
 (def r1 (metric "ai_subscription_window_resets_at_seconds" true))
+;; 1 分ごとの used% 増分。reset をまたぐ 1 分は除外する（BOXP-472 と同じ式）。
 (def delta-base (str "((" u " - " u1 ") unless on(provider,name,limit,window) (abs(" r " - " r1 ") > 3600))"))
-(defn prom-panel [id title type expression instant] {:id id :title title :type type :datasource prom :targets [{:refId "A" :datasource prom :expr expression :legendFormat "{{provider}} {{name}}" :instant instant :range (not instant)}] :fieldConfig {:defaults {:noValue "未計測" :unit "none" :decimals 2 :custom {:spanNulls false}} :overrides []} :options {:legend {:displayMode "list" :placement "bottom" :calcs []}}})
-(def table-text (str/join "\n" (for [w ws [m [l h]] (sort-by key (:coef w))] (str "| " (:label w) " | " m " | " (num l) "〜" (num h) " | " (:r2 w) " |"))))
-(def intro (str "token は Langfuse の実測（GENERATION 単位、保持 14 日、Task Board は run 終了後に export）。枠 used% と実増分は Prometheus の実測（アカウント全体、1%刻み、reset 区間は除外）。票別の pt は token × 係数の**推定**で quota 実測ではありません。\n\n| 窓 | モデル | 下限〜上限 | R² |\n|---|---|---|---|\n" table-text "\n\n対象期間: " (:valid-from coeff) "〜" (:valid-to coeff) "、推定日: " (:estimated-at coeff) "。出典: " (:source coeff) "。基準: " (:basis coeff) "、単位: " (:unit coeff) "。期間外は外挿で、モデル更新や構成変化で変わるため毎週見直します。\n\n窓の種類: Claude shared_7d は全 Claude モデル共有、fable_7d は Fable 専用（Fable は両方を同時に減らします）、Codex primary は Hermes を含む Codex 共有です。推定 pt は token から計算するので reset の影響を受けません。実測の増加 pt は reset を含む区間を除外するため、reset をまたぐ期間では実測が推定より小さく見えます。\n\n同時実行の run は token が加算されるだけなので重複しません（run ごとの used% 差分は重なるため使いません）。Hermes（Telegram/家の Web/Webhook/cron）は票番号がないので「(票なし)」1 区分で、票へ配りません。5 時間窓と同時実行制限は未観測です。Langfuse の Claude 親は local 記録より約 26% 少ない既知の欠落があり（BOXP-567、例 BOXP-428 が丸ごと欠落）、票別値は過小になりえます。cache read を含む total を基準にしています。会話本文は表示しません。"))
-(def bin "toStartOfInterval(start_time, toIntervalSecond($__interval_s))")
-(def recon (str/join " UNION ALL " (for [w ws :let [mid (expr w :mid)]] (str "SELECT '" (:label w) "' AS `窓`, " (sumexpr w :low) " AS `推定 下限`, " (sumexpr w :mid) " AS `推定 中央`, " (sumexpr w :high) " AS `推定 上限`, sumIf(" mid ", ticket != '') AS `票あり 中央`, sumIf(" mid ", ticket = '') AS `票なし 中央`, sumIf(" mid ", ticket != '') + sumIf(" mid ", ticket = '') - " (sumexpr w :mid) " AS `票あり+票なし-中央 差分`, (SELECT sum(n) FROM (SELECT sum(" mid ") AS n FROM ai_ops_usage_v1 " where " GROUP BY " bin ")) - " (sumexpr w :mid) " AS `bin 合計-中央 差分`, sumIf(total_tokens, " no-coef ") AS `係数なし token` FROM ai_ops_usage_v1 " where))))
-(def metrics (str "uniqExact(trace_id) AS runs, sum(input_tokens) AS input_tokens_sum, sum(cache_read_tokens) AS cache_read_tokens_sum, sum(cache_write_tokens) AS cache_write_tokens_sum, sum(output_tokens) AS output_tokens_sum, sum(total_tokens) AS total_tokens_sum, " (str/join ", " (for [w ws mode [:low :mid :high]] (str (sumexpr w mode) " AS `" (:label w) " 推定 pt " ({:low "下限" :mid "中央" :high "上限"} mode) "`"))) ", sumIf(total_tokens, " no-coef ") AS `係数なし token`, 100.0 * sumIf(total_tokens, " period ") / nullIf(sum(total_tokens), 0) AS `係数期間外 %`, min(start_time) AS first_JST, max(start_time) AS last_JST"))
-(def links [{:matcher {:id "byName" :options "ticket_label"} :properties [{:id "links" :value [{:title "Langfuse セッション" :url "https://langfuse.b0xp.io/project/ai-ops/sessions/${__value.raw}"} {:title "この票だけ表示" :url "/d/ai-ops-ticket-usage/?${__url_time_range}&var-ticket=${__value.raw}"}]}]}])
-(def ps [{:id 1 :title "見方・実測と推定の区別" :type "text" :options {:mode "markdown" :content intro}}
- (assoc-in (prom-panel 2 "利用枠 used%（実測）" "timeseries" (str "max by (provider,name,limit,window) (ai_subscription_window_used_percent" job " unless on(provider,limit,name,window,pod) (ai_subscription_window_resets_at_seconds" job " <= time()))") false) [:fieldConfig :defaults :unit] "percent")
- (bars (prom-panel 3 "実測：bin ごとの増加 pt（reset 区間除外）" "timeseries" (str "sum_over_time(" delta-base "[$__interval:1m])") false) "none")
- (ptunit (bars (sql 4 "推定：bin ごとの pt（中央値・窓別）" "timeseries" (str "SELECT " bin " AS time, " (str/join ", " (for [w ws] (str (sumexpr w :mid) " AS `" (:label w) "`"))) " FROM ai_ops_usage_v1 " where " GROUP BY time ORDER BY time")) "none"))
- (ptunit (binned (sql 5 "選択期間の照合（推定）" "table" recon)))
- (assoc (prom-panel 6 "実測：選択期間の増加 pt（reset 区間除外）" "stat" (str "sum_over_time(" delta-base "[$__range:1m])") true) :description "推定 中央との比較は ticket/model/route/provider がすべて All の場合のみ。実測が推定より大きい分は、Langfuse に届かなかった run（Claude 親の欠落など）、Pod 外の利用、係数の誤差のどれかで、票へは配れません。")
- (assoc-in (sql 7 "票別（選択期間）" "table" (str "SELECT if(ticket = '', '(票なし)', ticket) AS ticket_label, groupUniqArray(model) AS models, groupUniqArray(route) AS routes, " metrics " FROM ai_ops_usage_v1 " where " GROUP BY ticket_label ORDER BY total_tokens_sum DESC LIMIT 200")) [:fieldConfig :overrides] links)
- (assoc-in (sql 8 "票 × 実モデル × 経路" "table" (str "SELECT if(ticket = '', '(票なし)', ticket) AS ticket_label, model, route, " metrics " FROM ai_ops_usage_v1 " where " GROUP BY ticket_label, model, route ORDER BY total_tokens_sum DESC LIMIT 200")) [:fieldConfig :overrides] links)
- (bars (sql 9 "token / bin（実モデル別、cache read 除く）" "timeseries" (str "SELECT " bin " AS time, model, sum(input_tokens+cache_write_tokens+output_tokens+reasoning_tokens) AS value FROM ai_ops_usage_v1 " where " GROUP BY time, model ORDER BY time")) "normal")
- (bars (sql 10 "cache read token / bin（実モデル別）" "timeseries" (str "SELECT " bin " AS time, model, sum(cache_read_tokens) AS value FROM ai_ops_usage_v1 " where " GROUP BY time, model ORDER BY time")) "normal")
- (sql 11 "欠測・帰属不能" "table" (str "SELECT count() AS `GENERATION 数`, countIf(has_usage=0) AS `usage 未取得`, countIf(route='(未分類)') AS `未分類`, sum(other_tokens) AS other_tokens_sum, groupUniqArrayIf(model, " no-coef ") AS `係数なしモデル一覧`, sumIf(total_tokens, ticket='') AS `票なし token`, (SELECT min(start_time) FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 30 DAY) AS `データ最古` FROM ai_ops_usage_v1 " where))])
-(def sizes [[24 14] [12 8] [12 8] [12 8] [12 8] [24 5] [24 12] [24 12] [24 8] [24 8] [24 8]])
+(def used-now (str "max by (provider,name,limit,window) (ai_subscription_window_used_percent" job " unless on(provider,limit,name,window,pod) (ai_subscription_window_resets_at_seconds" job " <= time()))"))
+
+;; ---- 説明文 ----
+(def jst (.withZone (DateTimeFormatter/ofPattern "yyyy-MM-dd HH:mm") (ZoneId/of "Asia/Tokyo")))
+(defn jst-text [s] (.format jst (Instant/parse s)))
+(defn mid-coef [k model] (coef-of :mid (get-in (first (filter #(= k (:key %)) ws)) [:coef model])))
+(def fable-ratio (Math/round (/ (double (mid-coef "shared" "claude-fable-5-2")) (double (mid-coef "shared" "claude-opus-5-5")))))
+(def window-lines (str/join "\n" (for [w ws] (str "- **" (:label w) "**: " (:note w)))))
+(def guide (str
+"票（チケット）ごとに、どのモデルがどれだけ動き、Claude と Codex の週枠をどれだけ減らしたか（推定）を見て、**票の担当モデルを決める**ための画面です。
+
+**読む順番**
+1. 「票ごとの枠負担」で、週枠を多く減らした票を探します（列の見出しを押すと並べ替え）。
+2. 票名を押して「この票だけ表示」を選ぶと、上段がその票だけになります。「モデル × 経路ごとの枠負担」で、親の作業・委譲した子・レビューのどこが重いかを見ます。
+3. 「モデル別の枠負担」で、モデルごとの重さを比べます。同じトークン数なら Fable は Opus の約 " fable-ratio " 倍 Claude 共有週枠を減らし、さらに Fable 専用週枠も減らします。軽いモデルで済む作業が重いモデルに割り当てられていれば、担当変更の候補です。
+4. 下段「アカウント全体の実測」で、推定の合計が実際の週枠の減り方とどれだけ合っているかを確かめます。
+
+**値の種類**
+- **実測**: 実際に記録された値です。トークン数は Langfuse の記録、週枠の使用率は Claude / Codex が返す値（1% 単位、アカウント全体）です。
+- **推定**: トークン数 × モデルごとの係数で計算した値です。Claude / Codex は票ごとの消費を返さないため、票ごとの枠消費はすべて推定です。「推定（%）」は中央値、「推定幅（%）」は係数の下限〜上限で計算した範囲です。
+- 単位「%」は**週枠に対する割合**（例: 2.5 は週枠の 2.5% を使った）、「トークン（百万）」は 100 万トークン単位です。
+
+**週枠の種類**（どれも 7 日ごとにリセット）
+" window-lines "
+
+**選択の効き方**
+- 上の「票」「モデル」「経路」「提供元」は**上段（推定と記録）だけ**に効きます。下段「アカウント全体の実測」は常にアカウント全体の値で、選んだ票の実測ではありません。
+- 「集計間隔」はグラフの 1 本の棒がまとめる時間の長さです。
+- 「(票なし)」は Hermes（Telegram・家の Web・Webhook・定期実行）など票番号のない利用で、どの票にも割り当てません。"))
+(def coef-table (str/join "\n" (for [w ws [m [l h]] (sort-by key (:coef w))] (str "| " (:label w) " | " m " | " (num l) "〜" (num h) " | " (:r2 w) " |"))))
+(def basis (str
+"**係数**（100 万トークンで週枠の何 % が減るか）
+
+| 週枠 | モデル | 100 万トークンあたりの消費（%） | 当てはまりの良さ（R²、1 に近いほど良い） |
+|---|---|---|---|
+" coef-table "
+
+- 求めた期間: " (jst-text (:valid-from coeff)) " 〜 " (jst-text (:valid-to coeff)) "（日本時間）、" (:estimated-at coeff) " 算出。出典: " (:source coeff) "。
+- 数え方: キャッシュ読み込みを含む全トークン数に掛けています。期間外の値はこの係数をそのまま当てはめたもので、モデルの更新や使い方の変化でずれるため毎週見直します。
+- 表にないモデル（Haiku・Sonnet など）は推定に入れず「推定に入らないトークン」に出します。その分だけ推定は小さくなります。
+
+**推定が実測より小さくなる理由**
+- Langfuse に届かない記録があります。Claude の親セッションは手元の記録より約 26% 少ないことが分かっています（BOXP-567）。Task Board の記録は run の終了後に送られるため、実行中の run はまだ入っていません。
+- Pod の外（手元の端末など）で使った分は記録されません。
+- 実測の増加はリセットをまたぐ 1 分を除いて数えるため、リセットを含む期間では実測のほうが小さく出ることもあります。
+
+**記録の範囲**: Langfuse の記録は 14 日で消えます。5 時間枠と同時実行の上限は観測していません。会話の本文は表示しません。"))
+
+;; ---- panels ----
+(def comparison-sql
+  (str/join " UNION ALL "
+            (for [w ws :let [mid (per-row w :mid)]]
+              ;; 結合キーは Prometheus の label 名 w に合わせ、結合後に「週枠」へ改名する（organize は単一フレームでしか効かないため）
+              (str "SELECT '" (:label w) "' AS w, " (est w :mid) " AS " (q "推定の合計（%）") ", " (range-text w) " AS " (q "推定幅（%）") ", "
+                   "sumIf(" mid ", ticket != '') AS " (q "うち票に割り当てた分（%）") ", sumIf(" mid ", ticket = '') AS " (q "うち票なしの分（%）")
+                   " FROM ai_ops_usage_v1 " where-all))))
+(def comparison
+  {:id 10 :type "table" :title "推定の合計と実測の比較（アカウント全体）"
+   :description "選んだ期間について、全員分の推定の合計と、実際に週枠が増えた量を並べます。上の票やモデルの選択は効きません。「推定で説明できない分」が大きいほど、記録の欠けや係数のずれが大きいことを示します。"
+   :datasource mixed
+   :targets [{:refId "A" :datasource prom :expr (str "sum by (w) (" (named (str "sum_over_time(" delta-base "[$__range:1m])")) ")") :instant true :range false :format "table"}
+             (assoc (ch-target "table" comparison-sql) :refId "B")]
+   :transformations [{:id "joinByField" :options {:byField "w" :mode "outer"}}
+                     {:id "organize" :options {:excludeByName {"Time" true} :renameByName {"w" "週枠" "Value" "実測の増加（%）"}}}
+                     {:id "calculateField" :options {:mode "binary" :alias "推定で説明できない分（%）" :binary {:left "実測の増加（%）" :operator "-" :right "推定の合計（%）"} :replaceFields false}}
+                     {:id "organize" :options {:indexByName {"週枠" 0 "実測の増加（%）" 1 "推定の合計（%）" 2 "推定幅（%）" 3 "推定で説明できない分（%）" 4 "うち票に割り当てた分（%）" 5 "うち票なしの分（%）" 6}}}]
+   :fieldConfig {:defaults (merge plain-color {:noValue "記録なし" :unit "none" :custom {:align "auto" :wrapHeaderText true :cellOptions {:type "auto"}}})
+                 :overrides table-overrides}
+   :options {:showHeader true :cellHeight "sm" :footer {:show false}}})
+
+(def ps
+  [(text 1 "この画面の読み方" guide)
+   (row 2 "票ごとの枠負担（推定）— 上の選択に連動")
+   (table 3 "票ごとの枠負担"
+          "選んだ期間に各票が使ったトークン数（実測）と、それで減った週枠の推定です。票名を押すと、その票だけの表示に切り替えられます。"
+          (str "SELECT " ticket-expr " AS " (q "票") ", arrayStringConcat(arraySort(groupUniqArray(model)), ', ') AS " (q "使ったモデル") ", " burden-cols
+               " FROM ai_ops_usage_v1 " where-selected " GROUP BY " (q "票") " ORDER BY " (col-est first-window) " DESC, " col-mtok " DESC LIMIT 200")
+          :overrides [ticket-links (by-name "使ったモデル" {"custom.width" 220})])
+   (table 4 "モデル × 経路ごとの枠負担"
+          "票の中で、どのモデルがどの経路（親の作業・委譲した子・レビュー・Hermes など）で週枠を減らしたかの内訳です。票を 1 つ選ぶと、その票の担当モデルを見直す材料になります。"
+          (str "SELECT " ticket-expr " AS " (q "票") ", model AS " (q "モデル") ", route AS " (q "経路") ", " burden-cols
+               " FROM ai_ops_usage_v1 " where-selected " GROUP BY " (q "票") ", " (q "モデル") ", " (q "経路") " ORDER BY " (col-est first-window) " DESC, " col-mtok " DESC LIMIT 200")
+          :overrides [ticket-links (by-name "経路" {"custom.width" 220})])
+   (table 5 "モデル別の枠負担"
+          "モデルごとの合計です。「1 回あたりのトークン（百万）」はそのモデルの実行 1 回の平均の大きさです。"
+          (str "SELECT model AS " (q "モデル") ", uniqExactIf(ticket, ticket != '') AS " (q "票の数") ", " burden-cols
+               ", sum(total_tokens) / 1e6 / nullIf(uniqExact(trace_id), 0) AS " (q "1 回あたりのトークン（百万）")
+               " FROM ai_ops_usage_v1 " where-selected " GROUP BY " (q "モデル") " ORDER BY " (col-est first-window) " DESC, " col-mtok " DESC"))
+   {:id 6 :type "timeseries" :title "推定した週枠消費の推移"
+    :description "集計間隔ごとに、選んだ票・モデルが減らした週枠の推定（中央値）です。週枠ごとに別の棒で、積み上げていません。"
+    :datasource ch :interval "$bin" :maxDataPoints 2016
+    :targets [(ch-target "timeseries" (str "SELECT " bin " AS time, " (str/join ", " (for [w ws] (str (est w :mid) " AS " (q (:label w))))) " FROM ai_ops_usage_v1 " where-selected " GROUP BY time ORDER BY time"))]
+    :fieldConfig {:defaults {:noValue "記録なし" :unit "percent" :decimals 2 :custom {:drawStyle "bars" :fillOpacity 80 :spanNulls false :stacking {:mode "none" :group "A"}}} :overrides []}
+    :options {:legend {:displayMode "list" :placement "bottom" :calcs []} :tooltip {:mode "multi"}}}
+   (table 7 "記録の欠けと推定に入らない量"
+          "推定が小さくなる原因の量です。数が大きいほど推定は実際より小さく出ます。"
+          (str "SELECT count() AS " (q "LLM 呼び出し数") ", countIf(has_usage = 0) AS " (q "トークン数が記録されていない呼び出し") ", countIf(route = '(未分類)') AS " (q "経路が分からない呼び出し")
+               ", sumIf(total_tokens, " no-coef ") / 1e6 AS " col-nocoef ", arrayStringConcat(arraySort(groupUniqArrayIf(model, " no-coef ")), ', ') AS " (q "係数のないモデル")
+               ", sum(other_tokens) / 1e6 AS " (q "種類の分からないトークン（百万）")
+               ", (SELECT min(start_time) FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 30 DAY) AS " (q "残っている最も古い記録")
+               " FROM ai_ops_usage_v1 " where-selected)
+          :overrides [(by-name "係数のないモデル" {"custom.width" 360})])
+   (row 8 "アカウント全体の実測 — 上の選択には連動しません")
+   {:id 9 :type "timeseries" :title "週枠の使用率（実測・アカウント全体）"
+    :description "Claude / Codex が返す週枠の使用率です（1% 単位）。リセットで 0 付近に戻ります。票ごとの値ではありません。"
+    :datasource prom
+    :targets [{:refId "A" :datasource prom :expr (named used-now) :legendFormat "{{w}}" :range true :instant false}]
+    :fieldConfig {:defaults {:noValue "記録なし" :unit "percent" :decimals 0 :min 0 :max 100 :custom {:spanNulls false :lineWidth 2}} :overrides []}
+    :options {:legend {:displayMode "list" :placement "bottom" :calcs []} :tooltip {:mode "multi"}}}
+   comparison
+   (text 11 "推定の根拠と限界" basis)])
+(def sizes [[24 15] [24 1] [24 11] [24 11] [12 9] [12 9] [24 4] [24 1] [12 9] [12 9] [24 15]])
 (defn pack [sizes] (loop [ss sizes x 0 y 0 h 0 out []] (if-let [[w hh] (first ss)] (let [wrap (> (+ x w) 24) x (if wrap 0 x) y (if wrap (+ y h) y) h (if wrap 0 h)] (recur (rest ss) (+ x w) y (max h hh) (conj out {:x x :y y :w w :h hh}))) out)))
-(def vars (concat [{:name "datasource" :label "Data source" :type "datasource" :query "prometheus" :current {:text "default" :value "default"}} {:name "bin" :label "bin" :type "custom" :query "5m,15m,1h,6h" :current {:text "1h" :value "1h"}} {:name "ticket" :label "票" :type "query" :datasource ch :query "SELECT DISTINCT if(ticket = '', '(票なし)', ticket) AS t FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY t" :multi true :includeAll true :refresh 2 :current {:text "All" :value ["$__all"]}}] (for [n ["provider" "model" "route"]] {:name n :label n :type "query" :datasource ch :query (str "SELECT DISTINCT " n " FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY " n) :refresh 2 :includeAll true :multi true :current {:text "All" :value ["$__all"]}})))
-(def dashboard {:title "AI Ops 票別・実モデル別 使用量と推定枠消費" :uid "ai-ops-ticket-usage" :timezone "Asia/Tokyo" :time {:from "now-7d" :to "now"} :refresh "" :tags ["ai-ops"] :schemaVersion 39 :links [{:title "AI Ops 運用品質" :url "/d/ai-ops-quality" :type "link" :keepTime true}] :templating {:list (vec vars)} :panels (mapv #(assoc %1 :gridPos %2) ps (pack sizes))})
+(def all-value {:text "すべて" :value ["$__all"]})
+(def vars
+  (concat [{:name "datasource" :label "Prometheus" :type "datasource" :query "prometheus" :hide 2 :current {:text "default" :value "default"}}
+           {:name "ticket" :label "票" :type "query" :datasource ch :query (str "SELECT DISTINCT " ticket-expr " AS t FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY t") :multi true :includeAll true :refresh 2 :current all-value}]
+          (for [[n label] [["model" "モデル"] ["route" "経路"] ["provider" "提供元"]]]
+            {:name n :label label :type "query" :datasource ch :query (str "SELECT DISTINCT " n " FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY " n) :refresh 2 :includeAll true :multi true :current all-value})
+          [{:name "bin" :label "集計間隔" :type "custom" :query "1時間 : 1h,6時間 : 6h,1日 : 1d" :current {:text "6時間" :value "6h"}
+            :options [{:text "1時間" :value "1h" :selected false} {:text "6時間" :value "6h" :selected true} {:text "1日" :value "1d" :selected false}]}]))
+(def dashboard {:title "AI Ops 票ごとの枠負担（推定）と週枠の実測" :uid "ai-ops-ticket-usage" :timezone "Asia/Tokyo" :time {:from "now-7d" :to "now"} :refresh "" :tags ["ai-ops"] :schemaVersion 39
+                :links [{:title "AI Ops 運用品質" :url "/d/ai-ops-quality" :type "link" :keepTime true}]
+                :templating {:list (vec vars)} :panels (mapv #(assoc %1 :gridPos %2) ps (pack sizes))})
 (spit path (str (json/generate-string dashboard) "\n"))
 (spit path (:out (proc/shell {:out :string} "jq" "-S" "." path)))
