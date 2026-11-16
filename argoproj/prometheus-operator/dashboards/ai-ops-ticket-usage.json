@@ -150,6 +150,10 @@
               {
                 "id": "custom.width",
                 "value": 340
+              },
+              {
+                "id": "custom.wrapText",
+                "value": true
               }
             ]
           },
@@ -359,6 +363,10 @@
               {
                 "id": "custom.width",
                 "value": 340
+              },
+              {
+                "id": "custom.wrapText",
+                "value": true
               }
             ]
           },
@@ -1175,7 +1183,7 @@
         "type": "datasource"
       },
       {
-        "allValue": "__all__",
+        "allValue": "'__all__'",
         "allowCustomValue": true,
         "current": {
           "text": "すべて",
