@@ -44,6 +44,7 @@
 (def table-overrides
   [(by-regex ".*（%）$" {"decimals" 2 "unit" "none"})
    (by-regex ".*（百万）$" {"decimals" 1 "unit" "none"})
+   (by-regex ".*（万）$" {"decimals" 1 "unit" "none"})
    (by-regex ".*推定幅（%）$" {"custom.align" "center"})])
 (def ticket-links
   (by-name "票" {"links" [{:title "この票だけ表示" :url "/d/ai-ops-ticket-usage/?${__url_time_range}&${datasource:queryparam}&var-ticket=${__value.raw}"}
@@ -116,6 +117,8 @@
 **記録の範囲**: Langfuse の記録は 14 日で消えます。5 時間枠と同時実行の上限は観測していません。会話の本文は表示しません。"))
 
 ;; ---- panels ----
+;; 推移と使用率で同じ週枠を同じ色にする
+(def window-colors (vec (for [[w c] (map vector ws ["green" "yellow" "blue" "purple"])] (by-name (:label w) {"color" {:mode "fixed" :fixedColor c}}))))
 (def comparison-sql
   (str/join " UNION ALL "
             (for [w ws :let [mid (per-row w :mid)]]
@@ -123,6 +126,8 @@
               (str "SELECT '" (:label w) "' AS w, " (est w :mid) " AS " (q "推定の合計（%）") ", " (range-text w) " AS " (q "推定幅（%）") ", "
                    "sumIf(" mid ", ticket != '') AS " (q "うち票に割り当てた分（%）") ", sumIf(" mid ", ticket = '') AS " (q "うち票なしの分（%）")
                    " FROM ai_ops_usage_v1 " where-all))))
+;; 結合すると ClickHouse 側の列の表示名に refId が付く（例: 推定の合計（%） B）ため、結合後に元の名前へ戻す
+(def comparison-cols ["推定の合計（%）" "推定幅（%）" "うち票に割り当てた分（%）" "うち票なしの分（%）"])
 (def comparison
   {:id 10 :type "table" :title "推定の合計と実測の比較（アカウント全体）"
    :description "選んだ期間について、全員分の推定の合計と、実際に週枠が増えた量を並べます。上の票やモデルの選択は効きません。「推定で説明できない分」が大きいほど、記録の欠けや係数のずれが大きいことを示します。"
@@ -130,7 +135,7 @@
    :targets [{:refId "A" :datasource prom :expr (str "sum by (w) (" (named (str "sum_over_time(" delta-base "[$__range:1m])")) ")") :instant true :range false :format "table"}
              (assoc (ch-target "table" comparison-sql) :refId "B")]
    :transformations [{:id "joinByField" :options {:byField "w" :mode "outer"}}
-                     {:id "organize" :options {:excludeByName {"Time" true} :renameByName {"w" "週枠" "Value" "実測の増加（%）"}}}
+                     {:id "organize" :options {:excludeByName {"Time" true} :renameByName (into {"w" "週枠" "Value" "実測の増加（%）"} (for [n comparison-cols] [(str n " B") n]))}}
                      {:id "calculateField" :options {:mode "binary" :alias "推定で説明できない分（%）" :binary {:left "実測の増加（%）" :operator "-" :right "推定の合計（%）"} :replaceFields false}}
                      {:id "organize" :options {:indexByName {"週枠" 0 "実測の増加（%）" 1 "推定の合計（%）" 2 "推定幅（%）" 3 "推定で説明できない分（%）" 4 "うち票に割り当てた分（%）" 5 "うち票なしの分（%）" 6}}}]
    :fieldConfig {:defaults (merge plain-color {:noValue "記録なし" :unit "none" :custom {:align "auto" :wrapHeaderText true :cellOptions {:type "auto"}}})
@@ -151,15 +156,15 @@
                " FROM ai_ops_usage_v1 " where-selected " GROUP BY " (q "票") ", " (q "モデル") ", " (q "経路") " ORDER BY " (col-est first-window) " DESC, " col-mtok " DESC LIMIT 200")
           :overrides [ticket-links (by-name "経路" {"custom.width" 220})])
    (table 5 "モデル別の枠負担"
-          "モデルごとの合計です。「1 回あたりのトークン（百万）」はそのモデルの実行 1 回の平均の大きさです。"
+          "モデルごとの合計です。「1 回あたりのトークン（万）」はそのモデルの実行 1 回の平均の大きさです（1 万トークン単位）。"
           (str "SELECT model AS " (q "モデル") ", uniqExactIf(ticket, ticket != '') AS " (q "票の数") ", " burden-cols
-               ", sum(total_tokens) / 1e6 / nullIf(uniqExact(trace_id), 0) AS " (q "1 回あたりのトークン（百万）")
+               ", sum(total_tokens) / 1e4 / nullIf(uniqExact(trace_id), 0) AS " (q "1 回あたりのトークン（万）")
                " FROM ai_ops_usage_v1 " where-selected " GROUP BY " (q "モデル") " ORDER BY " (col-est first-window) " DESC, " col-mtok " DESC"))
    {:id 6 :type "timeseries" :title "推定した週枠消費の推移"
     :description "集計間隔ごとに、選んだ票・モデルが減らした週枠の推定（中央値）です。週枠ごとに別の棒で、積み上げていません。"
     :datasource ch :interval "$bin" :maxDataPoints 2016
     :targets [(ch-target "timeseries" (str "SELECT " bin " AS time, " (str/join ", " (for [w ws] (str (est w :mid) " AS " (q (:label w))))) " FROM ai_ops_usage_v1 " where-selected " GROUP BY time ORDER BY time"))]
-    :fieldConfig {:defaults {:noValue "記録なし" :unit "percent" :decimals 2 :custom {:drawStyle "bars" :fillOpacity 80 :spanNulls false :stacking {:mode "none" :group "A"}}} :overrides []}
+    :fieldConfig {:defaults {:noValue "記録なし" :unit "percent" :decimals 2 :custom {:drawStyle "bars" :fillOpacity 80 :spanNulls false :stacking {:mode "none" :group "A"}}} :overrides window-colors}
     :options {:legend {:displayMode "list" :placement "bottom" :calcs []} :tooltip {:mode "multi"}}}
    (table 7 "記録の欠けと推定に入らない量"
           "推定が小さくなる原因の量です。数が大きいほど推定は実際より小さく出ます。"
@@ -174,7 +179,7 @@
     :description "Claude / Codex が返す週枠の使用率です（1% 単位）。リセットで 0 付近に戻ります。票ごとの値ではありません。"
     :datasource prom
     :targets [{:refId "A" :datasource prom :expr (named used-now) :legendFormat "{{w}}" :range true :instant false}]
-    :fieldConfig {:defaults {:noValue "記録なし" :unit "percent" :decimals 0 :min 0 :max 100 :custom {:spanNulls false :lineWidth 2}} :overrides []}
+    :fieldConfig {:defaults {:noValue "記録なし" :unit "percent" :decimals 0 :min 0 :max 100 :custom {:spanNulls false :lineWidth 2}} :overrides window-colors}
     :options {:legend {:displayMode "list" :placement "bottom" :calcs []} :tooltip {:mode "multi"}}}
    comparison
    (text 11 "推定の根拠と限界" basis)])

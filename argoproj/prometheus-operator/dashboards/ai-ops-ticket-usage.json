@@ -103,6 +103,22 @@
           {
             "matcher": {
               "id": "byRegexp",
+              "options": ".*（万）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
               "options": ".*推定幅（%）$"
             },
             "properties": [
@@ -250,6 +266,22 @@
           {
             "matcher": {
               "id": "byRegexp",
+              "options": ".*（万）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
               "options": ".*推定幅（%）$"
             },
             "properties": [
@@ -335,7 +367,7 @@
         "type": "grafana-clickhouse-datasource",
         "uid": "langfuse-clickhouse"
       },
-      "description": "モデルごとの合計です。「1 回あたりのトークン（百万）」はそのモデルの実行 1 回の平均の大きさです。",
+      "description": "モデルごとの合計です。「1 回あたりのトークン（万）」はそのモデルの実行 1 回の平均の大きさです（1 万トークン単位）。",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -397,6 +429,22 @@
           {
             "matcher": {
               "id": "byRegexp",
+              "options": ".*（万）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
               "options": ".*推定幅（%）$"
             },
             "properties": [
@@ -433,7 +481,7 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "SELECT model AS `モデル`, uniqExactIf(ticket, ticket != '') AS `票の数`, uniqExact(trace_id) AS `実行回数`, sum(total_tokens) / 1e6 AS `トークン（百万）`, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `Claude 共有週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6), 2), 2))) AS `Claude 共有週枠 推定幅（%）`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `Fable 専用週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6), 2), 2))) AS `Fable 専用週枠 推定幅（%）`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `Codex 週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6), 2), 2))) AS `Codex 週枠 推定幅（%）`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) / 1e6 AS `推定に入らないトークン（百万）`, sum(total_tokens) / 1e6 / nullIf(uniqExact(trace_id), 0) AS `1 回あたりのトークン（百万）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY `モデル` ORDER BY `Claude 共有週枠 推定（%）` DESC, `トークン（百万）` DESC",
+          "rawSql": "SELECT model AS `モデル`, uniqExactIf(ticket, ticket != '') AS `票の数`, uniqExact(trace_id) AS `実行回数`, sum(total_tokens) / 1e6 AS `トークン（百万）`, sum(multiIf(model = 'claude-fable-5-1', 0.0865, model = 'claude-fable-5-2', 0.0865, model = 'claude-opus-5-5', 0.0215, 0) * total_tokens / 1e6) AS `Claude 共有週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.072, model = 'claude-fable-5-2', 0.072, model = 'claude-opus-5-5', 0.02, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.101, model = 'claude-fable-5-2', 0.101, model = 'claude-opus-5-5', 0.023, 0) * total_tokens / 1e6), 2), 2))) AS `Claude 共有週枠 推定幅（%）`, sum(multiIf(model = 'claude-fable-5-1', 0.185, model = 'claude-fable-5-2', 0.185, model = 'claude-opus-5-5', 0.0015, 0) * total_tokens / 1e6) AS `Fable 専用週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.16, model = 'claude-fable-5-2', 0.16, model = 'claude-opus-5-5', 0.0, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'claude-fable-5-1', 0.21, model = 'claude-fable-5-2', 0.21, model = 'claude-opus-5-5', 0.003, 0) * total_tokens / 1e6), 2), 2))) AS `Fable 専用週枠 推定幅（%）`, sum(multiIf(model = 'gpt-6.1-sol', 0.076, model = 'gpt-6.1-terra', 0.0775, 0) * total_tokens / 1e6) AS `Codex 週枠 推定（%）`, concat(toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.069, model = 'gpt-6.1-terra', 0.074, 0) * total_tokens / 1e6), 2), 2)), '〜', toString(toDecimal64(round(sum(multiIf(model = 'gpt-6.1-sol', 0.083, model = 'gpt-6.1-terra', 0.081, 0) * total_tokens / 1e6), 2), 2))) AS `Codex 週枠 推定幅（%）`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) / 1e6 AS `推定に入らないトークン（百万）`, sum(total_tokens) / 1e4 / nullIf(uniqExact(trace_id), 0) AS `1 回あたりのトークン（万）` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote}) GROUP BY `モデル` ORDER BY `Claude 共有週枠 推定（%）` DESC, `トークン（百万）` DESC",
           "refId": "A"
         }
       ],
@@ -461,7 +509,53 @@
           "noValue": "記録なし",
           "unit": "percent"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Claude 共有週枠"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fable 専用週枠"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Codex 週枠"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 9,
@@ -566,6 +660,22 @@
           {
             "matcher": {
               "id": "byRegexp",
+              "options": ".*（万）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
               "options": ".*推定幅（%）$"
             },
             "properties": [
@@ -652,7 +762,53 @@
           "noValue": "記録なし",
           "unit": "percent"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Claude 共有週枠"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fable 専用週枠"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Codex 週枠"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 9,
@@ -754,6 +910,22 @@
           {
             "matcher": {
               "id": "byRegexp",
+              "options": ".*（万）$"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
               "options": ".*推定幅（%）$"
             },
             "properties": [
@@ -821,7 +993,11 @@
             },
             "renameByName": {
               "Value": "実測の増加（%）",
-              "w": "週枠"
+              "w": "週枠",
+              "うち票なしの分（%） B": "うち票なしの分（%）",
+              "うち票に割り当てた分（%） B": "うち票に割り当てた分（%）",
+              "推定の合計（%） B": "推定の合計（%）",
+              "推定幅（%） B": "推定幅（%）"
             }
           }
         },

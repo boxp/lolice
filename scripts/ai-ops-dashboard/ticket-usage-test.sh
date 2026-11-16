@@ -27,3 +27,7 @@ echo 'ticket usage tests passed'
 # organize は単一フレームにしか効かないため、複数クエリのパネルは先に結合する
 jq -e '[.panels[] | select((.targets | length) > 1) | .transformations[0].id == "joinByField"] | length > 0 and all' "$dashboard" >/dev/null
 jq -e '.panels[] | select(.id == 10) | .transformations[0].options.byField == "w" and (.targets[1].rawSql | contains("AS w,"))' "$dashboard" >/dev/null
+# 結合後に ClickHouse 側の列へ付く refId 接尾辞（" B"）を元の名前へ戻す
+jq -e '.panels[] | select(.id == 10) | .transformations[1].options.renameByName | has("推定の合計（%） B") and has("推定幅（%） B")' "$dashboard" >/dev/null
+# 推移と使用率で同じ週枠は同じ色
+jq -e '[.panels[] | select(.id == 6 or .id == 9) | [.fieldConfig.overrides[] | {n: .matcher.options, c: .properties[0].value.fixedColor}]] | .[0] == .[1] and (.[0] | length) >= 3' "$dashboard" >/dev/null
