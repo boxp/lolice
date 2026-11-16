@@ -150,6 +150,10 @@
               {
                 "id": "custom.width",
                 "value": 340
+              },
+              {
+                "id": "custom.wrapText",
+                "value": true
               }
             ]
           },
@@ -359,6 +363,10 @@
               {
                 "id": "custom.width",
                 "value": 340
+              },
+              {
+                "id": "custom.wrapText",
+                "value": true
               }
             ]
           },
