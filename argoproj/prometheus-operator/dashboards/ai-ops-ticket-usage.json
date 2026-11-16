@@ -17,7 +17,7 @@
       },
       "id": 1,
       "options": {
-        "content": "票（チケット）ごとに、どのモデルがどれだけ動き、Claude と Codex の週枠をどれだけ減らしたか（推定）を見て、**票の担当モデルを決める**ための画面です。\n\n**読む順番**\n1. 「票ごとの枠負担」で、週枠を多く減らした票を探します（列の見出しを押すと並べ替え）。\n2. 票名を押して「この票だけ表示」を選ぶと、上段がその票だけになります。「モデル × 経路ごとの枠負担」で、親の作業・委譲した子・レビューのどこが重いかを見ます。\n3. 「モデル別の枠負担」で、モデルごとの重さを比べます。同じトークン数なら Fable は Opus の約 4 倍 Claude 共有週枠を減らし、さらに Fable 専用週枠も減らします。軽いモデルで済む作業が重いモデルに割り当てられていれば、担当変更の候補です。\n4. 下段「アカウント全体の実測」で、推定の合計が実際の週枠の減り方とどれだけ合っているかを確かめます。\n\n**値の種類**\n- **実測**: 実際に記録された値です。トークン数は Langfuse の記録、週枠の使用率は Claude / Codex が返す値（1% 単位、アカウント全体）です。\n- **推定**: トークン数 × モデルごとの係数で計算した値です。Claude / Codex は票ごとの消費を返さないため、票ごとの枠消費はすべて推定です。「推定（%）」は中央値、「推定幅（%）」は係数の下限〜上限で計算した範囲です。\n- 単位「%」は**週枠に対する割合**（例: 2.5 は週枠の 2.5% を使った）、「トークン（百万）」は 100 万トークン単位です。\n\n**週枠の種類**（どれも 7 日ごとにリセット）\n- **Claude 共有週枠**: Claude の全モデルで共有する 7 日枠\n- **Fable 専用週枠**: Fable だけが減らす 7 日枠（Fable は共有週枠も同時に減らす）\n- **Codex 週枠**: Hermes を含む Codex 全体で共有する 7 日枠\n\n**選択の効き方**\n- 上の「票」「モデル」「経路」「提供元」は**上段（推定と記録）だけ**に効きます。下段「アカウント全体の実測」は常にアカウント全体の値で、選んだ票の実測ではありません。\n- 「集計間隔」はグラフの 1 本の棒がまとめる時間の長さです。\n- 「(票なし)」は Hermes（Telegram・家の Web・Webhook・定期実行）など票番号のない利用で、どの票にも割り当てません。",
+        "content": "票（チケット）ごとに、どのモデルがどれだけ動き、Claude と Codex の週枠をどれだけ減らしたか（推定）を見て、**票の担当モデルを決める**ための画面です。\n\n**読む順番**\n1. 「票ごとの枠負担」で、週枠を多く減らした票を探します（列の見出しを押すと並べ替え）。\n2. 票名を押して「この票だけ表示」を選ぶと、上段がその票だけになります。「モデル × 経路ごとの枠負担」で、親の作業・委譲した子・レビューのどこが重いかを見ます。\n3. 「モデル別の枠負担」で、モデルごとの重さを比べます。同じトークン数なら Fable は Opus の約 4 倍 Claude 共有週枠を減らし、さらに Fable 専用週枠も減らします。軽いモデルで済む作業が重いモデルに割り当てられていれば、担当変更の候補です。\n4. 下段「アカウント全体の実測」で、推定の合計が実際の週枠の減り方とどれだけ合っているかを確かめます。\n\n**値の種類**\n- **実測**: 実際に記録された値です。トークン数は Langfuse の記録、週枠の使用率は Claude / Codex が返す値（1% 単位、アカウント全体）です。\n- **推定**: トークン数 × モデルごとの係数で計算した値です。Claude / Codex は票ごとの消費を返さないため、票ごとの枠消費はすべて推定です。「推定（%）」は中央値、「推定幅（%）」は係数の下限〜上限で計算した範囲です。\n- 単位「%」は**週枠に対する割合**（例: 2.5 は週枠の 2.5% を使った）、「トークン（百万）」は 100 万トークン単位です。\n\n**週枠の種類**（どれも 7 日ごとにリセット）\n- **Claude 共有週枠**: Claude の全モデルで共有する 7 日枠\n- **Fable 専用週枠**: Fable だけが減らす 7 日枠（Fable は共有週枠も同時に減らす）\n- **Codex 週枠**: Hermes を含む Codex 全体で共有する 7 日枠\n\n**選択の効き方**\n- 上の「票」「モデル」「経路」「提供元」は**上段（推定と記録）だけ**に効きます。下段「アカウント全体の実測」は常にアカウント全体の値で、選んだ票の実測ではありません。\n- 「集計間隔」は推移グラフの 1 点がまとめる時間の長さです。\n- 「(票なし)」は Hermes（Telegram・家の Web・Webhook・定期実行）など票番号のない利用で、どの票にも割り当てません。",
         "mode": "markdown"
       },
       "title": "この画面の読み方",
@@ -493,12 +493,15 @@
         "type": "grafana-clickhouse-datasource",
         "uid": "langfuse-clickhouse"
       },
-      "description": "集計間隔ごとに、選んだ票・モデルが減らした週枠の推定（中央値）です。週枠ごとに別の棒で、積み上げていません。",
+      "description": "集計間隔ごとに、選んだ票・モデルが減らした週枠の推定（中央値）です。週枠ごとに別の線で、積み上げていません（1 点が集計間隔 1 つ分）。",
       "fieldConfig": {
         "defaults": {
           "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 80,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "lineWidth": 2,
+            "pointSize": 6,
+            "showPoints": "always",
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -693,7 +696,7 @@
             "properties": [
               {
                 "id": "custom.width",
-                "value": 360
+                "value": 280
               }
             ]
           }
@@ -724,7 +727,7 @@
           "format": 1,
           "pluginVersion": "4.23.4",
           "queryType": "table",
-          "rawSql": "SELECT count() AS `LLM 呼び出し数`, countIf(has_usage = 0) AS `トークン数が記録されていない呼び出し`, countIf(route = '(未分類)') AS `経路が分からない呼び出し`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) / 1e6 AS `推定に入らないトークン（百万）`, arrayStringConcat(arraySort(groupUniqArrayIf(model, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra'))), ', ') AS `係数のないモデル`, sum(other_tokens) / 1e6 AS `種類の分からないトークン（百万）`, (SELECT min(start_time) FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 30 DAY) AS `残っている最も古い記録` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote})",
+          "rawSql": "SELECT count() AS `LLM 呼び出し数`, countIf(has_usage = 0) AS `トークン数のない呼び出し`, countIf(route = '(未分類)') AS `経路不明の呼び出し`, sumIf(total_tokens, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra')) / 1e6 AS `推定に入らないトークン（百万）`, arrayStringConcat(arraySort(groupUniqArrayIf(model, model NOT IN ('claude-fable-5-1', 'claude-fable-5-2', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6.1-terra'))), ', ') AS `係数のないモデル`, sum(other_tokens) / 1e6 AS `種類不明のトークン（百万）`, (SELECT min(start_time) FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 30 DAY) AS `最も古い記録` FROM ai_ops_usage_v1 WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND if(ticket = '', '(票なし)', ticket) IN (${ticket:singlequote})",
           "refId": "A"
         }
       ],
@@ -812,7 +815,7 @@
       },
       "gridPos": {
         "h": 9,
-        "w": 12,
+        "w": 24,
         "x": 0,
         "y": 57
       },
@@ -938,10 +941,10 @@
         ]
       },
       "gridPos": {
-        "h": 9,
-        "w": 12,
-        "x": 12,
-        "y": 57
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 66
       },
       "id": 10,
       "options": {
@@ -1036,7 +1039,7 @@
         "h": 19,
         "w": 24,
         "x": 0,
-        "y": 66
+        "y": 71
       },
       "id": 11,
       "options": {
