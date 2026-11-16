@@ -6,6 +6,14 @@ failing the scrape, so collector problems stay visible without touching the work
 
 BOXP-372: also serves the subscription usage exposition (rate-limit windows and extra-usage
 state, no IDs or bodies) with its own ai_subscription_metrics_file_present / _age_seconds.
+
+BOXP-570: also serves ai_ops_ticket_title_info{ticket,title} so the authenticated Grafana
+dashboard can show each ticket ID with its current title. Every ticket file and every ticket
+with a run directory is listed (so no ticket in the Langfuse usage drops out of the selector),
+at most TICKET_TITLE_LIMIT (newest IDs first), with the title from the ticket file's
+"# BOXP-N: title" heading. A missing file or heading gives title="" (the dashboard then shows the ID only);
+nothing is guessed. Titles stay inside the cluster (Prometheus, Grafana); no body is read
+beyond the heading.
 """
 import os
 import json
@@ -20,6 +28,13 @@ SUBSCRIPTION_PATH = os.environ.get("AI_SUBSCRIPTION_METRICS_FILE", "")
 PREPAID_DIR = os.environ.get("AI_PREPAID_DIR", "")
 PORT = int(os.environ.get("PORT", "9464"))
 MAX_BYTES = 1024 * 1024
+TICKET_RUNS_DIR = os.environ.get("TICKET_RUNS_DIR", "")
+TICKETS_DIR = os.environ.get("TICKETS_DIR", "")
+TICKET_TITLE_LIMIT = 5000
+TICKET_TITLE_CHARS = 60
+TICKET_TITLE_TTL = 300
+TICKET_ID = re.compile(r"BOXP-\d{1,6}")
+_title_cache = {"at": 0.0, "body": b""}
 
 
 def read_exposition(path):
@@ -166,6 +181,54 @@ def prepaid_metrics(directory):
     return ("\n".join(lines) + "\n").encode()
 
 
+def ticket_title(tickets_dir, ticket):
+    try:
+        with open(os.path.join(tickets_dir, ticket + ".md"), "rb") as fh:
+            head = fh.read(16 * 1024).decode("utf-8", "replace")
+    except OSError:
+        return ""
+    m = re.search(r"^# " + re.escape(ticket) + r":[ \t]*(.+)$", head, re.M)
+    if not m:
+        return ""
+    # Prometheus label value and the Grafana variable regex: no quotes, backslashes or control chars.
+    title = re.sub(r"[\x00-\x1f\x7f]", " ", m.group(1)).replace("\\", "＼").replace('"', "”").strip()
+    title = re.sub(r"\s+", " ", title)
+    return title[:TICKET_TITLE_CHARS - 1] + "…" if len(title) > TICKET_TITLE_CHARS else title
+
+
+def ticket_title_metrics(runs_dir, tickets_dir, now=None):
+    # Every ticket file (the Task Board's ticket set) plus every ticket with a run directory, so any
+    # ticket that can appear in the Langfuse usage is selectable; a run without a file keeps title="".
+    ids = set()
+    for directory, suffix in ((tickets_dir, ".md"), (runs_dir, "")):
+        if not directory:
+            continue
+        try:
+            names = [e.name for e in os.scandir(directory)]
+        except OSError:
+            continue
+        for name in names:
+            tid = name[:-len(suffix)] if suffix and name.endswith(suffix) else (name if not suffix else "")
+            if TICKET_ID.fullmatch(tid):
+                ids.add(tid)
+    ordered = sorted(ids, key=lambda t: int(t.split("-", 1)[1]), reverse=True)
+    lines = ["# HELP ai_ops_ticket_title_info Current title of each Task Board ticket (empty if unknown).",
+             "# TYPE ai_ops_ticket_title_info gauge"]
+    lines += [f'ai_ops_ticket_title_info{{ticket="{t}",title="{ticket_title(tickets_dir, t)}"}} 1' for t in ordered[:TICKET_TITLE_LIMIT]]
+    lines += ["# HELP ai_ops_ticket_title_truncated Whether tickets were left out by the series limit.",
+              "# TYPE ai_ops_ticket_title_truncated gauge",
+              f"ai_ops_ticket_title_truncated {int(len(ordered) > TICKET_TITLE_LIMIT)}"]
+    return ("\n".join(lines) + "\n").encode()
+
+
+def cached_ticket_titles():
+    now = time.time()
+    if now - _title_cache["at"] > TICKET_TITLE_TTL:
+        _title_cache["body"] = ticket_title_metrics(TICKET_RUNS_DIR, TICKETS_DIR, now)
+        _title_cache["at"] = now
+    return _title_cache["body"]
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/healthz":
@@ -179,6 +242,8 @@ class Handler(BaseHTTPRequestHandler):
             out += sub_body + file_metrics("ai_subscription_metrics", "subscription usage", sub_present, sub_age)
         if PREPAID_DIR:
             out += prepaid_metrics(PREPAID_DIR)
+        if TICKETS_DIR:
+            out += cached_ticket_titles()
         self._send(200, out, "text/plain; version=0.0.4")
 
     def _send(self, code, body, ctype="text/plain"):
