@@ -704,6 +704,11 @@ spec:
               value: /home/boxp/.codex-task-board/ai-ops/gemini-prepaid
             - name: AI_SUBSCRIPTION_METRICS_FILE
               value: /home/boxp/.codex-task-board/ai-ops/subscription-usage.prom
+            # BOXP-570: ticket titles for the Grafana ticket usage dashboard (recent runs only)
+            - name: TICKET_RUNS_DIR
+              value: /home/boxp/.codex-task-board/runs
+            - name: TICKETS_DIR
+              value: /home/boxp/Documents/obsidian-headless/BOXP/Tickets
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

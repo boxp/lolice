@@ -23,9 +23,8 @@ jq -e '(.panels | map(select(.type == "row" and (.title | startswith("アカウ�
 # 見出し・列名・凡例に略語や英語の内部名を出さない
 jq -e '[(.panels[].title), (.templating.list[].label), (.. | objects | .rawSql? // empty | [scan("AS `([^`]*)`")[0]] | .[])] | map(select(test("\\b(bin|pt|used%|ticket_label|runs|models|routes|first_JST|last_JST)\\b|_sum\\b"; "i"))) | length == 0' "$dashboard" >/dev/null
 if command -v kustomize >/dev/null; then kustomize build argoproj/prometheus-operator >/dev/null; else echo 'kustomize がないため build をスキップ'; fi
-echo 'ticket usage tests passed'
-# organize は単一フレームにしか効かないため、複数クエリのパネルは先に結合する
-jq -e '[.panels[] | select((.targets | length) > 1) | .transformations[0].id == "joinByField"] | length > 0 and all' "$dashboard" >/dev/null
+# organize は単一フレームにしか効かないため、複数クエリのパネルは先に結合する（題名の対応だけに使う T は結合しない）
+jq -e '[.panels[] | select((.targets | length) > 1 and all(.targets[]; .refId != "T")) | .transformations[0].id == "joinByField"] | length > 0 and all' "$dashboard" >/dev/null
 jq -e '.panels[] | select(.id == 10) | .transformations[0].options.byField == "w" and (.targets[1].rawSql | contains("AS w,"))' "$dashboard" >/dev/null
 # 結合後に ClickHouse 側の列へ付く refId 接尾辞（" B"）を元の名前へ戻す
 jq -e '.panels[] | select(.id == 10) | .transformations[1].options.renameByName | has("推定の合計（%） B") and has("推定幅（%） B")' "$dashboard" >/dev/null
@@ -36,3 +35,10 @@ jq -e '.panels[] | select(.id == 6) | .fieldConfig.defaults.custom.drawStyle == 
 jq -e '.panels[] | select(.id == 10) | .gridPos.w == 24' "$dashboard" >/dev/null
 # 記録の欠け表の長い見出しが折り返しで切れないよう幅を確保する
 jq -e '.panels[] | select(.id == 7) | [.fieldConfig.overrides[] | select(.matcher.options == "推定に入らないトークン（百万）") | .properties[0].value] == [250]' "$dashboard" >/dev/null
+# 票の表示は「票番号 題名」。題名は Prometheus（認証済み Grafana 内）から引き、repo には置かない
+jq -e '.templating.list[] | select(.name == "ticket") | .datasource.type == "prometheus" and (.query.query | contains("ai_ops_ticket_title_info")) and .allValue == "__all__" and (.regex | contains("?<text>") and contains("?<value>"))' "$dashboard" >/dev/null
+# 「すべて」は選択肢の列挙ではなく絞り込みなし（題名の系列に無い票の利用も落とさない）
+jq -e '[.. | objects | .rawSql? // empty | select(contains("${ticket:singlequote}")) | contains("'"'"'__all__'"'"' IN (${ticket:singlequote}) OR")] | length > 0 and all' "$dashboard" >/dev/null
+# 票の列を持つ表は題名を値の対応で付け、値（票番号）とリンクは変えない
+jq -e '[.panels[] | select(any(.fieldConfig.overrides[]?; .matcher.options == "票")) | (.transformations[0].id == "configFromData" and .transformations[0].options.applyTo.options == "票" and any(.targets[]; .refId == "T" and (.expr | contains("ai_ops_ticket_title_info"))))] | length == 2 and all' "$dashboard" >/dev/null
+echo 'ticket usage tests passed'

@@ -14,7 +14,10 @@
 
 ;; ---- SQL の部品 ----
 (def ticket-expr "if(ticket = '', '(票なし)', ticket)")
-(def where-selected (str "WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND " ticket-expr " IN (${ticket:singlequote})"))
+;; 票の選択肢は題名つきの Prometheus 系列から作るため、「すべて」は選択肢の列挙ではなく絞り込みなしにする
+;; （題名の系列に無い票の利用を落とさない）。
+(def all-ticket "__all__")
+(def where-selected (str "WHERE $__timeFilter(start_time) AND model IN (${model:singlequote}) AND route IN (${route:singlequote}) AND provider IN (${provider:singlequote}) AND ('" all-ticket "' IN (${ticket:singlequote}) OR " ticket-expr " IN (${ticket:singlequote}))"))
 (def where-all "WHERE $__timeFilter(start_time)")
 (def models (sort (distinct (mapcat (comp keys :coef) ws))))
 (def no-coef (str "model NOT IN (" (str/join ", " (map #(str "'" % "'") models)) ")"))
@@ -49,9 +52,25 @@
 (def ticket-links
   (by-name "票" {"links" [{:title "この票だけ表示" :url "/d/ai-ops-ticket-usage/?${__url_time_range}&${datasource:queryparam}&var-ticket=${__value.raw}"}
                           {:title "Langfuse で記録を開く" :url "https://langfuse.b0xp.io/project/ai-ops/sessions/${__value.raw}"}]
-                 "custom.width" 120}))
-(defn table [id title description sql & {:keys [overrides sort]}]
-  {:id id :title title :description description :type "table" :datasource ch :targets [(ch-target "table" sql)]
+                 "custom.width" 340}))
+;; ---- 票の題名（認証済みの Grafana の中だけで、Prometheus の ai_ops_ticket_title_info から引く） ----
+;; 題名は repo に置かない。直近 21 日に run がある票だけ、票ファイルの見出しから現在の題名を出す。
+;; 題名が取れない票は title="" になり、表示は票番号だけのまま（推測で埋めない）。
+(def titles-job "{job=\"codex-workspace-ai-ops-metrics\"}")
+(def titled (str "max by (ticket,title) (ai_ops_ticket_title_info" titles-job ")"))
+;; 表示名「BOXP-N 題名」。題名が空なら票番号だけ。
+(def ticket-display
+  (str "label_join(" titled ", \"display\", \" \", \"ticket\", \"title\")"))
+(def title-target {:refId "T" :datasource prom :expr ticket-display :instant true :range false :format "table" :legendFormat ""})
+;; 票の列の値（票番号）を、題名つきの表示名へ値の対応で置き換える。並べ替えと「この票だけ表示」は票番号のまま。
+(def ticket-title-config
+  {:id "configFromData" :options {:configRefId "T" :applyTo {:id "byName" :options "票"}
+                                  :mappings [{:fieldName "ticket" :handlerKey "mappings.value"} {:fieldName "display" :handlerKey "mappings.text"}
+                                             {:fieldName "title" :handlerKey "__ignore"} {:fieldName "Time" :handlerKey "__ignore"} {:fieldName "Value" :handlerKey "__ignore"}]}})
+(defn table [id title description sql & {:keys [overrides sort titles]}]
+  {:id id :title title :description description :type "table" :datasource (if titles mixed ch)
+   :targets (if titles [(ch-target "table" sql) title-target] [(ch-target "table" sql)])
+   :transformations (if titles [ticket-title-config] [])
    :fieldConfig {:defaults (merge plain-color {:noValue "記録なし" :unit "none" :custom {:align "auto" :wrapHeaderText true :cellOptions {:type "auto"}}})
                  :overrides (vec (concat table-overrides overrides))}
    :options {:showHeader true :cellHeight "sm" :footer {:show false} :sortBy (if sort [{:displayName sort :desc true}] [])}})
@@ -81,7 +100,7 @@
 
 **読む順番**
 1. 「票ごとの枠負担」で、週枠を多く減らした票を探します（列の見出しを押すと並べ替え）。
-2. 票名を押して「この票だけ表示」を選ぶと、上段がその票だけになります。「モデル × 経路ごとの枠負担」で、親の作業・委譲した子・レビューのどこが重いかを見ます。
+2. 票は「票番号 題名」で表示します（題名は Task Board の票ファイルの現在の見出し。取れない票は票番号だけ）。票名を押して「この票だけ表示」を選ぶと、上段がその票だけになります。「モデル × 経路ごとの枠負担」で、親の作業・委譲した子・レビューのどこが重いかを見ます。
 3. 「モデル別の枠負担」で、モデルごとの重さを比べます。同じトークン数なら Fable は Opus の約 " fable-ratio " 倍 Claude 共有週枠を減らし、さらに Fable 専用週枠も減らします。軽いモデルで済む作業が重いモデルに割り当てられていれば、担当変更の候補です。
 4. 下段「アカウント全体の実測」で、推定の合計が実際の週枠の減り方とどれだけ合っているかを確かめます。
 
@@ -149,12 +168,12 @@
           "選んだ期間に各票が使ったトークン数（実測）と、それで減った週枠の推定です。票名を押すと、その票だけの表示に切り替えられます。"
           (str "SELECT " ticket-expr " AS " (q "票") ", arrayStringConcat(arraySort(groupUniqArray(model)), ', ') AS " (q "使ったモデル") ", " burden-cols
                " FROM ai_ops_usage_v1 " where-selected " GROUP BY " (q "票") " ORDER BY " (col-est first-window) " DESC, " col-mtok " DESC LIMIT 200")
-          :overrides [ticket-links (by-name "使ったモデル" {"custom.width" 220})])
+          :overrides [ticket-links (by-name "使ったモデル" {"custom.width" 220})] :titles true)
    (table 4 "モデル × 経路ごとの枠負担"
           "票の中で、どのモデルがどの経路（親の作業・委譲した子・レビュー・Hermes など）で週枠を減らしたかの内訳です。票を 1 つ選ぶと、その票の担当モデルを見直す材料になります。"
           (str "SELECT " ticket-expr " AS " (q "票") ", model AS " (q "モデル") ", route AS " (q "経路") ", " burden-cols
                " FROM ai_ops_usage_v1 " where-selected " GROUP BY " (q "票") ", " (q "モデル") ", " (q "経路") " ORDER BY " (col-est first-window) " DESC, " col-mtok " DESC LIMIT 200")
-          :overrides [ticket-links (by-name "経路" {"custom.width" 220})])
+          :overrides [ticket-links (by-name "経路" {"custom.width" 220})] :titles true)
    (table 5 "モデル別の枠負担"
           "モデルごとの合計です。「1 回あたりのトークン（万）」はそのモデルの実行 1 回の平均の大きさです（1 万トークン単位）。"
           (str "SELECT model AS " (q "モデル") ", uniqExactIf(ticket, ticket != '') AS " (q "票の数") ", " burden-cols
@@ -188,7 +207,12 @@
 (def all-value {:text "すべて" :value ["$__all"]})
 (def vars
   (concat [{:name "datasource" :label "Prometheus" :type "datasource" :query "prometheus" :hide 2 :current {:text "default" :value "default"}}
-           {:name "ticket" :label "票" :type "query" :datasource ch :query (str "SELECT DISTINCT " ticket-expr " AS t FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY t") :multi true :includeAll true :refresh 2 :current all-value}]
+           ;; 選択肢は「BOXP-N 題名」で表示し、値は票番号。直近 21 日に run がある票と「(票なし)」。
+           {:name "ticket" :label "票" :type "query" :datasource prom
+            :query {:qryType 3 :refId "PrometheusVariableQueryEditor-VariableQuery"
+                    :query (str "query_result(" ticket-display " or label_replace(label_replace(vector(1), \"display\", \"(票なし) Hermes など票番号のない利用\", \"\", \"\"), \"ticket\", \"(票なし)\", \"\", \"\"))")}
+            :regex "/display=\"(?<text>[^\"]*)\".*ticket=\"(?<value>[^\"]*)\"/" :sort 8
+            :multi true :includeAll true :allValue all-ticket :refresh 2 :current all-value}]
           (for [[n label] [["model" "モデル"] ["route" "経路"] ["provider" "提供元"]]]
             {:name n :label label :type "query" :datasource ch :query (str "SELECT DISTINCT " n " FROM ai_ops_usage_v1 WHERE start_time >= now() - INTERVAL 14 DAY ORDER BY " n) :refresh 2 :includeAll true :multi true :current all-value})
           [{:name "bin" :label "集計間隔" :type "custom" :query "1時間 : 1h,6時間 : 6h,1日 : 1d" :current {:text "6時間" :value "6h"}
