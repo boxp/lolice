@@ -34,7 +34,7 @@
 (def ps [{:id 1 :title "見方・実測と推定の区別" :type "text" :options {:mode "markdown" :content intro}}
  (assoc-in (prom-panel 2 "利用枠 used%（実測）" "timeseries" (str "max by (provider,name,limit,window) (ai_subscription_window_used_percent" job " unless on(provider,limit,name,window,pod) (ai_subscription_window_resets_at_seconds" job " <= time()))") false) [:fieldConfig :defaults :unit] "percent")
  (bars (prom-panel 3 "実測：bin ごとの増加 pt（reset 区間除外）" "timeseries" (str "sum_over_time(" delta-base "[$__interval:1m])") false) "none")
- (ptunit (bars (sql 4 "推定：bin ごとの pt（中央値・窓別）" "timeseries" (str "SELECT " bin " AS time, " (str/join ", " (for [w ws] (str (sumexpr w :mid) " AS `" (:label w) "`"))) " FROM ai_ops_usage_v1 " where " GROUP BY time ORDER BY time")) "normal"))
+ (ptunit (bars (sql 4 "推定：bin ごとの pt（中央値・窓別）" "timeseries" (str "SELECT " bin " AS time, " (str/join ", " (for [w ws] (str (sumexpr w :mid) " AS `" (:label w) "`"))) " FROM ai_ops_usage_v1 " where " GROUP BY time ORDER BY time")) "none"))
  (ptunit (binned (sql 5 "選択期間の照合（推定）" "table" recon)))
  (assoc (prom-panel 6 "実測：選択期間の増加 pt（reset 区間除外）" "stat" (str "sum_over_time(" delta-base "[$__range:1m])") true) :description "推定 中央との比較は ticket/model/route/provider がすべて All の場合のみ。実測が推定より大きい分は、Langfuse に届かなかった run（Claude 親の欠落など）、Pod 外の利用、係数の誤差のどれかで、票へは配れません。")
  (assoc-in (sql 7 "票別（選択期間）" "table" (str "SELECT if(ticket = '', '(票なし)', ticket) AS ticket_label, groupUniqArray(model) AS models, groupUniqArray(route) AS routes, " metrics " FROM ai_ops_usage_v1 " where " GROUP BY ticket_label ORDER BY total_tokens_sum DESC LIMIT 200")) [:fieldConfig :overrides] links)

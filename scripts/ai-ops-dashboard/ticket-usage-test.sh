@@ -17,5 +17,6 @@ bb -e '(require (quote [clojure.edn :as e]) (quote [cheshire.core :as j]) (quote
 jq -e '[.. | objects | .expr? // empty | select(test("(rate|increase)\\([^)]*ai_subscription_window_used_percent"))] | length == 0' "$dashboard" >/dev/null
 jq -e '[.panels[].gridPos as $g | range($g.x; $g.x+$g.w) as $x | range($g.y; $g.y+$g.h) as $y | "\($x),\($y)"] | length == (unique | length)' "$dashboard" >/dev/null
 jq -e '[.panels[] | select(any(.targets[]?; (.rawSql // "") | contains("$__interval_s"))) | .interval == "$bin"] | length > 0 and all' "$dashboard" >/dev/null
+jq -e '[.panels[] | select(.id == 3 or .id == 4) | .fieldConfig.defaults.custom.stacking.mode == "none"] | length == 2 and all' "$dashboard" >/dev/null
 if command -v kustomize >/dev/null; then kustomize build argoproj/prometheus-operator >/dev/null; else echo 'kustomize がないため build をスキップ'; fi
 echo 'ticket usage tests passed'
