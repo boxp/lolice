@@ -49,6 +49,9 @@ configMapGenerator:
     files:
       - plugins/boxp-notify/plugin.yaml
       - plugins/boxp-notify/__init__.py
+  - name: hermes-agent-kohako-navilog-script
+    files:
+      - scripts/kohako-navilog/kohako_navilog_source.py
   - name: hermes-agent-ai-ops-metrics
     files:
       - ai-ops-metrics/server.py

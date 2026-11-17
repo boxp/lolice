@@ -456,6 +456,10 @@ spec:
               chmod 0755 /opt/data/scripts/task_board_webhook_filter.sh
               chmod 0644 /opt/data/scripts/task_board_webhook_filter.clj
               chown 1000:10000 /opt/data/scripts/task_board_webhook_filter.sh /opt/data/scripts/task_board_webhook_filter.clj
+              # BOXP-599: ナビログの前処理（家の会話・現場の報告だけを state.db から読み取り専用で取り出す）。
+              cp /bootstrap-scripts/kohako-navilog/kohako_navilog_source.py /opt/data/scripts/kohako_navilog_source.py
+              chmod 0644 /opt/data/scripts/kohako_navilog_source.py
+              chown 1000:10000 /opt/data/scripts/kohako_navilog_source.py
               cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
               chmod 0755 /opt/data/scripts/quiet_gate.sh
               chown 1000:10000 /opt/data/scripts/quiet_gate.sh
@@ -519,6 +523,9 @@ spec:
               readOnly: true
             - name: kohako-g2-context-plugin
               mountPath: /bootstrap-plugins/kohako-g2-context
+              readOnly: true
+            - name: kohako-navilog-script
+              mountPath: /bootstrap-scripts/kohako-navilog
               readOnly: true
             - name: boxp-ai-ops-observer-plugin
               mountPath: /bootstrap-plugins/boxp-ai-ops-observer
@@ -801,6 +808,9 @@ spec:
         - name: kohako-g2-context-plugin
           configMap:
             name: hermes-agent-kohako-g2-context-plugin
+        - name: kohako-navilog-script
+          configMap:
+            name: hermes-agent-kohako-navilog-script
         - name: boxp-ai-ops-observer-plugin
           configMap:
             name: hermes-agent-boxp-ai-ops-observer-plugin
