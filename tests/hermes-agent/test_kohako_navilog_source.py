@@ -181,6 +181,50 @@ class NavilogSourceTest(unittest.TestCase):
         self.assertNotIn("別の朝の話", out)
         self.assertIn("転職の続きだけど", material)
 
+    def test_after_night_run_goes_to_previous_day_next_run(self):
+        self.add("kohako-web-abc", "user", "夜の話", ts("21:10", "2026-11-17"))
+        self.now = ts("23:30", "2026-11-17")
+        self.assertIn("夜の話", self.run_main()[1])
+        # 夜の実行より後、日付が変わる前の発言
+        self.add("kohako-web-abc", "user", "寝る前の話", ts("23:50", "2026-11-17"))
+        self.add("kohako-web-abc", "user", "翌日の話", ts("09:00"))
+        self.now = ts("23:30")
+        out = self.run_main()[1]
+        self.assertIn("書き先は 2 つ", out)
+        prev, _, today = out.partition("=== 書き先 2")
+        self.assertIn("ナビログ/2026-11/2026-11-17.md", prev)
+        self.assertIn("寝る前の話", prev)
+        self.assertIn(f"navilog_until に書く値: {int(ts('00:00'))}", prev)
+        self.assertNotIn("夜の話", out)
+        self.assertIn("ナビログ/2026-11/2026-11-18.md", today)
+        self.assertIn("翌日の話", today)
+        self.assertNotIn("寝る前の話", today)
+        # 前日の残りは一度だけ
+        self.add("kohako-web-abc", "user", "翌日の夜", ts("23:40"))
+        self.now = ts("23:45")
+        out = self.run_main()[1]
+        self.assertNotIn("書き先は 2 つ", out)
+        self.assertNotIn("寝る前の話", out)
+        self.assertIn("翌日の夜", out)
+
+    def test_previous_day_not_handed_is_not_backfilled(self):
+        self.add("kohako-web-abc", "user", "前日の話", ts("23:50", "2026-11-17"))
+        self.add("kohako-web-abc", "user", "今日の話", ts("09:00"))
+        out = self.run_main()[1]
+        self.assertNotIn("前日の話", out)
+        self.assertIn("今日の話", out)
+
+    def test_previous_day_skip_mark_blocks_carry(self):
+        self.add("kohako-web-abc", "user", "夜の話", ts("21:10", "2026-11-17"))
+        self.now = ts("23:30", "2026-11-17")
+        self.run_main()
+        path = self.vault / "ナビログ/2026-11/2026-11-17.md"
+        path.parent.mkdir(parents=True)
+        path.write_text("---\nnavilog: skip\n---\n")
+        self.add("kohako-web-abc", "user", "寝る前の話", ts("23:50", "2026-11-17"))
+        self.now = ts("23:30")
+        self.assertGated(self.run_main()[1])
+
     def test_database_opened_read_only(self):
         self.add("kohako-web-abc", "user", "こんにちは", ts("08:10"))
         before = self.db.stat().st_mtime_ns
