@@ -8,7 +8,8 @@
   session get no tools except verified Owner text turns on kohako-web and delegation children.
   Touch and unknown turns get no tools; native Hermes approval remains in force. BOXP-420: a provably read-only curl (rewritten, never run as written)
   and web_search skip the approval screen in G2 sessions; anything else stays on the existing route.
-- Visit sessions (`kohako-visit-*`) permit only Grafana tools; delegation children get no tools.
+- BOXP-599: visit sessions (`kohako-visit-*`) may use only the read-only Grafana MCP tools (`mcp__grafana__*`), blocked before
+  execution; anything else, gate errors and their delegation children get no tools.
 - BOXP-366 removed the BOXP-348/362 notification decision claim. Existing records under
   /opt/data/kohako-decisions remain untouched as audit history and are not read or written.
 """
@@ -572,7 +573,7 @@ def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kw
 
 def _decide(tool_name, args, sid, tool_call_id, turn_id=None):
     if sid.startswith('kohako-visit-'):
-        return None if isinstance(tool_name, str) and tool_name.startswith('mcp_grafana_') else {'action': 'block', 'message': _VISIT_BLOCK}
+        return None if isinstance(tool_name, str) and tool_name.startswith('mcp__grafana__') else {'action': 'block', 'message': _VISIT_BLOCK}
     if sid.startswith('kohako-g2-cand-'):
         return {'action': 'block', 'message': _BLOCK}
     if sid.startswith('kohako-web-'):

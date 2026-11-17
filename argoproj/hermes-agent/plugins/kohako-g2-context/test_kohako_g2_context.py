@@ -380,8 +380,8 @@ class WebGateTests(unittest.TestCase):
     def test_visit_gate_and_children(self):
         sid = 'kohako-visit-one'
         self.hook(sid, 'one', 'hello')
-        self.assertIsNone(self.gate(sid, 'one', 'mcp_grafana_query'))
-        for tool in ('terminal', 'file', 'write_file', 'delegate_task', 'memory', 'cronjob', 'web_search', 'mcp_langfuse_query', None):
+        self.assertIsNone(self.gate(sid, 'one', 'mcp__grafana__query_prometheus'))
+        for tool in ('terminal', 'file', 'write_file', 'delegate_task', 'memory', 'cronjob', 'web_search', 'mcp__langfuse__listObservations', 'mcp_grafana_query', 'mcp__grafana', None):
             self.assertEqual(self.gate(sid, 'one', tool)['message'], plugin._VISIT_BLOCK)
         self.hook('child-visit', 'child', 'task', sid)
         self.assertEqual(self.gate('child-visit', 'child')['message'], plugin._BLOCK)
