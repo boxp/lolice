@@ -19,7 +19,7 @@
 
 ## Retention（OSS 境界）
 
-Data Retention は EE のため使わない。`langfuse-retention` CronJob が ClickHouse を走査して 14 日超と共有中の trace を公開 API で削除し、bucket lifecycle で raw event を 1 日で失効させ、media upload は無効のまま（S3 media bucket 未設定）とし、ClickHouse の system log は作らない。
+Data Retention は EE のため使わない。`langfuse-retention` CronJob が ClickHouse を走査して 14 日超（BOXP-583 で 30 日超へ変更）と共有中の trace を公開 API で削除し、bucket lifecycle で raw event を 1 日で失効させ、media upload は無効のまま（S3 media bucket 未設定）とし、ClickHouse の system log は作らない。
 
 事前検証（dind 上の同設定スタック、v4.75.0）で判明した事実:
 

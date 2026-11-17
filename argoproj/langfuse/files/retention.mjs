@@ -14,7 +14,7 @@ import { createRequire } from 'node:module';
 const require = createRequire('/app/worker/');
 const { S3Client, PutBucketLifecycleConfigurationCommand, GetBucketLifecycleConfigurationCommand, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
 
-const DAYS = Number(process.env.RETENTION_DAYS || 14);
+const DAYS = Number(process.env.RETENTION_DAYS || 30);
 const EVENT_DAYS = Number(process.env.RAW_EVENT_DAYS || 1);
 const BASE = process.env.LANGFUSE_URL || 'http://langfuse-web:3000';
 const BUCKET = 'langfuse';

@@ -1,4 +1,4 @@
-# BOXP-428: short retention, hourly so that one failed run has little effect. See
+# BOXP-428: short retention (BOXP-583: traces 30 days, raw events 1 day), hourly so that one failed run has little effect. See
 # files/retention.mjs for what each step removes. Runs on the worker image because it
 # carries the S3 SDK and node; no extra image is needed.
 apiVersion: batch/v1
@@ -45,7 +45,7 @@ spec:
                 - name: SYNTHETIC_CONTROL_MARKER
                   value: "BOXP428CTRL"
                 - name: RETENTION_DAYS
-                  value: "14"
+                  value: "30"
                 - name: RAW_EVENT_DAYS
                   value: "1"
                 - name: LANGFUSE_PUBLIC_KEY
