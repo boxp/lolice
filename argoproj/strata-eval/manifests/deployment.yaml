@@ -38,7 +38,7 @@ spec:
       containers:
         - name: strata
           # live の llama-server と同じ image（oneAPI / Level Zero runtime と python3 を使う）。
-          image: ghcr.io/boxp/arch/llama-sycl@sha256:b16b6a450cd46a598e868a4f5a72cdb3840f426725477101a33b650e685b2c46
+          image: ghcr.io/boxp/arch/llama-sycl@sha256:30d75e0a297d7c1ce216c9bf0998eb37bf98314db475f60bcb01bb07c05331e2
           imagePullPolicy: IfNotPresent
           workingDir: /s/src-4b9e05a2
           command:
