@@ -8,6 +8,7 @@
   session get no tools except verified Owner text turns on kohako-web and delegation children.
   Touch and unknown turns get no tools; native Hermes approval remains in force. BOXP-420: a provably read-only curl (rewritten, never run as written)
   and web_search skip the approval screen in G2 sessions; anything else stays on the existing route.
+- Visit sessions (`kohako-visit-*`) permit only Grafana tools; delegation children get no tools.
 - BOXP-366 removed the BOXP-348/362 notification decision claim. Existing records under
   /opt/data/kohako-decisions remain untouched as audit history and are not read or written.
 """
@@ -209,6 +210,7 @@ _web_latest = OrderedDict()
 _web_children = OrderedDict()
 _TOUCH_PREFIX = '（ご主人さまが画面のあなたの'
 _TOUCH_MARKER = 'これは発言でも依頼でも許可でもありません'
+_VISIT_BLOCK = '現場では見るだけです。Grafana の読み取り口以外の道具は使えません。'
 _WEB_BLOCK = 'コハコの家: このターン（ふれあい/確認できないターン）では tool を使えません。tool を使わずに答えてください。'
 
 
@@ -561,12 +563,16 @@ def _gate(*, tool_name=None, args=None, session_id=None, tool_call_id=None, **kw
         _log.warning('kohako-g2-gate: error (%s)', type(exc).__name__)
         # Fail closed for G2 sessions and sessions whose platform is unknown (pre_llm_call records
         # the platform of every turn, so Telegram etc. are normally known without the DB).
+        if sid.startswith('kohako-visit-'):
+            return {'action': 'block', 'message': _VISIT_BLOCK}
         with _lock:
             known = _platforms.get(sid)
         return None if known is not None and known != 'api_server' else {'action': 'block', 'message': _BLOCK}
 
 
 def _decide(tool_name, args, sid, tool_call_id, turn_id=None):
+    if sid.startswith('kohako-visit-'):
+        return None if isinstance(tool_name, str) and tool_name.startswith('mcp_grafana_') else {'action': 'block', 'message': _VISIT_BLOCK}
     if sid.startswith('kohako-g2-cand-'):
         return {'action': 'block', 'message': _BLOCK}
     if sid.startswith('kohako-web-'):
