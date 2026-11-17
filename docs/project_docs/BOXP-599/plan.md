@@ -17,7 +17,9 @@
 
 - `argoproj/hermes-agent/scripts/kohako-navilog/kohako_navilog_source.py`: cron の前処理。その日（JST）の `kohako-web-*` と `kohako-visit-*` の user/assistant 発言だけを `state.db` から**読み取り専用**で取り出す。Telegram・眼鏡・cron・webhook・道具の出力は読まない。通知返信は元通知の本文を省き本人の返信だけ。秘密らしき値・メール・電話番号は伏せる。1 件 700 字・現場報告 1200 字・合計 3 万字まで。
   - LLM を起動しない（何も書かない）: `ナビログ/停止中.md` がある / 本人が当日「今日は記録なし」と言った / 当日ファイルの frontmatter に `navilog: skip` / 材料なし。
-  - 当日ファイルが既にあれば frontmatter `navilog_until` より後の発言だけを渡す（本人の編集・削除を書き戻さない）。
+  - 渡した範囲は frontmatter `navilog_until` と、ログとは別の控え `HERMES_HOME/kohako_navilog_state.json`（日付→UNIX 秒、直近 14 日）の遅い方で決め、それより後の発言だけを渡す。本人が当日のファイルを消しても控えが残るので最初から渡し直さない（本人の編集・削除を書き戻さない）。控えを書けなければ材料を渡さない。控えは材料を渡した時点で進むため、その回の LLM が失敗した分は次回に繰り越さない（書き戻しより取りこぼしを選ぶ）。
+  - 本人の「記録しないで」「残さないで」「載せないで」「記録から外して」等の発言は、渡す範囲より前でも当日と過去 30 日分（最大 20 件）を別の節として毎回渡し、prompt でその話題を後の発言も含めて載せない。
+
 - init container が ConfigMap `hermes-agent-kohako-navilog-script` から `/opt/data/scripts/` へ置く。
 - `kohako_navilog_prompt.md`: 夜のまとめの指示（4 種の行、8 行まで、載せない物、既存行を変えず末尾追記、最終応答 [SILENT]）。
 - `register-job.sh`: 配備後に一度実行し、cron job「Kohako ナビログ（夜のまとめ・通知なし）」を登録。`30 23 * * *` Asia/Tokyo、`deliver=local`・`failure_deliver=local`（通知しない）、`enabled_toolsets=["file"]`（job 単位で道具をファイル操作だけに制限）。

@@ -39,6 +39,7 @@ class NavilogSourceTest(unittest.TestCase):
         self.mod = load()
         self.mod.VAULT = str(self.vault)
         self.mod.DB = str(self.db)
+        self.mod.STATE = str(pathlib.Path(self.tmp.name) / "kohako_navilog_state.json")
         self.now = ts("23:30")
 
     def tearDown(self):
@@ -141,6 +142,44 @@ class NavilogSourceTest(unittest.TestCase):
         self.assertLess(len(out), self.mod.TOTAL + 2000)
         self.assertIn("…（以下省略）", out)
         self.assertEqual(self.mod.as_text(parts), "画像の話\n（画像あり・中身は載せない）")
+
+    def test_deleted_log_file_is_not_rewritten_from_start(self):
+        self.add("kohako-web-abc", "user", "朝の話", ts("08:10"))
+        self.now = ts("12:00")
+        self.assertIn("朝の話", self.run_main()[1])
+        # 本人がその日のファイルを消した（作られていない場合も同じ）後の同じ日の再実行
+        self.add("kohako-web-abc", "user", "夜の話", ts("21:10"))
+        self.now = ts("23:30")
+        out = self.run_main()[1]
+        self.assertIn("夜の話", out)
+        self.assertNotIn("朝の話", out)
+        self.now = ts("23:45")
+        self.assertGated(self.run_main()[1])
+
+    def test_state_write_failure_hands_nothing(self):
+        self.add("kohako-web-abc", "user", "朝の話", ts("08:10"))
+        self.mod.STATE = str(pathlib.Path(self.tmp.name) / "missing-dir" / "state.json")
+        out = self.run_main()[1]
+        self.assertGated(out)
+        self.assertNotIn("朝の話", out)
+
+    def test_no_record_instruction_before_cursor_is_still_passed(self):
+        self.add("kohako-web-old", "user", "健康診断の話はログに残さないで", ts("20:00", "2026-11-10"))
+        self.add("kohako-web-abc", "user", "転職の話は記録しないで", ts("08:10"))
+        self.add("kohako-web-abc", "user", "別の朝の話", ts("08:20"))
+        self.add("kohako-web-abc", "user", "転職の続きだけど", ts("21:10"))
+        self.add("telegram-1", "user", "Telegram では記録しないで", ts("21:20"))
+        path = self.vault / "ナビログ/2026-11/2026-11-18.md"
+        path.parent.mkdir(parents=True)
+        path.write_text(f"---\nnavilog_until: {ts('12:00')}\n---\n# 2026-11-18\n")
+        out = self.run_main()[1]
+        head, _, material = out.partition("--- 材料ここから")
+        self.assertIn("本人の『記録しない』指示", head)
+        self.assertIn("11-18 08:10 本人: 転職の話は記録しないで", head)
+        self.assertIn("11-10 20:00 本人: 健康診断の話はログに残さないで", head)
+        self.assertNotIn("Telegram", out)
+        self.assertNotIn("別の朝の話", out)
+        self.assertIn("転職の続きだけど", material)
 
     def test_database_opened_read_only(self):
         self.add("kohako-web-abc", "user", "こんにちは", ts("08:10"))
