@@ -144,6 +144,27 @@ def fetch(db_path, since, until):
         con.close()
 
 
+def no_record_excerpt(text):
+    """「記録しない」指示の発言を、指示の箇所が切り詰めで消えないように抜き出す。
+
+    長い発言は冒頭と、各指示の前後（話題が書かれやすい前側を広め）を「…」でつないで渡す。
+    """
+    full = clean(text, len(text) + 1)
+    if len(full) <= PER_MESSAGE:
+        return full
+    spans = []
+    for m in NO_RECORD.finditer(full):
+        a, b = max(0, m.start() - 300), min(len(full), m.end() + 60)
+        if spans and a <= spans[-1][1]:
+            spans[-1] = (spans[-1][0], b)
+        else:
+            spans.append((a, b))
+    spans = spans[-3:]
+    parts = [] if spans and spans[0][0] <= 150 else [full[:150]]
+    parts += [full[a:b] for a, b in spans]
+    return "…".join(parts) + "…（指示の前後だけ抜粋）"
+
+
 def no_record_lines(rows):
     """本人の「記録しない」指示だけを拾う（渡す範囲より前の分も含める）。"""
     out = []
@@ -155,7 +176,7 @@ def no_record_lines(rows):
             replies = list(_NOTICE_REPLY.finditer(text))
             text = text[replies[-1].end():] if replies else ""
         if NO_RECORD.search(text):
-            body = clean(text, PER_MESSAGE)
+            body = no_record_excerpt(text)
             if body:
                 out.append(f"{datetime.fromtimestamp(ts, JST):%m-%d %H:%M} 本人: {body}")
     return out[-NO_RECORD_MAX:]

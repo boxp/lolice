@@ -181,6 +181,16 @@ class NavilogSourceTest(unittest.TestCase):
         self.assertNotIn("別の朝の話", out)
         self.assertIn("転職の続きだけど", material)
 
+    def test_long_message_keeps_trailing_no_record_instruction(self):
+        long = "あ" * 900 + "副業の件、この話題は記録しないで"
+        self.add("kohako-web-abc", "user", long, ts("08:10"))
+        self.add("kohako-web-abc", "user", "副業の続き", ts("21:10"))
+        out = self.run_main()[1]
+        head, _, material = out.partition("--- 材料ここから")
+        self.assertIn("副業の件、この話題は記録しないで", head)
+        self.assertIn("指示の前後だけ抜粋", head)
+        self.assertLess(len(self.mod.no_record_excerpt(long)), 700)
+
     def test_after_night_run_goes_to_previous_day_next_run(self):
         self.add("kohako-web-abc", "user", "夜の話", ts("21:10", "2026-11-17"))
         self.now = ts("23:30", "2026-11-17")
