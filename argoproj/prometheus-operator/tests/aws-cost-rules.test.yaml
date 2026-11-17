@@ -1,0 +1,55 @@
+rule_files:
+  - __RULE_FILE__
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'aws_cost_snapshot_available{instance="a"}'
+        values: '0x70'
+      - series: 'aws_cost_last_attempt_success{instance="a"}'
+        values: '0x70'
+    alert_rule_test:
+      - eval_time: 61m
+        alertname: AwsCostFetchFailed
+        exp_alerts:
+          - exp_labels: {instance: a, severity: info}
+            exp_annotations: {summary: The last AWS cost fetch failed; see aws_cost_last_attempt_error_info}
+      - eval_time: 10m
+        alertname: AwsCostSnapshotStale
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: AwsCostSnapshotStale
+        exp_alerts:
+          - exp_labels: {instance: a, severity: info, reason: unavailable}
+            exp_annotations: {summary: AWS cost snapshot is unavailable; treat values as unknown}
+  - interval: 1m
+    input_series:
+      # fetched at t=0 (epoch 0), so it becomes older than 36h after 36h.
+      - series: 'aws_cost_snapshot_available{instance="a"}'
+        values: '1x2400'
+      - series: 'aws_cost_fetched_timestamp_seconds{instance="a"}'
+        values: '0x2400'
+      - series: 'aws_cost_last_attempt_success{instance="a"}'
+        values: '1x2400'
+    alert_rule_test:
+      - eval_time: 30h
+        alertname: AwsCostSnapshotStale
+        exp_alerts: []
+      - eval_time: 38h
+        alertname: AwsCostSnapshotStale
+        exp_alerts:
+          - exp_labels: {instance: a, severity: info, reason: stale}
+            exp_annotations: {summary: AWS cost snapshot is older than 36h; treat values as unknown}
+      - eval_time: 38h
+        alertname: AwsCostFetchFailed
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'up{job="other"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: AwsCostSnapshotStale
+        exp_alerts:
+          - exp_labels: {severity: info, reason: exporter_absent}
+            exp_annotations: {summary: AWS cost exporter is absent}

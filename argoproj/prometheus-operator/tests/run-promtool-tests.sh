@@ -30,3 +30,5 @@ run_one ai-provider-quota-rules.yaml ai-provider-quota-rules.test.yaml
 run_one ai-subscription-forecast-rules.yaml ai-subscription-forecast-rules.test.yaml
 
 run_one local-llm-gpu-observability-rules.yaml local-llm-gpu-observability-rules.test.yaml
+
+run_one aws-cost-rules.yaml aws-cost-rules.test.yaml

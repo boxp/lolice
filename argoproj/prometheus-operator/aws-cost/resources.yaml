@@ -1,0 +1,110 @@
+# BOXP-594: AWS cost snapshot (aws-cost/v1-draft). The snapshot is written to SSM by the
+# arch GitHub Actions OIDC job; this Pod holds no AWS credentials and only renders /metrics.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: aws-cost-snapshot
+  namespace: monitoring
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: parameterstore
+    kind: ClusterSecretStore
+  target:
+    name: aws-cost-snapshot
+    creationPolicy: Owner
+  data:
+    - secretKey: summary.json
+      remoteRef: {key: /lolice/aws-cost/summary}
+    - secretKey: services.json
+      remoteRef: {key: /lolice/aws-cost/services}
+    - secretKey: daily.json
+      remoteRef: {key: /lolice/aws-cost/daily}
+    - secretKey: status.json
+      remoteRef: {key: /lolice/aws-cost/status}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aws-cost-metrics
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: aws-cost-metrics}
+  template:
+    metadata:
+      labels: {app: aws-cost-metrics}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: metrics
+          image: docker.io/python:3.15-alpine
+          imagePullPolicy: IfNotPresent
+          command: [python, /app/server.py]
+          env:
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+          ports:
+            - {name: metrics, containerPort: 9465}
+          readinessProbe:
+            httpGet: {path: /healthz, port: metrics}
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          volumeMounts:
+            - {name: snapshot, mountPath: /snapshot, readOnly: true}
+            - {name: server, mountPath: /app, readOnly: true}
+      volumes:
+        - name: snapshot
+          secret: {secretName: aws-cost-snapshot}
+        - name: server
+          configMap: {name: aws-cost-metrics}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aws-cost-metrics
+  namespace: monitoring
+  labels: {app: aws-cost-metrics}
+spec:
+  selector: {app: aws-cost-metrics}
+  ports:
+    - {name: metrics, port: 9465, targetPort: metrics}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: aws-cost-metrics
+  namespace: monitoring
+  labels: {app.kubernetes.io/part-of: kube-prometheus}
+spec:
+  selector:
+    matchLabels: {app: aws-cost-metrics}
+  endpoints:
+    - {port: metrics, interval: 60s}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aws-cost-metrics
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels: {app: aws-cost-metrics}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: prometheus}
+      ports:
+        - {protocol: TCP, port: 9465}
+  egress: []

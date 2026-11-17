@@ -1,0 +1,35 @@
+# BOXP-594: AWS コスト snapshot（aws-cost/v1-draft）の鮮度と取得失敗。
+# severity は info で、メールも Hermes 転送もしない。不明を 0 円とも最新とも読ませないための印。
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: aws-cost-rules
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    release: prometheus
+spec:
+  groups:
+    - name: aws-cost
+      rules:
+        - alert: AwsCostSnapshotStale
+          expr: time() - aws_cost_fetched_timestamp_seconds > 36 * 3600
+          for: 15m
+          labels: {severity: info, reason: stale}
+          annotations: {summary: AWS cost snapshot is older than 36h; treat values as unknown}
+        - alert: AwsCostSnapshotStale
+          expr: aws_cost_snapshot_available == 0
+          for: 30m
+          labels: {severity: info, reason: unavailable}
+          annotations: {summary: AWS cost snapshot is unavailable; treat values as unknown}
+        - alert: AwsCostSnapshotStale
+          expr: absent(aws_cost_snapshot_available)
+          for: 15m
+          labels: {severity: info, reason: exporter_absent}
+          annotations: {summary: AWS cost exporter is absent}
+        - alert: AwsCostFetchFailed
+          expr: aws_cost_last_attempt_success == 0
+          for: 1h
+          labels: {severity: info}
+          annotations: {summary: The last AWS cost fetch failed; see aws_cost_last_attempt_error_info}
