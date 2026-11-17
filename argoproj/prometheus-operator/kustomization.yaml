@@ -1,6 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+- aws-cost/resources.yaml
+- aws-cost-rules.yaml
 - github.com/prometheus-operator/kube-prometheus?ref=v0.19.0
 - application.yaml
 - grafana-lb.yaml
@@ -45,6 +47,10 @@ patchesJson6902:
       namespace: monitoring
   path: patches/grafana-remove-empty-dir.yaml
 configMapGenerator:
+- name: aws-cost-metrics
+  namespace: monitoring
+  files:
+  - aws-cost/server.py
 - name: grafana-dashboard-local-llm-gpu-overview
   namespace: monitoring
   files:
