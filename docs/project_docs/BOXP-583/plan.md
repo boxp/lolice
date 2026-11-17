@@ -23,7 +23,7 @@
 
 ## 確認手順
 
-1. PR の CI（argocd-diff 等）と codex review を通し merge。
+1. Chainsaw の retention テストを 30 日境界へ更新（31 日前は削除、15 日前は残存）。PR の CI（argocd-diff 等）と codex review を通し merge。
 2. Argo CD の `langfuse` Application が Synced/Healthy、実 CronJob の env が `RETENTION_DAYS=30` / `RAW_EVENT_DAYS=1`。
 3. 配備後に作成された新 Job が Complete、Loki 監査で `retention_days=30` / `raw_event_days=1` / `lifecycle=["events/:1d"]`、Job 所要時間。
 4. 正本 `Projects/langfuse-observability/owner-summary.md` の保持説明を 30 日へ更新。
