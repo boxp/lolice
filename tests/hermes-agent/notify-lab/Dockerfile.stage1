@@ -1,0 +1,16 @@
+# BOXP-553 lab only: the production image (by digest) with the lolice hermes-agent config, plugins,
+# Alertmanager route and relay script laid out the way the bootstrap init container does. Never pushed.
+ARG BASE
+FROM ${BASE}
+USER root
+COPY stub.bb /lab/stub.bb
+# /opt/data is a declared volume: only COPY reaches it, so ownership and modes are set here and by the
+# entrypoint (HERMES_UID/HERMES_GID as in production), not by a later RUN.
+COPY --chown=1000:10000 data/ /opt/data/
+RUN mkdir -p /lab/logs /lab/vault/Tickets /lab/vault/Projects /home/boxp/Documents/obsidian-headless \
+    && ln -s /lab/vault /home/boxp/Documents/obsidian-headless/BOXP && chmod -R a+rwX /lab
+# The first three are the production Deployment env (lolice argoproj/hermes-agent/deployment.yaml); the
+# vault is the production default path. Only the Telegram API base (loopback stub) and timing are lab values.
+ENV HOME=/opt/data HERMES_UID=1000 HERMES_GID=10000 WEBHOOK_ENABLED=true WEBHOOK_SECRET=lab-secret \
+    BOXP_NOTIFY_ENABLED=1 BOXP_NOTIFY_TELEGRAM_MODE=fallback BOXP_NOTIFY_TELEGRAM_MODE_ALERTMANAGER=both \
+    BOXP_NOTIFY_TELEGRAM_API_BASE=http://127.0.0.1:18080 BOXP_NOTIFY_RECOVERY_SECONDS=10 LAB_LOG_DIR=/lab/logs

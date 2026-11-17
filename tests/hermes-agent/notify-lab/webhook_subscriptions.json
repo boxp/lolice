@@ -1,0 +1,18 @@
+{
+  "task-board": {
+    "description": "BOXP-546 lab copy of the Task Board route, delivering to the prototype channel",
+    "events": ["task-board.run-finished", "task-board.lane-changed"],
+    "prompt": "lab Task Board event. event_id={event_id} event_type={event_type} ticket={ticket_id} scenario={scenario}",
+    "deliver": "boxp_notify",
+    "deliver_extra": {"chat_id": "tb:{event_id}"},
+    "enabled": true
+  },
+  "direct": {
+    "description": "BOXP-546 lab copy of an agent-less relay (reminder / alertmanager shape)",
+    "prompt": "{message}",
+    "deliver_only": true,
+    "deliver": "boxp_notify",
+    "deliver_extra": {"chat_id": "direct:{name}:{firing}"},
+    "enabled": true
+  }
+}
