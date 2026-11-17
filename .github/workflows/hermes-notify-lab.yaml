@@ -1,0 +1,62 @@
+name: Hermes notify lab
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'argoproj/hermes-agent/plugins/**'
+      - 'argoproj/hermes-agent/configmap.yaml'
+      - 'argoproj/hermes-agent/deployment.yaml'
+      - 'tests/hermes-agent/notify-lab/**'
+      - '.github/workflows/hermes-notify-lab.yaml'
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Candidate image (empty uses latest)
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  stage2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      DEFAULT_IMAGE: ghcr.io/boxp/arch/hermes-agent:latest
+      ARCH_DIR: ${{ github.workspace }}/arch
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: boxp/arch
+          ref: main
+          path: arch
+          sparse-checkout: docker/codex-workspace/task-board
+          persist-credentials: false
+      - uses: DeLaGuardo/setup-clojure@13.7.0
+        with:
+          bb: 1.13.229
+      - name: Pull and record image digest
+        env:
+          INPUT_IMAGE: ${{ inputs.image }}
+        run: |
+          image="${INPUT_IMAGE:-$DEFAULT_IMAGE}"
+          docker pull "$image"
+          docker image inspect "$image" --format '{{json .RepoDigests}}' | tee image-digest.txt
+          echo "LAB_IMAGE=$image" >> "$GITHUB_ENV"
+      - name: Build
+        run: tests/hermes-agent/notify-lab/stage2.sh build notify-lab "$LAB_IMAGE"
+      - name: Run isolated stage 2
+        run: |
+          set -o pipefail
+          tests/hermes-agent/notify-lab/stage2.sh run notify-lab notify-lab evidence | tee evidence.log
+      - name: Check evidence
+        run: bb tests/hermes-agent/notify-lab/check-stage2.bb evidence
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hermes-notify-evidence
+          path: |
+            evidence*
+            image-digest.txt
+          if-no-files-found: warn
