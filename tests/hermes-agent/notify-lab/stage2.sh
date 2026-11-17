@@ -169,7 +169,7 @@ if x 'test -d /opt/data/plugins/kohako-vault-image'; then
   v traversal "-H 'Authorization: Bearer lab-api-key-0123456789abcdef0123456789abcdef'" ../etc/passwd.png
   v fake-image "-H 'Authorization: Bearer lab-api-key-0123456789abcdef0123456789abcdef'" attachments/note.png
   x 'grep -h "kohako-vault-image" /opt/data/logs/*.log | tail -2' || true
-  mark "K1 (BOXP-556) the agent creates cron jobs: no target and Telegram become the channel, local stays"
+  mark "K1 (BOXP-556) the agent creates cron jobs from the CLI: the home Telegram becomes the channel, no target (origin) and local stay"
   for sc in cron-create cron-create-telegram cron-create-local; do
     x "cd /opt/hermes; timeout 120 ./.venv/bin/hermes chat -Q -t cronjob -q 'lab scenario=$sc' 2>&1 | grep -v 'install out of sync' | tail -1" || echo "chat $sc failed"
   done

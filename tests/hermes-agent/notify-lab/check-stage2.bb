@@ -32,7 +32,13 @@
   (check "old route 404" (str/includes? log "old-route http=404"))
   (check "cron success failure and dedup" (and (= 1 (ec "cron.report")) (= 1 (ec "cron.failure")) (= 1 (tc "lab の定期報告")) (= 1 (tc "lab-fail")) (pos? (jk "duplicate_dropped" "cron"))))
   (check "Alertmanager firing retry resolved" (and (= 1 (ec "alert.firing")) (= 1 (ec "alert.resolved")) (= 2 (tc "【Alertmanager 通知】")) (pos? (jk "duplicate_dropped" "direct:alertmanager"))))
-  (check "cron rewrite" (>= (count (filter #(= "cron_deliver_rewritten" (:kind %)) journal)) 2))
+  ;; K1: the agent's own cron tool call. Only a target meaning the home Telegram chat is rewritten; a job the
+  ;; CLI creates without a target (origin) and local stay as written (same rule as the unit checks).
+  (check "cron rewrite" (and (some #(and (= "cron_deliver_rewritten" (:kind %)) (str/includes? (str (:before %)) "telegram")
+                                         (str/includes? (str (:after %)) "boxp_notify:cron")) journal)
+                             (str/includes? log "job lab-tool-telegram deliver=boxp_notify:cron")
+                             (str/includes? log "job lab-tool-origin deliver=origin")
+                             (str/includes? log "job lab-tool-local deliver=local")))
   (check "cron migration deliver and failure_deliver" (and (str/includes? migration "cron_job_migrated") (str/includes? migration "\"deliver\": \"boxp_notify:cron\"") (str/includes? migration "\"failure_deliver\": \"boxp_notify:cron\"")))
   (check "image route" (every? #(str/includes? log %) ["no-key http=401" "wrong-key http=401" "image http=200" "traversal http=404" "fake-image http=404"]))
   (check "plugin validation" (and (str/includes? validate "Validation passed.") (not (str/includes? validate "Validation failed"))
