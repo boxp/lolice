@@ -12,7 +12,8 @@ channel is the only place that keeps the home inbox copy, the silence proof and 
   sends to Telegram, and keeps a durable receipt so the same event is delivered once.
 * Task Board: the gate the patch implemented lives here, with the same files the dispatcher reads
   (``Projects/task-board-events``): silence only on the Notes receipt, quiet hours and digest claims hold the
-  send (``quiet-held``), ``delivery-receipts`` tell the dispatcher what happened, ``delivery-routing.md`` plus
+  send (``quiet-held``; since BOXP-614 the held text is still stored in the home inbox, without Telegram or
+  reminder), ``delivery-receipts`` tell the dispatcher what happened, ``delivery-routing.md`` plus
   the reminder readiness decide between home-primary and Telegram-primary. Reconciliation notices go to
   Telegram as before.
 * cron: home and Telegram (``BOXP_NOTIFY_TELEGRAM_MODE_CRON=both``), as before the switch.
@@ -225,6 +226,20 @@ def held(cfg: dict, event: str, proof: Optional[str]) -> bool:
             or (proof == "deferred" and "-digest-" not in event))
 
 
+def held_copy(cfg: dict, target: dict, decision: dict, key: str) -> bool:
+    """BOXP-614: a held Task Board text still goes to the home inbox, so the Owner can read and answer it
+    at night. Only the inbox file is written: no Telegram, and no ``primary`` mark, so the dispatcher
+    neither reminds nor falls back on Telegram (the home BFF itself keeps web push quiet). The hold and its
+    ``quiet-held`` receipt stay as they were, so the morning digest still collects what the Owner has not
+    read. A digest is not copied: a held digest is reissued in the morning and copied then."""
+    if "-digest-" in target["event"]:
+        return False
+    written = write_home(cfg, target, decision, key, None, primary=False)
+    if not written:
+        journal(cfg, "held_copy_unavailable", key=key)
+    return written
+
+
 def vault_receipt(cfg: dict, event: str, state: str, classification: Optional[str]) -> bool:
     """What the dispatcher reads to close, hold or stop redelivering an event (metadata only)."""
     if cfg["home_fail"]:
@@ -322,6 +337,11 @@ def decide(cfg: dict, target: dict, content: str) -> dict:
         return {"action": "deliver", "slot": "notice", "text": content, "classification": "notice", **base}
     if NOTICE in content:
         return {"action": "deliver", "slot": "report", "text": content, "classification": "report", **base}
+    if proof == "deferred":
+        # BOXP-614: a report written at night (notify_mode defer/inbox) for the home inbox. It is held
+        # (``held``) and stored at home without Telegram, push or reminder; the morning digest collects it.
+        return {"action": "deliver", "slot": "report", "text": content, "classification": "report",
+                **base, "receipt_class": "deferred"}
     if proof not in REPORT_RESULTS:
         # Keep a potentially necessary report, but do not claim its work succeeded (same as the patch).
         return {"action": "deliver", "slot": "report",
@@ -757,9 +777,10 @@ async def _send_claimed(cfg: dict, target: dict, decision: dict, key: str, chat_
         if not vault_receipt(cfg, target["event"], "quiet-held", decision.get("receipt_class")):
             journal(cfg, "quiet_hold_unrecorded", **base)
             return SendResult(success=False, error="boxp-notify: quiet hold unrecorded", retryable=True)
+        copied = held_copy(cfg, target, decision, key)
         atomic_json(path, {"state": "held", "key": key, "target": target, "decision": decision,
-                           "created_at": now().isoformat()})
-        journal(cfg, "quiet_held", **base, proof=decision.get("proof"))
+                           "home_copy": copied, "created_at": now().isoformat()})
+        journal(cfg, "quiet_held", **base, proof=decision.get("proof"), home_copy=copied)
         return SendResult(success=True, message_id=key)
     record = existing or {"state": "pending", "key": key, "target": target, "decision": decision,
                           "metadata": {k: v for k, v in (metadata or {}).items()
@@ -808,9 +829,11 @@ async def recover(cfg: dict) -> int:
                 # nothing becomes a hold, so the morning digest carries it; the rest waits.
                 if not (record.get("home") or record.get("telegram")) and vault_receipt(
                         cfg, target["event"], "quiet-held", record["decision"].get("receipt_class")):
-                    record.update(state="held", updated_at=now().isoformat())
+                    copied = held_copy(cfg, target, record["decision"], record.get("key") or path.stem)
+                    record.update(state="held", home_copy=copied, updated_at=now().isoformat())
                     atomic_json(path, record)
-                    journal(cfg, "quiet_held", key=record.get("key") or path.stem, recovered=True)
+                    journal(cfg, "quiet_held", key=record.get("key") or path.stem, recovered=True,
+                            home_copy=copied)
                 continue
             unconfirmed = (target["kind"] == "task-board" and bool(target.get("ticket"))
                            and record.get("vault_receipt") != "sent")

@@ -24,7 +24,8 @@ BOXP-556 で本体 patch の撤去と画像 route、cron 移行を検証した�
     家へ入らなかった時の Telegram 送信は dispatcher が行う）。受信箱へ書けない時は Telegram へ送り、写しは後から印なしで書く。
   - 照合通知（配送要確認）、記録の無い報告、routing が `telegram` の時は Telegram へ送り、家へ印なしの写しを書く。
   - 静音時間（dispatcher が公開する `quiet-policy.md`）、digest が引き取った event（`delivery-claims/`）、夜間に
-    `deferred` とした event の遅い報告は送らず、`delivery-receipts/<event>.md` に `quiet-held` を残す（朝の digest が回収）。
+    `deferred` とした event の報告は Telegram へ送らず、`delivery-receipts/<event>.md` に `quiet-held` を残す（朝の digest が回収）。
+    BOXP-614 以降、保留した本文は家の受信箱へ印（`primary`）なしで保存する（夜間も読めて返信でき、催促・Telegram・プッシュはしない。digest 自体は保存しない）。
   - 届けたら `sent`、どこにも届かなければ `uncertain`、記録つきの無通知は `silent` を `delivery-receipts/` に残す。
     dispatcher はこれで event を完了・保留・再送停止にする。
 - cron は job id しか渡らないので、家の受信箱の job 名は scheduler の `cron/jobs.json` から読む。
