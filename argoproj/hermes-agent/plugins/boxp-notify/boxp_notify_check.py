@@ -25,6 +25,12 @@ spec = importlib.util.spec_from_file_location(
     "boxp_notify", Path(__file__).resolve().with_name("__init__.py"))
 plugin = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(plugin)
+# CI (Renovate の朝の run など) は 02:00-09:00 JST の静音時間帯にも走る。実時刻のままだと静音判定で
+# 配送系の check が時刻次第で FAIL するため、既定の時計を日中 (12:00 JST) 起点で実時間どおり進める。
+# 静音時間帯の check は従来どおり個別に plugin.now を差し替える。
+_wall_now = plugin.now
+_day_offset = plugin.datetime(2026, 11, 14, 3, 0, tzinfo=plugin.timezone.utc) - _wall_now()
+plugin.now = lambda: _wall_now() + _day_offset
 
 telegram = {"fail": False, "delay": 0.0, "sent": [], "bodies": [], "reject_html": False}
 
@@ -103,7 +109,7 @@ def home_ready(ready, age=0):
     (root / TBE / "delivery-routing.md").write_text("# routing\n\ntask-board: home\n")
     (root / "hermes").mkdir(exist_ok=True)
     (root / "hermes/webhook_subscriptions.json").write_text(json.dumps({"kohako-home-reminder": {"enabled": True}}))
-    stamp = plugin.datetime.fromtimestamp(time.time() - age, plugin.timezone.utc).isoformat().replace("+00:00", "Z")
+    stamp = plugin.datetime.fromtimestamp(plugin.now().timestamp() - age, plugin.timezone.utc).isoformat().replace("+00:00", "Z")
     (root / TBE / "home-reminder-ready.md").write_text(json.dumps({"reminder_ready": ready, "checked_at": stamp}))
 
 
