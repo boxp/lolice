@@ -42,3 +42,13 @@ Alertmanager は label `notify_hermes="true"` を持つアラートの写しを 
 ## AWS コストの読み方
 
 取得から36時間を超えた場合、または `aws_cost_snapshot_available` が 0 の場合は不明として扱います。金額の欠測を 0 と読まないでください。`aws_cost_estimated` が 1 の期間は見込、0 は確定です。月末予測は見込です。
+
+## 監視の入口（BOXP-623）
+
+Grafana の `監視の入口：アラートと監視の健全性`（`/d/alert-entry/`）が運用の入口です。判定の正本は PrometheusRule、通知の正本は Alertmanager（メール / Hermes）のままで、この画面は読むだけです。Grafana が止まっても通知は届きます。
+
+- 通知を受けたら `/d/alert-entry/?var-alertname=<alertname>&var-namespace=<namespace>` を開き、表の行のリンクで発生 30 分前からの関連ダッシュボード・ログ・Alertmanager（silence / inhibit）へ進みます。
+- 正常 / Pending / Firing / 抑制中 / 欠測 / 評価失敗 / 監視対象の消失を別々に表示します。
+- ダッシュボードは `scripts/alert-entry-dashboard/generate.bb` で生成し、`scripts/alert-entry-dashboard/test.sh` で確かめます。JSON を直接編集しないでください。
+- Grafana の `alertmanager` データソースは `handleGrafanaManagedAlerts: false` です。Grafana 管理ルールをこの Alertmanager に流さず、二重通知を作りません。
+- 棚卸しの結果は `docs/project_docs/BOXP-623/plan.md`。
