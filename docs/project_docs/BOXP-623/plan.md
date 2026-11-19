@@ -61,3 +61,9 @@
 - 全 PromQL を本番 Prometheus に照会し成功を確認。
 - merge 後: Argo CD sync、Grafana でダッシュボードとデータソースの health、Alertmanager の通知経路（receiver・送信数）が変わっていないことを確認。
 - Grafana の hitohub ルールは API で退避後に削除し、残りのルールの状態を確認。
+
+## レビュー対応（欠測を正常と見せない）
+
+- 消えた job は `up offset 1h` ではなく `last_over_time(up[7d])` と比べる（1 時間で 0 に戻らない。7 日を過ぎると数えられない限界は説明に明記）。
+- 健全性の数値から `or vector(0)` を外し、値が来ないときは「欠測」と表示する。Alertmanager 由来の値（通知失敗・抑制・silence・設定再読込）は `up{job="alertmanager-main"}` が 1 のときだけ出す。アラート件数の 0 は Watchdog が見えているときだけ補う。
+- 時間帯パネルの最上段に「判定経路（Watchdog）」を追加し、2 分以上サンプルが無い区間は埋めない。緑の帯が途切れた時間の空白は正常ではなく欠測と読む。

@@ -41,7 +41,7 @@
 
 **通知を受けたら**: 上の `alertname` / `namespace` を通知の値にして絞り込み、表の行のリンクで「発生 30 分前から」の関連ダッシュボード・ログへ進みます。URL で渡すときは `/d/alert-entry/?var-alertname=<alertname>&var-namespace=<namespace>`。
 
-**状態の読み分け**: 正常 = 一覧に出ない / Pending = 条件成立中で `for` 待ち（まだ通知しない）/ Firing = 通知対象 / 抑制中 = Alertmanager の silence か inhibit で通知を止めている（判定は Firing のまま）/ 欠測 = 値が来ない（Prometheus 停止・取得失敗）/ 評価失敗 = ルールの式が評価できない / 対象消失 = 以前あった監視対象が消えた。欠測や対象消失は「正常」ではありません。")
+**状態の読み分け**: 正常 = 判定経路（Watchdog）が生きていて一覧に出ない / Pending = 条件成立中で `for` 待ち（まだ通知しない）/ Firing = 通知対象 / 抑制中 = Alertmanager の silence か inhibit で通知を止めている（判定は Firing のまま）/ 欠測 = 値が来ない（Prometheus 停止・取得失敗）/ 評価失敗 = ルールの式が評価できない / 対象消失 = 以前あった監視対象が消えた。欠測や対象消失は「正常」ではありません。")
 
 (def links-md
   "| 見たいもの | 入口 |
@@ -96,16 +96,21 @@
                                :targetBlank true}]}]}]}}))
 
 (def timeline
-  {:id (nid) :type "state-timeline" :title "いつ鳴っていたか（Pending / Firing の時間帯。空白 = 正常）"
+  {:id (nid) :type "state-timeline" :title "いつ鳴っていたか（Pending / Firing の時間帯。最上段「判定経路」が途切れた時間は欠測）"
+   :description "最上段の「判定経路（Watchdog）」は Prometheus がルールを評価し、その結果が保存されていた時間に緑で出ます。緑の帯がある時間だけ、下の行の空白を「その時間は鳴っていない（正常）」と読めます。緑が途切れた時間（Prometheus 停止・取得失敗など）は全行が欠測で、空白でも正常とは言えません。"
    :datasource prom
-   :targets [(target (str "max by (alertname, severity) (2 * ALERTS{alertstate=\"firing\", " sel "})"
+   :targets [(target "max(3 * ALERTS{alertname=\"Watchdog\", alertstate=\"firing\"})" :legend "判定経路（Watchdog）" :ref "A")
+             (target (str "max by (alertname, severity) (2 * ALERTS{alertstate=\"firing\", " sel "})"
                           " or max by (alertname, severity) (ALERTS{alertstate=\"pending\", " sel "})")
-                     :legend "{{alertname}} ({{severity}})")]
+                     :legend "{{alertname}} ({{severity}})" :ref "B")]
    :options {:showValue "never" :mergeValues true :rowHeight 0.8 :legend {:showLegend false}}
+   ;; 欠測区間を前後の値で埋めない (2 分以上サンプルが無い区間は空白にする)
    :fieldConfig {:defaults {:color {:mode "thresholds"}
-                            :thresholds (steps "yellow" nil "red" 2)
+                            :custom {:insertNulls 120000 :spanNulls false}
+                            :thresholds (steps "yellow" nil "red" 2 "green" 3)
                             :mappings [{:type "value" :options {"1" {:text "Pending" :color "yellow"}
-                                                               "2" {:text "Firing" :color "red"}}}]}
+                                                               "2" {:text "Firing" :color "red"}
+                                                               "3" {:text "判定稼働" :color "green"}}}]}
                  :overrides []}})
 
 (def logs
@@ -118,13 +123,13 @@
 
 (def disappeared
   {:id (nid) :type "table" :title "監視対象の消失・取得失敗"
-   :description "消失 = 1 時間前にはあった job が今は無い（監視の穴になる）。取得失敗 = 対象は見えているが up=0。"
+   :description "消失 = 過去 7 日にはあった job が今は無い（監視の穴になる。7 日を過ぎると表から消えるが、復旧したわけではない）。取得失敗 = 対象は見えているが up=0。"
    :datasource prom
-   :targets [(target "label_replace((count by (job) (up offset 1h)) unless (count by (job) (up)), \"problem\", \"消失（1h 前にはあった）\", \"\", \"\")" :instant true :fmt "table" :ref "A")
+   :targets [(target "label_replace((count by (job) (last_over_time(up[7d]))) unless (count by (job) (up)), \"problem\", \"消失（過去 7 日にはあった）\", \"\", \"\")" :instant true :fmt "table" :ref "A")
              (target "label_replace(count by (job) (up == 0), \"problem\", \"取得失敗（up=0）\", \"\", \"\")" :instant true :fmt "table" :ref "B")]
    :transformations [{:id "merge" :options {}}
                      {:id "organize" :options {:excludeByName {"Time" true}
-                                               :renameByName {"Value #A" "消失した対象数（1h 前）" "Value #B" "取得失敗の対象数"}}}]
+                                               :renameByName {"Value #A" "消失した対象数（過去 7 日比）" "Value #B" "取得失敗の対象数"}}}]
    :options {:showHeader true :cellHeight "sm"}
    :fieldConfig {:defaults {:noValue "なし"} :overrides []}})
 
@@ -136,7 +141,11 @@
    :fieldConfig {:defaults {:custom {:drawStyle "bars" :fillOpacity 60} :unit "short"}
                  :overrides [{:matcher {:id "byRegexp" :options "失敗.*"} :properties [{:id "color" :value {:mode "fixed" :fixedColor "red"}}]}]}})
 
-(def firing-count (fn [sev] (str "count(ALERTS{alertstate=\"firing\", severity=\"" sev "\", alertname!~\"" internal "\"}) or vector(0)")))
+;; 「0 件」は判定経路 (Watchdog) が生きているときだけ補う。Watchdog が見えない = 欠測で、0 と表示しない
+(def zero-if-evaluating " or on() (0 * max(ALERTS{alertname=\"Watchdog\", alertstate=\"firing\"}))")
+;; Alertmanager 由来の値は Alertmanager が scrape できているときだけ出す (欠測を 0 と見せない)
+(def if-am-up " and on() (max(up{job=\"alertmanager-main\"}) == 1)")
+(def firing-count (fn [sev] (str "count(ALERTS{alertstate=\"firing\", severity=\"" sev "\", alertname!~\"" internal "\"})" zero-if-evaluating)))
 
 (def panels-spec
   ;; [panel w h]
@@ -145,9 +154,9 @@
    [(stat "Firing: critical" "メールと Hermes に通知される" (firing-count "critical") (steps "green" nil "red" 1)) 4 4]
    [(stat "Firing: warning" "メールに通知される" (firing-count "warning") (steps "green" nil "orange" 1)) 4 4]
    [(stat "Firing: info" "通知しない（画面で見るだけ）" (firing-count "info") (steps "green" nil "blue" 1)) 4 4]
-   [(stat "Pending" "条件成立中で for の待ち。まだ通知しない" (str "count(ALERTS{alertstate=\"pending\", alertname!~\"" internal "\"}) or vector(0)") (steps "green" nil "yellow" 1)) 4 4]
-   [(stat "抑制中（silence / inhibit）" "Alertmanager が通知を止めているアラート数。判定は Firing のまま" "sum(alertmanager_alerts{state=\"suppressed\"})" (steps "green" nil "purple" 1)) 4 4]
-   [(stat "有効な silence" "手動で止めている通知。期限切れを忘れないこと" "sum(alertmanager_silences{state=\"active\"})" (steps "green" nil "purple" 1)) 4 4]
+   [(stat "Pending" "条件成立中で for の待ち。まだ通知しない" (str "count(ALERTS{alertstate=\"pending\", alertname!~\"" internal "\"})" zero-if-evaluating) (steps "green" nil "yellow" 1)) 4 4]
+   [(stat "抑制中（silence / inhibit）" "Alertmanager が通知を止めているアラート数。判定は Firing のまま" (str "sum(alertmanager_alerts{state=\"suppressed\"})" if-am-up) (steps "green" nil "purple" 1)) 4 4]
+   [(stat "有効な silence" "手動で止めている通知。期限切れを忘れないこと" (str "sum(alertmanager_silences{state=\"active\"})" if-am-up) (steps "green" nil "purple" 1)) 4 4]
    [alerts-table 24 10]
    [timeline 24 9]
    [logs 24 9]
@@ -156,28 +165,28 @@
           "count(ALERTS{alertname=\"Watchdog\", alertstate=\"firing\"}) or vector(0)" (steps "red" nil "green" 1)
           :mappings [{:type "value" :options {"0" {:text "停止"} "1" {:text "生存"}}}]) 4 4]
    [(stat "ルール評価失敗（15 分）" "式が評価できなかった回数（Prometheus）。0 以外は判定が止まっている可能性"
-          "sum(increase(prometheus_rule_evaluation_failures_total[15m])) or vector(0)" (steps "green" nil "red" 1)) 4 4]
+          "sum(increase(prometheus_rule_evaluation_failures_total[15m]))" (steps "green" nil "red" 1)) 4 4]
    [(stat "評価の取りこぼし（15 分）" "評価が間に合わず飛ばした回数"
-          "sum(increase(prometheus_rule_group_iterations_missed_total[15m])) or vector(0)" (steps "green" nil "orange" 1)) 4 4]
+          "sum(increase(prometheus_rule_group_iterations_missed_total[15m]))" (steps "green" nil "orange" 1)) 4 4]
    [(stat "取得失敗の対象（up=0）" "scrape できない監視対象の数。その対象のアラートは欠測になる"
-          "count(up == 0) or vector(0)" (steps "green" nil "orange" 1)) 4 4]
-   [(stat "消えた job（1h 前比）" "1 時間前にはあった scrape job が無くなった数。監視の穴"
-          "count((count by (job) (up offset 1h)) unless (count by (job) (up))) or vector(0)" (steps "green" nil "orange" 1)) 4 4]
+          "count(up == 0) or on() (0 * count(up))" (steps "green" nil "orange" 1)) 4 4]
+   [(stat "消えた job（過去 7 日比）" "過去 7 日のどこかで scrape されていた job のうち、今は無いものの数。監視の穴。消えて 7 日を過ぎると数えられなくなるので、0 に戻っても復旧とは限らない（復旧は下の表と Prometheus Targets で確かめる）"
+          "count((count by (job) (last_over_time(up[7d]))) unless (count by (job) (up))) or on() (0 * count(up))" (steps "green" nil "orange" 1)) 4 4]
    [(stat "Prometheus → Alertmanager" "Prometheus が見つけている Alertmanager の数。0 なら判定しても通知されない"
           "min(prometheus_notifications_alertmanagers_discovered)" (steps "red" nil "green" 1)) 4 4]
-   [(stat "通知の送信失敗（24h）" "Alertmanager からメール / Hermes への送信失敗"
-          "sum(increase(alertmanager_notifications_failed_total[24h])) or vector(0)" (steps "green" nil "red" 1)) 4 4]
+   [(stat "通知の送信失敗（24h）" "Alertmanager からメール / Hermes への送信失敗。Alertmanager を scrape できないときは 0 ではなく欠測と出る"
+          (str "sum(increase(alertmanager_notifications_failed_total[24h]))" if-am-up) (steps "green" nil "red" 1)) 4 4]
    [(stat "通知の破棄（24h）" "Prometheus が Alertmanager へ送れず捨てたアラート"
-          "sum(increase(prometheus_notifications_dropped_total[24h])) or vector(0)" (steps "green" nil "red" 1)) 4 4]
+          "sum(increase(prometheus_notifications_dropped_total[24h]))" (steps "green" nil "red" 1)) 4 4]
    [(stat "設定の再読込" "Prometheus と Alertmanager の最新設定が読めているか（1 = 成功）"
-          "min(prometheus_config_last_reload_successful) * min(alertmanager_config_last_reload_successful)" (steps "red" nil "green" 1)
+          (str "min(prometheus_config_last_reload_successful) * min(alertmanager_config_last_reload_successful)" if-am-up) (steps "red" nil "green" 1)
           :mappings [{:type "value" :options {"0" {:text "失敗"} "1" {:text "成功"}}}]) 4 4]
    [(stat "Grafana 管理ルール評価失敗（1h）" "Grafana 側に残るルール（Discord 通知の palworld など）の評価失敗。正本ではない補助の判定"
-          "sum(increase(grafana_alerting_rule_evaluation_failures_total[1h])) or vector(0)" (steps "green" nil "orange" 1)) 4 4]
+          "sum(increase(grafana_alerting_rule_evaluation_failures_total[1h]))" (steps "green" nil "orange" 1)) 4 4]
    [(stat "Grafana 管理ルール: 発火中" "Grafana 側ルールの Alerting 状態の数（Discord に通知）"
-          "sum(grafana_alerting_alerts{state=\"alerting\"}) or vector(0)" (steps "green" nil "red" 1)) 4 4]
+          "sum(grafana_alerting_alerts{state=\"alerting\"})" (steps "green" nil "red" 1)) 4 4]
    [(stat "Grafana 管理ルール: NoData / Error" "Grafana 側ルールの欠測・評価エラーの数"
-          "sum(grafana_alerting_alerts{state=~\"nodata|error\"}) or vector(0)" (steps "green" nil "orange" 1)) 4 4]
+          "sum(grafana_alerting_alerts{state=~\"nodata|error\"})" (steps "green" nil "orange" 1)) 4 4]
    [disappeared 12 8]
    [notifications 12 8]
    [(row "3. 個別の入口") 24 1]
