@@ -62,3 +62,10 @@
 ## 証跡の接続
 
 - 各段の結果は BOXP-619 の Notes に記録し、BOXP-191 の「CNI 先行更新」「CSI 先行更新」の完了証拠として参照する。
+
+## Argo への反映経路（自動 sync の根拠）
+
+- `argoproj/longhorn/application.yaml` の `spec.syncPolicy.automated`（prune=false、selfHeal=false）で、Git の chart 版変更は自動 sync される。prune/selfHeal を止めているのは削除と巻き戻しだけで、自動 sync 自体は有効。
+- live 確認（2026-11-19）: `kubectl get application -n argocd longhorn` の syncPolicy は `{"automated":{"prune":false,"selfHeal":false},...}`。直近の deploy 履歴 id 640〜642（2026-11-06/11-12/11-13）は `operation.initiatedBy.automated=true` の自動 sync。
+- Application 自体は親 app `argocd-apps`（`argoproj/kustomization.yaml` に `longhorn/application.yaml` を含む、automated + selfHeal=true）が管理するので、merge 後に targetRevision の変更が live の Application に入り、その後 longhorn app が自動 sync する。
+- 手動 sync は不要。merge 後に Argo の sync 状態と revision `v1.10.2` を確認する。
