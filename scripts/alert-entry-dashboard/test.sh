@@ -17,6 +17,16 @@ jq -e '[.panels[] | select(.title | test("^Firing|^Pending|アラート")) | .ta
 jq -e '[.. | objects | select(has("alert"))] | length == 0' "$d" > /dev/null
 # Alertmanager データソースは Grafana 管理ルールを受けない (二重通知をしない)
 grep -A12 'name: alertmanager$' argoproj/prometheus-operator/overlays/grafana-datasources.yaml | grep -q 'handleGrafanaManagedAlerts: false'
+# Grafana Alerting の ?alertmanager= はデータソースの uid ではなく名前で選ぶ。uid を渡すと
+# 黙って既定の "Grafana" に戻り、Alertmanager の通知グループが見えない (#1309 で実画面確認)。
+# リンクの値は provisioning 済みの type: alertmanager データソースの名前と一致させる。
+am_names=$(yq -r '.stringData."datasources.yaml"' argoproj/prometheus-operator/overlays/grafana-datasources.yaml \
+  | yq -r '.datasources[] | select(.type == "alertmanager") | .name')
+links=$(jq -r '.. | strings' "$d" | grep -o 'alerting/[a-z]*?alertmanager=[^)&" ]*' | sed 's/.*alertmanager=//' | sort -u)
+test -n "$links"
+for l in $links; do
+  printf '%s\n' "$am_names" | grep -qxF "$l" || { echo "alerting link alertmanager=$l is not a provisioned alertmanager datasource name" >&2; exit 1; }
+done
 # promtool があれば全式の構文を確かめる
 if command -v promtool > /dev/null; then
   jq -r '.. | objects | .expr? // empty' "$d" | sed 's/\${[a-z]*}/.*/g' | grep -v '^{namespace' | while read -r e; do
