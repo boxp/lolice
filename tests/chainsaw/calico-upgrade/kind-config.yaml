@@ -1,0 +1,14 @@
+# BOXP-619: Calico 更新 (Typha 保留) 専用の隔離 kind。共有 suite の kind (CI 冒頭で Calico を
+# fresh install する) とは別に作り、base 版の Calico を本番 values で入れてから更新する。
+# calico-node の段階更新と「同時 not-ready が 1 台以下」を観測できるよう 3 ノードにする。
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+  # 本番の pool (192.178.0.0/16) は公開アドレス帯 (registry の転送先と重なりうる) なので kind 既定に寄せる。
+  # encapsulation (IPIP) と BGP は operator 既定で本番と同じになる。
+  podSubnet: 10.244.0.0/16
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker

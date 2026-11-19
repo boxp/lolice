@@ -101,3 +101,23 @@
 - 公式 upgrade notes（Hold Typha when upgrading from 3.31）: 3.32 から Typha は 3.32 以降の calico-node だけを受け付ける。既定では operator が Typha を先に更新するため、全 calico-node が同時に接続を失って not ready になり、まとめて入れ替わる。BGP 利用時は各ノードの route が再起動中に withdraw される。
 - 本クラスタは Installation に `bgp` の指定がない（既定 Enabled）ため、保留なしで進めると全ノード同時の Pod 間通信断になりうる。
 - 公式手順は、更新前に `kubectl annotate deployment calico-typha -n calico-system unsupported.operator.tigera.io/ignore=true` で Typha を保留し、calico-node の rollout 完了後に annotation を外す。codex-workspace の権限ではこの操作ができず、CD-04 の承認範囲（Longhorn Node golyat-1 の CPU 予約のみ）にも含まれないため、Owner の判断を得るまで C1 はマージしない。
+
+## C1 の Chainsaw テスト（TD-01 / CD-06）
+
+- Owner 判断 A（2026-11-19 06:02 UTC）: 既存 shanghai-3 管理者経路で Typha 保留 annotation を一時付与し、C1 merge → calico-node 7/7 rollout・疎通確認 → annotation 除去 → Typha 更新・正常復帰まで。ただし対応する Chainsaw テストを先に用意し、成功を確認してから本番対応する。
+- 既存の Chainsaw suite には Calico 更新を扱うものがなかった（共有 kind は CI 冒頭で Calico を fresh install するだけ）。
+- 追加: `tests/chainsaw/calico-upgrade/`（`upgrade.sh` / `probes.yaml` / `kind-config.yaml` / `chainsaw-test.yaml`）と `.github/workflows/chainsaw.yaml` の `calico-upgrade` job（`argoproj/calico/` 等の変更時のみ、専用 kind で実行、`status-check` に集約）。
+  - prune-safety: base（main）→ head（PR）で Argo desired state から外れる CRD があるなら `automated.prune=false`、Calico が使う CRD は head に残ること、operator 版が chart の組む版と一致すること。
+  - install-base: base の application.yaml / values.yaml を Argo と同じ `helm template --include-crds` + SSA で入れる（kind 差分はノードアドレス検出方式のみ）。
+  - hold-typha-and-upgrade-calico-node: Typha に `unsupported.operator.tigera.io/ignore=true` を付けて head を適用。calico-node が head 版に揃うまで Typha の image・generation・Pod UID が不変で、calico-node の同時 not-ready が 1 台以下。
+  - release-typha-hold: annotation を外すと Typha が head 版になり、全 tigerastatus が Available（Degraded なし）。
+  - post-upgrade-checks: 更新中に全ノードから 1 秒ごとに送ったノード跨ぎ HTTP / DNS の失敗率（5% 以下）、更新後の疎通・DNS・NetworkPolicy の deny / allow、Calico CSI driver。
+- テスト作成で見つけた PR#1300 の欠陥: `values.yaml` の `tigeraOperator.version: v1.38.4` 固定のままでは chart だけ 3.32.4 になり、Calico 本体（calico-node / typha）は 3.30.x のまま。chart v3.32.4 が組む `v1.42.8` に修正し、prune-safety で検査する。
+
+## C1 の本番手順（テスト成功後）
+
+1. 事前: calico-node 7/7・typha・tigerastatus・Argo calico Synced/Healthy、Longhorn 全 volume healthy を記録。
+2. shanghai-3 管理者経路で `kubectl annotate deployment calico-typha -n calico-system unsupported.operator.tigera.io/ignore=true`。
+3. PR#1300 を gate 通過済み head で merge → Argo 自動 sync。
+4. calico-node 7/7 が v3.32.4 で Ready、Typha が v3.30.2 のまま、DNS / NetworkPolicy / Longhorn volume を確認。
+5. annotation を除去 → Typha v3.32.4 rollout、tigerastatus Available、calico-node 7/7 維持を確認。
