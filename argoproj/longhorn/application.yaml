@@ -8,7 +8,7 @@ spec:
   sources:
     - chart: longhorn
       repoURL: https://charts.longhorn.io/
-      targetRevision: v1.9.1 # Replace with the Longhorn version you'd like to install or upgrade to
+      targetRevision: v1.10.2 # BOXP-619: 1 minor ずつ更新する（1.9.1 → 1.10.2 → 1.11.3 → 1.12.2）
       helm:
         values: |
           preUpgradeChecker:
