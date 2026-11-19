@@ -31,9 +31,7 @@ spec:
           - $lolice/argoproj/calico/values.yaml
   syncPolicy:
     automated:
-      # BOXP-619 C1: chart 構成の移行中は想定外の prune（CRD 削除）を起こさないよう一時的に false。
-      # 3.32 の CRD chart にない adminnetworkpolicies / baselineadminnetworkpolicies の扱いを決めた後に true へ戻す。
-      prune: false
+      prune: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

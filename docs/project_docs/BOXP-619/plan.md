@@ -133,3 +133,9 @@
 - spec 更新後は Argo CD v3.6.2（renovate PR#1306 で同時刻に更新）の server-side diff が CRD chart の whiskers.operator.tigera.io を dry-run する段階で `spec.versions: null` となり ComparisonError、自動 sync が止まった。管理者 kubectl の素の SSA dry-run では同 CRD は正常。
 - 修正: calico app に `compare-options: ServerSideDiff=false`（BOXP-501 / BOXP-533 と同じ対処）を付け、CRD の ignoreDifferences から `managedFieldsManagers: [argocd-controller]`（Argo 自身の適用フィールドを全て無視対象にし、RespectIgnoreDifferences で desired から spec.versions が落ちる原因と推定）を外す。preserveUnknownFields の無視は維持。
 - Chainsaw suite は kubectl SSA で適用するため、Argo の app-of-apps 反映順序や diff 方式の差はテスト範囲外。
+
+## C1 完了と prune 復元（2026-11-19 07:30〜07:55）
+
+- PR#1308 merge 後に calico app が v3.32.4 で同期（Synced / Healthy）。calico-node は 1 台ずつ v3.32.4 へ更新（同時 not-ready 最大 1）、その間 Typha は保留で v3.30.2 のまま。
+- 本番で一時 namespace を使い、ノード跨ぎの Service DNS 経由疎通・NetworkPolicy deny/allow を確認後、Typha 保留 annotation を除去。Typha 3/3 が v3.32.4 で Ready、tigerastatus 全 Available、再度 NetworkPolicy deny/allow OK。
+- prune 復元の判断: calico app の `requiresPruning` は 0 件。adminnetworkpolicies / baselineadminnetworkpolicies CRD は Argo の追跡外（tracking-id なし）で、実リソースも 0 件のため、prune=true に戻しても削除されない。CRD は残置（削除は本チケット範囲外）。
