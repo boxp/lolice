@@ -13,8 +13,8 @@ import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-PIN = '0.18.2'
-DIGEST = '5d0645b815837af4ce1fd0436879e4adfe8230072103c65429c4a41d9e00f43d'
+PIN = '2.15.0'
+DIGEST = 'ed94d41cc67e392ea45e370345eb491b0fdc21387f1aaaefcf8e2e6c85089e1d'
 
 
 def workflow_script(workflow, name):
@@ -38,7 +38,7 @@ if name == 'helm' and args[0] == 'pull':
 elif name == 'kubectl' and args[0] == 'apply':
     sys.stdin.read()
 elif name == 'curl':
-    content = '{"object":{"sha":"e258ee23c3e52266d407572f4bcdfe7d9ed36cb5"}}' if '/git/ref/tags/' in ' '.join(args) else 'kind: CustomResourceDefinition\\n'
+    content = '{"object":{"sha":"94037c4d4e1af4bd0651d37a179fbd9e347e668c"}}' if '/git/ref/tags/' in ' '.join(args) else 'kind: CustomResourceDefinition\\n'
     if '-o' in args:
         pathlib.Path(args[args.index('-o') + 1]).write_text(content)
     else:
@@ -91,7 +91,7 @@ class EsoVersionTest(unittest.TestCase):
             argocd = root / 'argoproj/argocd/kustomization.yaml'
             argocd.parent.mkdir(parents=True)
             argocd.write_text(json.dumps({
-                'resources': ['github.com/argoproj/argo-cd/manifests/base?ref=v3.5.4'],
+                'resources': ['github.com/argoproj/argo-cd/manifests/base?ref=v3.6.1'],
             }))
             binary_dir = root / 'bin'
             binary_dir.mkdir()

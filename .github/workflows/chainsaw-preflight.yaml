@@ -126,7 +126,7 @@ jobs:
             kind_image: ${{ inputs.candidate_kind_image }}
     env:
       REPO_ROOT: ${{ github.workspace }}
-      CHAINSAW_KIND_CONTEXT: kind-chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
+      CHAINSAW_KIND_CONTEXT: kind-pf-${{ matrix.version }}-${{ matrix.component }}
       COMPONENT: ${{ matrix.component }}
       KIND_IMAGE: ${{ matrix.kind_image }}
       EXPECTED_KUBERNETES_VERSION: ${{ matrix.version == 'current' && inputs.current_kubernetes_version || inputs.candidate_kubernetes_version }}
@@ -159,7 +159,10 @@ jobs:
           version: v0.33.0
           kubectl_version: v1.37.2
           node_image: ${{ matrix.kind_image }}
-          cluster_name: chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
+          # kind uses "<cluster>-control-plane" as the node hostname, which must
+          # stay <= 64 chars (sethostname); "chainsaw-preflight-candidate-
+          # external-secrets-operator" exceeded it, so keep the prefix short.
+          cluster_name: pf-${{ matrix.version }}-${{ matrix.component }}
 
       - name: Export and verify isolated kubeconfig
         run: |
@@ -224,13 +227,13 @@ jobs:
           evidence_dir="$RUNNER_TEMP/evidence"
           case "$COMPONENT" in
             argocd|external-secrets-operator)
-              ESO_CHART_VERSION=0.18.2
+              ESO_CHART_VERSION=2.15.0
               ESO_APPLICATION_CHART_VERSION="$(yq -r '.spec.sources[] | select(.chart == "external-secrets") | .targetRevision' "${REPO_ROOT}/argoproj/external-secrets-operator/application.yaml")"
               if [ "$ESO_APPLICATION_CHART_VERSION" != "$ESO_CHART_VERSION" ]; then
                 echo 'ESO Application version differs from the immutable preflight pin; update the preflight version and verified digest together.' >&2
                 exit 1
               fi
-              ESO_CHART_SHA256=5d0645b815837af4ce1fd0436879e4adfe8230072103c65429c4a41d9e00f43d
+              ESO_CHART_SHA256=ed94d41cc67e392ea45e370345eb491b0fdc21387f1aaaefcf8e2e6c85089e1d
               eso_chart="$RUNNER_TEMP/external-secrets-${ESO_CHART_VERSION}.tgz"
               helm repo add external-secrets https://charts.external-secrets.io --force-update
               helm pull external-secrets/external-secrets --version "$ESO_CHART_VERSION" --destination "$RUNNER_TEMP"
@@ -267,8 +270,8 @@ jobs:
               kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
               ;;
           esac
-          ARGOCD_TAG=v3.5.2
-          ARGOCD_COMMIT_SHA=e258ee23c3e52266d407572f4bcdfe7d9ed36cb5
+          ARGOCD_TAG=v3.6.1
+          ARGOCD_COMMIT_SHA=94037c4d4e1af4bd0651d37a179fbd9e347e668c
           curl --fail-with-body --location --silent --show-error \
             "https://api.github.com/repos/argoproj/argo-cd/git/ref/tags/${ARGOCD_TAG}" \
             -o "$evidence_dir/argocd-tag-ref.json"
@@ -364,7 +367,7 @@ jobs:
         if: always()
         timeout-minutes: 2
         env:
-          KIND_CLUSTER_NAME: chainsaw-preflight-${{ matrix.version }}-${{ matrix.component }}
+          KIND_CLUSTER_NAME: pf-${{ matrix.version }}-${{ matrix.component }}
         run: |
           set -uo pipefail
           evidence_dir="$RUNNER_TEMP/evidence"
