@@ -3,6 +3,12 @@ kind: Application
 metadata:
   name: calico
   namespace: argocd
+  annotations:
+    # BOXP-619 C1: Argo CD v3.6.2 の server-side diff は、CRD chart (crd.projectcalico.org.v1 v3.32.4) へ移った
+    # whiskers.operator.tigera.io の dry-run で "spec.versions: null" と判定して比較自体が失敗し (ComparisonError)、
+    # 自動同期が止まる (管理者の素の SSA dry-run では同じ CRD は正常)。BOXP-501 / BOXP-533 と同じく client-side diff に戻す。
+    # 適用は引き続き ServerSideApply=true。
+    argocd.argoproj.io/compare-options: ServerSideDiff=false
 spec:
   destination:
     namespace: tigera-operator
@@ -37,5 +43,5 @@ spec:
       kind: CustomResourceDefinition
       jsonPointers:
         - /spec/preserveUnknownFields
-      managedFieldsManagers:
-        - argocd-controller
+      # BOXP-619 C1: managedFieldsManagers: [argocd-controller] は Argo 自身が適用した CRD の全フィールド
+      # (spec.versions を含む) を無視対象にし、RespectIgnoreDifferences と組み合わさって CRD 更新を止めるため外した。
