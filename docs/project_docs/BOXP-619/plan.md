@@ -69,3 +69,15 @@
 - live 確認（2026-11-19）: `kubectl get application -n argocd longhorn` の syncPolicy は `{"automated":{"prune":false,"selfHeal":false},...}`。直近の deploy 履歴 id 640〜642（2026-11-06/11-12/11-13）は `operation.initiatedBy.automated=true` の自動 sync。
 - Application 自体は親 app `argocd-apps`（`argoproj/kustomization.yaml` に `longhorn/application.yaml` を含む、automated + selfHeal=true）が管理するので、merge 後に targetRevision の変更が live の Application に入り、その後 longhorn app が自動 sync する。
 - 手動 sync は不要。merge 後に Argo の sync 状態と revision `v1.10.2` を確認する。
+
+## L1 後の golyat-1 instance-manager 起動阻害と一時措置（CD-04）
+
+- L1 反映後、golyat-1 の v1.10.2 instance-manager が kubelet `OutOfcpu` で error（ノードの CPU requests 3970m/4000m、旧 v1.9.1 IM が 480m を保持）。
+- Owner 承認（CD-04）により、shanghai-3 の admin kubeconfig 経路で Longhorn Node `golyat-1` の `spec.instanceManagerCPURequest` だけを 0 → 20（m）へ一時変更（2026-11-19 05:30:10 UTC、JSON Patch の test 付き）。変更前値は 0（global `guaranteed-instance-manager-cpu` v1=12% = 480m を使う）。
+- 05:31 UTC に新 IM が running。全 15 volume attached/healthy を確認。
+- 復元条件: L1e で全 volume の engine が v1.10.2 になり、golyat-1 の旧 IM（instance-manager-1fdd35a2…）が消えた後、同じ経路で 0 へ戻し、live 値と IM/volume の状態を確認する。
+
+## L1e の方法
+
+- `argoproj/longhorn/settings.yaml` に `concurrent-automatic-engine-upgrade-per-node-limit: "1"` を追加し、Longhorn の自動 engine upgrade で 1 ノードあたり 1 volume ずつ v1.10.2 へ live upgrade する（Pod の再起動・移動は伴わない）。
+- 検証: 全 volume の `status.currentImage` が `longhornio/longhorn-engine:v1.10.2`、robustness=healthy、旧 engine image（v1.6.1/v1.9.1）の refCount 0、旧 IM の消滅。
