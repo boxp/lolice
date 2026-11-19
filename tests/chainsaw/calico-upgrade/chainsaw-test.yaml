@@ -5,8 +5,8 @@ metadata:
 spec:
   description: |
     BOXP-619: Calico の base (main) -> head (PR) 更新を、公式 upgrade notes の
-    「Hold Typha」手順 (calico-typha に unsupported.operator.tigera.io/ignore=true を付けて
-    calico-node を先に更新し、rollout 後に annotation を外す) どおりに隔離 kind 上で再現する。
+    「Hold Typha」手順 (3.32 未満から上げる時は calico-typha に unsupported.operator.tigera.io/ignore=true を付けて
+    calico-node を先に更新し、rollout 後に annotation を外す。3.32 以降からは保留しない) どおりに隔離 kind 上で再現する。
     fresh install ではなく、本番 values で入れた base 版からの更新そのものを検査する。
     専用の kind (calico-upgrade) を workflow の calico-upgrade job が作る。
   timeouts:
@@ -38,7 +38,7 @@ spec:
         timeout: 6m
         content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" deploy_probes'
   - name: hold-typha-and-upgrade-calico-node
-    description: Typha 保留中に head を適用し、Typha 不変・calico-node 同時 not-ready <= 1 で head 版に揃うこと。
+    description: base < 3.32 <= head なら Typha 保留中に head を適用し Typha 不変、保留不要 (base >= 3.32) なら保留せず適用。どちらも calico-node 同時 not-ready <= 1 で head 版に揃うこと。
     try:
     - script:
         timeout: 21m
@@ -47,7 +47,7 @@ spec:
     - script:
         content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" diagnostics'
   - name: release-typha-hold
-    description: annotation を外すと Typha が head 版になり全 tigerastatus が Available に戻ること。
+    description: 保留した場合は annotation を外すと Typha が head 版になり、どちらの経路でも全 tigerastatus が Available に戻ること。
     try:
     - script:
         timeout: 16m
