@@ -35,20 +35,6 @@ stringData:
           queryTimeout: "25"
         secureJsonData:
           password: $CLICKHOUSE_GRAFANA_PASSWORD
-      # BOXP-623: Alertmanager の状態 (silence / inhibit / 通知グループ) を Grafana Alerting の画面で読む。
-      # 判定と通知の正本は Prometheus + Alertmanager のまま。handleGrafanaManagedAlerts を false に
-      # 固定し、Grafana 管理ルールをこの Alertmanager へ送らない (二重通知・経路の混在を作らない)。
-      # UI で作られた url 空の同名データソースは、この provisioning で上書きされる。
-      - name: alertmanager
-        uid: alertmanager
-        type: alertmanager
-        access: proxy
-        url: http://alertmanager-main.monitoring.svc:9093
-        isDefault: false
-        editable: false
-        jsonData:
-          implementation: prometheus
-          handleGrafanaManagedAlerts: false
       - name: Loki
         type: loki
         access: proxy
