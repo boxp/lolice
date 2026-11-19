@@ -710,6 +710,9 @@ spec:
               value: /home/boxp/.codex-task-board/ai-ops/gemini-prepaid
             - name: AI_SUBSCRIPTION_METRICS_FILE
               value: /home/boxp/.codex-task-board/ai-ops/subscription-usage.prom
+            # BOXP-204: agent CLI auth expiry (non-secret timestamps/enums only)
+            - name: AI_AGENT_AUTH_METRICS_FILE
+              value: /home/boxp/.codex-task-board/ai-ops/agent-auth.prom
             # BOXP-570: ticket titles for the Grafana ticket usage dashboard (all ticket files + run dirs)
             - name: TICKET_RUNS_DIR
               value: /home/boxp/.codex-task-board/runs

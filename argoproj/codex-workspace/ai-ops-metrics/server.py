@@ -7,6 +7,10 @@ failing the scrape, so collector problems stay visible without touching the work
 BOXP-372: also serves the subscription usage exposition (rate-limit windows and extra-usage
 state, no IDs or bodies) with its own ai_subscription_metrics_file_present / _age_seconds.
 
+BOXP-204: also serves the agent CLI auth expiry exposition (non-secret expiry timestamps and
+enums written by agent_auth_expiry.bb, never a token) with ai_agent_auth_metrics_file_present /
+_age_seconds.
+
 BOXP-570: also serves ai_ops_ticket_title_info{ticket,title} so the authenticated Grafana
 dashboard can show each ticket ID with its current title. Every ticket file and every ticket
 with a run directory is listed (so no ticket in the Langfuse usage drops out of the selector),
@@ -25,6 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PATH = os.environ.get("AI_OPS_METRICS_FILE", "/data/ai-ops/metrics.prom")
 SUBSCRIPTION_PATH = os.environ.get("AI_SUBSCRIPTION_METRICS_FILE", "")
+AGENT_AUTH_PATH = os.environ.get("AI_AGENT_AUTH_METRICS_FILE", "")
 PREPAID_DIR = os.environ.get("AI_PREPAID_DIR", "")
 PORT = int(os.environ.get("PORT", "9464"))
 MAX_BYTES = 1024 * 1024
@@ -240,6 +245,9 @@ class Handler(BaseHTTPRequestHandler):
         if SUBSCRIPTION_PATH:
             sub_body, sub_present, sub_age = read_exposition(SUBSCRIPTION_PATH)
             out += sub_body + file_metrics("ai_subscription_metrics", "subscription usage", sub_present, sub_age)
+        if AGENT_AUTH_PATH:
+            auth_body, auth_present, auth_age = read_exposition(AGENT_AUTH_PATH)
+            out += auth_body + file_metrics("ai_agent_auth_metrics", "agent auth expiry", auth_present, auth_age)
         if PREPAID_DIR:
             out += prepaid_metrics(PREPAID_DIR)
         if TICKETS_DIR:

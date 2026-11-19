@@ -16,6 +16,20 @@ kubectl port-forward svc/grafana -n monitoring 3000:3000
 
 `ai-provider-quota-rules.yaml` は Claude の利用枠の不足を `AiProviderQuotaExhausted`（`scope=shared` または `scope=model`）で、観測の不足を `AiProviderQuotaObservationStale`（`reason=window_stale`、`window_expired`、`source_unavailable`）で示します。成果 SLO の burn rate とは別の入力です。severity は `info` で、Alertmanager からメールを送りません。エージェントは run の開始時に読みます。定義は `quota/v1-draft` で、観測の古さの閾値 24 時間は暫定です。
 
+## agent CLI の再ログイン期限前通知（BOXP-204）
+
+`agent-auth-expiry-rules.yaml`（定義 `agent-auth/v1`）は、agent CLI の手動再ログインが必要になる前に Owner へ知らせます。入力は codex-workspace の task-board runner が毎分書く `ai-ops/agent-auth.prom`（arch `docker/codex-workspace/task-board/agent_auth_expiry.bb`）で、期限の時刻・最終更新時刻・enum だけです。token や account 情報は含みません。
+
+| provider | 期限の根拠 | 通知 |
+| --- | --- | --- |
+| Claude Code | 認証ファイルの `refreshTokenExpiresAt`（refresh token の期限 = 過ぎると再ログインが必要）。access token の `expiresAt` は CLI が自動更新するので通知しない | `AgentAuthReloginDue`（残り 72h 以下）→ `AgentAuthReloginImminent`（24h 以下）→ `AgentAuthReloginExpired` |
+| Codex | refresh token の期限は非公開（unknown、推測しない）。`last_refresh` だけを読む | `AgentAuthRefreshStalled`（10 日自動更新がない = 未使用か更新失敗） |
+| Antigravity (agy) | 認証を読まない（BOXP-630 の契約）。期限は unknown | `AgentAuthRunLoginFailed`（最後の run がログイン失敗。次の成功 run で解除） |
+
+`AgentAuthObservationUnavailable` は期限を読めないとき（`missing`/`unreadable`/`unsupported`/`policy_disallowed`）と観測が 2h 以上止まったときです。不明を問題なしとは読みません。利用枠の不足は `AiProviderQuota*`、通信や CLI の一時失敗はこのルールの対象外です。
+
+配送は Alertmanager の `component="agent-auth"` route で Hermes（家の受信箱と Telegram）へ送り、同じ通知の再送は 1 日 1 回まで、解除（再ログイン後の回復）も送ります。severity は warning で、静音時間（02:00-09:00 JST）は送らず朝に届きます。72h の余裕は、週末や外出で 1 日以上ログインできない場合でも 24h 帯までにもう一度知らせるためです。閾値は暫定です。再ログイン後の確認は codex-workspace で `bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status`。
+
 ## 利用枠の reset 前枯渇の予測（BOXP-462）
 
 `ai-subscription-forecast-rules.yaml` は、各 provider の利用枠（`provider`/`name`/`limit`/`window` ごと。共有枠と専用枠は足さない）が reset 前に尽きるかを予測します。定義は `quota-forecast/v1-draft` で、閾値はすべて暫定です。
