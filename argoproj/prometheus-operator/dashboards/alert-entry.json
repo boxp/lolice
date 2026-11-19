@@ -1,0 +1,1535 @@
+{
+  "description" : "BOXP-623。判定の正本は PrometheusRule / Alertmanager。ここは入口と健全性確認のための読み取り専用画面。",
+  "templating" : {
+    "list" : [ {
+      "name" : "datasource",
+      "label" : "Prometheus",
+      "type" : "datasource",
+      "query" : "prometheus",
+      "current" : {
+        "text" : "prometheus",
+        "value" : "prometheus"
+      },
+      "hide" : 2
+    }, {
+      "name" : "loki",
+      "label" : "Loki",
+      "type" : "datasource",
+      "query" : "loki",
+      "current" : {
+        "text" : "Loki",
+        "value" : "Loki"
+      },
+      "hide" : 2
+    }, {
+      "definition" : "label_values(ALERTS, alertname)",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "refresh" : 2,
+      "name" : "alertname",
+      "type" : "query",
+      "allValue" : ".*",
+      "multi" : true,
+      "label" : "alertname",
+      "current" : {
+        "selected" : true,
+        "text" : [ "All" ],
+        "value" : [ "$__all" ]
+      },
+      "query" : {
+        "query" : "label_values(ALERTS, alertname)",
+        "refId" : "var-alertname",
+        "qryType" : 1
+      },
+      "sort" : 1,
+      "includeAll" : true
+    }, {
+      "definition" : "label_values(kube_namespace_status_phase, namespace)",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "refresh" : 2,
+      "name" : "namespace",
+      "type" : "query",
+      "allValue" : ".*",
+      "multi" : true,
+      "label" : "namespace",
+      "current" : {
+        "selected" : true,
+        "text" : [ "All" ],
+        "value" : [ "$__all" ]
+      },
+      "query" : {
+        "query" : "label_values(kube_namespace_status_phase, namespace)",
+        "refId" : "var-namespace",
+        "qryType" : 1
+      },
+      "sort" : 1,
+      "includeAll" : true
+    }, {
+      "name" : "severity",
+      "type" : "custom",
+      "allValue" : ".*",
+      "multi" : true,
+      "label" : "severity",
+      "current" : {
+        "selected" : true,
+        "text" : [ "All" ],
+        "value" : [ "$__all" ]
+      },
+      "options" : [ ],
+      "query" : "critical,warning,info",
+      "includeAll" : true
+    } ]
+  },
+  "tags" : [ "monitoring", "alerting", "entry" ],
+  "timezone" : "Asia/Tokyo",
+  "refresh" : "1m",
+  "editable" : false,
+  "graphTooltip" : 1,
+  "uid" : "alert-entry",
+  "time" : {
+    "from" : "now-24h",
+    "to" : "now"
+  },
+  "title" : "監視の入口：アラートと監視の健全性",
+  "annotations" : {
+    "list" : [ {
+      "iconColor" : "red",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "enable" : true,
+      "textFormat" : "{{severity}} {{namespace}}",
+      "name" : "Firing（critical / warning）",
+      "titleFormat" : "{{alertname}}",
+      "useValueForTime" : false,
+      "expr" : "ALERTS{alertstate=\"firing\", severity=~\"critical|warning\", alertname!~\"Watchdog|InfoInhibitor\"}",
+      "step" : "60s"
+    } ]
+  },
+  "panels" : [ {
+    "id" : 6,
+    "type" : "text",
+    "title" : "使い方と状態の読み分け",
+    "options" : {
+      "mode" : "markdown",
+      "content" : "**この画面は監視の入口です。** 判定と通知の正本は PrometheusRule と Alertmanager（メール / Hermes）のままで、Grafana はそれを読むだけです。Grafana が止まっても通知は届きます。\n\n**通知を受けたら**: 上の `alertname` / `namespace` を通知の値にして絞り込み、表の行のリンクで「発生 30 分前から」の関連ダッシュボード・ログへ進みます。URL で渡すときは `/d/alert-entry/?var-alertname=<alertname>&var-namespace=<namespace>`。\n\n**状態の読み分け**: 正常 = 一覧に出ない / Pending = 条件成立中で `for` 待ち（まだ通知しない）/ Firing = 通知対象 / 抑制中 = Alertmanager の silence か inhibit で通知を止めている（判定は Firing のまま）/ 欠測 = 値が来ない（Prometheus 停止・取得失敗）/ 評価失敗 = ルールの式が評価できない / 対象消失 = 以前あった監視対象が消えた。欠測や対象消失は「正常」ではありません。"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 0,
+      "w" : 24,
+      "h" : 6
+    }
+  }, {
+    "id" : 7,
+    "type" : "row",
+    "title" : "1. いま何が鳴っているか（全体。下の表と時間帯は上の変数で絞れる）",
+    "collapsed" : false,
+    "panels" : [ ],
+    "gridPos" : {
+      "x" : 0,
+      "y" : 6,
+      "w" : 24,
+      "h" : 1
+    }
+  }, {
+    "description" : "メールと Hermes に通知される",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 7,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "count(ALERTS{alertstate=\"firing\", severity=\"critical\", alertname!~\"Watchdog|InfoInhibitor\"}) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Firing: critical",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "red",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 8,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "メールに通知される",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 4,
+      "y" : 7,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "count(ALERTS{alertstate=\"firing\", severity=\"warning\", alertname!~\"Watchdog|InfoInhibitor\"}) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Firing: warning",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "orange",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 9,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "通知しない（画面で見るだけ）",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 8,
+      "y" : 7,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "count(ALERTS{alertstate=\"firing\", severity=\"info\", alertname!~\"Watchdog|InfoInhibitor\"}) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Firing: info",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "blue",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 10,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "条件成立中で for の待ち。まだ通知しない",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 7,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "count(ALERTS{alertstate=\"pending\", alertname!~\"Watchdog|InfoInhibitor\"}) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Pending",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "yellow",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 11,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "Alertmanager が通知を止めているアラート数。判定は Firing のまま",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 16,
+      "y" : 7,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(alertmanager_alerts{state=\"suppressed\"})",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "抑制中（silence / inhibit）",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "purple",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 12,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "手動で止めている通知。期限切れを忘れないこと",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 20,
+      "y" : 7,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(alertmanager_silences{state=\"active\"})",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "有効な silence",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "purple",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 13,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "Prometheus の判定結果（ALERTS）。抑制（silence / inhibit）されていても判定は Firing のまま表示されます。通知が止まっているかは上の「抑制中」と Alertmanager で確認します。",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 11,
+      "w" : 24,
+      "h" : 10
+    },
+    "transformations" : [ {
+      "id" : "merge",
+      "options" : { }
+    }, {
+      "id" : "organize",
+      "options" : {
+        "excludeByName" : {
+          "Time" : true,
+          "__name__" : true
+        },
+        "renameByName" : {
+          "Value #A" : "active_at",
+          "Value #B" : "investigate_from"
+        },
+        "indexByName" : {
+          "alertstate" : 0,
+          "severity" : 1,
+          "alertname" : 2,
+          "namespace" : 3,
+          "active_at" : 4
+        }
+      }
+    } ],
+    "type" : "table",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "1000 * (ALERTS_FOR_STATE{alertname!~\"Watchdog|InfoInhibitor\", alertname=~\"${alertname}\", namespace=~\"${namespace}\", severity=~\"${severity}\"} * ignoring(alertstate) group_left(alertstate) ALERTS{alertname!~\"Watchdog|InfoInhibitor\", alertname=~\"${alertname}\", namespace=~\"${namespace}\", severity=~\"${severity}\"})",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    }, {
+      "refId" : "B",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "1000 * ((ALERTS_FOR_STATE{alertname!~\"Watchdog|InfoInhibitor\", alertname=~\"${alertname}\", namespace=~\"${namespace}\", severity=~\"${severity}\"} * ignoring(alertstate) group_left(alertstate) ALERTS{alertname!~\"Watchdog|InfoInhibitor\", alertname=~\"${alertname}\", namespace=~\"${namespace}\", severity=~\"${severity}\"}) - 1800)",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    } ],
+    "title" : "Firing / Pending のアラート（抑制中も含む。行のリンクで掘り下げ）",
+    "fieldConfig" : {
+      "defaults" : {
+        "custom" : {
+          "filterable" : true,
+          "align" : "auto"
+        }
+      },
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "active_at"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "dateTimeAsIso"
+        }, {
+          "id" : "displayName",
+          "value" : "発生時刻"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "investigate_from"
+        },
+        "properties" : [ {
+          "id" : "custom.hidden",
+          "value" : true
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "alertstate"
+        },
+        "properties" : [ {
+          "id" : "displayName",
+          "value" : "状態"
+        }, {
+          "id" : "custom.cellOptions",
+          "value" : {
+            "type" : "color-background"
+          }
+        }, {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "firing" : {
+                "text" : "Firing",
+                "color" : "red"
+              },
+              "pending" : {
+                "text" : "Pending",
+                "color" : "yellow"
+              }
+            }
+          } ]
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "alertname"
+        },
+        "properties" : [ {
+          "id" : "links",
+          "value" : [ {
+            "title" : "この入口で絞る（発生 30 分前から）",
+            "url" : "/d/alert-entry/?var-alertname=${__data.fields.alertname}&var-namespace=${__data.fields.namespace}&from=${__data.fields.investigate_from}&to=now"
+          }, {
+            "title" : "namespace の負荷（発生 30 分前から）",
+            "url" : "/d/85a562078cdf77779eaa1add43ccec1e/?var-namespace=${__data.fields.namespace}&from=${__data.fields.investigate_from}&to=now"
+          }, {
+            "title" : "Alertmanager で抑制・silence を確認",
+            "url" : "https://alertmanager.b0xp.io/#/alerts?silenced=true&inhibited=true&filter=%7Balertname%3D%22${__data.fields.alertname}%22%7D",
+            "targetBlank" : true
+          }, {
+            "title" : "ルール定義（Prometheus）",
+            "url" : "https://prometheus-web.b0xp.io/alerts?search=${__data.fields.alertname}",
+            "targetBlank" : true
+          } ]
+        } ]
+      } ]
+    },
+    "id" : 1,
+    "options" : {
+      "showHeader" : true,
+      "sortBy" : [ {
+        "displayName" : "active_at",
+        "desc" : true
+      } ],
+      "cellHeight" : "sm"
+    }
+  }, {
+    "id" : 2,
+    "type" : "state-timeline",
+    "title" : "いつ鳴っていたか（Pending / Firing の時間帯。空白 = 正常）",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (alertname, severity) (2 * ALERTS{alertstate=\"firing\", alertname!~\"Watchdog|InfoInhibitor\", alertname=~\"${alertname}\", namespace=~\"${namespace}\", severity=~\"${severity}\"}) or max by (alertname, severity) (ALERTS{alertstate=\"pending\", alertname!~\"Watchdog|InfoInhibitor\", alertname=~\"${alertname}\", namespace=~\"${namespace}\", severity=~\"${severity}\"})",
+      "legendFormat" : "{{alertname}} ({{severity}})"
+    } ],
+    "options" : {
+      "showValue" : "never",
+      "mergeValues" : true,
+      "rowHeight" : 0.8,
+      "legend" : {
+        "showLegend" : false
+      }
+    },
+    "fieldConfig" : {
+      "defaults" : {
+        "color" : {
+          "mode" : "thresholds"
+        },
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "yellow",
+            "value" : null
+          }, {
+            "color" : "red",
+            "value" : 2
+          } ]
+        },
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "1" : {
+              "text" : "Pending",
+              "color" : "yellow"
+            },
+            "2" : {
+              "text" : "Firing",
+              "color" : "red"
+            }
+          }
+        } ]
+      },
+      "overrides" : [ ]
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 21,
+      "w" : 24,
+      "h" : 9
+    }
+  }, {
+    "id" : 3,
+    "type" : "logs",
+    "title" : "選んだ namespace のエラーらしきログ（Loki）",
+    "description" : "namespace を絞ってから見ます（All のままだと全 namespace の先頭 200 行だけ）。完全な検索は Explore で。",
+    "datasource" : {
+      "type" : "loki",
+      "uid" : "${loki}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "loki",
+        "uid" : "${loki}"
+      },
+      "maxLines" : 200,
+      "expr" : "{namespace=~\"${namespace}\", namespace!=\"\"} |~ \"(?i)(error|fail|fatal|panic|oomkill|timeout)\""
+    } ],
+    "options" : {
+      "showTime" : true,
+      "wrapLogMessage" : true,
+      "sortOrder" : "Descending",
+      "enableLogDetails" : true
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 30,
+      "w" : 24,
+      "h" : 9
+    }
+  }, {
+    "id" : 14,
+    "type" : "row",
+    "title" : "2. 監視そのものの健全性（欠測・評価失敗・対象消失・通知失敗）",
+    "collapsed" : false,
+    "panels" : [ ],
+    "gridPos" : {
+      "x" : 0,
+      "y" : 39,
+      "w" : 24,
+      "h" : 1
+    }
+  }, {
+    "description" : "常に Firing するはずの Watchdog。1 = Prometheus がルールを評価し続けている",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 40,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "count(ALERTS{alertname=\"Watchdog\", alertstate=\"firing\"}) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "判定経路（Watchdog）",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "red",
+            "value" : null
+          }, {
+            "color" : "green",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "0" : {
+              "text" : "停止"
+            },
+            "1" : {
+              "text" : "生存"
+            }
+          }
+        } ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 15,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "式が評価できなかった回数（Prometheus）。0 以外は判定が止まっている可能性",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 4,
+      "y" : 40,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(increase(prometheus_rule_evaluation_failures_total[15m])) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "ルール評価失敗（15 分）",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "red",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 16,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "評価が間に合わず飛ばした回数",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 8,
+      "y" : 40,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(increase(prometheus_rule_group_iterations_missed_total[15m])) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "評価の取りこぼし（15 分）",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "orange",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 17,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "scrape できない監視対象の数。その対象のアラートは欠測になる",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 40,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "count(up == 0) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "取得失敗の対象（up=0）",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "orange",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 18,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "1 時間前にはあった scrape job が無くなった数。監視の穴",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 16,
+      "y" : 40,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "count((count by (job) (up offset 1h)) unless (count by (job) (up))) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "消えた job（1h 前比）",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "orange",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 19,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "Prometheus が見つけている Alertmanager の数。0 なら判定しても通知されない",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 20,
+      "y" : 40,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "min(prometheus_notifications_alertmanagers_discovered)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Prometheus → Alertmanager",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "red",
+            "value" : null
+          }, {
+            "color" : "green",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 20,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "Alertmanager からメール / Hermes への送信失敗",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 44,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(increase(alertmanager_notifications_failed_total[24h])) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "通知の送信失敗（24h）",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "red",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 21,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "Prometheus が Alertmanager へ送れず捨てたアラート",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 4,
+      "y" : 44,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(increase(prometheus_notifications_dropped_total[24h])) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "通知の破棄（24h）",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "red",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 22,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "Prometheus と Alertmanager の最新設定が読めているか（1 = 成功）",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 8,
+      "y" : 44,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "min(prometheus_config_last_reload_successful) * min(alertmanager_config_last_reload_successful)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "設定の再読込",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "red",
+            "value" : null
+          }, {
+            "color" : "green",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "0" : {
+              "text" : "失敗"
+            },
+            "1" : {
+              "text" : "成功"
+            }
+          }
+        } ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 23,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "Grafana 側に残るルール（Discord 通知の palworld など）の評価失敗。正本ではない補助の判定",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 44,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(increase(grafana_alerting_rule_evaluation_failures_total[1h])) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Grafana 管理ルール評価失敗（1h）",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "orange",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 24,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "Grafana 側ルールの Alerting 状態の数（Discord に通知）",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 16,
+      "y" : 44,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(grafana_alerting_alerts{state=\"alerting\"}) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Grafana 管理ルール: 発火中",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "red",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 25,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "Grafana 側ルールの欠測・評価エラーの数",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 20,
+      "y" : 44,
+      "w" : 4,
+      "h" : 4
+    },
+    "type" : "stat",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum(grafana_alerting_alerts{state=~\"nodata|error\"}) or vector(0)",
+      "instant" : true,
+      "range" : false
+    } ],
+    "title" : "Grafana 管理ルール: NoData / Error",
+    "fieldConfig" : {
+      "defaults" : {
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "orange",
+            "value" : 1
+          } ]
+        },
+        "noValue" : "欠測（Prometheus に届かない）",
+        "mappings" : [ ]
+      },
+      "overrides" : [ ]
+    },
+    "id" : 26,
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ],
+        "fields" : "",
+        "values" : false
+      },
+      "colorMode" : "background",
+      "graphMode" : "none",
+      "textMode" : "value_and_name",
+      "justifyMode" : "center"
+    }
+  }, {
+    "description" : "消失 = 1 時間前にはあった job が今は無い（監視の穴になる）。取得失敗 = 対象は見えているが up=0。",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 48,
+      "w" : 12,
+      "h" : 8
+    },
+    "transformations" : [ {
+      "id" : "merge",
+      "options" : { }
+    }, {
+      "id" : "organize",
+      "options" : {
+        "excludeByName" : {
+          "Time" : true
+        },
+        "renameByName" : {
+          "Value #A" : "消失した対象数（1h 前）",
+          "Value #B" : "取得失敗の対象数"
+        }
+      }
+    } ],
+    "type" : "table",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "label_replace((count by (job) (up offset 1h)) unless (count by (job) (up)), \"problem\", \"消失（1h 前にはあった）\", \"\", \"\")",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    }, {
+      "refId" : "B",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "label_replace(count by (job) (up == 0), \"problem\", \"取得失敗（up=0）\", \"\", \"\")",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    } ],
+    "title" : "監視対象の消失・取得失敗",
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "なし"
+      },
+      "overrides" : [ ]
+    },
+    "id" : 4,
+    "options" : {
+      "showHeader" : true,
+      "cellHeight" : "sm"
+    }
+  }, {
+    "id" : 5,
+    "type" : "timeseries",
+    "title" : "通知の送信と失敗（Alertmanager、1 時間ごと）",
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum by (integration) (increase(alertmanager_notifications_total[1h])) > 0",
+      "legendFormat" : "送信 {{integration}}"
+    }, {
+      "refId" : "B",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "sum by (integration) (increase(alertmanager_notifications_failed_total[1h])) > 0",
+      "legendFormat" : "失敗 {{integration}}"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "custom" : {
+          "drawStyle" : "bars",
+          "fillOpacity" : 60
+        },
+        "unit" : "short"
+      },
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byRegexp",
+          "options" : "失敗.*"
+        },
+        "properties" : [ {
+          "id" : "color",
+          "value" : {
+            "mode" : "fixed",
+            "fixedColor" : "red"
+          }
+        } ]
+      } ]
+    },
+    "gridPos" : {
+      "x" : 12,
+      "y" : 48,
+      "w" : 12,
+      "h" : 8
+    }
+  }, {
+    "id" : 27,
+    "type" : "row",
+    "title" : "3. 個別の入口",
+    "collapsed" : false,
+    "panels" : [ ],
+    "gridPos" : {
+      "x" : 0,
+      "y" : 56,
+      "w" : 24,
+      "h" : 1
+    }
+  }, {
+    "id" : 28,
+    "type" : "text",
+    "title" : "関連ダッシュボードと画面",
+    "options" : {
+      "mode" : "markdown",
+      "content" : "| 見たいもの | 入口 |\n|---|---|\n| アラートの抑制・silence・通知グループ | [Grafana Alerting（Alertmanager: alertmanager）](/alerting/groups?alertmanager=alertmanager) / [Alertmanager UI](https://alertmanager.b0xp.io/) |\n| ルールの定義と式 | [Prometheus Alerts](https://prometheus-web.b0xp.io/alerts) |\n| 通知の送信実績 | [Alertmanager / Overview](/d/alertmanager-overview/) |\n| クラスタ全体の負荷 | [Kubernetes / Compute Resources / Cluster](/d/efa86fd1d0c121a26444b636a3f509a8/) / [Node Exporter / Nodes](/d/7d57716318ee0dddbac5a7f451fb7753/) |\n| AI Ops（Task Board / Hermes の成果・利用枠） | [AI Ops 運用品質](/d/ai-ops-quality/) / [票ごとの枠負担](/d/ai-ops-ticket-usage/) / [Gemini 前払い残高](/d/gemini-prepaid/) |\n| Local LLM / GPU | [Local LLM / GPU Overview](/d/local-llm-gpu-overview/) |\n| ログ全般 | [Explore（Loki）](/explore) |\n| 棚卸し結果と運用手順 | Obsidian `BOXP/Tickets/BOXP-623.md` |"
+    },
+    "gridPos" : {
+      "x" : 0,
+      "y" : 57,
+      "w" : 24,
+      "h" : 9
+    }
+  } ],
+  "links" : [ {
+    "type" : "dashboards",
+    "tags" : [ "ai-ops" ],
+    "asDropdown" : true,
+    "title" : "AI Ops",
+    "keepTime" : true,
+    "includeVars" : false
+  }, {
+    "type" : "dashboards",
+    "tags" : [ "local-llm" ],
+    "asDropdown" : true,
+    "title" : "Local LLM",
+    "keepTime" : true,
+    "includeVars" : false
+  }, {
+    "type" : "link",
+    "title" : "Alertmanager",
+    "url" : "https://alertmanager.b0xp.io/",
+    "targetBlank" : true
+  }, {
+    "type" : "link",
+    "title" : "Prometheus Alerts",
+    "url" : "https://prometheus-web.b0xp.io/alerts",
+    "targetBlank" : true
+  } ],
+  "schemaVersion" : 39
+}
