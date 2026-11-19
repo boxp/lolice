@@ -72,3 +72,23 @@
 
 - 消失判定を job の有無から、job ごとの対象数と過去 7 日（1 時間ごと）の最大との差に変更。同じ job の対象が一部だけ消えた場合（例: node-exporter 7 台中 1 台）も検出する。意図した縮小やロールアウトの重なりでも出ることがあるので、Prometheus Targets で意図どおりか確かめる。
 - 時間帯パネルに「評価失敗 <rule_group>」（紫）と「取得失敗 <job>」（橙）の帯を追加。Watchdog が緑でも、関係するルールグループ・job の帯が出ている時間の空白は正常と読まない。説明文と使い方の「正常」の定義もそれに合わせた。
+
+## #1303 の Grafana CrashLoop と再導入（#1304 で一度 revert）
+
+- 原因（Loki の grafana-d7fb75d7-tbd9m 06:19:38 UTC のログで確定）: `Failed to provision data sources: Datasource provisioning error: data source not found` で provisioning module が失敗し、依存する全 module が止まって exit 1。
+  - 本番 DB には UI で作られた `alertmanager`（uid `ee8z216blo1s0b`、url 空）が残っていた。provisioning は名前で既存行を見つけ、宣言した uid（`alertmanager`）で更新しようとして失敗する。
+  - Grafana 13.2.2 をローカルで起動して再現: uid 不一致 → 同じエラーで終了、uid を既存値に合わせる → 同じ id のまま url などが上書きされ readOnly になる。
+- 修正: provisioning の uid を既存の `ee8z216blo1s0b` に合わせる（行を作り直さないので既存参照も壊さない）。監視入口のリンク `/alerting/groups?alertmanager=` も同じ uid にした。
+- 回帰テスト `tests/chainsaw/prometheus-operator`（`argoproj/prometheus-operator` か当該テストの変更で通常 CI の chainsaw job が起動する）:
+  1. 静的照合: 本番 render の provisioning が `ui-datasources.json`（本番 DB の UI 作成データソース）と同名で別 uid を宣言していないか。
+  2. 本番と同じ Grafana イメージを PVC 付きで provisioning なしに起動し、UI 作成相当のデータソースを API で作る（fresh install ではなく既存 DB を持つ状態）。
+  3. 本番 render の grafana-datasources を mount して同じ PVC のまま再起動し、起動・同じ id/uid の引き継ぎ・url 上書き・全 provisioning の反映・`handleGrafanaManagedAlerts: false` を確認。
+  4. provisioning 済みの状態からもう一度再起動しても起動できることを確認。
+  - #1303 相当（uid `alertmanager`）では 1 が NG、1 を飛ばしても 3 が 22 秒で CrashLoop（restartCount 2）として失敗し、上記エラー行を表示することを kind で確認済み。
+  - 未検証範囲: 本番 PVC（Longhorn）とノード固有の mount 問題は kind で再現できない。
+
+## revert 後の mount 障害（#1303 とは別原因）
+
+- revert 後の Pod が golyat-3 で `MountDevice failed ... already mounted or mount point busy` を繰り返した。stale mount ではなく、golyat-3 の multipathd が Longhorn の iSCSI ディスク（sdc、IET VIRTUAL-DISK）を `mpathb` として取り込み、デバイスを握っていたため（別 volume の sdb と同じ WWID を持ち find_multipaths=on で多重パス扱い）。
+- 復旧: Owner 承認の管理者経路で、未使用（Open=0、mount/holder なし）の `mpathb` を通常 flush → kubelet の再試行で mount → Ready。強制操作・ノード再起動なし。
+- 再発防止: BOXP-267 の Longhorn multipath 除外 drop-in（arch `ansible/playbooks/longhorn-multipath.yml`）は golyat-4 にしか適用されていない。golyat-1〜3 への適用はノード設定変更なので別チケットで扱う。

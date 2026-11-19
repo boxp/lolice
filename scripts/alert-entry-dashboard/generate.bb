@@ -46,7 +46,7 @@
 (def links-md
   "| 見たいもの | 入口 |
 |---|---|
-| アラートの抑制・silence・通知グループ | [Grafana Alerting（Alertmanager: alertmanager）](/alerting/groups?alertmanager=alertmanager) / [Alertmanager UI](https://alertmanager.b0xp.io/) |
+| アラートの抑制・silence・通知グループ | [Grafana Alerting（Alertmanager: alertmanager）](/alerting/groups?alertmanager=ee8z216blo1s0b) / [Alertmanager UI](https://alertmanager.b0xp.io/) |
 | ルールの定義と式 | [Prometheus Alerts](https://prometheus-web.b0xp.io/alerts) |
 | 通知の送信実績 | [Alertmanager / Overview](/d/alertmanager-overview/) |
 | クラスタ全体の負荷 | [Kubernetes / Compute Resources / Cluster](/d/efa86fd1d0c121a26444b636a3f509a8/) / [Node Exporter / Nodes](/d/7d57716318ee0dddbac5a7f451fb7753/) |
