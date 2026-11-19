@@ -1,0 +1,60 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: grafana-datasource-provisioning-upgrade
+spec:
+  description: |
+    BOXP-623: #1303 で Grafana が CrashLoopBackOff になった原因の再発防止テスト。
+    本番 DB には UI で作られた同名の alertmanager データソース (uid ee8z216blo1s0b) が残っており、
+    provisioning が別の uid を宣言すると起動時に
+    'Datasource provisioning error: data source not found' で終了した。
+    fresh install では再現しないため、本番と同じ Grafana イメージを PVC 付きで provisioning なしに起動して
+    UI 作成相当のデータソース (ui-datasources.json) を API で作り、そのあと本番 render の
+    grafana-datasources を mount して同じ PVC のまま再起動する。起動・同じ行の引き継ぎ・url の上書き・
+    provisioning 済みからの再起動を確かめる。
+    未検証範囲: 本番 PVC (Longhorn) やノード固有の mount 問題 (golyat-3 の multipath 取り込み) は
+    kind では再現できないため扱わない。
+  steps:
+  - name: require-isolated-kind
+    try:
+    - script:
+        timeout: 15s
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh"'
+
+  - name: provisioning-keeps-existing-ui-uids
+    # kind を待たずに失敗理由を明示する静的照合。
+    try:
+    - script:
+        timeout: 180s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/grafana-datasource-upgrade.sh" static'
+
+  - name: grafana-with-ui-created-datasources
+    skipDelete: true
+    try:
+    - script:
+        timeout: 420s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/grafana-datasource-upgrade.sh" prepare'
+    catch: &grafana-diagnostics
+    - script:
+        timeout: 60s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/grafana-datasource-upgrade.sh" diagnose'
+
+  - name: restart-with-production-provisioning
+    try:
+    - script:
+        timeout: 300s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/grafana-datasource-upgrade.sh" upgrade'
+    catch: *grafana-diagnostics
+
+  - name: restart-again-from-provisioned-state
+    try:
+    - script:
+        timeout: 300s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/grafana-datasource-upgrade.sh" restart'
+    catch: *grafana-diagnostics
+    cleanup:
+    # kind は job ごとに破棄するので削除完了は待たない。
+    - command:
+        timeout: 30s
+        entrypoint: kubectl
+        args: [delete, namespace, chainsaw-grafana-ds, --ignore-not-found, --wait=false]

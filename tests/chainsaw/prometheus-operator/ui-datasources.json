@@ -1,0 +1,6 @@
+{
+  "_comment": "BOXP-623: 本番 Grafana の DB に UI (provisioning 外) で作られて残っているデータソース。2026-11-19 に GET /api/datasources で確認した name / uid / type / url。provisioning が同名で別 uid を宣言すると Grafana 起動時に 'Datasource provisioning error: data source not found' で終了する (#1303)。本番で UI 作成分を追加・削除したらここも更新する。",
+  "datasources": [
+    {"name": "alertmanager", "uid": "ee8z216blo1s0b", "type": "alertmanager", "access": "proxy", "url": "", "jsonData": {"implementation": "prometheus"}}
+  ]
+}

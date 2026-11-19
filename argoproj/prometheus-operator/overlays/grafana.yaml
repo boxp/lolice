@@ -42,6 +42,8 @@ spec:
               name: grafana-dashboard-ai-ops-ticket-usage
             - mountPath: /grafana-dashboard-definitions/0/gemini-prepaid
               name: grafana-dashboard-gemini-prepaid
+            - mountPath: /grafana-dashboard-definitions/0/alert-entry
+              name: grafana-dashboard-alert-entry
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
@@ -58,3 +60,6 @@ spec:
         - name: grafana-dashboard-gemini-prepaid
           configMap:
             name: grafana-dashboard-gemini-prepaid
+        - name: grafana-dashboard-alert-entry
+          configMap:
+            name: grafana-dashboard-alert-entry
