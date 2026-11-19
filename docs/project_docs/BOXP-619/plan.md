@@ -163,3 +163,14 @@
 - merge 前の空き CPU（requests 基準）: golyat-1 475m（個別 20m）、golyat-2 1822m、golyat-3 233m（個別 20m）、golyat-4 2060m。いずれも新 IM の要求を満たす。
 - chart 1.10.2 → 1.11.3 の差分（本番 values で helm template）: イメージ版（manager/engine/IM/UI/CSI sidecar）、ClusterRole に volumeattributesclasses 追加、manager に `LONGHORN_DISTRO` env、CRD のフィールド追加（instancemanager の非推奨 `status.instances` 削除）。StorageClass・defaultSettings は不変。
 - 復元条件: golyat-3 の旧 IM（v1.9.1 / v1.10.2）が消えた後、同じ経路で 0 へ戻し、live 値と IM/volume の状態を確認する（golyat-1 の CD-04 復元義務と同様）。
+
+## L2 結果と L3（Longhorn 1.12.2）
+
+- L2 結果（2026-11-19 09:22 UTC）: Argo sync Succeeded、`current-longhorn-version=v1.11.3`、manager/CSI/UI/driver-deployer Ready、v1.11.3 IM が全 4 ノードで running、自動 engine upgrade で全 15 volume が v1.11.3・attached/healthy、backup target available。旧 v1.9.1 IM（全ノード）と v1.10.2 IM（golyat-1/3）は engine プロセスを保持したまま残存（Pod 再起動待ち）。
+- 公式根拠: 1.12.2 へは 1.11.x からのみ更新可（1 minor ずつ）、K8s v1.25 以上（本番 v1.36.5）、v1.12.2 に deprecated / incompatible な変更なし、1.11.x → 1.12.2 の v1 engine live upgrade 可（iSCSI frontend は不可だが本番 15 volume は全て blockdev）。
+- chart 1.11.3 → 1.12.2 の差分（本番 values で helm template）:
+  - `networkPolicies.restrictInternalTraffic` が既定 true になり、Longhorn 内部向け NetworkPolicy 6 件（manager / instance-manager / webhook / backing-image-* / recovery-backend）が作られる。manager の policy は Longhorn コンポーネント以外からの :9500 を拒否するため、monitoring namespace の Prometheus（ServiceMonitor `longhorn-prometheus-servicemonitor`）の scrape が止まる（公式 important notes / #13741 等でも言及）。版更新では挙動を変えないよう `restrictInternalTraffic: false` を明示し、NetworkPolicy 0 件を維持する。有効化は scrape 元（`metricsScrapeSources`）の設計と合わせて別途判断する。
+  - その他: イメージ版（manager/engine/IM/share-manager/BIM/UI）、support-bundle-kit v1.0.5、CRD 追加 3 件（EngineFrontend / Shard / ShardGroup）と既存 CRD のフィールド追加、ClusterRole に新リソース追加。StorageClass・defaultSettings は不変。リポジトリ管理の Setting 10 件は 1.12.2 にも存在。
+- 事前確認: webhook CA は RSA（#14192 は ECDSA CA 起点の問題で非該当）、空き CPU（requests 基準）golyat-1 455m（個別 20m）、golyat-2 1822m、golyat-3 213m（個別 20m）、golyat-4 2060m で全ノード新 IM 起動可。
+- 反映後確認: Argo sync、`current-longhorn-version=v1.12.2`、v1.12.2 IM 全ノード running、全 15 volume v1.12.2・attached/healthy、backup target available、NetworkPolicy 0 件、Prometheus の longhorn target up。
+- 一時値の復元: golyat-1（CD-04）/ golyat-3（CD-08）の `instanceManagerCPURequest=20` は、各ノードの旧 IM（v1.9.1 / v1.10.2 / v1.11.3）が消えた後に 0 へ戻す。
