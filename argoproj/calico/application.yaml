@@ -12,15 +12,22 @@ spec:
     - repoURL: https://github.com/boxp/lolice
       targetRevision: main
       ref: lolice
-    - repoURL: https://projectcalico.docs.tigera.io/charts
-      targetRevision: 3.30.2
+    # BOXP-619 C1: 3.32 から tigera-operator chart に CRD が含まれないため、
+    # 同じ版の CRD chart を同じ app に加えて CRD 32 件を desired state に残す。
+    - repoURL: https://docs.tigera.io/calico/charts
+      targetRevision: v3.32.4
+      chart: crd.projectcalico.org.v1
+    - repoURL: https://docs.tigera.io/calico/charts
+      targetRevision: v3.32.4
       chart: tigera-operator
       helm:
         valueFiles:
           - $lolice/argoproj/calico/values.yaml
   syncPolicy:
     automated:
-      prune: true
+      # BOXP-619 C1: chart 構成の移行中は想定外の prune（CRD 削除）を起こさないよう一時的に false。
+      # 3.32 の CRD chart にない adminnetworkpolicies / baselineadminnetworkpolicies の扱いを決めた後に true へ戻す。
+      prune: false
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
