@@ -155,3 +155,11 @@
   - native v3 CRD への移行は既存クラスタでは自動で切り替わらない（opt-in、本チケットでは行わない）。
 - Chainsaw: `tests/chainsaw/calico-upgrade` を、base < 3.32 <= head の時だけ Typha を保留し、それ以外は保留せず operator 既定順序（Typha 先行）で更新する形に拡張。保留なしでも calico-node 同時 not-ready ≦ 1、更新中の連続疎通失敗率 ≦ 5%、更新後の DNS・NetworkPolicy deny/allow・CSI を検査する。C1 相当（3.30→3.32）は従来どおり保留経路。
 - 本番手順: Typha 保留は行わない（CD-06 の承認は C1 限定）。gate 通過後 merge → Argo 自動 sync → calico-node 7/7・Typha 3/3 が v3.33.1、tigerastatus 全 Available、ノード跨ぎ疎通・DNS・NetworkPolicy deny/allow、Longhorn volume healthy を確認。
+
+## L2 前の golyat-3 instance-manager CPU 予約の一時措置（CD-08）
+
+- L2（v1.11.3）では各ノードに新 instance-manager（CPU requests = global `guaranteed-instance-manager-cpu` v1 12% = 480m、node 個別値があればそれ）が必要。golyat-3 は空き CPU 約 233m で、旧 v1.9.1 / v1.10.2 IM が engine を保持したまま残るため 480m では起動できない。
+- Owner 承認（CD-08）により、shanghai-3 の admin kubeconfig 経路で Longhorn Node `golyat-3` の `spec.instanceManagerCPURequest` だけを 0 → 20（m）へ一時変更（2026-11-19 09:04:34 UTC、JSON Patch の test 付き）。既存 IM は再作成されず、15 volume healthy のまま。
+- merge 前の空き CPU（requests 基準）: golyat-1 475m（個別 20m）、golyat-2 1822m、golyat-3 233m（個別 20m）、golyat-4 2060m。いずれも新 IM の要求を満たす。
+- chart 1.10.2 → 1.11.3 の差分（本番 values で helm template）: イメージ版（manager/engine/IM/UI/CSI sidecar）、ClusterRole に volumeattributesclasses 追加、manager に `LONGHORN_DISTRO` env、CRD のフィールド追加（instancemanager の非推奨 `status.instances` 削除）。StorageClass・defaultSettings は不変。
+- 復元条件: golyat-3 の旧 IM（v1.9.1 / v1.10.2）が消えた後、同じ経路で 0 へ戻し、live 値と IM/volume の状態を確認する（golyat-1 の CD-04 復元義務と同様）。
