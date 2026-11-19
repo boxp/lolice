@@ -38,7 +38,7 @@ spec:
         runAsGroup: 101
       containers:
         - name: create-view
-          image: docker.io/clickhouse/clickhouse-server:26.10.5.57
+          image: docker.io/clickhouse/clickhouse-server:26.10.6.18
           command:
             - /bin/sh
             - -ec
