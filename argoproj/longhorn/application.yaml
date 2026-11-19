@@ -8,7 +8,7 @@ spec:
   sources:
     - chart: longhorn
       repoURL: https://charts.longhorn.io/
-      targetRevision: v1.11.3 # BOXP-619: 1 minor ずつ更新する（1.9.1 → 1.10.2 → 1.11.3 → 1.12.2）
+      targetRevision: v1.12.2 # BOXP-619: 1 minor ずつ更新する（1.9.1 → 1.10.2 → 1.11.3 → 1.12.2）
       # 反映経路: 下の spec.syncPolicy.automated（prune/selfHeal は false）により、main へのマージで Argo CD が自動 sync する。
       helm:
         values: |
@@ -36,6 +36,12 @@ spec:
                 operator: Equal
                 value: "true"
                 effect: NoSchedule
+          # BOXP-619: chart 1.12 から networkPolicies.restrictInternalTraffic が既定 true になり、
+          # Longhorn 内部向け NetworkPolicy 6 件が作られる。そのままだと monitoring namespace の
+          # Prometheus から longhorn-manager :9500 (ServiceMonitor) への scrape が拒否されるため、
+          # 版更新では従来どおり NetworkPolicy なしを維持する（有効化は scrape 元の許可設計と別途行う）。
+          networkPolicies:
+            restrictInternalTraffic: false
           metrics:
             serviceMonitor:
               enabled: true
