@@ -1,0 +1,66 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: calico-upgrade-typha-hold
+spec:
+  description: |
+    BOXP-619: Calico の base (main) -> head (PR) 更新を、公式 upgrade notes の
+    「Hold Typha」手順 (calico-typha に unsupported.operator.tigera.io/ignore=true を付けて
+    calico-node を先に更新し、rollout 後に annotation を外す) どおりに隔離 kind 上で再現する。
+    fresh install ではなく、本番 values で入れた base 版からの更新そのものを検査する。
+    専用の kind (calico-upgrade) を workflow の calico-upgrade job が作る。
+  timeouts:
+    exec: 25m
+  steps:
+  - name: require-isolated-kind
+    try:
+    - script:
+        timeout: 15s
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh" --loopback'
+  - name: prune-safety
+    description: head で desired state から外れる CRD があるなら automated.prune=false (CD-02)。
+    try:
+    - script:
+        timeout: 3m
+        content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" prune_safety'
+  - name: install-base
+    description: base の application.yaml / values.yaml を Argo と同じ描画・SSA で入れ、steady を待つ。
+    try:
+    - script:
+        timeout: 16m
+        content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" install_base'
+    catch:
+    - script:
+        content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" diagnostics'
+  - name: deploy-probes
+    try:
+    - script:
+        timeout: 6m
+        content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" deploy_probes'
+  - name: hold-typha-and-upgrade-calico-node
+    description: Typha 保留中に head を適用し、Typha 不変・calico-node 同時 not-ready <= 1 で head 版に揃うこと。
+    try:
+    - script:
+        timeout: 21m
+        content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" hold_and_upgrade'
+    catch:
+    - script:
+        content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" diagnostics'
+  - name: release-typha-hold
+    description: annotation を外すと Typha が head 版になり全 tigerastatus が Available に戻ること。
+    try:
+    - script:
+        timeout: 16m
+        content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" release_hold'
+    catch:
+    - script:
+        content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" diagnostics'
+  - name: post-upgrade-checks
+    description: 更新中の連続疎通の失敗率、更新後の疎通・DNS・NetworkPolicy enforce・CSI driver。
+    try:
+    - script:
+        timeout: 5m
+        content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" post_checks'
+    catch:
+    - script:
+        content: '"${REPO_ROOT}/tests/chainsaw/calico-upgrade/upgrade.sh" diagnostics'

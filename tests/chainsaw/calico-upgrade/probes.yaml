@@ -1,0 +1,90 @@
+# BOXP-619: 更新中の Pod 間疎通 (ノード跨ぎ) と DNS を連続観測するための probe。
+# image は Docker Hub の匿名 pull 制限を避けて quay.io の busybox (digest 固定) を使う。
+# probe-server は全ノードに 1 つずつ置き、probe-client は全ノードから 1 秒ごとに
+# headless Service で引いた全 server Pod IP へ HTTP を送り、結果を 1 行ずつ log に出す。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: calico-upgrade-probe
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: probe-server
+  namespace: calico-upgrade-probe
+spec:
+  selector:
+    matchLabels:
+      app: probe-server
+  template:
+    metadata:
+      labels:
+        app: probe-server
+    spec:
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: httpd
+          image: quay.io/prometheus/busybox@sha256:7379672d53c28113469275f2eb48adffa19954f39f8ef20c1e2992278f658e6c
+          command:
+            - sh
+            - -c
+            - mkdir -p /www && hostname > /www/hostname && exec httpd -f -p 8080 -h /www
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /hostname
+              port: 8080
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: probe-server
+  namespace: calico-upgrade-probe
+spec:
+  clusterIP: None
+  selector:
+    app: probe-server
+  ports:
+    - port: 8080
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: probe-client
+  namespace: calico-upgrade-probe
+spec:
+  selector:
+    matchLabels:
+      app: probe-client
+  template:
+    metadata:
+      labels:
+        app: probe-client
+    spec:
+      tolerations:
+        - operator: Exists
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: busybox
+          image: quay.io/prometheus/busybox@sha256:7379672d53c28113469275f2eb48adffa19954f39f8ef20c1e2992278f658e6c
+          command:
+            - sh
+            - -c
+            - |
+              while true; do
+                ts=$(date +%s)
+                ips=$(nslookup -type=a probe-server.calico-upgrade-probe.svc.cluster.local 2>/dev/null \
+                  | awk '/^Address/ && $NF !~ /:53$/ {print $NF}')
+                if [ -z "$ips" ]; then echo "$ts DNSFAIL"; fi
+                for ip in $ips; do
+                  if wget -q -T 2 -O /dev/null "http://$ip:8080/hostname"; then
+                    echo "$ts OK $ip"
+                  else
+                    echo "$ts FAIL $ip"
+                  fi
+                done
+                sleep 1
+              done

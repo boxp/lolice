@@ -14,6 +14,7 @@ jobs:
       components: ${{ steps.detect.outputs.components }}
       has_tests: ${{ steps.detect.outputs.has_tests }}
       renovate_config_changed: ${{ steps.detect.outputs.renovate_config_changed }}
+      calico_upgrade: ${{ steps.detect.outputs.calico_upgrade }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -49,6 +50,9 @@ jobs:
           for filepath in changed:
             parts = filepath.split('/')
             if len(parts) >= 2:
+              # calico-upgrade は共有 kind ではなく専用 kind の calico-upgrade job で走らせる。
+              if parts[:3] == ['tests', 'chainsaw', 'calico-upgrade']:
+                  continue
               if parts[0] == 'argoproj' and os.path.isdir(f'tests/chainsaw/{parts[1]}'):
                   # codex-workspace は image updater の .argocd-source-*.yaml と文書だけの
                   # 変更では kind を起動しない (static-policy の参照検査は常に走る)。
@@ -77,6 +81,13 @@ jobs:
             echo "has_tests=false" >> $GITHUB_OUTPUT
           else
             echo "has_tests=true" >> $GITHUB_OUTPUT
+          fi
+
+          # Calico の更新 (Typha 保留) suite は base 版の Calico を入れた専用 kind が必要なので別 job。
+          if grep -qE '^(argoproj/calico/|tests/chainsaw/calico-upgrade/|tests/workflows/require-isolated-kind\.sh$|\.github/workflows/chainsaw\.yaml$)' /tmp/changed_files.txt; then
+            echo "calico_upgrade=true" >> $GITHUB_OUTPUT
+          else
+            echo "calico_upgrade=false" >> $GITHUB_OUTPUT
           fi
 
           if grep -qx 'renovate.json' /tmp/changed_files.txt; then
@@ -649,6 +660,70 @@ jobs:
         env:
           RESULT_FILE: ${{ steps.chainsaw-run.outputs.result_file }}
 
+  # BOXP-619: Calico の base (main) -> head (PR) 更新を、Typha 保留の公式手順どおりに専用 kind で再現する。
+  # 共有 kind は Calico を fresh install するため、更新特有の安全性 (Typha 保留中の calico-node 段階更新、
+  # 保留解除後の Typha 更新、更新中の疎通) はここでしか検査できない。
+  calico-upgrade:
+    needs: detect
+    if: needs.detect.outputs.calico_upgrade == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      REPO_ROOT: ${{ github.workspace }}
+      CHAINSAW_KIND_CONTEXT: kind-calico-upgrade
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Export base (merge parent) Calico manifests
+        run: |
+          set -euo pipefail
+          git rev-parse -q --verify HEAD^2 >/dev/null || { echo "HEAD is not a merge commit" >&2; exit 1; }
+          CALICO_BASE_DIR="$RUNNER_TEMP/calico-base"
+          mkdir -p "$CALICO_BASE_DIR"
+          git archive HEAD^1 argoproj/calico | tar -x -C "$CALICO_BASE_DIR"
+          echo "CALICO_BASE_DIR=$CALICO_BASE_DIR" >> "$GITHUB_ENV"
+          echo "CALICO_UPGRADE_STATE_DIR=$RUNNER_TEMP/calico-upgrade-state" >> "$GITHUB_ENV"
+          git diff --stat HEAD^1 HEAD -- argoproj/calico
+
+      - name: Install kind
+        uses: helm/kind-action@v1
+        with:
+          version: v0.33.0
+          kubectl_version: v1.36.4
+          install_only: true
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: latest
+
+      - name: Install chainsaw
+        uses: kyverno/action-install-chainsaw@v0.2.15
+        with:
+          verify: false
+
+      - name: Create isolated kind cluster
+        run: |
+          set -euo pipefail
+          # 本番と同じ Kubernetes 1.36 系で、CNI なし (base 版の Calico を suite が入れる)。
+          kind create cluster --name "${CHAINSAW_KIND_CONTEXT#kind-}" --image kindest/node:v1.36.4 \
+            --config tests/chainsaw/calico-upgrade/kind-config.yaml --wait 0s
+          CHAINSAW_KIND_KUBECONFIG="$RUNNER_TEMP/calico-upgrade-kubeconfig"
+          kind export kubeconfig --name "${CHAINSAW_KIND_CONTEXT#kind-}" --kubeconfig "$CHAINSAW_KIND_KUBECONFIG"
+          test "$(kubectl --kubeconfig "$CHAINSAW_KIND_KUBECONFIG" config current-context)" = "$CHAINSAW_KIND_CONTEXT"
+          echo "CHAINSAW_KIND_KUBECONFIG=$CHAINSAW_KIND_KUBECONFIG" >> "$GITHUB_ENV"
+
+      - name: Run calico-upgrade chainsaw suite
+        run: |
+          set -euo pipefail
+          KUBECONFIG="$CHAINSAW_KIND_KUBECONFIG" chainsaw test --test-dir ./tests/chainsaw/calico-upgrade
+
   # ADR の構造検査と Rego lint (BOXP-394)。ファイル改名でも ADR のリンクが壊れるので全 PR で動かす。
   adr:
     uses: ./.github/workflows/adr.yaml
@@ -665,6 +740,7 @@ jobs:
       - static-policy
       - renovate-config-validator
       - chainsaw
+      - calico-upgrade
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

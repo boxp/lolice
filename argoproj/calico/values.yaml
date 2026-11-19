@@ -8,6 +8,8 @@ imagePullSecrets: {}
 installation:
   enabled: true
   kubernetesProvider: ""
+  # BOXP-619 C1: 3.32 の chart 既定値は "None"（Calico CSI driver を無効化）。現行どおり有効のまま維持する。
+  kubeletVolumePluginPath: /var/lib/kubelet
   # imagePullSecrets are configured on all images deployed by the tigera-operator.
   # secrets specified here must exist in the tigera-operator namespace; they won't be created by the operator or helm.
   # imagePullSecrets are a slice of LocalObjectReferences, which is the same format they appear as on deployments.
@@ -80,7 +82,9 @@ dnsConfig: {}
 # Image and registry configuration for the tigera/operator pod.
 tigeraOperator:
   image: tigera/operator
-  version: v1.38.4
+  # BOXP-619 C1: operator 版が Calico 版を決める。tigera-operator chart v3.32.4 が組む v1.42.8 に合わせる
+  # (v1.38.4 のままだと chart だけ上がり calico-node / typha は 3.30.x のまま)。
+  version: v1.42.8
   registry: quay.io
 calicoctl:
   image: docker.io/calico/ctl

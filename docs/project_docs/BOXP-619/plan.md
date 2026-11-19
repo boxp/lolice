@@ -81,3 +81,48 @@
 
 - `argoproj/longhorn/settings.yaml` に `concurrent-automatic-engine-upgrade-per-node-limit: "1"` を追加し、Longhorn の自動 engine upgrade で 1 ノードあたり 1 volume ずつ v1.10.2 へ live upgrade する（Pod の再起動・移動は伴わない）。
 - 検証: 全 volume の `status.currentImage` が `longhornio/longhorn-engine:v1.10.2`、robustness=healthy、旧 engine image（v1.6.1/v1.9.1）の refCount 0、旧 IM の消滅。
+
+## L1e の結果（2026-11-19 05:40 UTC）
+
+- 全 15 volume の `status.currentImage` が v1.10.2、attached/healthy。engine image v1.6.1/v1.9.1 の refCount 0。backup target available。
+- 旧 v1.9.1 instance-manager 4 台は engine プロセスを保持したまま running（replica はすべて新 IM へ移行済み）。v1 data engine の live upgrade では engine プロセスは volume の detach/reattach まで旧 IM に残るため、旧 IM の消滅は各 Pod の再起動待ち。golyat-1 の `instanceManagerCPURequest` の 0 への復元（CD-04）は golyat-1 の旧 IM 消滅後に行う。
+
+## C1: Calico 3.30.2 → 3.32.4 の変更内容
+
+- `argoproj/calico/application.yaml`
+  - chart repo を公式 URL `https://docs.tigera.io/calico/charts` へ移し、tigera-operator を `v3.32.4` に更新。
+  - 同じ版の `crd.projectcalico.org.v1` chart（CRD 32 件。3.30.2 の 32 件から ANP/BANP 2 件が外れ、clusternetworkpolicies/istios が加わる）を source に追加（CD-02）。
+  - `automated.prune` を一時的に false（CD-02）。ANP/BANP の CRD は Argo 上 OutOfSync のまま残る。扱いを決めてから prune を戻す（別 PR）。
+- `argoproj/calico/values.yaml`: 3.32 の chart 既定値 `installation.kubeletVolumePluginPath: "None"` は Calico CSI driver を無効にするため、現行と同じ `/var/lib/kubelet` を明示。
+- `helm template` で 3.30.2 と 3.32.4 の Installation を比べた差分は、明示値 `/var/lib/kubelet` の維持と、operator 既定値と同じ `controlPlaneReplicas: 2` / `nonPrivileged: Disabled` / 空の nodeSelector・tolerations の明示だけ。
+
+## C1 のマージ前提（Typha の保留）
+
+- 公式 upgrade notes（Hold Typha when upgrading from 3.31）: 3.32 から Typha は 3.32 以降の calico-node だけを受け付ける。既定では operator が Typha を先に更新するため、全 calico-node が同時に接続を失って not ready になり、まとめて入れ替わる。BGP 利用時は各ノードの route が再起動中に withdraw される。
+- 本クラスタは Installation に `bgp` の指定がない（既定 Enabled）ため、保留なしで進めると全ノード同時の Pod 間通信断になりうる。
+- 公式手順は、更新前に `kubectl annotate deployment calico-typha -n calico-system unsupported.operator.tigera.io/ignore=true` で Typha を保留し、calico-node の rollout 完了後に annotation を外す。codex-workspace の権限ではこの操作ができず、CD-04 の承認範囲（Longhorn Node golyat-1 の CPU 予約のみ）にも含まれないため、Owner の判断を得るまで C1 はマージしない。
+
+## C1 の Chainsaw テスト（TD-01 / CD-06）
+
+- Owner 判断 A（2026-11-19 06:02 UTC）: 既存 shanghai-3 管理者経路で Typha 保留 annotation を一時付与し、C1 merge → calico-node 7/7 rollout・疎通確認 → annotation 除去 → Typha 更新・正常復帰まで。ただし対応する Chainsaw テストを先に用意し、成功を確認してから本番対応する。
+- 既存の Chainsaw suite には Calico 更新を扱うものがなかった（共有 kind は CI 冒頭で Calico を fresh install するだけ）。
+- 追加: `tests/chainsaw/calico-upgrade/`（`upgrade.sh` / `probes.yaml` / `kind-config.yaml` / `chainsaw-test.yaml`）と `.github/workflows/chainsaw.yaml` の `calico-upgrade` job（`argoproj/calico/` 等の変更時のみ、専用 kind で実行、`status-check` に集約）。
+  - prune-safety: base（main）→ head（PR）で Argo desired state から外れる CRD があるなら `automated.prune=false`、Calico が使う CRD は head に残ること、operator 版が chart の組む版と一致すること。
+  - install-base: base の application.yaml / values.yaml を Argo と同じ `helm template --include-crds` + SSA で入れる（kind 差分はノードアドレス検出方式のみ）。
+  - hold-typha-and-upgrade-calico-node: Typha に `unsupported.operator.tigera.io/ignore=true` を付けて head を適用。calico-node が head 版に揃うまで Typha の image・generation・Pod UID が不変で、calico-node の同時 not-ready が 1 台以下。
+  - release-typha-hold: annotation を外すと Typha が head 版になり、全 tigerastatus が Available（Degraded なし）。
+  - post-upgrade-checks: 更新中に全ノードから 1 秒ごとに送ったノード跨ぎ HTTP / DNS の失敗率（5% 以下）、更新後の疎通・DNS・NetworkPolicy の deny / allow、Calico CSI driver。
+- テスト作成で見つけた PR#1300 の欠陥: `values.yaml` の `tigeraOperator.version: v1.38.4` 固定のままでは chart だけ 3.32.4 になり、Calico 本体（calico-node / typha）は 3.30.x のまま。chart v3.32.4 が組む `v1.42.8` に修正し、prune-safety で検査する。
+
+## C1 の本番手順（テスト成功後）
+
+1. 事前: calico-node 7/7・typha・tigerastatus・Argo calico Synced/Healthy、Longhorn 全 volume healthy を記録。
+2. shanghai-3 管理者経路で `kubectl annotate deployment calico-typha -n calico-system unsupported.operator.tigera.io/ignore=true`。
+3. PR#1300 を gate 通過済み head で merge → Argo 自動 sync。
+4. calico-node 7/7 が v3.32.4 で Ready、Typha が v3.30.2 のまま、DNS / NetworkPolicy / Longhorn volume を確認。
+5. annotation を除去 → Typha v3.32.4 rollout、tigerastatus Available、calico-node 7/7 維持を確認。
+
+### ローカル実行結果（隔離 kind、Kubernetes v1.36.4、3 ノード、IPIP Always + BGP Enabled）
+
+- 保留あり（本 suite）: 合格。calico-node 3/3 が v3.32.4 に揃うまで Typha は v3.30.2・Pod 不変、calico-node の同時 not-ready 最大 1、保留解除後 Typha v3.32.4・同時 not-ready 0、更新中の連続疎通 1617 件中失敗 0、更新後の疎通・DNS・NetworkPolicy deny/allow・CSI driver OK。
+- 対照（保留なしで同じ head を適用）: operator が Typha を先に v3.32.4 にし（calico-node 更新 0 台の時点）、calico-node の同時 not-ready が 2/3 台に達した。本 suite の判定（Typha 不変・同時 not-ready ≦ 1）はこれを失敗として検出する。kind では dataplane が残り疎通失敗は 0 件だったため、疎通率だけでは保留の有無を判別できない。
