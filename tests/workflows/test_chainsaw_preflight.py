@@ -119,5 +119,26 @@ class InputValidationTest(unittest.TestCase):
         self.assertIn('must differ', result.stderr)
 
 
+class KindClusterNameTest(unittest.TestCase):
+    """kind sets the node hostname to <cluster>-control-plane; sethostname
+    rejects names longer than 64 characters (BOXP-191 preflight run 44476261200)."""
+
+    def test_every_matrix_cluster_hostname_fits(self):
+        import re
+        text = WORKFLOW.read_text()
+        templates = set(re.findall(r'cluster_name: (.+)$', text, re.M))
+        templates |= set(re.findall(r'KIND_CLUSTER_NAME: (.+)$', text, re.M))
+        contexts = set(re.findall(r'CHAINSAW_KIND_CONTEXT: kind-(.+)$', text, re.M))
+        self.assertEqual(len(templates), 1, templates)
+        self.assertEqual(templates, contexts)
+        template = templates.pop()
+        components = re.search(r'component: \[([^\]]+)\]', text).group(1).split(',')
+        for version in ['current', 'candidate']:
+            for component in (c.strip() for c in components):
+                name = template.replace('${{ matrix.version }}', version).replace('${{ matrix.component }}', component)
+                self.assertNotIn('${{', name)
+                self.assertLessEqual(len(name + '-control-plane'), 64, name)
+
+
 if __name__ == '__main__':
     unittest.main()
