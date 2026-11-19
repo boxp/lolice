@@ -126,3 +126,10 @@
 
 - 保留あり（本 suite）: 合格。calico-node 3/3 が v3.32.4 に揃うまで Typha は v3.30.2・Pod 不変、calico-node の同時 not-ready 最大 1、保留解除後 Typha v3.32.4・同時 not-ready 0、更新中の連続疎通 1617 件中失敗 0、更新後の疎通・DNS・NetworkPolicy deny/allow・CSI driver OK。
 - 対照（保留なしで同じ head を適用）: operator が Typha を先に v3.32.4 にし（calico-node 更新 0 台の時点）、calico-node の同時 not-ready が 2/3 台に達した。本 suite の判定（Typha 不変・同時 not-ready ≦ 1）はこれを失敗として検出する。kind では dataplane が残り疎通失敗は 0 件だったため、疎通率だけでは保留の有無を判別できない。
+
+## C1 反映時の事象と修正（2026-11-19 07:08〜）
+
+- PR#1300 merge 後、app-of-apps が calico Application の spec を更新する前に calico app が自動 sync し、旧 spec（chart 3.30.2）と新 values（operator v1.42.8）の組み合わせで適用された。tigera-operator v1.42.8 は 3.30.2 の ClusterRole（istios / tier.networkpolicies の権限なし）で cache sync timeout になり再起動を繰り返した。dataplane（calico-node / typha v3.30.2）は影響なし。
+- spec 更新後は Argo CD v3.6.2（renovate PR#1306 で同時刻に更新）の server-side diff が CRD chart の whiskers.operator.tigera.io を dry-run する段階で `spec.versions: null` となり ComparisonError、自動 sync が止まった。管理者 kubectl の素の SSA dry-run では同 CRD は正常。
+- 修正: calico app に `compare-options: ServerSideDiff=false`（BOXP-501 / BOXP-533 と同じ対処）を付け、CRD の ignoreDifferences から `managedFieldsManagers: [argocd-controller]`（Argo 自身の適用フィールドを全て無視対象にし、RespectIgnoreDifferences で desired から spec.versions が落ちる原因と推定）を外す。preserveUnknownFields の無視は維持。
+- Chainsaw suite は kubectl SSA で適用するため、Argo の app-of-apps 反映順序や diff 方式の差はテスト範囲外。
