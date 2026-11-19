@@ -221,6 +221,10 @@ jobs:
 
       - name: Prepare selected component in isolated kind
         id: prepare
+        env:
+          # Authenticated tag lookup; unauthenticated api.github.com calls from
+          # shared runners hit 403 rate limits (run 44477172589 attempt 2).
+          GH_API_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           export KUBECONFIG="${CHAINSAW_KIND_KUBECONFIG:?An isolated kubeconfig is required}"
@@ -272,7 +276,11 @@ jobs:
           esac
           ARGOCD_TAG=v3.6.1
           ARGOCD_COMMIT_SHA=94037c4d4e1af4bd0651d37a179fbd9e347e668c
-          curl --fail-with-body --location --silent --show-error \
+          github_api_auth=()
+          if [ -n "${GH_API_TOKEN:-}" ]; then
+            github_api_auth=(-H "Authorization: Bearer ${GH_API_TOKEN}")
+          fi
+          curl --fail-with-body --location --silent --show-error "${github_api_auth[@]}" \
             "https://api.github.com/repos/argoproj/argo-cd/git/ref/tags/${ARGOCD_TAG}" \
             -o "$evidence_dir/argocd-tag-ref.json"
           actual_argocd_commit="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' < "$evidence_dir/argocd-tag-ref.json")"
