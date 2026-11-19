@@ -156,6 +156,10 @@ jobs:
       - name: Task Board webhook filter unit tests
         run: bb tests/hermes-agent/task-board-webhook-filter-test.bb
 
+      # BOXP-623: 監視入口ダッシュボードの生成再現性と、Grafana Alerting リンク等の不変条件。
+      - name: Alert entry dashboard tests
+        run: bash scripts/alert-entry-dashboard/test.sh
+
       - name: Workflow unit tests (tests/workflows)
         run: python3 -B -m unittest discover -s tests/workflows -v
 

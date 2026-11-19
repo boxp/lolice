@@ -78,7 +78,7 @@
 - 原因（Loki の grafana-d7fb75d7-tbd9m 06:19:38 UTC のログで確定）: `Failed to provision data sources: Datasource provisioning error: data source not found` で provisioning module が失敗し、依存する全 module が止まって exit 1。
   - 本番 DB には UI で作られた `alertmanager`（uid `ee8z216blo1s0b`、url 空）が残っていた。provisioning は名前で既存行を見つけ、宣言した uid（`alertmanager`）で更新しようとして失敗する。
   - Grafana 13.2.2 をローカルで起動して再現: uid 不一致 → 同じエラーで終了、uid を既存値に合わせる → 同じ id のまま url などが上書きされ readOnly になる。
-- 修正: provisioning の uid を既存の `ee8z216blo1s0b` に合わせる（行を作り直さないので既存参照も壊さない）。監視入口のリンク `/alerting/groups?alertmanager=` も同じ uid にした。
+- 修正: provisioning の uid を既存の `ee8z216blo1s0b` に合わせる（行を作り直さないので既存参照も壊さない）。（監視入口の Grafana Alerting リンク `/alerting/groups?alertmanager=` は uid ではなくデータソース名 `alertmanager` で選ぶ。#1309 で uid にしたところ既定の "Grafana" に戻ったため名前に直し、`scripts/alert-entry-dashboard/test.sh` で provisioning 済みの名前と照合し CI の static-policy で実行する。）
 - 回帰テスト `tests/chainsaw/prometheus-operator`（`argoproj/prometheus-operator` か当該テストの変更で通常 CI の chainsaw job が起動する）:
   1. 静的照合: 本番 render の provisioning が `ui-datasources.json`（本番 DB の UI 作成データソース）と同名で別 uid を宣言していないか。
   2. 本番と同じ Grafana イメージを PVC 付きで provisioning なしに起動し、UI 作成相当のデータソースを API で作る（fresh install ではなく既存 DB を持つ状態）。
