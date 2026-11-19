@@ -26,7 +26,7 @@ kubectl port-forward svc/grafana -n monitoring 3000:3000
 | Codex | refresh token の期限は非公開（unknown、推測しない）。`last_refresh` だけを読む | `AgentAuthRefreshStalled`（10 日自動更新がない = 未使用か更新失敗） |
 | Antigravity (agy) | 認証を読まない（BOXP-630 の契約）。期限は unknown | `AgentAuthRunLoginFailed`（最後の run がログイン失敗。次の成功 run で解除） |
 
-`AgentAuthObservationUnavailable` は期限を読めないとき（`missing`/`unreadable`/`unsupported`/`policy_disallowed`）と観測が 2h 以上止まったときです。不明を問題なしとは読みません。利用枠の不足は `AiProviderQuota*`、通信や CLI の一時失敗はこのルールの対象外です。
+`AgentAuthObservationUnavailable` は期限を読めないとき（`incomplete` = 期限・更新時刻の項目が欠落か解析不能、`missing`/`unreadable`/`unsupported`/`policy_disallowed`）と観測が 2h 以上止まったときです。不明を問題なしとは読みません。利用枠の不足は `AiProviderQuota*`、通信や CLI の一時失敗はこのルールの対象外です。
 
 配送は Alertmanager の `component="agent-auth"` route で Hermes（家の受信箱と Telegram）へ送り、同じ通知の再送は 1 日 1 回まで、解除（再ログイン後の回復）も送ります。severity は warning で、静音時間（02:00-09:00 JST）は送らず朝に届きます。72h の余裕は、週末や外出で 1 日以上ログインできない場合でも 24h 帯までにもう一度知らせるためです。閾値は暫定です。再ログイン後の確認は codex-workspace で `bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status`。
 

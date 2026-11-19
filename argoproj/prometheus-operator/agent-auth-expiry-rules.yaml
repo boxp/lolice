@@ -117,7 +117,7 @@ spec:
             runbook_next_actions: 許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout、credential の閲覧・転記、API key・ADC・AI credits への切替、別 route への自動切替。
         - alert: AgentAuthObservationUnavailable
           expr: |
-            max by (provider, state) (ai_agent_auth_metadata_state{job="codex-workspace-ai-ops-metrics",provider=~"claude|codex",state=~"missing|unreadable|unsupported|policy_disallowed"}) == 1
+            max by (provider, state) (ai_agent_auth_metadata_state{job="codex-workspace-ai-ops-metrics",provider=~"claude|codex",state=~"incomplete|missing|unreadable|unsupported|policy_disallowed"}) == 1
           for: 1h
           labels:
             severity: warning
@@ -127,7 +127,7 @@ spec:
           annotations:
             summary: '{{ $labels.provider }} の認証期限を読めない（{{ $labels.state }}）'
             description: |
-              期限は不明（unknown）で、問題なしとは読まない。missing = ログイン情報がない、unreadable/unsupported = 権限か形式の変化（CLI 更新）、policy_disallowed = subscription 以外（API key）の認証。
+              期限は不明（unknown）で、問題なしとは読まない。incomplete = ログインはあるが期限・更新時刻の項目が欠落か解析不能、missing = ログイン情報がない、unreadable/unsupported = 権限か形式の変化（CLI 更新）、policy_disallowed = subscription 以外（API key）の認証。
               状態の確認: bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status
             runbook_next_actions: 許可 = 状態の確認・証拠の記録・Owner への案内。禁止 = credential の閲覧・転記・削除、API key への切替、agent による login/logout。
         - alert: AgentAuthObservationUnavailable
