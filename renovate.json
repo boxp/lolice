@@ -102,6 +102,16 @@
         "docker.io/postgres"
       ],
       "allowedVersions": "<17"
+    },
+    {
+      "description": "BOXP-191: bastion の cloudflared 2026.11.1 で SSH 切断が疑われるため一時的に 2026.11.0 に留める。切り分け後に外す",
+      "matchFileNames": [
+        "argoproj/bastion/deployment.yaml"
+      ],
+      "matchPackageNames": [
+        "docker.io/cloudflare/cloudflared"
+      ],
+      "allowedVersions": "<=2026.11.0"
     }
   ],
   "major": {
