@@ -28,6 +28,7 @@ PY
 run_one ai-ops-outcome-rules.yaml ai-ops-outcome-rules.test.yaml
 run_one ai-provider-quota-rules.yaml ai-provider-quota-rules.test.yaml
 run_one ai-subscription-forecast-rules.yaml ai-subscription-forecast-rules.test.yaml
+run_one agent-auth-expiry-rules.yaml agent-auth-expiry-rules.test.yaml
 
 run_one local-llm-gpu-observability-rules.yaml local-llm-gpu-observability-rules.test.yaml
 

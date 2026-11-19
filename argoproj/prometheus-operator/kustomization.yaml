@@ -18,6 +18,7 @@ resources:
 - ai-ops-outcome-rules.yaml
 - ai-provider-quota-rules.yaml
 - ai-subscription-forecast-rules.yaml
+- agent-auth-expiry-rules.yaml
 - cloudflared-pod-monitor.yaml
 - etcd-service.yaml
 - etcd-servicemonitor.yaml

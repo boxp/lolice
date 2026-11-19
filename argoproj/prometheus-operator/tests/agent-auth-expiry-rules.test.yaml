@@ -1,0 +1,223 @@
+rule_files:
+  - __RULE_FILE__
+evaluation_interval: 1m
+tests:
+  # 再ログイン期限（refresh token）が 72h 帯 → 24h 帯 → 期限切れへ進む。access token の期限だけでは鳴らない。
+  - name: 再ログイン期限の帯
+    interval: 1m
+    input_series:
+      # t=0 で期限まで 73h、以後 1 分ごとに近づく（時刻は固定値なので time() が進む）
+      - series: 'ai_agent_auth_relogin_deadline_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",provider="claude",kind="refresh_token"}'
+        values: '262800x200'
+      - series: 'ai_agent_auth_access_expiry_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",provider="claude"}'
+        values: '0x200'
+      - series: 'ai_agent_auth_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",definition_version="agent-auth/v1"}'
+        values: '0+60x200'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: AgentAuthReloginDue
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: AgentAuthReloginDue
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: agent-auth
+              definition_version: agent-auth/v1
+              band: 72h
+              provider: claude
+              kind: refresh_token
+            exp_annotations:
+              description: "claude の再ログイン期限（refresh_token）まで残り 2d 23h 30m 0s。\n期限を過ぎると CLI は自動更新できず、手動の再ログインが必要になる。都合のよいときに codex-workspace で公式の再ログインをしておくと止まらない。\nClaude Code: claude を対話で起動し /login（ブラウザで本人が認可）。token やコードをチャットや Notes に貼らない。\nCLI の利用で期限が延びた場合も解除される。確認: bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status\n"
+              runbook_next_actions: "許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout/token 発行、credential の閲覧・転記、API key や別課金への切替、独自の OAuth 更新。"
+              summary: "claude の再ログイン期限まで 3 日を切った"
+      - eval_time: 90m
+        alertname: AgentAuthReloginImminent
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: AgentAuthReloginExpired
+        exp_alerts: []
+  - name: 24h 帯と期限切れ
+    interval: 1m
+    input_series:
+      - series: 'ai_agent_auth_relogin_deadline_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",provider="claude",kind="refresh_token"}'
+        values: '3600x200'
+      - series: 'ai_agent_auth_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",definition_version="agent-auth/v1"}'
+        values: '0+60x200'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: AgentAuthReloginImminent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: agent-auth
+              definition_version: agent-auth/v1
+              band: 24h
+              provider: claude
+              kind: refresh_token
+            exp_annotations:
+              description: "claude の再ログイン期限（refresh_token）まで残り 50m 0s。\n期限後はこの provider の run が認証エラーで止まる。今日中に codex-workspace で公式の再ログインを。\nClaude Code: claude を対話で起動し /login（ブラウザで本人が認可）。token やコードをチャットや Notes に貼らない。\n確認: bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status\n"
+              runbook_next_actions: "許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout/token 発行、credential の閲覧・転記、API key や別課金への切替、独自の OAuth 更新。"
+              summary: "claude の再ログイン期限まで 24 時間を切った"
+      - eval_time: 10m
+        alertname: AgentAuthReloginDue
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: AgentAuthReloginExpired
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: agent-auth
+              definition_version: agent-auth/v1
+              band: expired
+              provider: claude
+              kind: refresh_token
+            exp_annotations:
+              description: "claude の再ログイン期限（refresh_token）を過ぎた。CLI は自動更新できないため、本人の公式ログインが必要。\nClaude Code: claude を対話で起動し /login（ブラウザで本人が認可）。再ログインで期限が更新されるとこの通知は解除される。\n"
+              runbook_next_actions: "許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout/token 発行、credential の閲覧・転記、API key や別課金への切替、独自の OAuth 更新、認証失敗の再試行の連打。"
+              summary: "claude の再ログイン期限を過ぎた"
+      - eval_time: 70m
+        alertname: AgentAuthReloginImminent
+        exp_alerts: []
+  # 再ログインで期限が延びると解除（Alertmanager が解除を送る = 回復の確認）。
+  - name: 再ログイン後の解除
+    interval: 1m
+    input_series:
+      - series: 'ai_agent_auth_relogin_deadline_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",provider="claude",kind="refresh_token"}'
+        values: '3600x30 2592000x60'
+      - series: 'ai_agent_auth_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",definition_version="agent-auth/v1"}'
+        values: '0+60x90'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: AgentAuthReloginImminent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: agent-auth
+              definition_version: agent-auth/v1
+              band: 24h
+              provider: claude
+              kind: refresh_token
+            exp_annotations:
+              description: "claude の再ログイン期限（refresh_token）まで残り 40m 0s。\n期限後はこの provider の run が認証エラーで止まる。今日中に codex-workspace で公式の再ログインを。\nClaude Code: claude を対話で起動し /login（ブラウザで本人が認可）。token やコードをチャットや Notes に貼らない。\n確認: bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status\n"
+              runbook_next_actions: "許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout/token 発行、credential の閲覧・転記、API key や別課金への切替、独自の OAuth 更新。"
+              summary: "claude の再ログイン期限まで 24 時間を切った"
+      - eval_time: 50m
+        alertname: AgentAuthReloginImminent
+        exp_alerts: []
+  # 観測が古いときは期限の帯で鳴らさず、観測停止として知らせる。
+  - name: 古い観測
+    interval: 1m
+    input_series:
+      - series: 'ai_agent_auth_relogin_deadline_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",provider="claude",kind="refresh_token"}'
+        values: '3600x300'
+      - series: 'ai_agent_auth_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",definition_version="agent-auth/v1"}'
+        values: '0x300'
+    alert_rule_test:
+      - eval_time: 250m
+        alertname: AgentAuthReloginExpired
+        exp_alerts: []
+      - eval_time: 250m
+        alertname: AgentAuthObservationUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: agent-auth
+              definition_version: agent-auth/v1
+              reason: observation_stale
+            exp_annotations:
+              description: "2 時間以上新しい観測がない。期限前通知は届かないため、期限は不明として扱う。task-board runner と ai-ops-metrics の稼働を確認する。\n"
+              runbook_next_actions: "許可 = 不明として扱う・証拠の記録・切分け。禁止 = Pod/Hermes の再起動、gate/承認/排他の解除。"
+              summary: "agent CLI の認証期限の観測が止まっている"
+  # Codex: 期限非公開。10 日自動更新がないと停滞として通知、9 日なら鳴らない。
+  - name: Codex の更新停滞
+    interval: 1m
+    input_series:
+      - series: 'ai_agent_auth_last_refresh_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",provider="codex"}'
+        values: '0x15000'
+      - series: 'ai_agent_auth_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",definition_version="agent-auth/v1"}'
+        values: '0+60x15000'
+      - series: 'ai_agent_auth_relogin_deadline_known{job="codex-workspace-ai-ops-metrics",pod="a",provider="codex"}'
+        values: '0x15000'
+    alert_rule_test:
+      - eval_time: 216h
+        alertname: AgentAuthRefreshStalled
+        exp_alerts: []
+      - eval_time: 242h
+        alertname: AgentAuthRefreshStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: agent-auth
+              definition_version: agent-auth/v1
+              reason: refresh_stalled
+              provider: codex
+            exp_annotations:
+              description: "codex の再ログイン期限は公開されていない（unknown）。CLI の自動更新が 10 日以上起きておらず、未使用か更新失敗のどちらか。\n次の run が認証エラーになったら本人の公式ログインが必要（Codex: codex-workspace で codex login を対話で実行し本人が認可）。CLI が更新に成功すると解除される。\n"
+              runbook_next_actions: "許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout、credential の閲覧・転記、API key への切替、独自の OAuth 更新。"
+              summary: "codex の認証が 10d 2h 0m 0s 自動更新されていない"
+      - eval_time: 242h
+        alertname: AgentAuthReloginExpired
+        exp_alerts: []
+  # Antigravity: 認証は読まない。ログイン失敗の run で発火、成功 run で解除。
+  - name: run のログイン失敗と回復
+    interval: 1m
+    input_series:
+      - series: 'ai_agent_auth_run_auth_failure_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",provider="antigravity"}'
+        values: '_x10 600x80'
+      - series: 'ai_agent_auth_run_success_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",provider="antigravity"}'
+        values: '_x50 3000x40'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: AgentAuthRunLoginFailed
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: agent-auth
+              definition_version: agent-auth/v1
+              reason: run_login_failed
+              provider: antigravity
+            exp_annotations:
+              description: "antigravity は期限を公開しないため事前には分からない（unknown）。最後の run がログイン失敗で終わった。\nAntigravity: codex-workspace で agy を対話で起動し、本人が公式ログインする。次に成功した run で解除される。\n"
+              runbook_next_actions: "許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout、credential の閲覧・転記、API key・ADC・AI credits への切替、別 route への自動切替。"
+              summary: "antigravity の run がログイン切れで止まった"
+      - eval_time: 60m
+        alertname: AgentAuthRunLoginFailed
+        exp_alerts: []
+  - name: 認証メタデータを読めない
+    interval: 1m
+    input_series:
+      - series: 'ai_agent_auth_metadata_state{job="codex-workspace-ai-ops-metrics",pod="a",provider="codex",state="unsupported"}'
+        values: '1x90'
+      - series: 'ai_agent_auth_metadata_state{job="codex-workspace-ai-ops-metrics",pod="a",provider="antigravity",state="not_read"}'
+        values: '1x90'
+      - series: 'ai_agent_auth_metadata_state{job="codex-workspace-ai-ops-metrics",pod="a",provider="claude",state="incomplete"}'
+        values: '1x90'
+      - series: 'ai_agent_auth_observed_timestamp_seconds{job="codex-workspace-ai-ops-metrics",pod="a",definition_version="agent-auth/v1"}'
+        values: '0+60x90'
+    alert_rule_test:
+      - eval_time: 75m
+        alertname: AgentAuthObservationUnavailable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              component: agent-auth
+              definition_version: agent-auth/v1
+              reason: metadata_unavailable
+              provider: codex
+              state: unsupported
+            exp_annotations:
+              description: "期限は不明（unknown）で、問題なしとは読まない。incomplete = ログインはあるが期限・更新時刻の項目が欠落か解析不能、missing = ログイン情報がない、unreadable/unsupported = 権限か形式の変化（CLI 更新）、policy_disallowed = subscription 以外（API key）の認証。\n状態の確認: bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status\n"
+              runbook_next_actions: "許可 = 状態の確認・証拠の記録・Owner への案内。禁止 = credential の閲覧・転記・削除、API key への切替、agent による login/logout。"
+              summary: "codex の認証期限を読めない（unsupported）"
+          - exp_labels:
+              severity: warning
+              component: agent-auth
+              definition_version: agent-auth/v1
+              reason: metadata_unavailable
+              provider: claude
+              state: incomplete
+            exp_annotations:
+              description: "期限は不明（unknown）で、問題なしとは読まない。incomplete = ログインはあるが期限・更新時刻の項目が欠落か解析不能、missing = ログイン情報がない、unreadable/unsupported = 権限か形式の変化（CLI 更新）、policy_disallowed = subscription 以外（API key）の認証。\n状態の確認: bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status\n"
+              runbook_next_actions: "許可 = 状態の確認・証拠の記録・Owner への案内。禁止 = credential の閲覧・転記・削除、API key への切替、agent による login/logout。"
+              summary: "claude の認証期限を読めない（incomplete）"
