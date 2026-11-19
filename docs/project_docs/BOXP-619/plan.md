@@ -121,3 +121,8 @@
 3. PR#1300 を gate 通過済み head で merge → Argo 自動 sync。
 4. calico-node 7/7 が v3.32.4 で Ready、Typha が v3.30.2 のまま、DNS / NetworkPolicy / Longhorn volume を確認。
 5. annotation を除去 → Typha v3.32.4 rollout、tigerastatus Available、calico-node 7/7 維持を確認。
+
+### ローカル実行結果（隔離 kind、Kubernetes v1.36.4、3 ノード、IPIP Always + BGP Enabled）
+
+- 保留あり（本 suite）: 合格。calico-node 3/3 が v3.32.4 に揃うまで Typha は v3.30.2・Pod 不変、calico-node の同時 not-ready 最大 1、保留解除後 Typha v3.32.4・同時 not-ready 0、更新中の連続疎通 1617 件中失敗 0、更新後の疎通・DNS・NetworkPolicy deny/allow・CSI driver OK。
+- 対照（保留なしで同じ head を適用）: operator が Typha を先に v3.32.4 にし（calico-node 更新 0 台の時点）、calico-node の同時 not-ready が 2/3 台に達した。本 suite の判定（Typha 不変・同時 not-ready ≦ 1）はこれを失敗として検出する。kind では dataplane が残り疎通失敗は 0 件だったため、疎通率だけでは保留の有無を判別できない。

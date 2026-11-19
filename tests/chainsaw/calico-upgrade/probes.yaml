@@ -1,4 +1,5 @@
 # BOXP-619: 更新中の Pod 間疎通 (ノード跨ぎ) と DNS を連続観測するための probe。
+# image は Docker Hub の匿名 pull 制限を避けて quay.io の busybox (digest 固定) を使う。
 # probe-server は全ノードに 1 つずつ置き、probe-client は全ノードから 1 秒ごとに
 # headless Service で引いた全 server Pod IP へ HTTP を送り、結果を 1 行ずつ log に出す。
 apiVersion: v1
@@ -24,7 +25,7 @@ spec:
         - operator: Exists
       containers:
         - name: httpd
-          image: busybox:1.37
+          image: quay.io/prometheus/busybox@sha256:7379672d53c28113469275f2eb48adffa19954f39f8ef20c1e2992278f658e6c
           command:
             - sh
             - -c
@@ -68,7 +69,7 @@ spec:
       terminationGracePeriodSeconds: 1
       containers:
         - name: busybox
-          image: busybox:1.37
+          image: quay.io/prometheus/busybox@sha256:7379672d53c28113469275f2eb48adffa19954f39f8ef20c1e2992278f658e6c
           command:
             - sh
             - -c
