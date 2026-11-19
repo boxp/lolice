@@ -41,7 +41,7 @@
 
 **通知を受けたら**: 上の `alertname` / `namespace` を通知の値にして絞り込み、表の行のリンクで「発生 30 分前から」の関連ダッシュボード・ログへ進みます。URL で渡すときは `/d/alert-entry/?var-alertname=<alertname>&var-namespace=<namespace>`。
 
-**状態の読み分け**: 正常 = 判定経路（Watchdog）が生きていて一覧に出ない / Pending = 条件成立中で `for` 待ち（まだ通知しない）/ Firing = 通知対象 / 抑制中 = Alertmanager の silence か inhibit で通知を止めている（判定は Firing のまま）/ 欠測 = 値が来ない（Prometheus 停止・取得失敗）/ 評価失敗 = ルールの式が評価できない / 対象消失 = 以前あった監視対象が消えた。欠測や対象消失は「正常」ではありません。")
+**状態の読み分け**: 正常 = 判定経路（Watchdog）が生きていて、下の「監視そのものの健全性」で評価失敗・取得失敗・対象の消失が 0 で、一覧に出ない / Pending = 条件成立中で `for` 待ち（まだ通知しない）/ Firing = 通知対象 / 抑制中 = Alertmanager の silence か inhibit で通知を止めている（判定は Firing のまま）/ 欠測 = 値が来ない（Prometheus 停止・取得失敗）/ 評価失敗 = ルールの式が評価できない / 対象消失 = 以前あった監視対象が消えた。欠測や対象消失は「正常」ではありません。")
 
 (def links-md
   "| 見たいもの | 入口 |
@@ -96,21 +96,26 @@
                                :targetBlank true}]}]}]}}))
 
 (def timeline
-  {:id (nid) :type "state-timeline" :title "いつ鳴っていたか（Pending / Firing の時間帯。最上段「判定経路」が途切れた時間は欠測）"
-   :description "最上段の「判定経路（Watchdog）」は Prometheus がルールを評価し、その結果が保存されていた時間に緑で出ます。緑の帯がある時間だけ、下の行の空白を「その時間は鳴っていない（正常）」と読めます。緑が途切れた時間（Prometheus 停止・取得失敗など）は全行が欠測で、空白でも正常とは言えません。"
+  {:id (nid) :type "state-timeline" :title "いつ鳴っていたか（Pending / Firing の時間帯と、その間の監視の穴）"
+   :description "最上段の「判定経路（Watchdog）」は Prometheus がルールを評価し、その結果が保存されていた時間に緑で出ます。緑が途切れた時間（Prometheus 停止など）は全行が欠測です。緑でも、別のルールグループの評価失敗（紫「評価失敗 <rule_group>」）や監視対象の取得失敗（橙「取得失敗 <job>」）は起こり、そのルール・対象に関するアラートはその時間だけ判定されていません。空白を「鳴っていない（正常）」と読めるのは、判定経路が緑で、かつ関係するルールグループ・job の紫/橙の帯が出ていない時間だけです。対象が丸ごと消えた場合は帯も出ないため、下の「監視対象の消失・減少」で確かめます。"
    :datasource prom
    :targets [(target "max(3 * ALERTS{alertname=\"Watchdog\", alertstate=\"firing\"})" :legend "判定経路（Watchdog）" :ref "A")
              (target (str "max by (alertname, severity) (2 * ALERTS{alertstate=\"firing\", " sel "})"
                           " or max by (alertname, severity) (ALERTS{alertstate=\"pending\", " sel "})")
-                     :legend "{{alertname}} ({{severity}})" :ref "B")]
+                     :legend "{{alertname}} ({{severity}})" :ref "B")
+             ;; 判定経路が生きていても個別に起こる「判定できていない」時間を帯で出す
+             (target "max by (rule_group) (0 * (increase(prometheus_rule_evaluation_failures_total[5m]) > 0) + 4)" :legend "評価失敗 {{rule_group}}" :ref "C")
+             (target "max by (job) (0 * (up == 0) + 5)" :legend "取得失敗 {{job}}" :ref "D")]
    :options {:showValue "never" :mergeValues true :rowHeight 0.8 :legend {:showLegend false}}
    ;; 欠測区間を前後の値で埋めない (2 分以上サンプルが無い区間は空白にする)
    :fieldConfig {:defaults {:color {:mode "thresholds"}
                             :custom {:insertNulls 120000 :spanNulls false}
-                            :thresholds (steps "yellow" nil "red" 2 "green" 3)
+                            :thresholds (steps "yellow" nil "red" 2 "green" 3 "purple" 4 "orange" 5)
                             :mappings [{:type "value" :options {"1" {:text "Pending" :color "yellow"}
                                                                "2" {:text "Firing" :color "red"}
-                                                               "3" {:text "判定稼働" :color "green"}}}]}
+                                                               "3" {:text "判定稼働" :color "green"}
+                                                               "4" {:text "評価失敗" :color "purple"}
+                                                               "5" {:text "取得失敗" :color "orange"}}}]}
                  :overrides []}})
 
 (def logs
@@ -121,15 +126,22 @@
               :expr "{namespace=~\"${namespace}\", namespace!=\"\"} |~ \"(?i)(error|fail|fatal|panic|oomkill|timeout)\""}]
    :options {:showTime true :wrapLogMessage true :sortOrder "Descending" :enableLogDetails true}})
 
+;; job ごとの対象数が過去 7 日 (1 時間ごと) の最大より少ない分。job 単位で「ある/ない」だけを見ると、
+;; 同じ job の対象が 1 つでも残っていれば他の対象の消失を見逃すため、数の差で見る。
+(def max-targets-7d "max_over_time(count by (job) (up)[7d:1h])")
+(def lost-targets
+  (str "((" max-targets-7d " - on(job) count by (job) (up)) > 0)"
+       " or (" max-targets-7d " unless on(job) count by (job) (up))"))
+
 (def disappeared
-  {:id (nid) :type "table" :title "監視対象の消失・取得失敗"
-   :description "消失 = 過去 7 日にはあった job が今は無い（監視の穴になる。7 日を過ぎると表から消えるが、復旧したわけではない）。取得失敗 = 対象は見えているが up=0。"
+  {:id (nid) :type "table" :title "監視対象の消失・減少・取得失敗"
+   :description "消失・減少 = job ごとの監視対象数が過去 7 日（1 時間ごと）の最大より今少ない数。job が丸ごと消えた場合も、同じ job の対象が一部だけ消えた場合（レプリカの一部・ノードの一部など）も出る。意図した縮小でも出るので、Prometheus Targets で意図どおりか確かめる。ロールアウトの一時的な重なりが 1 時間ごとの時点に当たると 1 件多く出ることがある。消えて 7 日を過ぎると表から消えるが、復旧したわけではない。取得失敗 = 対象は見えているが up=0。"
    :datasource prom
-   :targets [(target "label_replace((count by (job) (last_over_time(up[7d]))) unless (count by (job) (up)), \"problem\", \"消失（過去 7 日にはあった）\", \"\", \"\")" :instant true :fmt "table" :ref "A")
+   :targets [(target (str "label_replace(" lost-targets ", \"problem\", \"消失・減少（過去 7 日の最大より少ない）\", \"\", \"\")") :instant true :fmt "table" :ref "A")
              (target "label_replace(count by (job) (up == 0), \"problem\", \"取得失敗（up=0）\", \"\", \"\")" :instant true :fmt "table" :ref "B")]
    :transformations [{:id "merge" :options {}}
                      {:id "organize" :options {:excludeByName {"Time" true}
-                                               :renameByName {"Value #A" "消失した対象数（過去 7 日比）" "Value #B" "取得失敗の対象数"}}}]
+                                               :renameByName {"Value #A" "消えた対象数（過去 7 日の最大との差）" "Value #B" "取得失敗の対象数"}}}]
    :options {:showHeader true :cellHeight "sm"}
    :fieldConfig {:defaults {:noValue "なし"} :overrides []}})
 
@@ -170,8 +182,8 @@
           "sum(increase(prometheus_rule_group_iterations_missed_total[15m]))" (steps "green" nil "orange" 1)) 4 4]
    [(stat "取得失敗の対象（up=0）" "scrape できない監視対象の数。その対象のアラートは欠測になる"
           "count(up == 0) or on() (0 * count(up))" (steps "green" nil "orange" 1)) 4 4]
-   [(stat "消えた job（過去 7 日比）" "過去 7 日のどこかで scrape されていた job のうち、今は無いものの数。監視の穴。消えて 7 日を過ぎると数えられなくなるので、0 に戻っても復旧とは限らない（復旧は下の表と Prometheus Targets で確かめる）"
-          "count((count by (job) (last_over_time(up[7d]))) unless (count by (job) (up))) or on() (0 * count(up))" (steps "green" nil "orange" 1)) 4 4]
+   [(stat "消えた監視対象（過去 7 日比）" "job ごとの監視対象数が過去 7 日の最大より少ない分の合計。job ごと消えた場合も、同じ job の一部の対象だけ消えた場合も数える。監視の穴。消えて 7 日を過ぎると数えられなくなるので、0 に戻っても復旧とは限らない（復旧は下の表と Prometheus Targets で確かめる）"
+          (str "sum(" lost-targets ") or on() (0 * count(up))") (steps "green" nil "orange" 1)) 4 4]
    [(stat "Prometheus → Alertmanager" "Prometheus が見つけている Alertmanager の数。0 なら判定しても通知されない"
           "min(prometheus_notifications_alertmanagers_discovered)" (steps "red" nil "green" 1)) 4 4]
    [(stat "通知の送信失敗（24h）" "Alertmanager からメール / Hermes への送信失敗。Alertmanager を scrape できないときは 0 ではなく欠測と出る"

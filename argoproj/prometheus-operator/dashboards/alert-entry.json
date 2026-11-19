@@ -118,7 +118,7 @@
     "title" : "使い方と状態の読み分け",
     "options" : {
       "mode" : "markdown",
-      "content" : "**この画面は監視の入口です。** 判定と通知の正本は PrometheusRule と Alertmanager（メール / Hermes）のままで、Grafana はそれを読むだけです。Grafana が止まっても通知は届きます。\n\n**通知を受けたら**: 上の `alertname` / `namespace` を通知の値にして絞り込み、表の行のリンクで「発生 30 分前から」の関連ダッシュボード・ログへ進みます。URL で渡すときは `/d/alert-entry/?var-alertname=<alertname>&var-namespace=<namespace>`。\n\n**状態の読み分け**: 正常 = 判定経路（Watchdog）が生きていて一覧に出ない / Pending = 条件成立中で `for` 待ち（まだ通知しない）/ Firing = 通知対象 / 抑制中 = Alertmanager の silence か inhibit で通知を止めている（判定は Firing のまま）/ 欠測 = 値が来ない（Prometheus 停止・取得失敗）/ 評価失敗 = ルールの式が評価できない / 対象消失 = 以前あった監視対象が消えた。欠測や対象消失は「正常」ではありません。"
+      "content" : "**この画面は監視の入口です。** 判定と通知の正本は PrometheusRule と Alertmanager（メール / Hermes）のままで、Grafana はそれを読むだけです。Grafana が止まっても通知は届きます。\n\n**通知を受けたら**: 上の `alertname` / `namespace` を通知の値にして絞り込み、表の行のリンクで「発生 30 分前から」の関連ダッシュボード・ログへ進みます。URL で渡すときは `/d/alert-entry/?var-alertname=<alertname>&var-namespace=<namespace>`。\n\n**状態の読み分け**: 正常 = 判定経路（Watchdog）が生きていて、下の「監視そのものの健全性」で評価失敗・取得失敗・対象の消失が 0 で、一覧に出ない / Pending = 条件成立中で `for` 待ち（まだ通知しない）/ Firing = 通知対象 / 抑制中 = Alertmanager の silence か inhibit で通知を止めている（判定は Firing のまま）/ 欠測 = 値が来ない（Prometheus 停止・取得失敗）/ 評価失敗 = ルールの式が評価できない / 対象消失 = 以前あった監視対象が消えた。欠測や対象消失は「正常」ではありません。"
     },
     "gridPos" : {
       "x" : 0,
@@ -606,7 +606,7 @@
       "cellHeight" : "sm"
     }
   }, {
-    "description" : "最上段の「判定経路（Watchdog）」は Prometheus がルールを評価し、その結果が保存されていた時間に緑で出ます。緑の帯がある時間だけ、下の行の空白を「その時間は鳴っていない（正常）」と読めます。緑が途切れた時間（Prometheus 停止・取得失敗など）は全行が欠測で、空白でも正常とは言えません。",
+    "description" : "最上段の「判定経路（Watchdog）」は Prometheus がルールを評価し、その結果が保存されていた時間に緑で出ます。緑が途切れた時間（Prometheus 停止など）は全行が欠測です。緑でも、別のルールグループの評価失敗（紫「評価失敗 <rule_group>」）や監視対象の取得失敗（橙「取得失敗 <job>」）は起こり、そのルール・対象に関するアラートはその時間だけ判定されていません。空白を「鳴っていない（正常）」と読めるのは、判定経路が緑で、かつ関係するルールグループ・job の紫/橙の帯が出ていない時間だけです。対象が丸ごと消えた場合は帯も出ないため、下の「監視対象の消失・減少」で確かめます。",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
@@ -634,8 +634,24 @@
       },
       "expr" : "max by (alertname, severity) (2 * ALERTS{alertstate=\"firing\", alertname!~\"Watchdog|InfoInhibitor\", alertname=~\"${alertname}\", namespace=~\"${namespace}\", severity=~\"${severity}\"}) or max by (alertname, severity) (ALERTS{alertstate=\"pending\", alertname!~\"Watchdog|InfoInhibitor\", alertname=~\"${alertname}\", namespace=~\"${namespace}\", severity=~\"${severity}\"})",
       "legendFormat" : "{{alertname}} ({{severity}})"
+    }, {
+      "refId" : "C",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (rule_group) (0 * (increase(prometheus_rule_evaluation_failures_total[5m]) > 0) + 4)",
+      "legendFormat" : "評価失敗 {{rule_group}}"
+    }, {
+      "refId" : "D",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (job) (0 * (up == 0) + 5)",
+      "legendFormat" : "取得失敗 {{job}}"
     } ],
-    "title" : "いつ鳴っていたか（Pending / Firing の時間帯。最上段「判定経路」が途切れた時間は欠測）",
+    "title" : "いつ鳴っていたか（Pending / Firing の時間帯と、その間の監視の穴）",
     "fieldConfig" : {
       "defaults" : {
         "color" : {
@@ -656,6 +672,12 @@
           }, {
             "color" : "green",
             "value" : 3
+          }, {
+            "color" : "purple",
+            "value" : 4
+          }, {
+            "color" : "orange",
+            "value" : 5
           } ]
         },
         "mappings" : [ {
@@ -672,6 +694,14 @@
             "3" : {
               "text" : "判定稼働",
               "color" : "green"
+            },
+            "4" : {
+              "text" : "評価失敗",
+              "color" : "purple"
+            },
+            "5" : {
+              "text" : "取得失敗",
+              "color" : "orange"
             }
           }
         } ]
@@ -952,7 +982,7 @@
       "justifyMode" : "center"
     }
   }, {
-    "description" : "過去 7 日のどこかで scrape されていた job のうち、今は無いものの数。監視の穴。消えて 7 日を過ぎると数えられなくなるので、0 に戻っても復旧とは限らない（復旧は下の表と Prometheus Targets で確かめる）",
+    "description" : "job ごとの監視対象数が過去 7 日の最大より少ない分の合計。job ごと消えた場合も、同じ job の一部の対象だけ消えた場合も数える。監視の穴。消えて 7 日を過ぎると数えられなくなるので、0 に戻っても復旧とは限らない（復旧は下の表と Prometheus Targets で確かめる）",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
@@ -970,11 +1000,11 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "count((count by (job) (last_over_time(up[7d]))) unless (count by (job) (up))) or on() (0 * count(up))",
+      "expr" : "sum(((max_over_time(count by (job) (up)[7d:1h]) - on(job) count by (job) (up)) > 0) or (max_over_time(count by (job) (up)[7d:1h]) unless on(job) count by (job) (up))) or on() (0 * count(up))",
       "instant" : true,
       "range" : false
     } ],
-    "title" : "消えた job（過去 7 日比）",
+    "title" : "消えた監視対象（過去 7 日比）",
     "fieldConfig" : {
       "defaults" : {
         "thresholds" : {
@@ -1386,7 +1416,7 @@
       "justifyMode" : "center"
     }
   }, {
-    "description" : "消失 = 過去 7 日にはあった job が今は無い（監視の穴になる。7 日を過ぎると表から消えるが、復旧したわけではない）。取得失敗 = 対象は見えているが up=0。",
+    "description" : "消失・減少 = job ごとの監視対象数が過去 7 日（1 時間ごと）の最大より今少ない数。job が丸ごと消えた場合も、同じ job の対象が一部だけ消えた場合（レプリカの一部・ノードの一部など）も出る。意図した縮小でも出るので、Prometheus Targets で意図どおりか確かめる。ロールアウトの一時的な重なりが 1 時間ごとの時点に当たると 1 件多く出ることがある。消えて 7 日を過ぎると表から消えるが、復旧したわけではない。取得失敗 = 対象は見えているが up=0。",
     "datasource" : {
       "type" : "prometheus",
       "uid" : "${datasource}"
@@ -1407,7 +1437,7 @@
           "Time" : true
         },
         "renameByName" : {
-          "Value #A" : "消失した対象数（過去 7 日比）",
+          "Value #A" : "消えた対象数（過去 7 日の最大との差）",
           "Value #B" : "取得失敗の対象数"
         }
       }
@@ -1419,7 +1449,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "label_replace((count by (job) (last_over_time(up[7d]))) unless (count by (job) (up)), \"problem\", \"消失（過去 7 日にはあった）\", \"\", \"\")",
+      "expr" : "label_replace(((max_over_time(count by (job) (up)[7d:1h]) - on(job) count by (job) (up)) > 0) or (max_over_time(count by (job) (up)[7d:1h]) unless on(job) count by (job) (up)), \"problem\", \"消失・減少（過去 7 日の最大より少ない）\", \"\", \"\")",
       "instant" : true,
       "range" : false,
       "format" : "table"
@@ -1434,7 +1464,7 @@
       "range" : false,
       "format" : "table"
     } ],
-    "title" : "監視対象の消失・取得失敗",
+    "title" : "監視対象の消失・減少・取得失敗",
     "fieldConfig" : {
       "defaults" : {
         "noValue" : "なし"

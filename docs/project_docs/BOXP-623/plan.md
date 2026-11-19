@@ -51,7 +51,7 @@
    - 件数（critical / warning / info / pending / 抑制中 / silence）
    - Firing / Pending の一覧。行のリンクで「発生 30 分前から」の入口・namespace 負荷・Alertmanager・ルール定義へ
    - 時間帯（state timeline）とエラーらしきログ（Loki）
-   - 監視の健全性: Watchdog、ルール評価失敗、取りこぼし、up=0、消えた job、Prometheus→Alertmanager、通知失敗、破棄、設定再読込、Grafana 管理ルールの失敗 / NoData
+   - 監視の健全性: Watchdog、ルール評価失敗、取りこぼし、up=0、消えた監視対象（job ごとの対象数の減少）、Prometheus→Alertmanager、通知失敗、破棄、設定再読込、Grafana 管理ルールの失敗 / NoData
    - 個別ダッシュボードへのリンク
 4. kustomization / grafana Deployment に ConfigMap を追加。
 
@@ -67,3 +67,8 @@
 - 消えた job は `up offset 1h` ではなく `last_over_time(up[7d])` と比べる（1 時間で 0 に戻らない。7 日を過ぎると数えられない限界は説明に明記）。
 - 健全性の数値から `or vector(0)` を外し、値が来ないときは「欠測」と表示する。Alertmanager 由来の値（通知失敗・抑制・silence・設定再読込）は `up{job="alertmanager-main"}` が 1 のときだけ出す。アラート件数の 0 は Watchdog が見えているときだけ補う。
 - 時間帯パネルの最上段に「判定経路（Watchdog）」を追加し、2 分以上サンプルが無い区間は埋めない。緑の帯が途切れた時間の空白は正常ではなく欠測と読む。
+
+### codex review 2 回目の指摘への対応
+
+- 消失判定を job の有無から、job ごとの対象数と過去 7 日（1 時間ごと）の最大との差に変更。同じ job の対象が一部だけ消えた場合（例: node-exporter 7 台中 1 台）も検出する。意図した縮小やロールアウトの重なりでも出ることがあるので、Prometheus Targets で意図どおりか確かめる。
+- 時間帯パネルに「評価失敗 <rule_group>」（紫）と「取得失敗 <job>」（橙）の帯を追加。Watchdog が緑でも、関係するルールグループ・job の帯が出ている時間の空白は正常と読まない。説明文と使い方の「正常」の定義もそれに合わせた。
