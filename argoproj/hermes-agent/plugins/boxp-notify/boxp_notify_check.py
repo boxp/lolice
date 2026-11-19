@@ -153,12 +153,35 @@ async def stage2():
     await tb(e, silence)
     check("gate: a deferred silence leaves the silent/deferred receipt", receipt(e) == ("silent", "deferred"))
     await tb(e, f"遅い報告 event={e}")
-    check("gate: a late report of a deferred event is held for the digest",
-          receipt(e) == ("quiet-held", "unresolved") and not home_copy(e) and len(telegram["sent"]) == 1)
+    check("gate: a late report of a deferred event is held for the digest, stored at home without Telegram/reminder",
+          receipt(e) == ("quiet-held", "deferred") and home_copy(e).get("text") == f"遅い報告 event={e}"
+          and "primary" not in home_copy(e) and len(telegram["sent"]) == 1)
     digest = "BOXP-9002-digest-20261114T000400Z-abcdef012345"
     note("BOXP-9002", digest, "silent")
     await tb(digest, silence)
     check("gate: a digest ends silently only with the silent receipt", receipt(digest) == ("silent", "silent"))
+
+    # BOXP-614: a night report (notify_mode defer/inbox, marker deferred) goes to the home inbox only.
+    e = ev(15)
+    note("BOXP-9002", e, "deferred")
+    sent = len(telegram["sent"])
+    result = await tb(e, f"【Task Board 通知】BOXP-9002 判断が必要です\nA) 続ける\nB) 止める\nevent={e}")
+    check("night inbox: a deferred report is stored at home (choices intact), no Telegram, no reminder mark, quiet-held",
+          result.success and receipt(e) == ("quiet-held", "deferred") and "A) 続ける" in home_copy(e).get("text", "")
+          and "primary" not in home_copy(e) and plugin.NOTICE not in home_copy(e).get("text", "")
+          and len(telegram["sent"]) == sent and state(e) == "held")
+    result = await tb(e, f"【Task Board 通知】BOXP-9002 判断が必要です\nA) 続ける\nB) 止める\nevent={e}")
+    check("night inbox: the same report again stays held, Telegram still silent",
+          result.success and receipt(e) == ("quiet-held", "deferred") and len(telegram["sent"]) == sent)
+    held_digest = "BOXP-9002-digest-20261114T000500Z-abcdef012346"
+    (root / TBE / "delivery-claims").mkdir(exist_ok=True)
+    (root / TBE / "delivery-claims" / f"{held_digest}.md").write_text("{}")
+    note("BOXP-9002", held_digest, "notified")
+    await tb(held_digest, f"【Task Board 朝の回収】 event={held_digest}")
+    check("night inbox: a held digest is not copied home (it is reissued and copied in the morning)",
+          receipt(held_digest) == ("quiet-held", "notified") and not home_copy(held_digest)
+          and len(telegram["sent"]) == sent)
+    (root / TBE / "delivery-claims" / f"{held_digest}.md").unlink()
 
     e = ev(13)  # the receipt of a deferred silence cannot be written: not a success, nothing stored as done
     note("BOXP-9002", e, "deferred")
@@ -187,12 +210,14 @@ async def stage2():
     real_now = plugin.now
     plugin.now = lambda: plugin.datetime(2026, 11, 14, 18, 30, tzinfo=plugin.timezone.utc)  # 03:30 JST
     await tb(e, f"夜の報告 event={e}")
-    held = (receipt(e), bool(home_copy(e)), len(telegram["sent"]))
+    held = (receipt(e), home_copy(e).get("text"), "primary" in home_copy(e), len(telegram["sent"]))
     plugin.now = real_now
-    check("quiet: nothing is sent during quiet hours, receipt quiet-held", held == (("quiet-held", "notified"), False, 2))
+    check("quiet: no Telegram during quiet hours, receipt quiet-held, the text is in the home inbox without the reminder mark",
+          held == (("quiet-held", "notified"), f"夜の報告 event={e}", False, 2))
     (root / TBE / "quiet-policy.md").write_text(json.dumps({"quiet_hours": "0-24", "timezone": "Asia/Tokyo"}))
     await tb(e, f"夜の報告 event={e}")
-    check("quiet: the dispatcher's published window is honoured", not home_copy(e))
+    check("quiet: the dispatcher's published window is honoured",
+          receipt(e) == ("quiet-held", "notified") and "primary" not in home_copy(e) and len(telegram["sent"]) == 2)
     (root / TBE / "quiet-policy.md").unlink()
     await tb(e, f"夜の報告 event={e}")
     check("quiet: after the window the same event is delivered", home_copy(e).get("primary") == "home" and receipt(e) == ("sent", "notified"))
@@ -202,7 +227,8 @@ async def stage2():
     (root / TBE / "delivery-claims").mkdir(exist_ok=True)
     (root / TBE / "delivery-claims" / f"{e}.md").write_text("{}")
     await tb(e, f"報告 event={e}")
-    check("digest claim: a late report is held", receipt(e) == ("quiet-held", "notified") and not home_copy(e))
+    check("digest claim: a late report is held (home copy only, no reminder mark)",
+          receipt(e) == ("quiet-held", "notified") and home_copy(e).get("text") and "primary" not in home_copy(e))
 
     e = ev(7)  # home requested but the reminder is not ready: Telegram stays primary
     note("BOXP-9002", e, "question")
@@ -253,7 +279,8 @@ async def stage2():
     await plugin.recover(plugin.settings())
     plugin.now = real_now
     check("recovery in quiet hours: an unreached report becomes a hold",
-          not result.success and receipt(e) == ("quiet-held", "notified") and not home_copy(e) and len(telegram["sent"]) == 4
+          not result.success and receipt(e) == ("quiet-held", "notified") and home_copy(e).get("text")
+          and "primary" not in home_copy(e) and len(telegram["sent"]) == 4
           and plugin.pending_count(plugin.settings()) == 0)
 
     e = ev(10)  # a text that is not the report of this event: a notice, and the real report still follows

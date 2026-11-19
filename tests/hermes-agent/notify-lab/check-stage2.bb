@@ -19,12 +19,13 @@
       held (some #(and (str/includes? (str %) "tb-BOXP-9105-20261114T120005") (= "held" (:state (json/parse-string (slurp (str %)) true)))) (fs/glob (str dir "/boxp-notify/receipts") "*.json"))
       failed (atom false)
       check (fn [label condition] (println (str (if condition "ok " "FAIL ") label)) (when-not condition (reset! failed true)))]
-  (check "home total 11" (= 11 (count homes)))
+  ;; BOXP-614: the held 9105 report is also stored at home during quiet hours (no Telegram), so 12.
+  (check "home total 12" (= 12 (count homes)))
   (check "Telegram total 8 successful" (= 8 (count telegram)))
   (check "formal report and redelivery" (and (= 1 (hc "BOXP-9101")) (zero? (tc "BOXP-9101")) (pos? (jk "duplicate_dropped" "tb:BOXP-9101-20261114T120001Z-aaaa0001-done"))))
   (doseq [id ["9102" "9104"]] (check (str "notice " id) (and (= 1 (hc id)) (= 1 (tc id)))))
   (check "silent with receipt" (and (zero? (hc "9103")) (zero? (tc "9103"))))
-  (check "quiet and digest" (and held (= 1 (hc "9105")) (= 1 (ec "task-board.morning-digest")) (zero? (tc "9105"))))
+  (check "quiet and digest" (and held (= 1 (hc "BOXP-9105-20261114T120005")) (= 1 (ec "task-board.morning-digest")) (zero? (tc "9105"))))
   (doseq [id ["9106" "9107"]] (check (str "fallback or route " id) (and (= 1 (hc id)) (= 1 (tc id)))))
   (check "home failure then recovery" (and (some #(and (false? (:home %)) (true? (:telegram %))) (matching "delivered_partial" "9106")) (seq (matching "recovered" "9106"))))
   (check "routing telegram" (some #(and (true? (:telegram %)) (false? (:primary %))) (matching "delivered" "9107")))
