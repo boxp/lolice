@@ -3,10 +3,14 @@
 # 更新特有の安全性を検査する。fresh install の合格では代替できない次の性質を見る。
 #   - prune_safety   : base の Argo desired state にあった CRD が head で消えるなら automated.prune が false
 #   - install_base   : base (main) の application.yaml / values.yaml を Argo と同じ helm template で SSA 適用
-#   - hold_and_upgrade: Typha に unsupported.operator.tigera.io/ignore=true を付けてから head を適用し、
-#                      calico-node が head 版へ入れ替わる間 Typha が base 版のまま (Pod 不変) で、
-#                      calico-node の同時 not-ready が 1 台以下であること
-#   - release_hold   : annotation を外すと Typha が head 版になり、全 tigerastatus が Available に戻ること
+#   - hold_and_upgrade: Typha 保留が必要な更新 (base < 3.32 <= head) では Typha に
+#                      unsupported.operator.tigera.io/ignore=true を付けてから head を適用し、calico-node が
+#                      head 版へ入れ替わる間 Typha が base 版のまま (Pod 不変) であること。保留が不要な更新
+#                      (base >= 3.32、公式 upgrade notes に保留手順なし) では保留せずに head を適用する。
+#                      どちらも calico-node の同時 not-ready が 1 台以下であること
+#   - release_hold   : 保留した場合は annotation を外すと Typha が head 版になること。保留しない場合は
+#                      operator の既定順序 (Typha 先行) で Typha / calico-node が head 版に揃うこと。
+#                      どちらも全 tigerastatus が Available に戻ること
 #   - post_checks    : 更新中の連続疎通 (ノード跨ぎ / DNS) の失敗率、DNS、NetworkPolicy の enforce、CSI driver
 # 使い方: upgrade.sh <section>。base は CALICO_BASE_DIR (argoproj/calico を含む base 版の lolice root)、
 # head は REPO_ROOT。状態は CALICO_UPGRADE_STATE_DIR に残す。
@@ -130,6 +134,19 @@ wait_steady() {
   done
 }
 
+# 公式 upgrade notes「Hold Typha when upgrading from 3.31」: 3.32 以降の Typha は 3.32 以降の calico-node しか
+# 受け付けないため、3.32 未満から 3.32 以降へ上げる時だけ Typha を保留する。CALICO_UPGRADE_TYPHA_HOLD=true/false で上書き可。
+minor_of() { local v="${1#v}"; v="${v#*.}"; echo "${v%%.*}"; }
+typha_hold_needed() {
+  case "${CALICO_UPGRADE_TYPHA_HOLD:-auto}" in
+    true) return 0 ;;
+    false) return 1 ;;
+  esac
+  local base_minor head_minor
+  base_minor="$(minor_of "$1")"; head_minor="$(minor_of "$2")"
+  [ "$base_minor" -lt 32 ] && [ "$head_minor" -ge 32 ]
+}
+
 typha_pod_uids() { kubectl get pods -n calico-system -l k8s-app=calico-typha -o jsonpath='{range .items[*]}{.metadata.uid}{"\n"}{end}' | sort; }
 
 case "$SECTION" in
@@ -180,10 +197,16 @@ case "$SECTION" in
     head="$(chart_version "$REPO_ROOT")"
     [ -s "$STATE_DIR/head.yaml" ] || render "$REPO_ROOT" > "$STATE_DIR/head.yaml"
     date +%s > "$STATE_DIR/window-start"
-    kubectl annotate deployment calico-typha -n calico-system "${HOLD_ANNOTATION}=true" --overwrite
+    if typha_hold_needed "$base" "$head"; then hold=true; else hold=false; fi
+    echo "$hold" > "$STATE_DIR/typha-hold"
+    if [ "$hold" = true ]; then
+      kubectl annotate deployment calico-typha -n calico-system "${HOLD_ANNOTATION}=true" --overwrite
+      log "Typha を保留 ($base) して head ($head) を適用"
+    else
+      log "Typha 保留は不要 ($base -> $head)。保留せずに head を適用 (operator の既定順序)"
+    fi
     typha_pod_uids > "$STATE_DIR/typha-uids-before"
     typha_gen="$(kubectl get deploy calico-typha -n calico-system -o jsonpath='{.metadata.generation}')"
-    log "Typha を保留 ($base) して head ($head) を適用"
     apply_render "$STATE_DIR/head.yaml"
     desired="$(desired_nodes)"
     max_unready=0
@@ -192,9 +215,11 @@ case "$SECTION" in
       read -r ready updated < <(node_counts "$head")
       unready=$((desired - ready))
       [ "$unready" -le "$max_unready" ] || { max_unready=$unready; log "calico-node not-ready=$unready (ready=$ready updated=$updated)"; }
-      [ "$(typha_image)" = "$base" ] || fail "保留中に Typha が $(typha_image) に変わりました"
-      [ "$(kubectl get deploy calico-typha -n calico-system -o jsonpath='{.metadata.generation}')" = "$typha_gen" ] \
-        || fail "保留中に Typha Deployment の spec が変更されました"
+      if [ "$hold" = true ]; then
+        [ "$(typha_image)" = "$base" ] || fail "保留中に Typha が $(typha_image) に変わりました"
+        [ "$(kubectl get deploy calico-typha -n calico-system -o jsonpath='{.metadata.generation}')" = "$typha_gen" ] \
+          || fail "保留中に Typha Deployment の spec が変更されました"
+      fi
       if [ "$(node_image)" = "$head" ] && [ "$updated" = "$desired" ] && [ "$ready" = "$desired" ]; then
         break
       fi
@@ -205,14 +230,22 @@ case "$SECTION" in
       sleep 2
     done
     echo "$max_unready" > "$STATE_DIR/max-unready-hold"
-    diff "$STATE_DIR/typha-uids-before" <(typha_pod_uids) || fail "保留中に Typha Pod が入れ替わりました"
-    log "calico-node $desired/$desired が $head、Typha は $base のまま (Pod 不変)。同時 not-ready 最大 $max_unready"
+    if [ "$hold" = true ]; then
+      diff "$STATE_DIR/typha-uids-before" <(typha_pod_uids) || fail "保留中に Typha Pod が入れ替わりました"
+      log "calico-node $desired/$desired が $head、Typha は $base のまま (Pod 不変)。同時 not-ready 最大 $max_unready"
+    else
+      log "calico-node $desired/$desired が $head、Typha は $(typha_image)。同時 not-ready 最大 $max_unready"
+    fi
     [ "$max_unready" -le 1 ] || fail "calico-node の同時 not-ready が $max_unready 台 (許容 1 台)"
     ;;
 
   release_hold)
     head="$(chart_version "$REPO_ROOT")"
-    kubectl annotate deployment calico-typha -n calico-system "${HOLD_ANNOTATION}-"
+    if [ "$(cat "$STATE_DIR/typha-hold")" = true ]; then
+      kubectl annotate deployment calico-typha -n calico-system "${HOLD_ANNOTATION}-"
+    else
+      log "Typha は保留していないため annotation 操作なし"
+    fi
     desired="$(desired_nodes)"
     max_unready=0
     deadline=$((SECONDS + 900))

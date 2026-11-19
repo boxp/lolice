@@ -21,10 +21,10 @@ spec:
     # BOXP-619 C1: 3.32 から tigera-operator chart に CRD が含まれないため、
     # 同じ版の CRD chart を同じ app に加えて CRD 32 件を desired state に残す。
     - repoURL: https://docs.tigera.io/calico/charts
-      targetRevision: v3.32.4
+      targetRevision: v3.33.1
       chart: crd.projectcalico.org.v1
     - repoURL: https://docs.tigera.io/calico/charts
-      targetRevision: v3.32.4
+      targetRevision: v3.33.1
       chart: tigera-operator
       helm:
         valueFiles:

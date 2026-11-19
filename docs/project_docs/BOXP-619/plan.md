@@ -139,3 +139,19 @@
 - PR#1308 merge 後に calico app が v3.32.4 で同期（Synced / Healthy）。calico-node は 1 台ずつ v3.32.4 へ更新（同時 not-ready 最大 1）、その間 Typha は保留で v3.30.2 のまま。
 - 本番で一時 namespace を使い、ノード跨ぎの Service DNS 経由疎通・NetworkPolicy deny/allow を確認後、Typha 保留 annotation を除去。Typha 3/3 が v3.32.4 で Ready、tigerastatus 全 Available、再度 NetworkPolicy deny/allow OK。
 - prune 復元の判断: calico app の `requiresPruning` は 0 件。adminnetworkpolicies / baselineadminnetworkpolicies CRD は Argo の追跡外（tracking-id なし）で、実リソースも 0 件のため、prune=true に戻しても削除されない。CRD は残置（削除は本チケット範囲外）。
+
+## C2: Calico 3.32.4 → 3.33.1（2026-11-19 08:10 UTC〜）
+
+- 前段: C1（3.32.4）と prune 復元（PR#1311、08:03 UTC 反映）の観測完了。calico app Synced/Healthy、CRD 32 件残存、tigerastatus 全 Available、calico-node/csi 7/7、Typha 3/3、Longhorn 15 volume healthy。
+- 公式根拠（3.33 upgrade notes / requirements）: 3.33 は 3.31・3.32 から更新可能、Kubernetes 1.35/1.36/1.37 で検証済み。Typha 保留は「3.31 から上げる時」だけで、3.32 → 3.33 には保留手順がない。
+- 変更: `application.yaml` の tigera-operator / crd.projectcalico.org.v1 を v3.33.1、`values.yaml` の operator を chart の組む `v1.44.1`、calicoctl tag を v3.33.1。
+  - helm template 比較: CRD は 32 件で名前の増減なし（スキーマ更新のみ）、Installation は差分なし（`kubeletVolumePluginPath: /var/lib/kubelet` 維持）。operator の RBAC 追加（replicasets/controllerrevisions 参照、v3 CRD 用 ValidatingAdmissionPolicy、gateways 参照）と image 版のみ。
+  - CRD の desired state から外れるものはないため `automated.prune` は true のまま（CD-02 の対象外）。
+- 3.33 の要対応項目と本番の該当:
+  - 単一 image `calico/calico` への統合: 既定 registry から取得、ミラー・digest 固定なし。
+  - policy サイズ上限（rules 1024 / selector 1024 文字など）: 本番 NetworkPolicy(crd) 27 件で最大 rules 13・selector 44 文字、Global/Staged 0 件。
+  - FIPS: 未設定。Ingress Gateway / Gateway API: 未使用。eBPF: 無効（Iptables）。
+  - IPIP の cluster route を BIRD ではなく Felix が既定で書く: 本番は IPIP Always + BGP。Chainsaw の kind も同じ構成で、ローリング中の混在を疎通で検査する。
+  - native v3 CRD への移行は既存クラスタでは自動で切り替わらない（opt-in、本チケットでは行わない）。
+- Chainsaw: `tests/chainsaw/calico-upgrade` を、base < 3.32 <= head の時だけ Typha を保留し、それ以外は保留せず operator 既定順序（Typha 先行）で更新する形に拡張。保留なしでも calico-node 同時 not-ready ≦ 1、更新中の連続疎通失敗率 ≦ 5%、更新後の DNS・NetworkPolicy deny/allow・CSI を検査する。C1 相当（3.30→3.32）は従来どおり保留経路。
+- 本番手順: Typha 保留は行わない（CD-06 の承認は C1 限定）。gate 通過後 merge → Argo 自動 sync → calico-node 7/7・Typha 3/3 が v3.33.1、tigerastatus 全 Available、ノード跨ぎ疎通・DNS・NetworkPolicy deny/allow、Longhorn volume healthy を確認。

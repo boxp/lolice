@@ -82,13 +82,13 @@ dnsConfig: {}
 # Image and registry configuration for the tigera/operator pod.
 tigeraOperator:
   image: tigera/operator
-  # BOXP-619 C1: operator 版が Calico 版を決める。tigera-operator chart v3.32.4 が組む v1.42.8 に合わせる
+  # BOXP-619: operator 版が Calico 版を決める。tigera-operator chart の組む版に合わせる (C2: v3.33.1 -> v1.44.1)
   # (v1.38.4 のままだと chart だけ上がり calico-node / typha は 3.30.x のまま)。
-  version: v1.42.8
+  version: v1.44.1
   registry: quay.io
 calicoctl:
   image: docker.io/calico/ctl
-  tag: v3.32.4
+  tag: v3.33.1
 
 kubeletVolumePluginPath: /var/lib/kubelet
 
