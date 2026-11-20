@@ -392,6 +392,11 @@ spec:
               value: "30"
             - name: CODEX_TASK_BOARD_LOCK_STALE_SECONDS
               value: "180"
+            # BOXP-637: Antigravity の subscription 利用枠を公式 CLI の `agy -p /usage --output-format json`
+            # (agent turn なし・quota 消費なし) で 10 分ごとに取得し subscription-usage.prom へ載せる。
+            # runner が公式バイナリを直接起動し、資格情報は読まず、API 鍵等の env は除去、AI Credits は無効。
+            - name: CODEX_TASK_BOARD_ANTIGRAVITY_USAGE
+              value: "true"
             # BOXP-360: Hermes の metadata-only ledger (本文なし・opaque ID) を既存の SA 権限
             # (hermes-agent namespace の Role codex-workspace-debug: pods/exec) で read-only に取り込み、
             # runner の SLI 集計入力へ join する。上限付き (30s / 8MiB) で失敗時は前回 snapshot + stale 表示。

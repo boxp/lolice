@@ -8708,7 +8708,7 @@
           },
           "id": 101,
           "options": {
-            "content": "**rate limit (利用枠)**: subscription の集計窓ごとの消費率 (%) とリセット時刻。token 量や金額ではない。API 単価への換算はしない (token / cost は BOXP-360 の別 panel)。\n\n- **取得元**: Claude Code は task-board runner の通常 run が出す公式 stream-json `rate_limit_event`、Codex は CLI が rollout に記録する `rate_limits`。追加の model 呼出しや非公式 endpoint は使わない。資格情報・会話本文は収集しない。\n- **鮮度**: 値は「最後に CLI を使った時点」の観測値。経過時間を必ず併読する。窓のリセット時刻を過ぎた値は表示しない (失効扱い)。リセット時刻超過は Grafana 側の query でも除外し、生成側の更新を待たない。リセット時刻が未提供の窓は Grafana 側で失効判定せず消費率を表示し、リセット時刻列は空 (時刻不明)。\n- **予算 (追加利用)**: Claude は追加利用 (extra usage) の可否状態、Codex は credits の有無と残数。**追加利用の金額上限・消費額はどちらの公式出力にも無いため取得不能** (0 ではない)。\n- 未取得の値は 0% や残量 100% にせず「未取得」と表示する。\n\n共有枠 (5h / 週次) とモデル専用枠 (Fable: seven_day_overage_included) は別の枠であり、合算も相互推測もしない。Fable 専用枠が「未提供」の場合は、このアカウントの応答にその窓が含まれていないことを意味し、共有枠から推測した値ではない。",
+            "content": "**rate limit (利用枠)**: subscription の集計窓ごとの消費率 (%) とリセット時刻。token 量や金額ではない。API 単価への換算はしない (token / cost は BOXP-360 の別 panel)。\n\n- **取得元**: Claude Code は task-board runner の通常 run が出す公式 stream-json `rate_limit_event`、Codex は CLI が rollout に記録する `rate_limits`、Antigravity は runner が 10 分ごとに公式 CLI を直接起動する `agy -p /usage --output-format json` (agent turn なし・quota 消費なし、BOXP-637)。追加の model 呼出しや非公式 endpoint は使わない。資格情報・会話本文は収集しない。\n- **鮮度**: 値は「最後に CLI を使った時点」の観測値。経過時間を必ず併読する。窓のリセット時刻を過ぎた値は表示しない (失効扱い)。リセット時刻超過は Grafana 側の query でも除外し、生成側の更新を待たない。リセット時刻が未提供の窓は Grafana 側で失効判定せず消費率を表示し、リセット時刻列は空 (時刻不明)。\n- **予算 (追加利用)**: Claude は追加利用 (extra usage) の可否状態、Codex は credits の有無と残数。**追加利用の金額上限・消費額はどちらの公式出力にも無いため取得不能** (0 ではない)。\n- 未取得の値は 0% や残量 100% にせず「未取得」と表示する。\n\n共有枠 (5h / 週次) とモデル専用枠 (Fable: seven_day_overage_included) は別の枠であり、合算も相互推測もしない。Fable 専用枠が「未提供」の場合は、このアカウントの応答にその窓が含まれていないことを意味し、共有枠から推測した値ではない。\n\n**Antigravity** は群ごとの枠 (CLI の残量割合を used%=100-残量 に換算)。同じ群のモデル (Gemini 群: Neon/Hydrogen/Flash 等、Claude/GPT 群、Argon) は 5h と週次の枠を共有するので、モデル別に重複加算しない。Antigravity の Claude/GPT 群は Claude Code の枠とは別物。最新の取得が失敗した場合は `source_state` (not_installed / auth_required / timeout / command_failed / invalid_output 等) に理由が出て、前回の値は観測時刻とともに残る (0% や無制限にはしない)。残量 0 のときだけ status=rejected を付ける (CLI は status を返さない)。",
             "mode": "markdown"
           },
           "title": "subscription 利用枠の読み方",
@@ -10009,7 +10009,7 @@
           "type": "stat"
         }
       ],
-      "title": "利用枠（Claude Code / Codex、BOXP-372。折りたたみ）",
+      "title": "利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ）",
       "type": "row"
     },
     {
@@ -10778,7 +10778,7 @@
           "type": "state-timeline"
         }
       ],
-      "title": "時系列: 利用枠（Claude Code / Codex、BOXP-372。折りたたみ）",
+      "title": "時系列: 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ）",
       "type": "row"
     },
     {
