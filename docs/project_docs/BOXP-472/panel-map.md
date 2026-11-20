@@ -53,16 +53,16 @@
 | 22 | 同 scope の重複承認（未接続） | 詳細：原因を調べる・自動チェック・未計測の理由（折りたたみ） | 状態履歴 | 1061 同 scope の重複承認（未接続） | 観測状態を履歴表示 |
 | 30 | Ready → 着手の遅延（未接続） | 詳細：原因を調べる・自動チェック・未計測の理由（折りたたみ） | 状態履歴 | 1062 Ready → 着手の遅延（未接続） | 観測状態を履歴表示 |
 | 31 | token / 費用（対象外） | 詳細：原因を調べる・自動チェック・未計測の理由（折りたたみ） | 状態履歴 | 1063 token / 費用（対象外） | 観測状態を履歴表示 |
-| 101 | subscription 利用枠の読み方 | 利用枠（Claude Code / Codex、BOXP-372。折りたたみ） | 固定情報 | — | 説明または情報ラベルのため系列化しない |
-| 102 | 利用枠 消費率 (%) | 利用枠（Claude Code / Codex、BOXP-372。折りたたみ） | 時系列 | 1065 利用枠 消費率 (%) | 観測値の推移 |
-| 103 | 取得状態と鮮度 | 利用枠（Claude Code / Codex、BOXP-372。折りたたみ） | 状態履歴 | 1066 取得状態と鮮度 | 観測状態を履歴表示 |
-| 104 | 集計窓とリセット時刻 | 利用枠（Claude Code / Codex、BOXP-372。折りたたみ） | 時系列 | 1067 集計窓とリセット時刻 | 観測値の推移 |
-| 105 | Claude 追加利用 (予算) の状態 | 利用枠（Claude Code / Codex、BOXP-372。折りたたみ） | 状態履歴 | 1068 Claude 追加利用 (予算) の状態 | 観測状態を履歴表示 |
-| 106 | Codex credits (予算) の状態 | 利用枠（Claude Code / Codex、BOXP-372。折りたたみ） | 状態履歴 | 1069 Codex credits (予算) の状態 | 観測状態を履歴表示。D plan_info は固定情報 |
-| 107 | 上限到達・警告 | 利用枠（Claude Code / Codex、BOXP-372。折りたたみ） | 状態履歴 | 1070 上限到達・警告 | 観測状態を履歴表示 |
-| 108 | subscription metrics file 経過秒 | 利用枠（Claude Code / Codex、BOXP-372。折りたたみ） | 時系列 | 1071 subscription metrics file 経過秒 | 観測値の推移 |
-| 109 | Claude Fable 専用枠 (seven_day_overage_included) | 利用枠（Claude Code / Codex、BOXP-372。折りたたみ） | 状態履歴 | 1072 Claude Fable 専用枠 (seven_day_overage_included) | 観測状態を履歴表示 |
-| 110 | Claude 現在の制限中の窓 (rateLimitType) | 利用枠（Claude Code / Codex、BOXP-372。折りたたみ） | 状態履歴 | 1073 Claude 現在の制限中の窓 (rateLimitType) | 観測状態を履歴表示 |
+| 101 | subscription 利用枠の読み方 | 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ） | 固定情報 | — | 説明または情報ラベルのため系列化しない |
+| 102 | 利用枠 消費率 (%) | 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ） | 時系列 | 1065 利用枠 消費率 (%) | 観測値の推移 |
+| 103 | 取得状態と鮮度 | 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ） | 状態履歴 | 1066 取得状態と鮮度 | 観測状態を履歴表示 |
+| 104 | 集計窓とリセット時刻 | 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ） | 時系列 | 1067 集計窓とリセット時刻 | 観測値の推移 |
+| 105 | Claude 追加利用 (予算) の状態 | 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ） | 状態履歴 | 1068 Claude 追加利用 (予算) の状態 | 観測状態を履歴表示 |
+| 106 | Codex credits (予算) の状態 | 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ） | 状態履歴 | 1069 Codex credits (予算) の状態 | 観測状態を履歴表示。D plan_info は固定情報 |
+| 107 | 上限到達・警告 | 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ） | 状態履歴 | 1070 上限到達・警告 | 観測状態を履歴表示 |
+| 108 | subscription metrics file 経過秒 | 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ） | 時系列 | 1071 subscription metrics file 経過秒 | 観測値の推移 |
+| 109 | Claude Fable 専用枠 (seven_day_overage_included) | 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ） | 状態履歴 | 1072 Claude Fable 専用枠 (seven_day_overage_included) | 観測状態を履歴表示 |
+| 110 | Claude 現在の制限中の窓 (rateLimitType) | 利用枠（Claude Code / Codex / Antigravity、BOXP-372/637。折りたたみ） | 状態履歴 | 1073 Claude 現在の制限中の窓 (rateLimitType) | 観測状態を履歴表示 |
 | 219 | 旧 Review 時代の履歴について | 旧 Review 時代の履歴（2026-11-03 21:12 UTC 以前。現行と比較不可。折りたたみ） | 固定情報 | — | 説明または情報ラベルのため系列化しない |
 | 46 | Review 停滞（旧: review 終了 → 次 run 開始。廃止後は増えない） | 旧 Review 時代の履歴（2026-11-03 21:12 UTC 以前。現行と比較不可。折りたたみ） | 時系列 | 1075 旧Review・比較不可: Review 停滞（旧: review 終了 → 次 run 開始。廃止後は増えない）（累積 snapshot の推移。選択時間帯内の分位ではない） | 観測値の推移 |
 | 220 | 旧 Review 停止の件数（v2 集計、切替前の系列） | 旧 Review 時代の履歴（2026-11-03 21:12 UTC 以前。現行と比較不可。折りたたみ） | 時系列 | 1076 旧Review・比較不可: 旧 Review 停止の件数（v2 集計、切替前の系列） | 観測値の推移 |
