@@ -19,6 +19,8 @@ spec:
           - 2222
           - 3456
           - 8080
+          # BOXP-634: codex-auth.b0xp.io login page (auth-gateway container).
+          - 8095
     # BOXP-329: Kohako G2 BFF (even-g2-main Pod sidecar) -> read-only Task Board projection only.
     - action: Allow
       protocol: TCP

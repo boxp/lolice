@@ -19,6 +19,7 @@ resources:
   - service-kohako-board.yaml
   - networkpolicy.yaml
   - service-ai-ops-metrics.yaml
+  - service-auth-gateway.yaml
   - servicemonitor-ai-ops-metrics.yaml
 
 configMapGenerator:

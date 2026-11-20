@@ -1,0 +1,16 @@
+# BOXP-634: target of the k8s cloudflared ingress for codex-auth.b0xp.io (arch
+# terraform/cloudflare/b0xp.io/k8s/tunnel.tf). ClusterIP only; NetworkPolicy admits
+# just the k8s cloudflared Pods on this port.
+apiVersion: v1
+kind: Service
+metadata:
+  name: codex-auth-gateway
+  namespace: codex-workspace
+spec:
+  type: ClusterIP
+  selector:
+    app: codex-workspace
+  ports:
+    - name: auth-gateway
+      port: 8095
+      targetPort: auth-gateway
