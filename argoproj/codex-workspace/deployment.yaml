@@ -22,6 +22,19 @@ spec:
       nodeSelector:
        kubernetes.io/arch: amd64
       serviceAccountName: codex-workspace
+      # BOXP-634: the Pod CIDR (192.178.0.0/16) overlaps Google public IPs. When
+      # oauth2.googleapis.com resolves to 192.178.x the connection stays inside the
+      # cluster and times out, which broke agy OAuth token exchange. Pin it to Google
+      # front ends outside that range (several, so one going away is not fatal).
+      # Re-check with: curl -4 --resolve oauth2.googleapis.com:443:<ip> -X POST
+      # https://oauth2.googleapis.com/token  (expect 400 invalid_request).
+      hostAliases:
+        - ip: 172.217.221.95
+          hostnames: [oauth2.googleapis.com]
+        - ip: 172.217.112.4
+          hostnames: [oauth2.googleapis.com]
+        - ip: 172.217.119.4
+          hostnames: [oauth2.googleapis.com]
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 60
       initContainers:
