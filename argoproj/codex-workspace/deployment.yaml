@@ -476,6 +476,76 @@ spec:
             - name: pi-config
               mountPath: /etc/pi-agent-config
               readOnly: true
+        # BOXP-634: Owner-only login page for the AI CLIs (https://codex-auth.b0xp.io,
+        # arch docker/codex-workspace/auth-gateway). Reached only through the k8s
+        # cloudflared tunnel (Access: Owner email AND GitHub IdP; cloudflared requires the
+        # Access JWT) and NetworkPolicy; the gateway verifies the JWT again. It starts only
+        # the fixed official login commands (agy / claude auth login --claudeai /
+        # codex login --device-auth) as boxp with HOME on the PVC, so the CLIs keep
+        # writing their usual credential files. No API key or token env is set here on
+        # purpose: the logins stay on the subscription path.
+        - name: auth-gateway
+          image: ghcr.io/boxp/arch/codex-workspace:latest
+          imagePullPolicy: Always
+          command:
+            - /usr/bin/tini
+            - --
+            - /opt/codex-workspace/auth-gateway/auth_gateway.bb
+          ports:
+            - name: auth-gateway
+              containerPort: 8095
+          env:
+            - name: HOME
+              value: /home/boxp
+            - name: USER
+              value: boxp
+            - name: CODEX_HOME
+              value: /home/boxp/.codex
+            - name: CODEX_TASK_BOARD_ROOT
+              value: /home/boxp/.codex-task-board
+            - name: LANG
+              value: en_US.UTF-8
+            - name: CODEX_AUTH_GATEWAY_PORT
+              value: "8095"
+            - name: CODEX_AUTH_GATEWAY_TEAM_DOMAIN
+              value: https://boxp.cloudflareaccess.com
+            # Access application AUD of codex-auth.b0xp.io (arch k8s/codex_auth.tf output
+            # codex_auth_access_aud). Not a secret: it appears in Access login redirects.
+            - name: CODEX_AUTH_GATEWAY_AUD
+              value: 51d10e711c1edc7c969d9226f4978de1709848c2de57548077441d8b195807f9
+            - name: CODEX_AUTH_GATEWAY_OWNER_EMAILS
+              value: tiyotiyouda@gmail.com
+            - name: CODEX_AUTH_GATEWAY_PUBLIC_ORIGIN
+              value: https://codex-auth.b0xp.io
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: auth-gateway
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: auth-gateway
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: false
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "96Mi"
+            limits:
+              cpu: "1"
+              memory: "1536Mi"
+          volumeMounts:
+            - name: home
+              mountPath: /home/boxp
         # BOXP-428: isolate exporter inputs and reload the optional ingest key on every tick.
         - name: task-board-langfuse-exporter
           image: ghcr.io/boxp/arch/codex-workspace:latest

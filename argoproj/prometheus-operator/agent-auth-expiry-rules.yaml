@@ -37,6 +37,7 @@ spec:
               {{ $labels.provider }} の再ログイン期限（{{ $labels.kind }}）まで残り {{ $value | humanizeDuration }}。
               期限を過ぎると CLI は自動更新できず、手動の再ログインが必要になる。都合のよいときに codex-workspace で公式の再ログインをしておくと止まらない。
               Claude Code: claude を対話で起動し /login（ブラウザで本人が認可）。token やコードをチャットや Notes に貼らない。
+              スマホからは https://codex-auth.b0xp.io （Owner 本人のみ）で同じ公式ログインができる。
               CLI の利用で期限が延びた場合も解除される。確認: bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status
             runbook_next_actions: 許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout/token 発行、credential の閲覧・転記、API key や別課金への切替、独自の OAuth 更新。
         - alert: AgentAuthReloginImminent
@@ -58,6 +59,7 @@ spec:
               {{ $labels.provider }} の再ログイン期限（{{ $labels.kind }}）まで残り {{ $value | humanizeDuration }}。
               期限後はこの provider の run が認証エラーで止まる。今日中に codex-workspace で公式の再ログインを。
               Claude Code: claude を対話で起動し /login（ブラウザで本人が認可）。token やコードをチャットや Notes に貼らない。
+              スマホからは https://codex-auth.b0xp.io （Owner 本人のみ）で同じ公式ログインができる。
               確認: bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status
             runbook_next_actions: 許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout/token 発行、credential の閲覧・転記、API key や別課金への切替、独自の OAuth 更新。
         - alert: AgentAuthReloginExpired
@@ -75,6 +77,7 @@ spec:
             description: |
               {{ $labels.provider }} の再ログイン期限（{{ $labels.kind }}）を過ぎた。CLI は自動更新できないため、本人の公式ログインが必要。
               Claude Code: claude を対話で起動し /login（ブラウザで本人が認可）。再ログインで期限が更新されるとこの通知は解除される。
+              スマホからは https://codex-auth.b0xp.io （Owner 本人のみ）で同じ公式ログインができる。
             runbook_next_actions: 許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout/token 発行、credential の閲覧・転記、API key や別課金への切替、独自の OAuth 更新、認証失敗の再試行の連打。
         - alert: AgentAuthRefreshStalled
           # Codex は refresh token の期限を公開しない（unknown）。CLI は使われる限り自分で
@@ -93,6 +96,7 @@ spec:
             description: |
               {{ $labels.provider }} の再ログイン期限は公開されていない（unknown）。CLI の自動更新が 10 日以上起きておらず、未使用か更新失敗のどちらか。
               次の run が認証エラーになったら本人の公式ログインが必要（Codex: codex-workspace で codex login を対話で実行し本人が認可）。CLI が更新に成功すると解除される。
+              スマホからは https://codex-auth.b0xp.io （Owner 本人のみ）で同じ公式ログインができる。
             runbook_next_actions: 許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout、credential の閲覧・転記、API key への切替、独自の OAuth 更新。
         - alert: AgentAuthRunLoginFailed
           # 認証を読まない provider（Antigravity）。最後の run がログイン失敗で終わり、
@@ -114,6 +118,7 @@ spec:
             description: |
               {{ $labels.provider }} は期限を公開しないため事前には分からない（unknown）。最後の run がログイン失敗で終わった。
               Antigravity: codex-workspace で agy を対話で起動し、本人が公式ログインする。次に成功した run で解除される。
+              スマホからは https://codex-auth.b0xp.io （Owner 本人のみ）で同じ公式ログインができる。
             runbook_next_actions: 許可 = Owner への案内・証拠の記録。禁止 = agent による login/logout、credential の閲覧・転記、API key・ADC・AI credits への切替、別 route への自動切替。
         - alert: AgentAuthObservationUnavailable
           expr: |
