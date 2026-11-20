@@ -517,11 +517,9 @@ spec:
               value: tiyotiyouda@gmail.com
             - name: CODEX_AUTH_GATEWAY_PUBLIC_ORIGIN
               value: https://codex-auth.b0xp.io
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: auth-gateway
-            periodSeconds: 10
+          # No readinessProbe on purpose: a not-ready gateway must not take the whole
+          # codex-workspace Pod (SSH, dashboard) out of its Services. Liveness restarts
+          # only this container.
           livenessProbe:
             httpGet:
               path: /healthz
