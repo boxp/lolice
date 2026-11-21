@@ -81,6 +81,12 @@ spec:
               value: telegram-dm
             - name: KOHAKO_TELEGRAM_USER_ID
               value: "8202126858"
+            # BOXP-653: G2 also reads the Owner's own recent kohako-home turns
+            # (read-only, same /api/sessions API and key as above) as untrusted
+            # reference. No new egress, credential or write path; nothing is
+            # posted to the home session.
+            - name: KOHAKO_HOME_CONTEXT
+              value: recent
             # Suggestion candidates only: light model on the existing openai-codex
             # subscription (no new provider/credential). The conversation itself
             # keeps the Hermes default model.
