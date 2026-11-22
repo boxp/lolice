@@ -3,6 +3,8 @@
 その日（日本時間）の「家の会話」(Hermes session `kohako-web-*`) と「現場の報告」(`kohako-visit-*`)
 の発言だけを state.db から読み取り専用で取り出し、cron の prompt に渡す材料を標準出力へ書く。
 Telegram・眼鏡・cron・webhook など他の会話は読まない。書き込みは一切しない。
+BOXP-657: 眼鏡から家の会話（同じ session）へ入った発言は、家の BFF が先頭に入口の 1 行を付けている。
+その発言と、それへの返答は今までどおり載せない（「記録なし」の指示としても読まない）。
 
 材料が無い日、本人が止めた時（vault の `ナビログ/停止中.md`）、本人が「今日は記録なし」と
 言った日、その日のファイルに `navilog: skip` がある日は `{"wakeAgent": false}` を出し、
@@ -130,7 +132,30 @@ def as_text(content):
     return content if isinstance(content, str) else ""
 
 
+# boxp/arch apps/kohako-studio/bff の G2_ENTRY、plugin kohako-g2-context の _G2_ENTRY と同じ文字列に保つ。
+G2_ENTRY = "［眼鏡 Even G2 からの発言］"
+
+
+def drop_g2(rows):
+    """眼鏡からの発言（入口の 1 行つき）と、次の本人の発言までの返答を除く。"""
+    out, dropping = [], {}
+    for row in rows:
+        sid, role, content = row[0], row[1], row[2]
+        if sid.startswith("kohako-web-"):
+            if role == "user":
+                dropping[sid] = G2_ENTRY in as_text(content)
+            if dropping.get(sid):
+                continue
+        out.append(row)
+    return out
+
+
 def fetch(db_path, since, until):
+    # 範囲の少し前から読んで判定する（範囲の直前に眼鏡の発言があり、返答だけが範囲に入る場合も除くため）。
+    return [r for r in drop_g2(fetch_all(db_path, since - 7200, until)) if r[3] > since]
+
+
+def fetch_all(db_path, since, until):
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
     try:
         return con.execute(

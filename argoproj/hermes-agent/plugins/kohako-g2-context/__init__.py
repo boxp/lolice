@@ -6,7 +6,9 @@
   tool calls go to the official human-approval gate, which the BFF
   shows on G2 (once/deny only). Candidate runs (`kohako-g2-cand-*`) and any other API server
   session get no tools except verified Owner text turns on kohako-web and delegation children.
-  Touch and unknown turns get no tools; native Hermes approval remains in force. BOXP-420: a provably read-only curl (rewritten, never run as written)
+  Touch and unknown turns get no tools; native Hermes approval remains in force.
+  BOXP-657: a kohako-web turn whose text carries the G2 entry line (added by the home BFF for requests that
+  came through the glasses; typing it at home only narrows the turn) gets the `kohako-g2-*` table instead. BOXP-420: a provably read-only curl (rewritten, never run as written)
   and web_search skip the approval screen in G2 sessions; anything else stays on the existing route.
 - BOXP-599: visit sessions (`kohako-visit-*`) may use only the read-only Grafana MCP tools (`mcp__grafana__*`), blocked before
   execution; anything else, gate errors and their delegation children get no tools.
@@ -41,6 +43,12 @@ _PATTERNS = [
     (re.compile(r'(?<![\w/])/(?:[^\s/]+/)+[^\s/]+'), '[path]'),
     (_SECRET, '[secret]'),
 ]
+
+
+# BOXP-657: the home BFF puts this line in front of what it sends to Hermes for a request that came from
+# the glasses (shared conversation `kohako-web-*`). Keep identical to arch apps/kohako-studio/bff G2_ENTRY.
+_G2_ENTRY = '［眼鏡 Even G2 からの発言］'
+_HOME_SESSION = re.compile(r'kohako-web-[0-9a-z]{6,12}')
 
 
 def register(ctx):
@@ -89,17 +97,31 @@ def _context(session_id, platform, sender_id):
             return None
         db = _open_db()
         sessions = db.list_sessions_rich(source='api_server', order_by_last_active=True, limit=50)
-        g2 = next((s for s in sessions if isinstance(s.get('id'), str) and s['id'].startswith('kohako-g2-') and not s['id'].startswith('kohako-g2-cand-')), None)
-        if not g2 or not 0 <= time.time() - float(g2['last_active']) <= 6 * 3600:
-            return None
-        messages = db.get_messages(g2['id'], latest=True, limit=20)
+        # The most recently active source wins: a `kohako-g2-*` session, or (BOXP-657) the turns of a home
+        # session that carry the G2 entry line. Home turns of the shared session are never included.
+        g2, selected = None, []
+        for s in sessions:
+            sid = s.get('id')
+            if not isinstance(sid, str) or not 0 <= time.time() - float(s['last_active']) <= 6 * 3600:
+                continue
+            shared = bool(_HOME_SESSION.fullmatch(sid))
+            if not shared and (not sid.startswith('kohako-g2-') or sid.startswith('kohako-g2-cand-')):
+                continue
+            messages = db.get_messages(sid, latest=True, limit=60 if shared else 20)
+            if shared:
+                messages = _g2_turns(messages)
+            eligible = [m for m in messages if m.get('role') in ('user', 'assistant') and not (m.get('role') == 'assistant' and m.get('tool_calls')) and isinstance(m.get('content'), str) and m['content'].strip()]
+            last_assistant = next((i for i in range(len(eligible) - 1, -1, -1) if eligible[i]['role'] == 'assistant'), None)
+            if last_assistant is None:
+                if shared:
+                    continue
+                return None
+            g2, selected = s, eligible[:last_assistant + 1][-6:]
+            break
         closing_db, db = db, None
         closing_db.close()
-        eligible = [m for m in messages if m.get('role') in ('user', 'assistant') and not (m.get('role') == 'assistant' and m.get('tool_calls')) and isinstance(m.get('content'), str) and m['content'].strip()]
-        last_assistant = next((i for i in range(len(eligible) - 1, -1, -1) if eligible[i]['role'] == 'assistant'), None)
-        if last_assistant is None:
+        if g2 is None:
             return None
-        selected = eligible[:last_assistant + 1][-6:]
         message_id = selected[-1].get('id')
         if message_id is None:
             return None
@@ -122,6 +144,22 @@ def _context(session_id, platform, sender_id):
     finally:
         if db is not None:
             db.close()
+
+
+def _g2_turns(messages):
+    """Messages of a shared home session that belong to G2 turns: the user message carrying the entry
+    line (shown without it) and what follows until the next user message. A reply at the head of the
+    window is dropped because its turn is not known."""
+    out, keep = [], False
+    for m in messages:
+        if m.get('role') == 'user':
+            content = m.get('content')
+            keep = isinstance(content, str) and _G2_ENTRY in content
+            if keep:
+                out.append({**m, 'content': content.replace(_G2_ENTRY, '').strip()})
+        elif keep:
+            out.append(m)
+    return out
 
 
 # --- pre_tool_call gate -------------------------------------------------------------------------
@@ -225,6 +263,10 @@ def _remember_web_turn(sid, platform, turn_id, message, parent):
             # Hermes passes '' when a turn id is unset; that is not a turn we can tie a decision to.
             known = isinstance(turn_id, str) and bool(turn_id)
             owner = owner and known
+            # BOXP-657: True = Owner turn at home, 'g2' = came through the glasses (G2 table), False = no tools.
+            # The entry line anywhere in the text marks a G2 turn, so it can only narrow a home turn.
+            if owner and _G2_ENTRY in message:
+                owner = 'g2'
             if known:
                 _web_turns[(sid, turn_id)] = owner
                 _web_turns.move_to_end((sid, turn_id))
@@ -578,9 +620,13 @@ def _decide(tool_name, args, sid, tool_call_id, turn_id=None):
         return {'action': 'block', 'message': _BLOCK}
     if sid.startswith('kohako-web-'):
         with _lock:
-            allowed = isinstance(turn_id, str) and bool(turn_id) and _web_turns.get((sid, turn_id)) is True
-        return None if allowed else {'action': 'block', 'message': _WEB_BLOCK}
-    if not sid.startswith('kohako-g2-'):
+            allowed = _web_turns.get((sid, turn_id)) if isinstance(turn_id, str) and turn_id else False
+        if allowed is True:
+            return None
+        if allowed != 'g2':
+            return {'action': 'block', 'message': _WEB_BLOCK}
+        # A G2 turn of the shared session: the `kohako-g2-*` table below.
+    elif not sid.startswith('kohako-g2-'):
         with _lock:
             child = sid in _web_children
         if child and _session_source(sid) == 'api_server':
