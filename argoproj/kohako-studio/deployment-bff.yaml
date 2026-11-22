@@ -85,6 +85,15 @@ spec:
             # audio is forwarded in memory only and never stored.
             - name: KOHAKO_STT_URL
               value: http://kohako-stt.even-g2-lab.svc.cluster.local:8080
+            # BOXP-657 段1: 眼鏡の入口（principal g2）を読み取りだけで有効にする。外すと無効（段0 と同じ）。
+            # 通すのは「even-g2-lab の専用 ServiceAccount の token（audience kohako-bff-g2）」と
+            # 「眼鏡の Access アプリ（下の AUD。家の AUD とは別）で本人が通った証明」の両方がそろった時だけ。
+            - name: KOHAKO_G2_MODE
+              value: read
+            - name: KOHAKO_G2_USERNAME
+              value: system:serviceaccount:even-g2-lab:kohako-g2-bff
+            - name: KOHAKO_G2_ACCESS_AUD
+              value: c98ec040b98358a12ac478984c00ded11e85e9336f2acb768c5f772351fbcbcb
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
