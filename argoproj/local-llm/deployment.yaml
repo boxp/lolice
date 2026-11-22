@@ -5,7 +5,8 @@ metadata:
   annotations:
     configmap.reloader.stakater.com/reload: "llama-server-models"
 spec:
-  replicas: 1
+  # BOXP-665 の Inkling 2 Mini 試験の間だけ 0。実 scale/受付は BOXP-349 の runtime file queue で制御し、試験の終了時に 1 へ戻す。
+  replicas: 0
   strategy:
     type: Recreate
   selector:

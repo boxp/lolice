@@ -9,7 +9,8 @@ spec:
   # SYCL_UR_USE_LEVEL_ZERO_V2=1 で解消（configmap 参照）。gpu.intel.com/i915 は node に 1 つしかなく、
   # local-llm/llama-server と同時には動かせないため 0。再検証時は local-llm を止めてから 1 にする。
   # BOXP-383 batch7 完了後に復帰。
-  replicas: 0
+  # BOXP-665（Inkling 2 Mini の有限実機試験）の診断モード。local-llm を止めた上で 1。試験の終了時に 0 と通常構成へ戻す。
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -37,26 +38,19 @@ spec:
           - 110
       containers:
         - name: strata
-          # live の llama-server と同じ image（oneAPI / Level Zero runtime と python3 を使う）。
-          image: ghcr.io/boxp/arch/llama-sycl@sha256:30d75e0a297d7c1ce216c9bf0998eb37bf98314db475f60bcb01bb07c05331e2
+          # BOXP-665 の間だけ評価専用 image（boxp/arch#15534 の pr-15534。llama.cpp release b12633 = 9c10c94e を
+          # llama-sycl の Dockerfile で build したもの）。通常は live と同じ
+          # ghcr.io/boxp/arch/llama-sycl@sha256:30d75e0a297d7c1ce216c9bf0998eb37bf98314db475f60bcb01bb07c05331e2。
+          image: ghcr.io/boxp/arch/llama-sycl@sha256:e9505a17ca5f5073f3c007fe8a9f8653664e1aeb35cf0d1858b1ad27738f37d6
           imagePullPolicy: IfNotPresent
-          workingDir: /s/src-4b9e05a2
+          workingDir: /tmp
+          # BOXP-665 診断モード: 試験プロセス（llama-server）は node 経由の exec から 127.0.0.1 だけで起動する。
+          # 通常モードは workingDir /s/src-4b9e05a2、command
+          # `python3 -m serve.server --engine strata --config /config/strata.json --host 127.0.0.1 --port 9137 --offline --no-api-key`、
+          # env に LD_LIBRARY_PATH=/s/engine、STRATA_GGUF_PY=/s/gguf-py、PYTHONPATH=/s/pydeps:/s/src-4b9e05a2。
           command:
-            - python3
-            - -m
-            - serve.server
-            - --engine
-            - strata
-            - --config
-            - /config/strata.json
-            # Pod 内の loopback だけで待ち受ける。Service は作らず、
-            # 検証は kubectl port-forward からだけ行う（外部公開なし）。
-            - --host
-            - 127.0.0.1
-            - --port
-            - "9137"
-            - --offline
-            - --no-api-key
+            - sleep
+            - infinity
           env:
             - name: ZES_ENABLE_SYSMAN
               value: "1"
@@ -64,12 +58,6 @@ spec:
               value: level_zero:gpu
             - name: HOME
               value: /tmp
-            - name: LD_LIBRARY_PATH
-              value: /s/engine
-            - name: STRATA_GGUF_PY
-              value: /s/gguf-py
-            - name: PYTHONPATH
-              value: /s/pydeps:/s/src-4b9e05a2
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -91,6 +79,9 @@ spec:
             - name: strata
               mountPath: /s
               readOnly: true
+            # BOXP-665: 測定記録と試験スクリプト（小容量）。
+            - name: work
+              mountPath: /w
             - name: config
               mountPath: /config
               readOnly: true
@@ -101,7 +92,12 @@ spec:
       volumes:
         - name: strata
           hostPath:
-            path: /var/lib/local-llm/models/boxp336-strata
+            # BOXP-665 の間だけ Inkling 2 Mini GGUF の置き場所（読み取り専用）。通常は /var/lib/local-llm/models/boxp336-strata。
+            path: /var/lib/local-llm/models/boxp665-inkling2-mini
+            type: Directory
+        - name: work
+          hostPath:
+            path: /var/lib/local-llm/models/boxp665
             type: Directory
         - name: config
           configMap:
