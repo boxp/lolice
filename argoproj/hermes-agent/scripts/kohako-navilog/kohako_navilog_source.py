@@ -136,17 +136,25 @@ def as_text(content):
 G2_ENTRY = "［眼鏡 Even G2 からの発言］"
 
 
+def is_g2(content):
+    """家の BFF が付けた形（1 行目がちょうど入口の 1 行）だけを眼鏡の発言とみなす。
+
+    家の発言が文中でこの行を引用しても家の発言のまま。家の発言がこの行で始まる時は、BFF が前に別の 1 行を付けて送る。
+    """
+    return as_text(content).startswith(G2_ENTRY + "\n")
+
+
 def drop_g2(rows, before=None):
     """眼鏡からの発言（入口の 1 行つき）と、次の本人の発言までの返答を除く。
 
     before は session ごとの「範囲より前の最後の本人の発言」。それが眼鏡の発言なら、範囲の先頭にある返答も除く。
     """
-    out, dropping = [], {sid: G2_ENTRY in as_text(content) for sid, content in (before or {}).items()}
+    out, dropping = [], {sid: is_g2(content) for sid, content in (before or {}).items()}
     for row in rows:
         sid, role, content = row[0], row[1], row[2]
         if sid.startswith("kohako-web-"):
             if role == "user":
-                dropping[sid] = G2_ENTRY in as_text(content)
+                dropping[sid] = is_g2(content)
             if dropping.get(sid):
                 continue
         out.append(row)

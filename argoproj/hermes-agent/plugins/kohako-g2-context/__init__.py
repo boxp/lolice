@@ -155,16 +155,18 @@ def _context(session_id, platform, sender_id):
 
 
 def _g2_turns(messages):
-    """Messages of a shared home session that belong to G2 turns: the user message carrying the entry
-    line (shown without it) and what follows until the next user message. A reply at the head of the
-    window is dropped because its turn is not known."""
-    out, keep = [], False
+    """Messages of a shared home session that belong to G2 turns: the user message whose first line is
+    exactly the entry line, as the home BFF writes it (shown without it), and what follows until the next
+    user message. A home message that quotes the line anywhere else is a home turn and is never included;
+    the BFF never sends a home message in this form (it puts its own line in front of one that would start
+    with the entry line). A reply at the head of the window is dropped because its turn is not known."""
+    out, keep, head = [], False, _G2_ENTRY + '\n'
     for m in messages:
         if m.get('role') == 'user':
             content = m.get('content')
-            keep = isinstance(content, str) and _G2_ENTRY in content
+            keep = isinstance(content, str) and content.startswith(head)
             if keep:
-                out.append({**m, 'content': content.replace(_G2_ENTRY, '').strip()})
+                out.append({**m, 'content': content[len(head):].strip()})
         elif keep:
             out.append(m)
     return out

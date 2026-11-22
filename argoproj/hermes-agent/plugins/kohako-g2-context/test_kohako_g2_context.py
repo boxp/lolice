@@ -85,6 +85,35 @@ class ContextTests(unittest.TestCase):
         self.assertIn('world', result)
         self.assertNotIn('眼鏡の質問', result)
 
+    def test_home_turn_quoting_the_entry_line_is_not_a_g2_turn(self):
+        # BOXP-657: only the BFF form (the first line is exactly the entry line) is a G2 turn. A home message
+        # that quotes the line, or that the BFF sent with its own line in front, stays out of the reference.
+        entry, now = plugin._G2_ENTRY, time.time()
+        home = ('この ' + entry + ' という行は何', '引用\n' + entry + '\n家の秘密', ' ' + entry + '\n家の秘密', entry + ' 家の秘密',
+                '［家からの発言］\n' + entry + '\n家の秘密', entry)
+        shared = []
+        for i, content in enumerate(home):
+            shared += [{'id': 2 * i + 1, 'role': 'user', 'content': content, 'timestamp': now - 100},
+                       {'id': 2 * i + 2, 'role': 'assistant', 'content': '家への返答', 'timestamp': now - 90}]
+        self.db.sessions = [{'id': 'kohako-web-mabc123', 'last_active': now - 20}]
+        self.db.get_messages = lambda sid, **kwargs: shared
+        self.assertIsNone(self.call())
+        self.assertEqual(plugin._g2_turns(shared), [])
+        # With an older `kohako-g2-*` session, that one is the reference and nothing of the home turns shows.
+        self.db.sessions.append({'id': 'kohako-g2-main', 'last_active': now - 3600})
+        self.db.get_messages = lambda sid, **kwargs: shared if sid == 'kohako-web-mabc123' else self.db.messages
+        result = self.call()['context']
+        self.assertIn('world', result)
+        for absent in ('家', entry):
+            self.assertNotIn(absent, result)
+        # The BFF form keeps a line the Owner said through the glasses that itself quotes the entry line.
+        plugin._injected.clear()
+        shared += [{'id': 90, 'role': 'user', 'content': entry + '\n' + entry + ' とは', 'timestamp': now - 10},
+                   {'id': 91, 'role': 'assistant', 'content': '眼鏡への返答', 'timestamp': now - 5}]
+        result = self.call()['context']
+        self.assertIn('Owner(G2): ' + entry + ' とは', result)
+        self.assertNotIn('家', result)
+
     def test_shared_home_session_is_dated_by_its_last_g2_reply(self):
         # BOXP-657: talking at home moves last_active; an old glasses exchange must not look current.
         entry, now = plugin._G2_ENTRY, time.time()

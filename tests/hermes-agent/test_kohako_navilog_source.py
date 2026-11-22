@@ -100,6 +100,21 @@ class NavilogSourceTest(unittest.TestCase):
         for absent in ("眼鏡", entry):
             self.assertNotIn(absent, out)
 
+    def test_home_turn_quoting_the_entry_line_is_kept(self):
+        # 1 行目がちょうど入口の 1 行（家の BFF が付けた形）だけが眼鏡の発言。引用しただけの家の発言は載せる。
+        entry = self.mod.G2_ENTRY
+        self.add("kohako-web-abc", "user", f"この {entry} という行の話", ts("08:10"))
+        self.add("kohako-web-abc", "assistant", "引用への返答", ts("08:11"))
+        self.add("kohako-web-abc", "user", f"［家からの発言］\n{entry}\n家で打った行", ts("08:20"))
+        self.add("kohako-web-abc", "assistant", "打った行への返答", ts("08:21"))
+        self.add("kohako-web-abc", "user", f"{entry}\n眼鏡の話", ts("09:00"))
+        self.add("kohako-web-abc", "assistant", "眼鏡への返答", ts("09:01"))
+        code, out = self.run_main()
+        self.assertEqual(code, 0)
+        for present in ("という行の話", "引用への返答", "家で打った行", "打った行への返答"):
+            self.assertIn(present, out)
+        self.assertNotIn("眼鏡の", out)
+
     def test_g2_reply_after_the_cursor_is_left_out(self):
         # 眼鏡の発言が渡し済みの範囲より前（何時間前でも）にあり、返答だけが範囲に入っても載せない。
         d = self.vault / "ナビログ" / "2026-11"
