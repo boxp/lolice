@@ -450,6 +450,11 @@ class WebGateTests(unittest.TestCase):
         # Typing the line at home, or quoting it mid-text, only narrows the turn.
         self.hook(self.SID, 'typed', '家で打った ' + entry + ' を含む発言')
         self.assertEqual(g2('typed', 'write_file', {})['message'], plugin._NO_APPROVAL)
+        # Narrowing only: whatever the G2 table lets through unasked, the home turn lets through as well.
+        for tool, args in (('terminal', {'command': board}), ('terminal', {'command': board.replace('list', 'move BOXP-1 --lane Ready')}),
+                           ('session_search', {}), ('web_search', {'query': 'x'}), ('terminal', {'command': 'ls /tmp'}), ('write_file', {})):
+            self.assertIsNone(g2('h', tool, args), (tool, args))
+            self.assertIn((g2('typed', tool, args) or {}).get('action'), (None, 'modify', 'approve', 'block'), (tool, args))
         # A touch turn stays tool-free even with the line; unknown turns too.
         self.hook(self.SID, 'touch', entry + '\n' + self.TOUCH)
         self.assertEqual(g2('touch', 'session_search', {})['message'], plugin._WEB_BLOCK)

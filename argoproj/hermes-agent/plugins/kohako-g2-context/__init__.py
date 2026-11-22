@@ -272,7 +272,10 @@ def _remember_web_turn(sid, platform, turn_id, message, parent):
             known = isinstance(turn_id, str) and bool(turn_id)
             owner = owner and known
             # BOXP-657: True = Owner turn at home, 'g2' = came through the glasses (G2 table), False = no tools.
-            # The entry line anywhere in the text marks a G2 turn, so it can only narrow a home turn.
+            # The entry line anywhere in the text marks a G2 turn, so it can only narrow a home turn:
+            # a home Owner turn (True) is passed through by this gate for every tool (`_decide` returns None),
+            # while the G2 table answers None, a rewrite to the validated read-only form, the approval screen
+            # or a refusal. No G2 answer allows what the home turn would not, so typing the line grants nothing.
             if owner and _G2_ENTRY in message:
                 owner = 'g2'
             if known:
