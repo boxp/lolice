@@ -82,6 +82,55 @@ class NavilogSourceTest(unittest.TestCase):
         self.assertIn("既存ファイル: なし", out)
         self.assertIn(f"navilog_until に書く値: {int(self.now)}", out)
 
+    def test_g2_turns_of_the_shared_session_are_left_out(self):
+        # BOXP-657: 眼鏡から家の会話へ入った発言（入口の 1 行つき）と返答は載せない。指示としても読まない。
+        entry = self.mod.G2_ENTRY
+        self.assertEqual(entry, "［眼鏡 Even G2 からの発言］")
+        self.add("kohako-web-abc", "user", "家の話", ts("08:10"))
+        self.add("kohako-web-abc", "assistant", "家の返答", ts("08:11"))
+        self.add("kohako-web-abc", "user", f"{entry}\n眼鏡の話。今日は記録なし", ts("09:00"))
+        self.add("kohako-web-abc", "assistant", "眼鏡への返答", ts("09:01"))
+        self.add("kohako-web-abc", "assistant", "眼鏡への返答の続き", ts("09:02"))
+        self.add("kohako-web-abc", "user", "家へ戻った話", ts("09:10"))
+        self.add("kohako-web-abc", "assistant", "戻った返答", ts("09:11"))
+        code, out = self.run_main()
+        self.assertEqual(code, 0)
+        for present in ("家の話", "家の返答", "家へ戻った話", "戻った返答"):
+            self.assertIn(present, out)
+        for absent in ("眼鏡", entry):
+            self.assertNotIn(absent, out)
+
+    def test_home_turn_quoting_the_entry_line_is_kept(self):
+        # 1 行目がちょうど入口の 1 行（家の BFF が付けた形）だけが眼鏡の発言。引用しただけの家の発言は載せる。
+        entry = self.mod.G2_ENTRY
+        self.add("kohako-web-abc", "user", f"この {entry} という行の話", ts("08:10"))
+        self.add("kohako-web-abc", "assistant", "引用への返答", ts("08:11"))
+        self.add("kohako-web-abc", "user", f"［家からの発言］\n{entry}\n家で打った行", ts("08:20"))
+        self.add("kohako-web-abc", "assistant", "打った行への返答", ts("08:21"))
+        self.add("kohako-web-abc", "user", f"{entry}\n眼鏡の話", ts("09:00"))
+        self.add("kohako-web-abc", "assistant", "眼鏡への返答", ts("09:01"))
+        code, out = self.run_main()
+        self.assertEqual(code, 0)
+        for present in ("という行の話", "引用への返答", "家で打った行", "打った行への返答"):
+            self.assertIn(present, out)
+        self.assertNotIn("眼鏡の", out)
+
+    def test_g2_reply_after_the_cursor_is_left_out(self):
+        # 眼鏡の発言が渡し済みの範囲より前（何時間前でも）にあり、返答だけが範囲に入っても載せない。
+        d = self.vault / "ナビログ" / "2026-11"
+        d.mkdir(parents=True)
+        (d / "2026-11-18.md").write_text(f"---\nnavilog_until: {int(ts('09:00'))}\n---\n", encoding="utf-8")
+        self.add("kohako-web-abc", "user", f"{self.mod.G2_ENTRY}\n眼鏡の話", ts("03:00"))
+        self.add("kohako-web-abc", "assistant", "眼鏡への返答", ts("09:01"))
+        self.add("kohako-web-old", "user", "家の前の話", ts("03:00"))
+        self.add("kohako-web-old", "assistant", "家への遅い返答", ts("09:02"))
+        self.add("kohako-web-abc", "user", "家の話", ts("09:10"))
+        code, out = self.run_main()
+        self.assertEqual(code, 0)
+        self.assertIn("家の話", out)
+        self.assertIn("家への遅い返答", out)
+        self.assertNotIn("眼鏡", out)
+
     def test_no_material_skips_agent(self):
         self.add("telegram-1", "user", "Telegram の話", ts("09:00"))
         code, out = self.run_main()
