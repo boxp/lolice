@@ -97,35 +97,46 @@ def _context(session_id, platform, sender_id):
             return None
         db = _open_db()
         sessions = db.list_sessions_rich(source='api_server', order_by_last_active=True, limit=50)
-        # The most recently active source wins: a `kohako-g2-*` session, or (BOXP-657) the turns of a home
-        # session that carry the G2 entry line. Home turns of the shared session are never included.
-        g2, selected = None, []
+        # The source whose glasses conversation is the most recent wins: the newest `kohako-g2-*` session
+        # (dated by its last_active), or (BOXP-657) the turns of a home session that carry the G2 entry line.
+        # A shared session is dated by its last G2 reply, never by last_active: talking at home moves
+        # last_active but must not make an old glasses exchange look current. Home turns are never included.
+        now, best, legacy_seen, shared_read = time.time(), None, False, 0
         for s in sessions:
             sid = s.get('id')
-            if not isinstance(sid, str) or not 0 <= time.time() - float(s['last_active']) <= 6 * 3600:
+            if not isinstance(sid, str) or not 0 <= now - float(s['last_active']) <= 6 * 3600:
                 continue
             shared = bool(_HOME_SESSION.fullmatch(sid))
-            if not shared and (not sid.startswith('kohako-g2-') or sid.startswith('kohako-g2-cand-')):
-                continue
-            messages = db.get_messages(sid, latest=True, limit=60 if shared else 20)
             if shared:
-                messages = _g2_turns(messages)
+                if shared_read >= 5:
+                    continue
+                shared_read += 1
+                messages = _g2_turns(db.get_messages(sid, latest=True, limit=60))
+            elif sid.startswith('kohako-g2-') and not sid.startswith('kohako-g2-cand-') and not legacy_seen:
+                legacy_seen = True
+                messages = db.get_messages(sid, latest=True, limit=20)
+            else:
+                continue
             eligible = [m for m in messages if m.get('role') in ('user', 'assistant') and not (m.get('role') == 'assistant' and m.get('tool_calls')) and isinstance(m.get('content'), str) and m['content'].strip()]
             last_assistant = next((i for i in range(len(eligible) - 1, -1, -1) if eligible[i]['role'] == 'assistant'), None)
             if last_assistant is None:
-                if shared:
+                continue
+            when = float(s['last_active'])
+            if shared:
+                when = eligible[last_assistant].get('timestamp')
+                if isinstance(when, bool) or not isinstance(when, (int, float)) or not 0 <= now - when <= 6 * 3600:
                     continue
-                return None
-            g2, selected = s, eligible[:last_assistant + 1][-6:]
-            break
+            if best is None or when > best[0]:
+                best = (float(when), eligible[:last_assistant + 1][-6:])
         closing_db, db = db, None
         closing_db.close()
-        if g2 is None:
+        if best is None:
             return None
+        when, selected = best
         message_id = selected[-1].get('id')
         if message_id is None:
             return None
-        stamp = datetime.fromtimestamp(float(g2['last_active']), timezone.utc).strftime('%H:%M')
+        stamp = datetime.fromtimestamp(when, timezone.utc).strftime('%H:%M')
         prefix = f'[Kohako G2 での直近の会話（参照用・{stamp} UTC 時点）]\n{_HEADER}'
         lines = [f"- {'Owner' if m['role'] == 'user' else 'Kohako'}(G2): {_clean(m['content'])}" for m in selected]
         while lines and len(prefix) + 1 + len('\n'.join(lines)) > 1200:

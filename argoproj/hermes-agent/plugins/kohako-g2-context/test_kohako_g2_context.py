@@ -66,7 +66,7 @@ class ContextTests(unittest.TestCase):
             {'id': 4, 'role': 'user', 'content': entry + '\n眼鏡の質問'},
             {'id': 5, 'role': 'assistant', 'content': '', 'tool_calls': [1]},
             {'id': 6, 'role': 'tool', 'content': '道具の出力'},
-            {'id': 7, 'role': 'assistant', 'content': '眼鏡への返答'},
+            {'id': 7, 'role': 'assistant', 'content': '眼鏡への返答', 'timestamp': time.time() - 10},
             {'id': 8, 'role': 'user', 'content': '家の次の話'},
             {'id': 9, 'role': 'assistant', 'content': '家への次の返答'},
         ]
@@ -84,6 +84,43 @@ class ContextTests(unittest.TestCase):
         result = self.call()['context']
         self.assertIn('world', result)
         self.assertNotIn('眼鏡の質問', result)
+
+    def test_shared_home_session_is_dated_by_its_last_g2_reply(self):
+        # BOXP-657: talking at home moves last_active; an old glasses exchange must not look current.
+        entry, now = plugin._G2_ENTRY, time.time()
+        shared = [
+            {'id': 1, 'role': 'user', 'content': entry + '\n眼鏡の質問', 'timestamp': now - 7 * 3600},
+            {'id': 2, 'role': 'assistant', 'content': '眼鏡への返答', 'timestamp': now - 7 * 3600 + 5},
+            {'id': 3, 'role': 'user', 'content': '家の話', 'timestamp': now - 30},
+            {'id': 4, 'role': 'assistant', 'content': '家への返答', 'timestamp': now - 20},
+        ]
+        self.db.sessions = [{'id': 'kohako-web-mabc123', 'last_active': now - 20}, {'id': 'kohako-g2-main', 'last_active': now - 3600}]
+        self.db.get_messages = lambda sid, **kwargs: shared if sid == 'kohako-web-mabc123' else self.db.messages
+        def call():
+            plugin._injected.clear()
+            return self.call()
+        # Older than 6 hours: the newer `kohako-g2-*` session is the reference.
+        result = call()['context']
+        self.assertIn('world', result)
+        self.assertNotIn('眼鏡の質問', result)
+        self.assertIn(time.strftime('%H:%M', time.gmtime(now - 3600)), result)
+        # ... and nothing at all when there is no other source.
+        self.db.sessions.pop()
+        self.assertIsNone(call())
+        # Within 6 hours but older than the `kohako-g2-*` session: still the newer one wins.
+        self.db.sessions.append({'id': 'kohako-g2-main', 'last_active': now - 3600})
+        shared[0]['timestamp'], shared[1]['timestamp'] = now - 2 * 3600, now - 2 * 3600 + 5
+        self.assertIn('world', call()['context'])
+        # Newer than the `kohako-g2-*` session: the shared turns win, stamped with the reply's time.
+        shared[0]['timestamp'], shared[1]['timestamp'] = now - 600, now - 590
+        result = call()['context']
+        self.assertIn('眼鏡への返答', result)
+        self.assertNotIn('world', result)
+        self.assertIn(time.strftime('%H:%M', time.gmtime(now - 590)), result)
+        # A reply without a usable time is not dated by last_active.
+        for bad in (None, 'x', True, now + 60):
+            shared[1]['timestamp'] = bad
+            self.assertIn('world', call()['context'], bad)
 
     def test_messages_and_dedup(self):
         self.db.messages += [{'id': 3, 'role': 'assistant', 'content': 'tool', 'tool_calls': [1]}, {'id': 4, 'role': 'user', 'content': 'pending'}]
