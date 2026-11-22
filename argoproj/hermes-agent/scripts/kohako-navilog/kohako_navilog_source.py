@@ -136,9 +136,12 @@ def as_text(content):
 G2_ENTRY = "［眼鏡 Even G2 からの発言］"
 
 
-def drop_g2(rows):
-    """眼鏡からの発言（入口の 1 行つき）と、次の本人の発言までの返答を除く。"""
-    out, dropping = [], {}
+def drop_g2(rows, before=None):
+    """眼鏡からの発言（入口の 1 行つき）と、次の本人の発言までの返答を除く。
+
+    before は session ごとの「範囲より前の最後の本人の発言」。それが眼鏡の発言なら、範囲の先頭にある返答も除く。
+    """
+    out, dropping = [], {sid: G2_ENTRY in as_text(content) for sid, content in (before or {}).items()}
     for row in rows:
         sid, role, content = row[0], row[1], row[2]
         if sid.startswith("kohako-web-"):
@@ -151,8 +154,20 @@ def drop_g2(rows):
 
 
 def fetch(db_path, since, until):
-    # 範囲の少し前から読んで判定する（範囲の直前に眼鏡の発言があり、返答だけが範囲に入る場合も除くため）。
-    return [r for r in drop_g2(fetch_all(db_path, since - 7200, until)) if r[3] > since]
+    rows = fetch_all(db_path, since, until)
+    # 範囲より前の最後の本人の発言を session ごとに読む（返答が何時間後でも、眼鏡の発言への返答を載せないため）。
+    before = {}
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
+    try:
+        for sid in {r[0] for r in rows if r[0].startswith("kohako-web-")}:
+            last = con.execute(
+                "SELECT content FROM messages WHERE session_id = ? AND role = 'user' AND timestamp <= ?"
+                " ORDER BY timestamp DESC, id DESC LIMIT 1", (sid, since)).fetchone()
+            if last:
+                before[sid] = last[0]
+    finally:
+        con.close()
+    return drop_g2(rows, before)
 
 
 def fetch_all(db_path, since, until):

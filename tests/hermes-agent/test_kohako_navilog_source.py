@@ -101,16 +101,19 @@ class NavilogSourceTest(unittest.TestCase):
             self.assertNotIn(absent, out)
 
     def test_g2_reply_after_the_cursor_is_left_out(self):
-        # 眼鏡の発言が渡し済みの範囲の直前にあり、返答だけが範囲に入っても載せない。
+        # 眼鏡の発言が渡し済みの範囲より前（何時間前でも）にあり、返答だけが範囲に入っても載せない。
         d = self.vault / "ナビログ" / "2026-11"
         d.mkdir(parents=True)
         (d / "2026-11-18.md").write_text(f"---\nnavilog_until: {int(ts('09:00'))}\n---\n", encoding="utf-8")
-        self.add("kohako-web-abc", "user", f"{self.mod.G2_ENTRY}\n眼鏡の話", ts("08:59"))
+        self.add("kohako-web-abc", "user", f"{self.mod.G2_ENTRY}\n眼鏡の話", ts("03:00"))
         self.add("kohako-web-abc", "assistant", "眼鏡への返答", ts("09:01"))
+        self.add("kohako-web-old", "user", "家の前の話", ts("03:00"))
+        self.add("kohako-web-old", "assistant", "家への遅い返答", ts("09:02"))
         self.add("kohako-web-abc", "user", "家の話", ts("09:10"))
         code, out = self.run_main()
         self.assertEqual(code, 0)
         self.assertIn("家の話", out)
+        self.assertIn("家への遅い返答", out)
         self.assertNotIn("眼鏡", out)
 
     def test_no_material_skips_agent(self):
