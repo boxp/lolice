@@ -101,16 +101,13 @@ def _context(session_id, platform, sender_id):
         # (dated by its last_active), or (BOXP-657) the turns of a home session that carry the G2 entry line.
         # A shared session is dated by its last G2 reply, never by last_active: talking at home moves
         # last_active but must not make an old glasses exchange look current. Home turns are never included.
-        now, best, legacy_seen, shared_read = time.time(), None, False, 0
+        now, best, legacy_seen = time.time(), None, False
         for s in sessions:
             sid = s.get('id')
             if not isinstance(sid, str) or not 0 <= now - float(s['last_active']) <= 6 * 3600:
                 continue
             shared = bool(_HOME_SESSION.fullmatch(sid))
             if shared:
-                if shared_read >= 5:
-                    continue
-                shared_read += 1
                 messages = _g2_turns(db.get_messages(sid, latest=True, limit=60))
             elif sid.startswith('kohako-g2-') and not sid.startswith('kohako-g2-cand-') and not legacy_seen:
                 legacy_seen = True
