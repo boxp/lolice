@@ -3,6 +3,8 @@
 その日（日本時間）の「家の会話」(Hermes session `kohako-web-*`) と「現場の報告」(`kohako-visit-*`)
 の発言だけを state.db から読み取り専用で取り出し、cron の prompt に渡す材料を標準出力へ書く。
 Telegram・眼鏡・cron・webhook など他の会話は読まない。書き込みは一切しない。
+BOXP-657: 眼鏡から家の会話（同じ session）へ入った発言は、家の BFF が先頭に入口の 1 行を付けている。
+その発言と、それへの返答は今までどおり載せない（「記録なし」の指示としても読まない）。
 
 材料が無い日、本人が止めた時（vault の `ナビログ/停止中.md`）、本人が「今日は記録なし」と
 言った日、その日のファイルに `navilog: skip` がある日は `{"wakeAgent": false}` を出し、
@@ -130,7 +132,53 @@ def as_text(content):
     return content if isinstance(content, str) else ""
 
 
+# boxp/arch apps/kohako-studio/bff の G2_ENTRY、plugin kohako-g2-context の _G2_ENTRY と同じ文字列に保つ。
+G2_ENTRY = "［眼鏡 Even G2 からの発言］"
+
+
+def is_g2(content):
+    """家の BFF が付けた形（1 行目がちょうど入口の 1 行）だけを眼鏡の発言とみなす。
+
+    家の発言が文中でこの行を引用しても家の発言のまま。家の発言がこの行で始まる時は、BFF が前に別の 1 行を付けて送る。
+    """
+    return as_text(content).startswith(G2_ENTRY + "\n")
+
+
+def drop_g2(rows, before=None):
+    """眼鏡からの発言（入口の 1 行つき）と、次の本人の発言までの返答を除く。
+
+    before は session ごとの「範囲より前の最後の本人の発言」。それが眼鏡の発言なら、範囲の先頭にある返答も除く。
+    """
+    out, dropping = [], {sid: is_g2(content) for sid, content in (before or {}).items()}
+    for row in rows:
+        sid, role, content = row[0], row[1], row[2]
+        if sid.startswith("kohako-web-"):
+            if role == "user":
+                dropping[sid] = is_g2(content)
+            if dropping.get(sid):
+                continue
+        out.append(row)
+    return out
+
+
 def fetch(db_path, since, until):
+    rows = fetch_all(db_path, since, until)
+    # 範囲より前の最後の本人の発言を session ごとに読む（返答が何時間後でも、眼鏡の発言への返答を載せないため）。
+    before = {}
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
+    try:
+        for sid in {r[0] for r in rows if r[0].startswith("kohako-web-")}:
+            last = con.execute(
+                "SELECT content FROM messages WHERE session_id = ? AND role = 'user' AND timestamp <= ?"
+                " ORDER BY timestamp DESC, id DESC LIMIT 1", (sid, since)).fetchone()
+            if last:
+                before[sid] = last[0]
+    finally:
+        con.close()
+    return drop_g2(rows, before)
+
+
+def fetch_all(db_path, since, until):
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
     try:
         return con.execute(

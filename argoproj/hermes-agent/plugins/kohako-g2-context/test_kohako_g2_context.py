@@ -56,6 +56,101 @@ class ContextTests(unittest.TestCase):
         plugin._injected.clear()
         self.db.sessions[1]['last_active'] = time.time() - 21601
         self.assertIsNone(self.call())
+    def test_shared_home_session_only_g2_turns(self):
+        # BOXP-657: G2 turns of the shared home session are the reference; home turns never are.
+        entry = plugin._G2_ENTRY
+        shared = [
+            {'id': 1, 'role': 'assistant', 'content': '窓の先頭の返答'},
+            {'id': 2, 'role': 'user', 'content': '家の秘密の話'},
+            {'id': 3, 'role': 'assistant', 'content': '家への返答'},
+            {'id': 4, 'role': 'user', 'content': entry + '\n眼鏡の質問'},
+            {'id': 5, 'role': 'assistant', 'content': '', 'tool_calls': [1]},
+            {'id': 6, 'role': 'tool', 'content': '道具の出力'},
+            {'id': 7, 'role': 'assistant', 'content': '眼鏡への返答', 'timestamp': time.time() - 10},
+            {'id': 8, 'role': 'user', 'content': '家の次の話'},
+            {'id': 9, 'role': 'assistant', 'content': '家への次の返答'},
+        ]
+        self.db.sessions = [{'id': 'kohako-web-reply-abcdef', 'last_active': time.time()}, {'id': 'kohako-web-mabc123', 'last_active': time.time()},
+                            {'id': 'kohako-g2-main', 'last_active': time.time() - 60}]
+        self.db.get_messages = lambda sid, **kwargs: shared if sid == 'kohako-web-mabc123' else self.db.messages
+        result = self.call()['context']
+        self.assertIn('眼鏡の質問', result)
+        self.assertIn('眼鏡への返答', result)
+        for absent in ('家', entry, '道具', '窓の先頭', 'world'):
+            self.assertNotIn(absent, result)
+        # A home session without G2 turns falls through to the older `kohako-g2-*` session.
+        plugin._injected.clear()
+        shared[3]['content'] = '眼鏡の質問（入口なし）'
+        result = self.call()['context']
+        self.assertIn('world', result)
+        self.assertNotIn('眼鏡の質問', result)
+
+    def test_home_turn_quoting_the_entry_line_is_not_a_g2_turn(self):
+        # BOXP-657: only the BFF form (the first line is exactly the entry line) is a G2 turn. A home message
+        # that quotes the line, or that the BFF sent with its own line in front, stays out of the reference.
+        entry, now = plugin._G2_ENTRY, time.time()
+        home = ('この ' + entry + ' という行は何', '引用\n' + entry + '\n家の秘密', ' ' + entry + '\n家の秘密', entry + ' 家の秘密',
+                '［家からの発言］\n' + entry + '\n家の秘密', entry)
+        shared = []
+        for i, content in enumerate(home):
+            shared += [{'id': 2 * i + 1, 'role': 'user', 'content': content, 'timestamp': now - 100},
+                       {'id': 2 * i + 2, 'role': 'assistant', 'content': '家への返答', 'timestamp': now - 90}]
+        self.db.sessions = [{'id': 'kohako-web-mabc123', 'last_active': now - 20}]
+        self.db.get_messages = lambda sid, **kwargs: shared
+        self.assertIsNone(self.call())
+        self.assertEqual(plugin._g2_turns(shared), [])
+        # With an older `kohako-g2-*` session, that one is the reference and nothing of the home turns shows.
+        self.db.sessions.append({'id': 'kohako-g2-main', 'last_active': now - 3600})
+        self.db.get_messages = lambda sid, **kwargs: shared if sid == 'kohako-web-mabc123' else self.db.messages
+        result = self.call()['context']
+        self.assertIn('world', result)
+        for absent in ('家', entry):
+            self.assertNotIn(absent, result)
+        # The BFF form keeps a line the Owner said through the glasses that itself quotes the entry line.
+        plugin._injected.clear()
+        shared += [{'id': 90, 'role': 'user', 'content': entry + '\n' + entry + ' とは', 'timestamp': now - 10},
+                   {'id': 91, 'role': 'assistant', 'content': '眼鏡への返答', 'timestamp': now - 5}]
+        result = self.call()['context']
+        self.assertIn('Owner(G2): ' + entry + ' とは', result)
+        self.assertNotIn('家', result)
+
+    def test_shared_home_session_is_dated_by_its_last_g2_reply(self):
+        # BOXP-657: talking at home moves last_active; an old glasses exchange must not look current.
+        entry, now = plugin._G2_ENTRY, time.time()
+        shared = [
+            {'id': 1, 'role': 'user', 'content': entry + '\n眼鏡の質問', 'timestamp': now - 7 * 3600},
+            {'id': 2, 'role': 'assistant', 'content': '眼鏡への返答', 'timestamp': now - 7 * 3600 + 5},
+            {'id': 3, 'role': 'user', 'content': '家の話', 'timestamp': now - 30},
+            {'id': 4, 'role': 'assistant', 'content': '家への返答', 'timestamp': now - 20},
+        ]
+        self.db.sessions = [{'id': 'kohako-web-mabc123', 'last_active': now - 20}, {'id': 'kohako-g2-main', 'last_active': now - 3600}]
+        self.db.get_messages = lambda sid, **kwargs: shared if sid == 'kohako-web-mabc123' else self.db.messages
+        def call():
+            plugin._injected.clear()
+            return self.call()
+        # Older than 6 hours: the newer `kohako-g2-*` session is the reference.
+        result = call()['context']
+        self.assertIn('world', result)
+        self.assertNotIn('眼鏡の質問', result)
+        self.assertIn(time.strftime('%H:%M', time.gmtime(now - 3600)), result)
+        # ... and nothing at all when there is no other source.
+        self.db.sessions.pop()
+        self.assertIsNone(call())
+        # Within 6 hours but older than the `kohako-g2-*` session: still the newer one wins.
+        self.db.sessions.append({'id': 'kohako-g2-main', 'last_active': now - 3600})
+        shared[0]['timestamp'], shared[1]['timestamp'] = now - 2 * 3600, now - 2 * 3600 + 5
+        self.assertIn('world', call()['context'])
+        # Newer than the `kohako-g2-*` session: the shared turns win, stamped with the reply's time.
+        shared[0]['timestamp'], shared[1]['timestamp'] = now - 600, now - 590
+        result = call()['context']
+        self.assertIn('眼鏡への返答', result)
+        self.assertNotIn('world', result)
+        self.assertIn(time.strftime('%H:%M', time.gmtime(now - 590)), result)
+        # A reply without a usable time is not dated by last_active.
+        for bad in (None, 'x', True, now + 60):
+            shared[1]['timestamp'] = bad
+            self.assertIn('world', call()['context'], bad)
+
     def test_messages_and_dedup(self):
         self.db.messages += [{'id': 3, 'role': 'assistant', 'content': 'tool', 'tool_calls': [1]}, {'id': 4, 'role': 'user', 'content': 'pending'}]
         result = self.call()['context']
@@ -356,6 +451,53 @@ class WebGateTests(unittest.TestCase):
         for turn, message in (('six', real), ('seven', '[2026-11-11 12:00] ' + real)):
             self.hook(self.SID, turn, message)
             self.assertEqual(self.gate(self.SID, turn)['message'], plugin._WEB_BLOCK)
+
+    def test_g2_entry_turns_of_the_shared_session(self):
+        # BOXP-657. Cross-repo contract: boxp/arch apps/kohako-studio/bff G2_ENTRY.
+        entry = plugin._G2_ENTRY
+        self.assertEqual(entry, '［眼鏡 Even G2 からの発言］')
+        board = 'bb /opt/data/skills/note-taking/obsidian-task-board/bin/task-board.bb list'
+        def g2(turn, tool, args):
+            return plugin._gate(session_id=self.SID, turn_id=turn, tool_name=tool, args=args, tool_call_id='call_' + '0' * 32)
+        self.hook(self.SID, 'g', entry + '\n票を見て')
+        # The `kohako-g2-*` table: reads and Task Board free, short terminal to approval, the rest refused.
+        self.assertIsNone(g2('g', 'session_search', {}))
+        self.assertIsNone(g2('g', 'terminal', {'command': board}))
+        self.assertEqual(g2('g', 'terminal', {'command': 'ls /tmp'})['action'], 'approve')
+        self.assertEqual(g2('g', 'terminal', {'command': 'x' * 200})['message'], plugin._TOO_LONG)
+        for tool in ('write_file', 'memory', 'delegate_task', 'mcp__grafana__query_prometheus', 'browser_navigate'):
+            self.assertEqual(g2('g', tool, {})['message'], plugin._NO_APPROVAL)
+        # Same table as a `kohako-g2-*` session, call by call.
+        for tool, args in (('terminal', {'command': board}), ('terminal', {'command': 'ls /tmp'}), ('memory', {}), ('read_file', {'path': '/etc/passwd'}),
+                           ('read_file', {'path': '/opt/data/skills/x'}), ('web_search', {'query': 'x'}), ('terminal', {'command': 'ls', 'workdir': '/'})):
+            legacy = plugin._gate(session_id='kohako-g2-main', turn_id='g', tool_name=tool, args=args, tool_call_id='call_' + '0' * 32)
+            self.assertEqual(g2('g', tool, args), legacy, (tool, args))
+        # A home turn without the line keeps the home range; the next G2 turn is narrowed again (same session).
+        self.hook(self.SID, 'h', '家からの発言')
+        self.assertIsNone(g2('h', 'write_file', {}))
+        self.assertEqual(g2('g', 'write_file', {})['message'], plugin._NO_APPROVAL)
+        # Typing the line at home, or quoting it mid-text, only narrows the turn.
+        self.hook(self.SID, 'typed', '家で打った ' + entry + ' を含む発言')
+        self.assertEqual(g2('typed', 'write_file', {})['message'], plugin._NO_APPROVAL)
+        # Narrowing only: whatever the G2 table lets through unasked, the home turn lets through as well.
+        for tool, args in (('terminal', {'command': board}), ('terminal', {'command': board.replace('list', 'move BOXP-1 --lane Ready')}),
+                           ('session_search', {}), ('web_search', {'query': 'x'}), ('terminal', {'command': 'ls /tmp'}), ('write_file', {})):
+            self.assertIsNone(g2('h', tool, args), (tool, args))
+            self.assertIn((g2('typed', tool, args) or {}).get('action'), (None, 'modify', 'approve', 'block'), (tool, args))
+        # A touch turn stays tool-free even with the line; unknown turns too.
+        self.hook(self.SID, 'touch', entry + '\n' + self.TOUCH)
+        self.assertEqual(g2('touch', 'session_search', {})['message'], plugin._WEB_BLOCK)
+        self.assertEqual(g2('nope', 'session_search', {})['message'], plugin._WEB_BLOCK)
+        # Children of a G2 turn get no tools; children of the following home turn do.
+        self.hook(self.SID, 'g2', entry + '\n委任して')
+        self.hook('child-of-g2', 'c', 'task', self.SID)
+        self.assertEqual(self.gate('child-of-g2', 'c')['message'], plugin._BLOCK)
+        self.hook(self.SID, 'h2', '家から')
+        self.hook('child-of-home', 'c', 'task', self.SID)
+        self.assertIsNone(self.gate('child-of-home', 'c'))
+        # Other prefixes are not affected by the line.
+        self.hook('kohako-verify-x', 'v', entry + '\nhello')
+        self.assertEqual(self.gate('kohako-verify-x', 'v')['message'], plugin._BLOCK)
 
     def test_other_sessions_and_g2(self):
         for sid in ('kohako-verify-x', 'kohako-g2-cand-x', 'other-api'):
