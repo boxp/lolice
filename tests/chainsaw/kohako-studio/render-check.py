@@ -27,7 +27,8 @@ assert not any(r['destination'].get('selector') == "app == 'hermes-agent'" for r
 assert any(r['destination'].get('selector') == "app == 'kohako-studio' && component == 'bff'" and r['destination']['ports'] == [8787] for r in policy['egress'])
 policy = get(studio, 'NetworkPolicy', 'kohako-studio-bff')['spec']
 assert policy['selector'] == "app == 'kohako-studio' && component == 'bff'" and set(policy['types']) == {'Ingress', 'Egress'}
-assert policy['ingress'] == [{'action': 'Allow', 'protocol': 'TCP', 'source': {'selector': "app == 'kohako-studio' && component == 'web'"}, 'destination': {'ports': [8787]}}]
+# BOXP-657: besides web, only the G2 entrance Pod (even-g2-main) reaches 8787; the BFF then checks its SA token and the Owner's Access proof.
+assert policy['ingress'] == [{'action': 'Allow', 'protocol': 'TCP', 'source': {'selector': "app == 'kohako-studio' && component == 'web'"}, 'destination': {'ports': [8787]}}, {'action': 'Allow', 'protocol': 'TCP', 'source': {'namespaceSelector': "kubernetes.io/metadata.name == 'even-g2-lab'", 'selector': "app == 'even-g2-main'"}, 'destination': {'ports': [8787]}}]
 assert any(r['destination'].get('selector') == "app == 'hermes-agent'" and r['destination']['ports'] == [8642] for r in policy['egress'])
 assert not any(x.get('kind') == 'Deployment' and x['metadata']['name'] == 'kohako-studio' for x in studio)
 bff_deploy = get(studio, 'Deployment', 'kohako-studio-bff')
@@ -83,4 +84,19 @@ assert not permits(get(workspace, 'NetworkPolicy', 'codex-workspace-network-poli
 secret_role = get(hermes, 'Role', 'kohako-api-server-key-reader')
 assert secret_role['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['hermes-agent-api-server-key'], 'verbs': ['get']}]
 assert {'kind': 'ServiceAccount', 'name': 'kohako-api-server-key-reader', 'namespace': 'kohako-studio'} in get(hermes, 'RoleBinding', 'kohako-api-server-key-reader')['subjects']
+# BOXP-657: principal g2 is read-only, bound to the dedicated G2 ServiceAccount and to the glasses' Access AUD (not the home AUD).
+assert env['KOHAKO_G2_MODE'] == 'read' and env['KOHAKO_G2_USERNAME'] == 'system:serviceaccount:even-g2-lab:kohako-g2-bff'
+assert env['KOHAKO_G2_ACCESS_AUD'] and env['KOHAKO_G2_ACCESS_AUD'] != env['KOHAKO_ACCESS_AUD']
+g2 = objects('even-g2-lab')
+assert get(g2, 'ServiceAccount', 'kohako-g2-bff').get('automountServiceAccountToken') is False
+assert not any(s.get('name') == 'kohako-g2-bff' and s.get('namespace') == 'even-g2-lab' for x in g2 + studio if x.get('kind') in ('RoleBinding', 'ClusterRoleBinding') for s in x.get('subjects', []))  # no RBAC
+g2_spec = get(g2, 'Deployment', 'even-g2-main')['spec']['template']['spec']
+assert g2_spec['serviceAccountName'] == 'kohako-g2-bff' and g2_spec.get('automountServiceAccountToken') is False
+volume = next(x for x in g2_spec['volumes'] if x['name'] == 'kohako-home-token')
+assert volume['projected']['sources'] == [{'serviceAccountToken': {'audience': 'kohako-bff-g2', 'expirationSeconds': 600, 'path': 'token'}}]
+# The token is mounted only into kohako-bff, never into the nginx (web) container.
+mounts = [(c['name'], m) for c in g2_spec['containers'] for m in c.get('volumeMounts', []) if m['name'] == 'kohako-home-token']
+assert mounts == [('kohako-bff', {'name': 'kohako-home-token', 'mountPath': '/var/run/secrets/kohako-home', 'readOnly': True})]
+g2_egress = [r['destination'] for r in get(g2, 'NetworkPolicy', 'even-g2-main-network-policy')['spec']['egress'] if 'kohako-studio' in str(r['destination'])]
+assert g2_egress == [{'selector': "app == 'kohako-studio' && component == 'bff'", 'namespaceSelector': "kubernetes.io/metadata.name == 'kohako-studio'", 'ports': [8787]}], g2_egress
 print('kohako-studio render checks passed')
