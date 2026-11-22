@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
   - namespace.yaml
+  - serviceaccount-kohako-g2-bff.yaml
   - external-secret-cloudflared.yaml
   - external-secret-hermes-api-key.yaml
   - deployment-cloudflared.yaml

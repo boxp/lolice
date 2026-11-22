@@ -56,6 +56,15 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'hermes-agent'
         ports:
           - 8642
+    # BOXP-657: kohako-bff -> 家の BFF（共有履歴の読み取り。ServiceAccount token と本人の Access 証明の両方で確かめられる）。
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: app == 'kohako-studio' && component == 'bff'
+        namespaceSelector: kubernetes.io/metadata.name == 'kohako-studio'
+        ports:
+          - 8787
     # BOXP-332 (M5): kohako-bff -> whisper.cpp STT (same namespace, in-cluster only).
     - action: Allow
       protocol: TCP

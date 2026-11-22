@@ -13,6 +13,9 @@ spec:
       labels:
         app: even-g2-main
     spec:
+      # BOXP-657: 専用 ServiceAccount。既定の token は載せない（kohako-bff だけが下の projected token を持つ）。
+      serviceAccountName: kohako-g2-bff
+      automountServiceAccountToken: false
       imagePullSecrets:
         - name: regcred
       containers:
@@ -137,3 +140,18 @@ spec:
             limits:
               cpu: 200m
               memory: 128Mi
+          # BOXP-657: 家の BFF（kohako-studio 8787）を呼ぶ時の資格。nginx（web）の container には載せない。
+          volumeMounts:
+            - name: kohako-home-token
+              mountPath: /var/run/secrets/kohako-home
+              readOnly: true
+      volumes:
+        # audience kohako-bff-g2 専用・10 分で切れ、kubelet が自動で更新する。Kubernetes API には使えない。
+        - name: kohako-home-token
+          projected:
+            defaultMode: 0444
+            sources:
+              - serviceAccountToken:
+                  audience: kohako-bff-g2
+                  expirationSeconds: 600
+                  path: token

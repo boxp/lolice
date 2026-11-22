@@ -54,6 +54,13 @@ spec:
       source:
         selector: app == 'kohako-studio' && component == 'web'
       destination: {ports: [8787]}
+    # BOXP-657: 眼鏡の入口（even-g2-main の kohako-bff）。BFF が principal g2 として token と本人の証明を確かめる。
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'even-g2-lab'
+        selector: app == 'even-g2-main'
+      destination: {ports: [8787]}
   egress:
     - action: Allow
       protocol: UDP
