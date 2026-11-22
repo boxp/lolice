@@ -9,8 +9,7 @@ spec:
   # SYCL_UR_USE_LEVEL_ZERO_V2=1 で解消（configmap 参照）。gpu.intel.com/i915 は node に 1 つしかなく、
   # local-llm/llama-server と同時には動かせないため 0。再検証時は local-llm を止めてから 1 にする。
   # BOXP-383 batch7 完了後に復帰。
-  # BOXP-660（Hy4-flash IQ2_AH の有限実機試験）の診断モード。local-llm を止めた上で 1。試験の終了時に 0 と通常構成へ戻す。
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
@@ -38,19 +37,26 @@ spec:
           - 110
       containers:
         - name: strata
-          # BOXP-660 の間だけ評価専用 image（boxp/arch#15479 の pr-15479。llama.cpp PR #32517 head fc0b8338 を
-          # llama-sycl の Dockerfile で build したもの）。通常は live と同じ
-          # ghcr.io/boxp/arch/llama-sycl@sha256:30d75e0a297d7c1ce216c9bf0998eb37bf98314db475f60bcb01bb07c05331e2。
-          image: ghcr.io/boxp/arch/llama-sycl@sha256:9815bd18fa8a385dae2f110569074a9283e5841c867dbf3a0f180a38cd02e371
+          # live の llama-server と同じ image（oneAPI / Level Zero runtime と python3 を使う）。
+          image: ghcr.io/boxp/arch/llama-sycl@sha256:30d75e0a297d7c1ce216c9bf0998eb37bf98314db475f60bcb01bb07c05331e2
           imagePullPolicy: IfNotPresent
-          workingDir: /tmp
-          # BOXP-660 診断モード: 試験プロセス（llama-server）は node 経由の exec から 127.0.0.1 だけで起動する。
-          # 通常モードは workingDir /s/src-4b9e05a2、command
-          # `python3 -m serve.server --engine strata --config /config/strata.json --host 127.0.0.1 --port 9137 --offline --no-api-key`、
-          # env に LD_LIBRARY_PATH=/s/engine、STRATA_GGUF_PY=/s/gguf-py、PYTHONPATH=/s/pydeps:/s/src-4b9e05a2。
+          workingDir: /s/src-4b9e05a2
           command:
-            - sleep
-            - infinity
+            - python3
+            - -m
+            - serve.server
+            - --engine
+            - strata
+            - --config
+            - /config/strata.json
+            # Pod 内の loopback だけで待ち受ける。Service は作らず、
+            # 検証は kubectl port-forward からだけ行う（外部公開なし）。
+            - --host
+            - 127.0.0.1
+            - --port
+            - "9137"
+            - --offline
+            - --no-api-key
           env:
             - name: ZES_ENABLE_SYSMAN
               value: "1"
@@ -58,6 +64,12 @@ spec:
               value: level_zero:gpu
             - name: HOME
               value: /tmp
+            - name: LD_LIBRARY_PATH
+              value: /s/engine
+            - name: STRATA_GGUF_PY
+              value: /s/gguf-py
+            - name: PYTHONPATH
+              value: /s/pydeps:/s/src-4b9e05a2
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -72,17 +84,13 @@ spec:
               memory: 40Gi
               gpu.intel.com/i915: "1"
             limits:
-              # BOXP-660 の間だけ 80GiB（IQ2_AH 本体 66.7GiB の mmap / 部分 offload + 作業領域）。実際の歯止めは node 側の
-              # watchdog（MemAvailable<12GiB が 2 回で試験 process を止める）。復帰 PR で 56GiB へ戻す。
-              memory: 80Gi
+              # node の MemAvailable 20GiB 以上を残す上限（RAM arena 31.6GiB + 作業領域）。
+              memory: 56Gi
               gpu.intel.com/i915: "1"
           volumeMounts:
             - name: strata
               mountPath: /s
               readOnly: true
-            # BOXP-660: 測定記録と試験スクリプト（小容量）。
-            - name: work
-              mountPath: /w
             - name: config
               mountPath: /config
               readOnly: true
@@ -93,12 +101,7 @@ spec:
       volumes:
         - name: strata
           hostPath:
-            # BOXP-660 の間だけ Hy4-flash IQ2_AH の置き場所（読み取り専用）。通常は /var/lib/local-llm/models/boxp336-strata。
-            path: /var/lib/local-llm/models/boxp660-hy4-flash
-            type: Directory
-        - name: work
-          hostPath:
-            path: /var/lib/local-llm/models/boxp660
+            path: /var/lib/local-llm/models/boxp336-strata
             type: Directory
         - name: config
           configMap:
