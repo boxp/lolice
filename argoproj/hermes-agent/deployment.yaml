@@ -18,7 +18,7 @@ spec:
         # from the ConfigMap into the PVC only at Pod start. Bump this value
         # whenever task_board_webhook_route.json or the derived channel route changes
         # so Argo CD rolls the Pod and the new route definitions take effect.
-        boxp.io/task-board-webhook-route-revision: "2026-11-14-BOXP-556-channel-only"
+        boxp.io/task-board-webhook-route-revision: "2026-11-23-BOXP-667-all-tickets"
         # BOXP-462: bump when alertmanager_webhook_route.json / alertmanager_relay.* change.
         boxp.io/alertmanager-webhook-route-revision: "2026-11-14-BOXP-553-channel"
         # BOXP-501: bump when kohako_home_reminder_route.json / kohako_home_reminder.* change.
