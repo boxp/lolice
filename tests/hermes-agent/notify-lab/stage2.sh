@@ -198,3 +198,5 @@ rm -rf "$out"
 docker cp -q "$name:/lab/tb" "$out/dispatcher"
 docker cp -q "$name:/opt/data/webhook_subscriptions.json" "$out/webhook_subscriptions.json"
 docker exec "$name" sh -c 'grep -n -A4 "^display:" /opt/data/config.yaml; ls /opt/data/task-board-delivery-receipts 2>/dev/null | wc -l' >"$out.state.txt" 2>&1 || true
+
+# BOXP-674 baseline: unchanged waits for a paired CI measurement.
