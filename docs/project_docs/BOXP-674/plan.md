@@ -36,3 +36,11 @@ LLM要求、Notes、HTTP受理だけを配送完了と判定しない。T2の15�
 [baseline.md](baseline.md) に動作不変の比較基点と全workflowを記録する。同一PRイベント、同一image digest、同一arch SHA、同一runner環境を照合する。全CIは最早workflow作成から最遅job完了までとし、job本体と隔離stage2本体も別に集計する。1組の実測を一般的な平均やSLOとは呼ばない。
 
 通常のgitleaks・status-check、統合lab、P0/P1レビューを確認し、最新TODO revisionをack後にmergeする。mainの通常CIと同digestの手動labを確認して、効果と未確認を `Projects/test-ci-inventory/` に納品する。workflowはmain pushでlabを起動しないため、main実行には既存workflow_dispatchを使用する。
+
+## 実imageによる起動条件の修正
+
+実CIでconnectとHTTP待受だけでは不十分と判明した。gatewayはTelegram接続の起動処理中にwebhookを待受し、runtime authority登録前のPOSTはprofile_mismatchで503となる。新しいconnectに加えてgateway_stateがrunningであることを必須とし、/healthの200も確認する。
+
+imageのentrypointはhermesのUIDを起動中に10000から1000へ変更する。初期の名前解決に依存するとlabファイルが異なる所有者で作られるため、stage2の実行UIDをDockerfileの設定と同じ1000:10000へ固定する。権限を緩めず、同じ利用者として準備・実行する。失敗時にもjournal、gatewayログ・状態、dispatcher、labの受信証跡を回収し、元の失敗exit codeを維持する。
+
+変更前mainもT8でroutingファイルへのPermission deniedとなったため、この失敗実行を高速化の基点にはしない。起動条件の修正版と動作する基点を再検証する。

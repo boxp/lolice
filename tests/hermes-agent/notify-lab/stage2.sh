@@ -24,7 +24,23 @@ fi
 tag=$1
 name=$2
 out=$3
-x() { docker exec -u hermes "$name" sh -c "$1"; }
+# The entrypoint changes the named hermes UID during startup. Use the lab UID
+# immediately, so early files never belong to the image's previous UID.
+x() { docker exec -u 1000:10000 "$name" sh -c "$1"; }
+# Keep diagnostics on timeout as well as on a successful run. Do not mask failure.
+collect_failure() {
+  result=$?
+  if [ "$result" -ne 0 ]; then
+    mkdir -p "$out"
+    for source in /opt/data/boxp-notify /lab/logs /lab/vault /opt/data/logs/gateway.log /opt/data/gateway_state.json; do
+      docker cp -q "$name:$source" "$out/$(basename "$source")" || true
+    done
+    docker cp -q "$name:/lab/tb" "$out/dispatcher" || true
+    docker exec "$name" sh -c 'id; ls -ld /lab/vault /lab/vault/Projects/task-board-events /lab/vault/Projects/task-board-events/delivery-routing.md' >"$out.state.txt" 2>&1 || true
+  fi
+  exit "$result"
+}
+trap collect_failure EXIT
 mark() {
   x "printf '{\"at\":\"%s\",\"kind\":\"lab_step\",\"step\":\"$1\"}\n' \"\$(date -u +%FT%TZ)\" >> /opt/data/boxp-notify/journal.jsonl"
   echo "# $1"
@@ -35,16 +51,16 @@ init() { # the Pod's init container: same image, root, same script
 }
 start() {
   "$here/lab.sh" stub "$name"
-  docker exec -d -u hermes "$name" sh -c 'bb /lab/home.bb >> /lab/logs/home.out 2>&1'
+  docker exec -d -u 1000:10000 "$name" sh -c 'bb /lab/home.bb >> /lab/logs/home.out 2>&1'
 }
-tick() { docker exec -u hermes -e LAB_QUIET="${LAB_QUIET:-off}" -e LAB_ROUTE="${LAB_ROUTE:-task-board-channel}" "$name" /lab/tick.sh tick | tail -1; }
+tick() { docker exec -u 1000:10000 -e LAB_QUIET="${LAB_QUIET:-off}" -e LAB_ROUTE="${LAB_ROUTE:-task-board-channel}" "$name" /lab/tick.sh tick | tail -1; }
 n=0
 event() { # scenario [to-status] -> records one run-finished event on its own ticket
   n=$((n + 1))
   ticket="BOXP-91$(printf '%02d' "$n")"
   run="20261114T1200$(printf '%02d' "$n")Z-aaaa00$(printf '%02d' "$n")"
   x "printf '# %s: lab ticket %s\n\n## Notes\n\n' $ticket '$1' > /lab/vault/Tickets/$ticket.md"
-  docker exec -u hermes "$name" /lab/tick.sh record "$ticket" "$run" in-progress "${2:-done}" "scenario=$1" >/dev/null
+  docker exec -u 1000:10000 "$name" /lab/tick.sh record "$ticket" "$run" in-progress "${2:-done}" "scenario=$1" >/dev/null
   last="$ticket-$run-${2:-done}"
   echo "event $last ($1)"
 }
@@ -63,7 +79,19 @@ assert sum(row.get("kind") == sys.argv[1] and sys.argv[2] in str(row.get("key", 
 # A fresh connect is necessary after restart; an old journal entry is insufficient.
 connect_count() { x "grep -c '\"kind\": \"connect\"' /opt/data/boxp-notify/journal.jsonl 2>/dev/null || true"; }
 ready() {
-  python3 "$here/wait.py" --timeout 90 -- docker exec "$name" sh -c     "test \$(grep -c '\"kind\": \"connect\"' /opt/data/boxp-notify/journal.jsonl 2>/dev/null || true) -gt $1 && curl -sS -o /dev/null http://127.0.0.1:18080/models && curl -sS -o /dev/null http://127.0.0.1:8644/ && curl -sS -o /dev/null -H 'Authorization: Bearer home-token' 'http://127.0.0.1:18190/kohako/api/v1/notifications/ingest?ids=readiness'"
+  python3 "$here/wait.py" --timeout 90 -- docker exec "$name" python3 -c '
+import json, sys, urllib.request
+from pathlib import Path
+assert json.load(open("/opt/data/gateway_state.json")).get("gateway_state") == "running"
+rows = [json.loads(line) for line in Path("/opt/data/boxp-notify/journal.jsonl").read_text().splitlines() if line]
+assert sum(row.get("kind") == "connect" for row in rows) > int(sys.argv[1])
+for url in ["http://127.0.0.1:18080/models", "http://127.0.0.1:8644/health"]:
+    with urllib.request.urlopen(url, timeout=2) as response:
+        assert response.status == 200
+request = urllib.request.Request("http://127.0.0.1:18190/kohako/api/v1/notifications/ingest?ids=readiness", headers={"Authorization": "Bearer home-token"})
+with urllib.request.urlopen(request, timeout=2) as response:
+    assert response.status == 200
+' "$1"
 }
 
 "$here/lab.sh" down "$name"
@@ -74,7 +102,7 @@ init
 echo "# init again (a normal Pod re-creation must change nothing)"
 init
 "$here/lab.sh" up "$tag" "$name"
-docker exec -d -u hermes "$name" sh -c 'bb /lab/home.bb >> /lab/logs/home.out 2>&1'
+docker exec -d -u 1000:10000 "$name" sh -c 'bb /lab/home.bb >> /lab/logs/home.out 2>&1'
 routing home
 ready 0
 mark "T1 formal report, home primary -> home inbox only, dispatcher closes it, reminder after 1 minute unread"
