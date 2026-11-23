@@ -49,6 +49,22 @@ event() { # scenario [to-status] -> records one run-finished event on its own ti
   echo "event $last ($1)"
 }
 routing() { x "mkdir -p /lab/vault/Projects/task-board-events && printf '# lab\n\ntask-board: %s\n' $1 > /lab/vault/Projects/task-board-events/delivery-routing.md"; }
+# Match terminal channel evidence, never an LLM request or an intermediate Notes write.
+# Each event has a unique id; counts for direct alerts distinguish repeated payloads.
+journal_wait() { # kind key-or-chat-substring [minimum-count]
+  echo "wait: $1 $2"
+  python3 "$here/wait.py" --timeout 90 -- docker exec "$name" python3 -c '
+import json, sys
+from pathlib import Path
+rows = [json.loads(line) for line in Path("/opt/data/boxp-notify/journal.jsonl").read_text().splitlines() if line]
+assert sum(row.get("kind") == sys.argv[1] and sys.argv[2] in str(row.get("key", "") or row.get("chat_id", "")) for row in rows) >= int(sys.argv[3])
+' "$1" "$2" "${3:-1}"
+}
+# A fresh connect is necessary after restart; an old journal entry is insufficient.
+connect_count() { x "grep -c '\"kind\": \"connect\"' /opt/data/boxp-notify/journal.jsonl 2>/dev/null || true"; }
+ready() {
+  python3 "$here/wait.py" --timeout 90 -- docker exec "$name" sh -c     "test \$(grep -c '\"kind\": \"connect\"' /opt/data/boxp-notify/journal.jsonl 2>/dev/null || true) -gt $1 && curl -sS -o /dev/null http://127.0.0.1:18080/models && curl -sS -o /dev/null http://127.0.0.1:8644/ && curl -sS -o /dev/null -H 'Authorization: Bearer home-token' 'http://127.0.0.1:18190/kohako/api/v1/notifications/ingest?ids=readiness'"
+}
 
 "$here/lab.sh" down "$name"
 docker volume create "$name-data" >/dev/null
@@ -60,12 +76,12 @@ init
 "$here/lab.sh" up "$tag" "$name"
 docker exec -d -u hermes "$name" sh -c 'bb /lab/home.bb >> /lab/logs/home.out 2>&1'
 routing home
-sleep 60
+ready 0
 mark "T1 formal report, home primary -> home inbox only, dispatcher closes it, reminder after 1 minute unread"
 event receipt-notify
 t1=$last
 tick
-sleep 20
+journal_wait delivered "$last"
 tick
 mark "T2 the same event delivered again (new delivery id) -> nothing more"
 x "curl -sS -o /dev/null -w 'redelivery http=%{http_code}\n' -X POST http://127.0.0.1:8644/webhooks/task-board-channel -H 'Content-Type: application/json' -H 'X-Gitlab-Token: lab-secret' -H 'X-Request-ID: $t1-again' -H 'X-GitHub-Event: task-board.run-finished' -d '{\"event_id\":\"$t1\",\"event_type\":\"task-board.run-finished\",\"ticket_id\":\"BOXP-9101\",\"result\":\"scenario=notify\"}'"
@@ -73,7 +89,7 @@ sleep 15
 mark "T3 silence without the Notes marker -> one notice on Telegram, home copy"
 event silent
 tick
-sleep 20
+journal_wait delivered "$last"
 tick
 mark "T4 silence with the Notes marker -> nothing"
 event receipt-silent
@@ -83,7 +99,7 @@ tick
 mark "T5 model error -> one notice"
 event error
 tick
-sleep 30
+journal_wait delivered "$last"
 tick
 mark "T6 reply arrives after quiet hours began -> held, then the morning digest carries it"
 x 'echo "{\"slow_seconds\":25}" > /lab/logs/control.json'
@@ -97,33 +113,35 @@ mark "T6 morning: the dispatcher builds the digest"
 tick
 sleep 8
 tick
-sleep 25
+journal_wait delivered "-digest-"
 tick
 mark "T7 home inbox unwritable -> Telegram carries the report; copy and receipt follow"
 x 'touch /opt/data/boxp-notify/lab-fail-home'
 event receipt-notify
 tick
-sleep 20
+journal_wait delivered_partial "$last"
 x 'rm -f /opt/data/boxp-notify/lab-fail-home'
-sleep 25
+journal_wait recovered "$last"
 tick
 mark "T8 routing file switched to telegram (type-level rollback) -> Telegram primary, home copy without reminder"
 routing telegram
 event receipt-notify
 tick
-sleep 20
+journal_wait delivered "$last"
 tick
 routing home
 mark "T9 inbox and Telegram both down, gateway restart -> recovery"
 x 'touch /opt/data/boxp-notify/lab-fail-home; echo "{\"telegram_fail\":true}" > /lab/logs/control.json'
 event receipt-notify
 tick
-sleep 25
+journal_wait delivery_failed "$last"
+journal_wait recovery_failed "$last"
+before_connect=$(connect_count)
 docker restart "$name" >/dev/null
 start
-sleep 60
+ready "${before_connect:-0}"
 x 'rm -f /opt/data/boxp-notify/lab-fail-home; echo "{}" > /lab/logs/control.json'
-sleep 25
+journal_wait recovered "$last"
 tick
 if x 'grep -q "\"task-board\":" /opt/data/webhook_subscriptions.json'; then
   mark "T10 the old route task-board still works through the core patch (rollback path), the channel is not involved"
@@ -153,11 +171,11 @@ tick
 mark "A1 Alertmanager (stage 1) unchanged: firing, the same payload again, resolved"
 alert() { printf '{"version":"4","groupKey":"{}:{alertname=\\"Lab\\"}","status":"%s","receiver":"hermes","externalURL":"https://alertmanager.b0xp.io","alerts":[{"status":"%s","labels":{"alertname":"LabStage2Alert","severity":"critical","namespace":"lab","notify_hermes":"true"},"annotations":{"summary":"stage2 lab","description":"x"},"startsAt":"2026-11-14T03:00:00Z","endsAt":"%s","fingerprint":"bbbb000100000000"}]}' "$1" "$1" "$2"; }
 "$here/lab.sh" post "$name" alertmanager a1 "$(alert firing 0001-01-01T00:00:00Z)"
-sleep 6
+journal_wait delivered "direct-alertmanager"
 "$here/lab.sh" post "$name" alertmanager a2 "$(alert firing 0001-01-01T00:00:00Z)"
-sleep 6
+journal_wait duplicate_dropped "direct-alertmanager"
 "$here/lab.sh" post "$name" alertmanager a3 "$(alert resolved 2026-11-14T03:05:00Z)"
-sleep 8
+journal_wait delivered "direct-alertmanager" 2
 tick
 if x 'test -d /opt/data/plugins/kohako-vault-image'; then
   mark "V1 (BOXP-556) vault image route from the plugin: no key 401, image 200, traversal and non-image 404"
@@ -176,7 +194,13 @@ if x 'test -d /opt/data/plugins/kohako-vault-image'; then
   mark "K2 (BOXP-556) jobs stored with a Telegram target (hermes cron create) are moved by the recovery loop"
   x 'cd /opt/hermes; ./.venv/bin/hermes cron create --name lab-cli-telegram --deliver telegram:1000000001 "every 12h" "cron lab scenario=cron-report" 2>&1 | grep Created
      ./.venv/bin/hermes cron create --name lab-cli-fd --deliver boxp_notify:cron --failure-deliver telegram:1000000001 "every 12h" "cron lab scenario=cron-report" 2>&1 | grep Created'
-  sleep 30
+  python3 "$here/wait.py" --timeout 120 -- docker exec "$name" python3 -c '
+import json
+jobs = json.load(open("/opt/data/cron/jobs.json"))["jobs"]
+by_name = {j.get("name"): j for j in jobs}
+assert by_name["lab-cli-telegram"]["deliver"] == "boxp_notify:cron"
+assert by_name["lab-cli-fd"]["failure_deliver"] == "boxp_notify:cron"
+'
   x 'grep cron_job_migrat /opt/data/boxp-notify/journal.jsonl' || echo "no migration journal"
   x 'python3 -c "
 import json
@@ -198,5 +222,3 @@ rm -rf "$out"
 docker cp -q "$name:/lab/tb" "$out/dispatcher"
 docker cp -q "$name:/opt/data/webhook_subscriptions.json" "$out/webhook_subscriptions.json"
 docker exec "$name" sh -c 'grep -n -A4 "^display:" /opt/data/config.yaml; ls /opt/data/task-board-delivery-receipts 2>/dev/null | wc -l' >"$out.state.txt" 2>&1 || true
-
-# BOXP-674 baseline: unchanged waits for a paired CI measurement.
