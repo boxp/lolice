@@ -1,0 +1,122 @@
+# BOXP-679: 本人専用の読書実習用ブラウザ VS Code（code-server + Lean 4）。
+# - 認証は Cloudflare Access（Owner email + GitHub ログイン）と tunnel の JWT 検証に一本化し、
+#   code-server は --auth none。Pod へ届く経路は NetworkPolicy で cloudflared と検証用の
+#   codex-workspace に限る。
+# - 秘密情報・ServiceAccount token・vault は mount しない。ホームは専用 PVC だけ。
+# - 初回起動は initContainer が elan / Lean toolchain / Lean 拡張 / 本のコードを PVC へ入れる
+#   （数分かかる）。2 回目以降は不足分だけ足すので速い（seed/seed.sh）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-server
+  namespace: lean-reading
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: code-server
+  template:
+    metadata:
+      labels:
+        app: code-server
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: seed
+          image: docker.io/codercom/code-server:4.146.0@sha256:fc708b18f6c613b5a9d00f1d1801e58376d3df9c5b5de77f5c02d67b711f99c9
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/seed/seed.sh"]
+          env:
+            - name: HOME
+              value: /home/coder
+            - name: SEED_DIR
+              value: /seed
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {memory: 4Gi}
+          volumeMounts:
+            - name: home
+              mountPath: /home/coder
+            - name: seed
+              mountPath: /seed
+              readOnly: true
+      containers:
+        - name: code-server
+          image: docker.io/codercom/code-server:4.146.0@sha256:fc708b18f6c613b5a9d00f1d1801e58376d3df9c5b5de77f5c02d67b711f99c9
+          imagePullPolicy: IfNotPresent
+          args:
+            - --bind-addr
+            - 0.0.0.0:8080
+            - --auth
+            - none
+            - --disable-telemetry
+            - --disable-update-check
+            - --disable-workspace-trust
+            - --disable-getting-started-override
+            - --disable-proxy
+            - --trusted-origins
+            - lean-reading.b0xp.io
+            - --app-name
+            - Lean 読書
+            - /home/coder/workspace/reading.code-workspace
+          env:
+            - name: HOME
+              value: /home/coder
+            - name: PATH
+              value: /home/coder/.elan/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {memory: 6Gi}
+          volumeMounts:
+            - name: home
+              mountPath: /home/coder
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: lean-reading-home
+        - name: seed
+          configMap:
+            name: lean-reading-seed
+            items:
+              - {key: seed.sh, path: seed.sh}
+              - {key: README.md, path: README.md}
+              - {key: reading.code-workspace, path: reading.code-workspace}
+              - {key: settings.json, path: settings.json}
+              - {key: practice-lean-toolchain, path: practice/lean-toolchain}
+              - {key: practice-lakefile.toml, path: practice/lakefile.toml}
+              - {key: practice-gitignore, path: practice/gitignore}
+              - {key: Practice.lean, path: practice/Practice.lean}
+              - {key: Practice-Basics.lean, path: practice/Practice/Basics.lean}

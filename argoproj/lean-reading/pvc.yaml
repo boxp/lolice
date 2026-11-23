@@ -1,0 +1,14 @@
+# BOXP-679: 本人の作業領域（/home/coder）。elan と Lean toolchain、VS Code 拡張・設定、
+# 本のコードと練習用プロジェクトが入る。Pod の再起動や再配備では消えない。
+# RWO なので Deployment は Recreate。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lean-reading-home
+  namespace: lean-reading
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 20Gi

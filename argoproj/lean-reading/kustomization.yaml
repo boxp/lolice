@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - external-secret-cloudflared.yaml
+  - deployment-cloudflared.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+
+# 雛形は既存ファイルを上書きしない（seed/seed.sh）。内容を変えると hash が変わり Pod が作り直される。
+configMapGenerator:
+  - name: lean-reading-seed
+    namespace: lean-reading
+    files:
+      - seed.sh=seed/seed.sh
+      - README.md=seed/README.md
+      - reading.code-workspace=seed/reading.code-workspace
+      - settings.json=seed/settings.json
+      - practice-lean-toolchain=seed/practice/lean-toolchain
+      - practice-lakefile.toml=seed/practice/lakefile.toml
+      - practice-gitignore=seed/practice/gitignore
+      - Practice.lean=seed/practice/Practice.lean
+      - Practice-Basics.lean=seed/practice/Practice/Basics.lean
