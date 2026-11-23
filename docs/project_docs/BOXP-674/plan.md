@@ -14,7 +14,7 @@
 | T1/T3/T5/T8 | 対象eventのdelivered記録。上限90秒 |
 | 朝digest | digestのdelivered記録。claim graceの8秒は維持 |
 | T7片側障害 | 対象eventのdelivered_partialを確認して障害を解除し、recoveredを確認 |
-| T9両側障害・再起動 | 対象eventのdelivery_failedとrecovery_failedを確認して再起動。新connect後に障害を解除しrecoveredを確認 |
+| T9両側障害・再起動 | 対象eventのdelivery_failedとrecovery_failedを確認して再起動。新connect後に障害を解除しrecoveredまたはdeliveredを確認 |
 | Alertmanager | firingのdelivered、同文のduplicate_dropped、resolvedの2件目のdeliveredを順に確認 |
 | cron移行 | 指定2 jobのdeliver / failure_deliverが期待値へ移ったこと。上限120秒 |
 
@@ -44,3 +44,5 @@ LLM要求、Notes、HTTP受理だけを配送完了と判定しない。T2の15�
 imageのentrypointはhermesのUIDを起動中に10000から1000へ変更する。初期の名前解決に依存するとlabファイルが異なる所有者で作られるため、stage2の実行UIDをDockerfileの設定と同じ1000:10000へ固定する。権限を緩めず、同じ利用者として準備・実行する。失敗時にもjournal、gatewayログ・状態、dispatcher、labの受信証跡を回収し、元の失敗exit codeを維持する。
 
 変更前mainもT8でroutingファイルへのPermission deniedとなったため、この失敗実行を高速化の基点にはしない。起動条件の修正版と動作する基点を再検証する。
+
+T9は新しいimageの永続outboxが再起動後に配送を完了する場合、pluginのrecoveredではなく通常sendのdeliveredを記録する。実証跡でhome=true、telegram=falseの終端deliveredを確認したため、両方を成功条件にする。障害前はdelivery_failedしかなく、古い成功を流用しない。最終checkerの期待件数や障害・再起動条件は変更しない。

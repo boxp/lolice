@@ -73,7 +73,7 @@ journal_wait() { # kind key-or-chat-substring [minimum-count]
 import json, sys
 from pathlib import Path
 rows = [json.loads(line) for line in Path("/opt/data/boxp-notify/journal.jsonl").read_text().splitlines() if line]
-assert sum(row.get("kind") == sys.argv[1] and sys.argv[2] in str(row.get("key", "") or row.get("chat_id", "")) for row in rows) >= int(sys.argv[3])
+assert sum(row.get("kind") in sys.argv[1].split("|") and sys.argv[2] in str(row.get("key", "") or row.get("chat_id", "")) for row in rows) >= int(sys.argv[3])
 ' "$1" "$2" "${3:-1}"
 }
 # A fresh connect is necessary after restart; an old journal entry is insufficient.
@@ -169,7 +169,8 @@ docker restart "$name" >/dev/null
 start
 ready "${before_connect:-0}"
 x 'rm -f /opt/data/boxp-notify/lab-fail-home; echo "{}" > /lab/logs/control.json'
-journal_wait recovered "$last"
+# Either the plugin recovery loop or the upstream durable outbox can finish it.
+journal_wait 'recovered|delivered' "$last"
 tick
 if x 'grep -q "\"task-board\":" /opt/data/webhook_subscriptions.json'; then
   mark "T10 the old route task-board still works through the core patch (rollback path), the channel is not involved"
