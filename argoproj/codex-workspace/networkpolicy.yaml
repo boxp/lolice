@@ -99,6 +99,14 @@ spec:
         selector: app == 'kohako-studio'
         namespaceSelector: kubernetes.io/metadata.name == 'kohako-studio'
         ports: [8080]
+    # BOXP-679: headless browser verification of the Owner-only code-server (lean-reading).
+    # Paired with the ingress rule in argoproj/lean-reading/networkpolicy.yaml.
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'code-server'
+        namespaceSelector: kubernetes.io/metadata.name == 'lean-reading'
+        ports: [8080]
     - action: Allow
       protocol: UDP
       destination:
