@@ -24,7 +24,7 @@ fi
 tag=$1
 name=$2
 out=$3
-x() { docker exec -u hermes "$name" sh -c "$1"; }
+x() { docker exec -u 1000:10000 "$name" sh -c "$1"; }
 mark() {
   x "printf '{\"at\":\"%s\",\"kind\":\"lab_step\",\"step\":\"$1\"}\n' \"\$(date -u +%FT%TZ)\" >> /opt/data/boxp-notify/journal.jsonl"
   echo "# $1"
@@ -35,16 +35,16 @@ init() { # the Pod's init container: same image, root, same script
 }
 start() {
   "$here/lab.sh" stub "$name"
-  docker exec -d -u hermes "$name" sh -c 'bb /lab/home.bb >> /lab/logs/home.out 2>&1'
+  docker exec -d -u 1000:10000 "$name" sh -c 'bb /lab/home.bb >> /lab/logs/home.out 2>&1'
 }
-tick() { docker exec -u hermes -e LAB_QUIET="${LAB_QUIET:-off}" -e LAB_ROUTE="${LAB_ROUTE:-task-board-channel}" "$name" /lab/tick.sh tick | tail -1; }
+tick() { docker exec -u 1000:10000 -e LAB_QUIET="${LAB_QUIET:-off}" -e LAB_ROUTE="${LAB_ROUTE:-task-board-channel}" "$name" /lab/tick.sh tick | tail -1; }
 n=0
 event() { # scenario [to-status] -> records one run-finished event on its own ticket
   n=$((n + 1))
   ticket="BOXP-91$(printf '%02d' "$n")"
   run="20261114T1200$(printf '%02d' "$n")Z-aaaa00$(printf '%02d' "$n")"
   x "printf '# %s: lab ticket %s\n\n## Notes\n\n' $ticket '$1' > /lab/vault/Tickets/$ticket.md"
-  docker exec -u hermes "$name" /lab/tick.sh record "$ticket" "$run" in-progress "${2:-done}" "scenario=$1" >/dev/null
+  docker exec -u 1000:10000 "$name" /lab/tick.sh record "$ticket" "$run" in-progress "${2:-done}" "scenario=$1" >/dev/null
   last="$ticket-$run-${2:-done}"
   echo "event $last ($1)"
 }
@@ -58,7 +58,7 @@ init
 echo "# init again (a normal Pod re-creation must change nothing)"
 init
 "$here/lab.sh" up "$tag" "$name"
-docker exec -d -u hermes "$name" sh -c 'bb /lab/home.bb >> /lab/logs/home.out 2>&1'
+docker exec -d -u 1000:10000 "$name" sh -c 'bb /lab/home.bb >> /lab/logs/home.out 2>&1'
 routing home
 sleep 60
 mark "T1 formal report, home primary -> home inbox only, dispatcher closes it, reminder after 1 minute unread"
@@ -198,3 +198,5 @@ rm -rf "$out"
 docker cp -q "$name:/lab/tb" "$out/dispatcher"
 docker cp -q "$name:/opt/data/webhook_subscriptions.json" "$out/webhook_subscriptions.json"
 docker exec "$name" sh -c 'grep -n -A4 "^display:" /opt/data/config.yaml; ls /opt/data/task-board-delivery-receipts 2>/dev/null | wc -l' >"$out.state.txt" 2>&1 || true
+
+# BOXP-674 comparison: original waits, stable lab UID shared with the candidate.
