@@ -8,5 +8,8 @@
   "editor.wordWrap": "on",
   "editor.minimap.enabled": false,
   "files.autoSave": "afterDelay",
-  "lean4.alwaysShowTitleBarMenu": true
+  "lean4.alwaysShowTitleBarMenu": true,
+  "chat.disableAIFeatures": true,
+  "workbench.secondarySideBar.defaultVisibility": "hidden",
+  "workbench.editor.openSideBySideDirection": "down"
 }

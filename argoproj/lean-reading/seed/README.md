@@ -19,7 +19,11 @@ Lean のバージョンは本と同じ `leanprover/lean4:v4.35.0`（`lean-toolch
 2. カーソルを `#check` / `#eval` の行、または `by` の下の行に置く。
 3. InfoView に型、評価結果、その時点のゴールが出る。
    - InfoView が無いとき: 画面上部の `∀` メニュー → "Toggle InfoView"。
-   - スマホ: InfoView は別のタブとして開くので、エディタのタブと切り替えて見る。
+   - InfoView はエディタの下に開く（スマホの縦画面でも読める幅にするため）。右に置きたいときは
+     設定（Ctrl+,）で "Open Side By Side Direction" を "right" にする。
+   - スマホ: 最初に左端のファイルのアイコン（Explorer）を押して一覧を閉じると、エディタと
+     InfoView が画面いっぱいに出る。ファイルを開くときはもう一度押す。
+   - AI チャット（Copilot）の欄は使わないので消してある。
 
 ## ターミナル（メニュー → Terminal → New Terminal）
 
