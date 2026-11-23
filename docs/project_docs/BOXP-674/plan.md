@@ -1,27 +1,38 @@
-# BOXP-674 notify-lab の待機
+# BOXP-674 通知labの条件待ち
 
-## 方針
+## 目的と範囲
 
-テストハーネスの待機だけを変更し、本番の通知動作は変えない。単調時計による期限付きポーリングで、gateway の connect と loopback stub の準備、cron 移行の完了を確認する。再起動前の connect は再起動後の完了条件として使わない。期限切れは失敗とし、元の証跡取得や cleanup は維持する。
+通知テストの検証範囲を保ち、結果が成立したところから次へ進める。変更対象は `tests/hermes-agent/notify-lab/stage2.sh`、期限付き待機helper、その回帰テストと資料。本番通知コード、workflowの起動条件・必須check、Kubernetes更新、archのLean標準化は変更しない。
 
-Task Board の tick は非同期処理の受理であり、Notes の記録や LLM の要求も応答・配送完了を意味しない。error500 の上流再試行、重複・無通知の観測、障害中の回復試行、quiet hours と reminder、cron の重複抑止時間は、明確な完了条件がないため固定の観測時間を維持する。特に不在を即時に成功と判定しない。Alertmanager の順序と既存のチェック・証跡も維持する。
+## 実装
 
-## テスト根拠と Lean TDD
+単調時計で期限を計算し、残り時間をprobeコマンドの実行上限にも渡す。probe出力を表示せず、成功を確認できないまま期限を迎えたら非ゼロで終了する。既存の失敗伝播・証跡収集・cleanup処理は保持する。
 
-本番コードに触れない試験ハーネスの時間制御であるため、プロダクト仕様の新規テストを先行させる Lean TDD の対象ではない。ただし待機自体の振る舞いは回帰対象なので、成功、期限切れ、観測期間全体の負条件および途中違反を検証する。シェル構文と既存単体テストも実行する。Docker 統合はイメージ・arch checkout が利用可能な場合のみ実行し、未実行なら制限を報告する。
+| 場面 | 次へ進む条件 |
+|---|---|
+| 初回起動・再起動 | 新しいconnect記録とgateway、LLM stub、home stubの応答。上限90秒。再起動前のconnectは流用しない |
+| T1/T3/T5/T8 | 対象eventのdelivered記録。上限90秒 |
+| 朝digest | digestのdelivered記録。claim graceの8秒は維持 |
+| T7片側障害 | 対象eventのdelivered_partialを確認して障害を解除し、recoveredを確認 |
+| T9両側障害・再起動 | 対象eventのdelivery_failedとrecovery_failedを確認して再起動。新connect後に障害を解除しrecoveredを確認 |
+| Alertmanager | firingのdelivered、同文のduplicate_dropped、resolvedの2件目のdeliveredを順に確認 |
+| cron移行 | 指定2 jobのdeliver / failure_deliverが期待値へ移ったこと。上限120秒 |
 
-## 実施・検証結果
+LLM要求、Notes、HTTP受理だけを配送完了と判定しない。T2の15秒、T4の20秒、quiet切替の8/35秒、digest claim graceの8秒、旧routeの10秒、reminderの5秒、cron再実行の100秒×2は元のまま残す。不在を即時に成功としない。stage0/stage1など別経路は今回変更しない。
 
-- stage2 の初回起動と再起動後に、connect の新規記録、gateway、LLM stub、home stub の応答を期限90秒で確認。再起動前の connect 数を基準にする。
-- stage2 の cron 移行は2 job の deliver / failure_deliver を期限120秒で確認。未完了は失敗する。
-- その他の固定待機は上記の観測上の理由で残した。特に stage2 の dispatcher・LLM・配送・再送・回復全体は、上流の完了が判別できないまま短縮していない。stage1、stage0、standalone の待機も今回未変更。
-- 待機関数の成功、期限切れ、停止したコマンド、負条件の全期間と途中違反を単体確認。Hermes テスト24件、boxp-notify テスト1件、全 lab シェルの構文確認、git diff --check は成功。Hermes テストは PyYAML を作業領域内の uv キャッシュから利用。
-- Docker daemon は利用可能だったが、対象 Hermes image がローカルにないため統合実行は未実施。実 image での起動・移行条件と統合カバレッジの確認は残る。
+`check-stage2.bb` の件数、無通知、重複、quiet/digest、片側/両側障害と再起動、旧route拒否、cron、Alertmanager、画像route、全plugin validationの検査は変更しない。
 
-## 統合時の追加
+## Lean TDDと検証
 
-親で配送の終端journalを確認し、T1/T3/T5/T8のdelivered、T7のdelivered_partial→recovered、T9のdelivery_failedとrecovery_failed→再起動→新connect→recovered、朝digestとAlertmanagerの完了を期限付きで待つよう追加した。LLM要求やNotesは完了条件に使わない。T2の15秒、T4の20秒、quietの8/35秒とdigest claim graceの8秒、旧routeの10秒、reminderの5秒、cron再実行の100秒×2は元のまま残す。最終check-stage2.bbの全検査は変更しない。
+通知プロダクトの仕様・実装を変更しないテストハーネスの待機改善として、新規のLeanモデルは適用しない。既存モデルへ形式的な添付をせず、ハーネス自体の成功・遅延成功・期限切れ・ハング時の打切りを回帰検証する。陰性シナリオは元の観測窓と統合checkerを維持する。
 
-陰性監視用の汎用APIは使用しないため削除。陰性検証を即時判定にしないことはstage2の実シナリオと既存checkerで検証する。待機関数は遅延した成功、減少するコマンド実行予算、期限到達後に再試行しないこと、およびハングしたコマンドの打切りを検証する。
+- 子へ起動・移行の条件待ちと回帰検証を委任し、親で再検証・配送終端の待機を統合した。委任helperのverifyは成功。
+- 待機回帰3件、Hermes関連25件、既存通知単体、全labシェル構文、diff検査を実行。PyYAMLとキャッシュはrun workspace内に配置。
+- 子の未使用陰性APIは再検証で期限直前probeの不安定さが判明したため除去した。fixtureの構文誤りも修正後に再実行して成功。
+- codex-reviewは61ef07b4のコード差分に指摘なし。実imageによる統合検証と全体CI時間はGitHub Actionsで前後比較する。
 
-初期の子による陰性APIの実時間テストは親で再実行時に失敗（期限直前のprobe開始が残り予算を使い切る）。未使用の陰性APIを除去し、期限処理の決定的テストへ変更した。
+## 計測と完了条件
+
+[baseline.md](baseline.md) に動作不変の比較基点と全workflowを記録する。同一PRイベント、同一image digest、同一arch SHA、同一runner環境を照合する。全CIは最早workflow作成から最遅job完了までとし、job本体と隔離stage2本体も別に集計する。1組の実測を一般的な平均やSLOとは呼ばない。
+
+通常のgitleaks・status-check、統合lab、P0/P1レビューを確認し、最新TODO revisionをack後にmergeする。mainの通常CIと同digestの手動labを確認して、効果と未確認を `Projects/test-ci-inventory/` に納品する。workflowはmain pushでlabを起動しないため、main実行には既存workflow_dispatchを使用する。
