@@ -99,9 +99,11 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          # BOXP-677: PDF 添付を 1 件 30 MiB まで受けるため、受信と本文抽出（同時 1 件）の外部メモリが
+          # GC まで残っても足りるよう上限を 512Mi にする（実測: 30 MiB PDF を 20 件続けて最大 RSS 264MiB、GC 後は 150-178MiB）。
           resources:
             requests: {cpu: 25m, memory: 64Mi}
-            limits: {cpu: 500m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 512Mi}
           volumeMounts:
             - name: data
               mountPath: /data
