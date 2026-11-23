@@ -1,0 +1,8 @@
+name = "practice"
+defaultTargets = ["Practice"]
+
+[leanOptions]
+autoImplicit = false
+
+[[lean_lib]]
+name = "Practice"

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lean-reading-cloudflared
+  namespace: lean-reading
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cloudflared
+          image: docker.io/cloudflare/cloudflared:2026.11.1@sha256:e613aadbc2d9511785d2e67a86b0c8ac18dd63a3f9af0d06faf04cbfdcb35f2d
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+            - --protocol
+            - http2
+            - --token
+            - $(TUNNEL_TOKEN)
+          ports:
+            - name: metrics
+              containerPort: 2000
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            failureThreshold: 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 256Mi}
+          envFrom:
+            - secretRef:
+                name: lean-reading-cloudflared-secret

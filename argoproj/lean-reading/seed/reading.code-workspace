@@ -1,0 +1,8 @@
+{
+  "folders": [
+    { "name": "練習 (practice)", "path": "practice" },
+    { "name": "本のコード (lean-verified-compiler)", "path": "lean-verified-compiler" },
+    { "name": "案内 (workspace)", "path": "." }
+  ],
+  "settings": {}
+}

@@ -1,0 +1,61 @@
+# BOXP-679: code-server は端末を持つので、届く経路と出ていく先を絞る。
+# - ingress: 同じ namespace の cloudflared（Access を通った本人の要求）と、
+#   自動検証に使う codex-workspace だけ。
+# - egress: DNS と、クラスタ外の HTTPS（Lean toolchain / Open VSX / GitHub の取得）だけ。
+#   クラスタ内の Service や家の LAN には出られない。
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: code-server
+  namespace: lean-reading
+spec:
+  selector: app == 'code-server'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'lean-reading'
+        selector: app == 'cloudflared'
+      destination:
+        ports:
+          - 8080
+    - action: Allow
+      protocol: TCP
+      source:
+        namespaceSelector: kubernetes.io/metadata.name == 'codex-workspace'
+        selector: app == 'codex-workspace'
+      destination:
+        ports:
+          - 8080
+  egress:
+    - action: Allow
+      protocol: UDP
+      # Calico defaults an empty source; keep it explicit so Argo CD SSA stays in sync.
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      source: {}
+      destination:
+        notNets:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+          - 192.178.0.0/16
+        ports:
+          - 443
