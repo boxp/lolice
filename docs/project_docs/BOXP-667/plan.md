@@ -13,7 +13,7 @@ Task Runner（arch の dispatcher）は、Blocked / Done へ入った全票の e
 
 | 対象 | 変更前 | 変更後 |
 |---|---|---|
-| 前段 filter | 未登録票を silent にして捨てる | 全票を通す。未登録票には `supervision=unregistered` を付ける。処理済み marker がある event（重複配信）だけを落とす |
+| 前段 filter | 未登録票を silent にして捨てる | 全票を通す。未登録票には `supervision=unregistered` を付ける。未登録票の重複配信（処理済み marker あり）だけを従来どおり落とす |
 | prompt 手順 2 | 未登録票は通知も調整もしない | 全票が通知対象。登録は「継続操作をしてよいか」だけを決める。未登録票は report-only（担当報告の要約だけ。検収・状態変更・再 queue なし） |
 | prompt 手順 5 | 継続条件に runbook 登録を含む | 同じ。report-only の票は対象外と明記 |
 | Deployment | route revision | 値を更新し、Pod の通常再作成で反映 |

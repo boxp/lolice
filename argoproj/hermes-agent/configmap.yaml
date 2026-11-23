@@ -127,20 +127,22 @@ data:
           :else
           ;; BOXP-667: every ticket is notified. Registration in the runbook no longer decides
           ;; delivery; it only decides whether Kohako may continue/intervene. An unregistered
-          ;; ticket is passed with supervision=unregistered (report-only). Only an event that
-          ;; already has its handled marker is dropped here (duplicate delivery).
+          ;; ticket is passed with supervision=unregistered (report-only). As before, only a
+          ;; duplicate delivery of an unregistered ticket (handled marker exists) is dropped here;
+          ;; other duplicates keep going to the agent turn and the channel's own dedupe.
           (let [runbook (io/file (or (System/getenv "TASK_BOARD_FILTER_RUNBOOK") "/opt/data/kohako-task-supervision.md"))
                 vault (or (System/getenv "TASK_BOARD_FILTER_VAULT") "/home/boxp/Documents/obsidian-headless/BOXP")
                 ticket (io/file vault "Tickets" (str ticket_id ".md"))
                 number (subs ticket_id 5)]
             (cond
-              (and (.isFile ticket) (marker? (slurp ticket) event_id)) ["silent-already-handled" "marker-exists"]
               (or (not (.isFile runbook)) (not (.canRead runbook)) (< (.length runbook) 1000)) ["pass" "runbook-unavailable" "unknown"]
               :else (let [book (slurp runbook)]
                       (if (or (re-find (re-pattern (str (java.util.regex.Pattern/quote ticket_id) "(?![0-9])")) book)
                               (re-find (re-pattern (str "(?<![0-9])" (java.util.regex.Pattern/quote number) "(?![0-9])")) book))
                         ["pass" "possibly-registered" "check-runbook"]
-                        ["pass" "unregistered-report-only" "unregistered"])))))))
+                        (if (and (.isFile ticket) (marker? (slurp ticket) event_id))
+                          ["silent-already-handled" "marker-exists"]
+                          ["pass" "unregistered-report-only" "unregistered"]))))))))
     (defn log! [decision reason]
       (try
         (let [path (io/file (or (System/getenv "TASK_BOARD_FILTER_LOG") "/opt/data/ai-ops/task-board-webhook-filter.jsonl"))

@@ -35,12 +35,15 @@
 (doseq [status ["done" "blocked"]]
   (let [data (json/generate-string (assoc payload "event_type" "task-board.lane-changed" "to_status" status "event_id" (str "BOXP-491-lane-" status) "run_id" nil))]
     (check (hinted? (run data) data "unregistered") (str "unregistered lane change to " status " passes"))))
-;; Duplicate delivery: an event that already has its handled marker is dropped for every ticket.
+;; Duplicate delivery of an unregistered ticket is dropped here. A possibly registered ticket or an
+;; unreadable runbook keeps passing: the agent turn and the channel dedupe handle those (notify lab).
 (spit (path "vault" "Tickets" "BOXP-491.md") "- [kohako-event] handled event=BOXP-491-test run=run-1 result=notified summary=done\n" :append true)
 (def content (slurp (path "vault" "Tickets" "BOXP-491.md")))
 (check (= "[SILENT]" (run raw)) "already handled (unregistered)")
 (spit (path "runbook") (str (apply str (repeat 1100 "x")) "BOXP-491"))
-(check (= "[SILENT]" (run raw)) "already handled (registered)")
+(check (hinted? (run raw) raw "check-runbook") "already handled but possibly registered still passes")
+(spit (path "runbook") "short")
+(check (hinted? (run raw) raw "unknown") "already handled with unreadable runbook still passes")
 (spit (path "runbook") (apply str (repeat 1100 "x")))
 (check (= content (slurp (path "vault" "Tickets" "BOXP-491.md"))) "no append on duplicate")
 (def fresh (json/generate-string (assoc payload "event_id" "BOXP-491-fresh")))
