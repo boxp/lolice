@@ -14,9 +14,17 @@ loki:
         index:
           prefix: index_
           period: 24h
+  # BOXP-692: ログを 90 日保持し、compactor の削除処理を有効化する。
+  # retention_period は compactor.retention_enabled が true でないと効かない（Loki 3.4 の既定は false）。
+  # 保持期間の変更と削除の有効化は必ず同じ変更で入れる（7 日のまま有効化すると、残っている古いログが即時に消える）。
+  # Loki 3.x では retention を有効にすると delete_request_store の指定が必須。
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
   limits_config:
-    retention_period: 168h  # 7 days
-    max_query_length: 721h
+    retention_period: 2160h  # 90 days
+    # 1 回の検索で 90 日分を指定できるよう、保持期間 + 1h にそろえる。
+    max_query_length: 2161h
 singleBinary:
   replicas: 1
   resources:
