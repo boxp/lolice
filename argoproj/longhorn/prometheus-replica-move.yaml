@@ -93,6 +93,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 65534
         runAsGroup: 65534
+        # emptyDir は既定で誰でも書けるが、念のため tools / tmp を 65534 のグループ所有にする。
+        fsGroup: 65534
         seccompProfile:
           type: RuntimeDefault
       initContainers:
