@@ -122,6 +122,8 @@ spec:
           args:
             - |
               set -eu
+              # kubectl の失敗をパイプの後段（grep など）で握りつぶさない。
+              set -o pipefail
               VOL=pvc-385be0a8-13a4-4f2e-b788-40200163f332
               OLD=pvc-385be0a8-13a4-4f2e-b788-40200163f332-r-359bc466
               OLD_DISK=0e0e5315-0206-4c5c-9779-c92dac694f8f
@@ -155,13 +157,15 @@ spec:
               }
 
               report
-              if ! replicas | grep -q "^$OLD|"; then
+              # 一覧の取得に失敗したら（set -e で）ここで止まり、「対象副本が無い」と誤判定しない。
+              current=$(replicas)
+              if ! printf "%s\n" "$current" | grep -q "^$OLD|"; then
                 log "golyat-1 内蔵ディスク上の副本 $OLD は既に無い。volume 設定の確認だけ行う。"
                 k patch volumes.longhorn.io "$VOL" --type=merge -p '{"spec":{"diskSelector":["bulk"],"numberOfReplicas":2}}'
                 report
                 exit 0
               fi
-              if ! replicas | grep -q "^$OLD|golyat-1|$OLD_DISK|"; then
+              if ! printf "%s\n" "$current" | grep -q "^$OLD|golyat-1|$OLD_DISK|"; then
                 log "中止: $OLD が想定した golyat-1 内蔵ディスク ($OLD_DISK) 上に無い。"
                 exit 1
               fi
@@ -201,7 +205,10 @@ spec:
               k patch volumes.longhorn.io "$VOL" --type=merge -p '{"spec":{"numberOfReplicas":2}}'
 
               waited=0
-              until ! replicas | grep -q "^$OLD|" && volume_state | grep -q '^attached|healthy|2|'; do
+              # 取得に失敗した回は「未完了」として待ち続ける（until の条件内は set -e の対象外）。
+              until current=$(replicas) && vs=$(volume_state) \
+                && ! printf "%s\n" "$current" | grep -q "^$OLD|" \
+                && printf "%s\n" "$vs" | grep -q '^attached|healthy|2|'; do
                 if [ "$waited" -ge 600 ]; then
                   log "警告: 600 秒以内に副本削除の完了と healthy を確認できなかった。"
                   report
