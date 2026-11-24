@@ -34,7 +34,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: fetch-models
-          image: ghcr.io/ggml-org/whisper.cpp:main@sha256:0e0448b7ad73c6d375f749093c1a31fb51593bfe25096e7080a9249c2ba8a71c
+          image: ghcr.io/ggml-org/whisper.cpp:main@sha256:4dfb768b5c2bbdffb327ef4cd9cb49e7e93e15762309c0fdc57c8bf387401deb
           command:
             - sh
             - -c
@@ -65,7 +65,7 @@ spec:
               mountPath: /models
       containers:
         - name: whisper
-          image: ghcr.io/ggml-org/whisper.cpp:main@sha256:0e0448b7ad73c6d375f749093c1a31fb51593bfe25096e7080a9249c2ba8a71c
+          image: ghcr.io/ggml-org/whisper.cpp:main@sha256:4dfb768b5c2bbdffb327ef4cd9cb49e7e93e15762309c0fdc57c8bf387401deb
           command:
             - /app/build/bin/whisper-server
           args:
