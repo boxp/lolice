@@ -1,0 +1,13 @@
+;; BOXP-700: コハコが Nature Remo で送信してよい家電・信号・値の許可リスト。
+;; Pod には /etc/nature-remo/allowlist.edn として読み取り専用でマウントされ、
+;; コハコ自身は書き換えられない。変更は lolice への PR だけで行う。
+;; 空のあいだは send / aircon の --execute はすべて拒否される（読み取りの list / sensors は使える）。
+;; 形の例（id は nature_remo.sh list の出力から本人と確認して入れる）:
+;; {:cooldown-seconds 60
+;;  :appliances {"<家電id>" {:label "リビングのシーリングファン"
+;;                           :signals {"<信号id>" {:label "電源" :toggle true}}}
+;;               "<エアコンid>" {:label "リビングのエアコン"
+;;                               :aircon {:modes ["cool" "warm" "dry"] :temp [20 28]
+;;                                        :power ["on" "off"] :vol false :dir false}}}}
+{:cooldown-seconds 60
+ :appliances {}}

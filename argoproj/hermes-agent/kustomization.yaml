@@ -9,6 +9,7 @@ resources:
   - external-secret-cloudflared.yaml
   - external-secret-grafana.yaml
   - external-secret-openweathermap.yaml
+  - external-secret-nature-remo.yaml
   - external-secret-task-board-webhook.yaml
   - rbac-task-board-webhook.yaml
   - external-secret-alertmanager-webhook.yaml
@@ -49,6 +50,13 @@ configMapGenerator:
     files:
       - plugins/boxp-notify/plugin.yaml
       - plugins/boxp-notify/__init__.py
+  # BOXP-700: Nature Remo CLI, its skill and the read-only send allowlist.
+  - name: hermes-agent-nature-remo
+    files:
+      - scripts/nature-remo/nature_remo.clj
+      - scripts/nature-remo/nature_remo.sh
+      - scripts/nature-remo/SKILL.md
+      - scripts/nature-remo/allowlist.edn
   - name: hermes-agent-kohako-navilog-script
     files:
       - scripts/kohako-navilog/kohako_navilog_source.py

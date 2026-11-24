@@ -520,6 +520,16 @@ spec:
               cp /bootstrap-scripts/kohako-navilog/kohako_navilog_source.py /opt/data/scripts/kohako_navilog_source.py
               chmod 0644 /opt/data/scripts/kohako_navilog_source.py
               chown 1000:10000 /opt/data/scripts/kohako_navilog_source.py
+              # BOXP-700: Nature Remo 公式 API CLI とスキル（Git 管理なので毎回上書き）。
+              cp /bootstrap-scripts/nature-remo/nature_remo.clj /opt/data/scripts/nature_remo.clj
+              cp /bootstrap-scripts/nature-remo/nature_remo.sh /opt/data/scripts/nature_remo.sh
+              chmod 0644 /opt/data/scripts/nature_remo.clj
+              chmod 0755 /opt/data/scripts/nature_remo.sh
+              chown 1000:10000 /opt/data/scripts/nature_remo.clj /opt/data/scripts/nature_remo.sh
+              mkdir -p /opt/data/skills/smart-home/nature-remo /opt/data/nature-remo
+              cp /bootstrap-scripts/nature-remo/SKILL.md /opt/data/skills/smart-home/nature-remo/SKILL.md
+              chmod 0644 /opt/data/skills/smart-home/nature-remo/SKILL.md
+              chown -R 1000:10000 /opt/data/skills/smart-home/nature-remo /opt/data/nature-remo
               cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
               chmod 0755 /opt/data/scripts/quiet_gate.sh
               chown 1000:10000 /opt/data/scripts/quiet_gate.sh
@@ -586,6 +596,9 @@ spec:
               readOnly: true
             - name: kohako-navilog-script
               mountPath: /bootstrap-scripts/kohako-navilog
+              readOnly: true
+            - name: nature-remo
+              mountPath: /bootstrap-scripts/nature-remo
               readOnly: true
             - name: boxp-ai-ops-observer-plugin
               mountPath: /bootstrap-plugins/boxp-ai-ops-observer
@@ -684,6 +697,13 @@ spec:
                   name: hermes-agent-openweathermap-secret
                   key: OPENWEATHERMAP_API_KEY
                   optional: true
+            # BOXP-700: Nature Remo 公式 API。未設定でも Pod は起動し、CLI が「未設定」と答える。
+            - name: NATURE_REMO_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agent-nature-remo
+                  key: NATURE_REMO_TOKEN
+                  optional: true
           resources:
             requests:
               cpu: 500m
@@ -705,6 +725,11 @@ spec:
             - name: config
               mountPath: /etc/gai.conf
               subPath: gai.conf
+              readOnly: true
+            # BOXP-700: 送信許可リスト。読み取り専用で、変更は lolice の PR だけ。
+            - name: nature-remo
+              mountPath: /etc/nature-remo/allowlist.edn
+              subPath: allowlist.edn
               readOnly: true
         # BOXP-360: read-only /metrics for the observer plugin's exposition file. Mounts
         # only the ai-ops directory of the data PVC (no sessions / config / memory).
@@ -871,6 +896,9 @@ spec:
         - name: kohako-navilog-script
           configMap:
             name: hermes-agent-kohako-navilog-script
+        - name: nature-remo
+          configMap:
+            name: hermes-agent-nature-remo
         - name: boxp-ai-ops-observer-plugin
           configMap:
             name: hermes-agent-boxp-ai-ops-observer-plugin
