@@ -15,10 +15,9 @@
    - volume に `diskSelector: [bulk]` を設定し、`numberOfReplicas` を一時的に 3 にする。
    - bulk ディスク上に健全な副本（engine から見て RW）が 2 つそろってから、golyat-1 内蔵ディスク上の副本 1 つだけを削除し、`numberOfReplicas` を 2 に戻す。
    - 健全副本が 2 未満になる時間を作らない。対象副本が既に無い場合は設定の確認だけで終わる（冪等）。
-3. Prometheus 60 日・120Gi・retentionSize 100GB（`argoproj/prometheus-operator`）。
-   - PVC `prometheus-k8s-db-prometheus-k8s-0` を Argo CD 管理にして 120Gi へオンライン拡張（Prune=false / Delete=false）。
+3. Prometheus PVC 120Gi（`argoproj/prometheus-operator/prometheus-k8s-db-pvc.yaml`）と副本移動 Job の後片付け。
+4. Prometheus 60 日・retentionSize 100GB・volumeClaimTemplate 120Gi（`overlays/prometheus.yaml`）。PVC のオンライン拡張と Pod 再起動が重ならないよう 3 と分ける。
    - Prometheus CR の storage 変更で operator が StatefulSet を作り直す（Pod 再起動、PVC は `whenDeleted: Retain` で保持）。
-   - 副本移動 Job の後片付け。
 
 ## 確認
 
