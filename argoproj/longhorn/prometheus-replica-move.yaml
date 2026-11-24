@@ -134,10 +134,11 @@ spec:
                 k get replicas.longhorn.io -l "longhornvolume=$VOL" \
                   -o jsonpath='{range .items[*]}{.metadata.name}|{.spec.nodeID}|{.spec.diskID}|{.spec.healthyAt}|{.spec.failedAt}|{.status.currentState}{"\n"}{end}'
               }
-              # engine から見て RW（読み書き中＝再構築完了）の副本名
+              # engine から見て RW（読み書き中＝再構築完了）の副本名。
+              # kubectl v1.37.2 の JSONPath は map を JSON（{"name":"RW",...}）で出すが、古い版の map[name:RW ...] 形式でも読めるようにする。
               rw_names() {
-                k get engines.longhorn.io -l "longhornvolume=$VOL" -o jsonpath='{range .items[*]}{.status.replicaModeMap}{end}' \
-                  | grep -o '"[^"]*":"RW"' | cut -d'"' -f2 || true
+                k get engines.longhorn.io -l "longhornvolume=$VOL" -o jsonpath='{range .items[*]}{.status.replicaModeMap}{" "}{end}' \
+                  | sed 's/: /:/g' | tr -d '"{}' | tr ', ' '\n\n' | sed 's/^map\[//; s/\]$//' | awk -F: '$2 == "RW" { print $1 }'
               }
               # bulk ディスク上にあり、健全（healthyAt あり・failedAt なし・running・engine で RW）な副本の数
               healthy_on_bulk() {
