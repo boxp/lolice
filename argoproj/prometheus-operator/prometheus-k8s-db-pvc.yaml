@@ -1,0 +1,28 @@
+# BOXP-692: Prometheus の TSDB 用 PVC（StatefulSet prometheus-k8s の volumeClaimTemplates から作られたもの）を
+# 60Gi → 120Gi にオンライン拡張する。prometheus-operator は storage の変更で StatefulSet を作り直すが、
+# 既存 PVC の容量は変えないため、PVC 本体を Argo CD で管理して拡張する（Loki の storage-loki-0 と同じ方式）。
+# StatefulSet は persistentVolumeClaimRetentionPolicy whenDeleted=Retain のため、作り直しでも PVC は残る。
+# 誤ってこのファイルを外しても PVC とデータを消さないよう、Prune=false / Delete=false を付ける。
+# 縮小はできない（Kubernetes が拒否する）ので、この値は増やす方向にだけ変更すること。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-k8s-db-prometheus-k8s-0
+  namespace: monitoring
+  annotations:
+    argocd.argoproj.io/sync-options: ServerSideApply=false,Prune=false,Delete=false
+  labels:
+    app.kubernetes.io/instance: k8s
+    app.kubernetes.io/managed-by: prometheus-operator
+    app.kubernetes.io/name: prometheus
+    operator.prometheus.io/name: k8s
+    operator.prometheus.io/shard: "0"
+    prometheus: k8s
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: longhorn
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 120Gi
