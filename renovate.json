@@ -104,14 +104,14 @@
       "allowedVersions": "<17"
     },
     {
-      "description": "BOXP-459: bastion の cloudflared を 2026.11.1 に留める。2026.11.2 (lolice#1373) 後に bastion 経由 SSH の途中切断が出たための一時固定で、版が原因かは未確定。解除条件は BOXP-459 Notes 参照",
+      "description": "BOXP-459: bastion の cloudflared を 2026.11.1 に留める (docker versioning は範囲指定を解釈できないため正規表現で完全一致)。2026.11.2 (lolice#1373) 後に bastion 経由 SSH の途中切断が出たための一時固定で、版が原因かは未確定。解除条件は BOXP-459 Notes 参照",
       "matchFileNames": [
         "argoproj/bastion/deployment.yaml"
       ],
       "matchPackageNames": [
         "docker.io/cloudflare/cloudflared"
       ],
-      "allowedVersions": "<=2026.11.1"
+      "allowedVersions": "/^2026\\.11\\.1$/"
     }
   ],
   "major": {
