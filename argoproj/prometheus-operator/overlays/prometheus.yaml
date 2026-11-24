@@ -5,7 +5,10 @@ metadata:
   namespace: monitoring
 spec:
   replicas: 1
-  retention: 31d
+  # BOXP-692 段階1: 60 日保持。retentionSize は PVC 120Gi が満杯になる前に古いブロックを消す保険
+  # （時間保持より先に容量で削除させ、PVC 満杯による停止を防ぐ）。90 日・200Gi は 1 か月の実測後に別途判断する。
+  retention: 60d
+  retentionSize: 100GB
   # アラートメール内の各アラートの Source リンク (generatorURL) の宛先。
   # 未設定だと Pod のアドレスになりリンクが機能しない。
   externalUrl: https://prometheus-web.b0xp.io
@@ -29,7 +32,9 @@ spec:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 60Gi
+            # 既存 PVC 本体は prometheus-k8s-db-pvc.yaml で拡張済み（operator は既存 PVC を拡張しない）。
+            # この値の変更で operator は StatefulSet を作り直す（Pod は再起動、PVC は whenDeleted=Retain で残る）。
+            storage: 120Gi
         storageClassName: longhorn
   scrapeConfigSelector:
     matchLabels:
