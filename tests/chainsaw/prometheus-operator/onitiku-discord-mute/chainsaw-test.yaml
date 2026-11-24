@@ -1,0 +1,72 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: grafana-onitiku-discord-mute
+spec:
+  description: |
+    BOXP-699: onitiku Discord (contact point "onitiku server") 宛て Grafana 通知の停止の回帰テスト。
+    本番では対象ルール 2 件が UI 作成 (provenance なし) で DB にあるため、本番と同じ Grafana イメージを
+    PVC 付きで provisioning なしに起動して UI 作成相当のルール・contact point・policy を API で作り、
+    対照として FIRING / RESOLVED が "onitiku server" に届くことを確かめる。そのあと本番 render の
+    grafana-alerting-provisioning を mount して同じ PVC で再起動し、起動できること、同じ uid のまま
+    mute 付きで取り込まれること、発火→解消させても "onitiku server" にも default ("boxlab alert") にも
+    通知が届かないこと、再起動後も保たれることを確かめる。
+    未検証範囲: Discord への実送信 (fixture は webhook)、本番 PVC (Longhorn)、mute timing の時刻境界。
+  timeouts:
+    exec: 600s
+  steps:
+  - name: require-isolated-kind
+    try:
+    - script:
+        timeout: 15s
+        content: '"${REPO_ROOT}/tests/workflows/require-isolated-kind.sh"'
+
+  - name: static-target-and-mute
+    try:
+    - script:
+        timeout: 180s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/onitiku-discord-mute/onitiku-discord-mute.sh" static'
+
+  - name: grafana-with-ui-created-rules
+    skipDelete: true
+    try:
+    - script:
+        timeout: 420s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/onitiku-discord-mute/onitiku-discord-mute.sh" prepare'
+    catch: &diagnostics
+    - script:
+        timeout: 60s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/onitiku-discord-mute/onitiku-discord-mute.sh" diagnose'
+
+  - name: control-notifications-reach-onitiku-before-provisioning
+    try:
+    - script:
+        timeout: 600s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/onitiku-discord-mute/onitiku-discord-mute.sh" control'
+    catch: *diagnostics
+
+  - name: restart-with-production-alerting-provisioning
+    try:
+    - script:
+        timeout: 300s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/onitiku-discord-mute/onitiku-discord-mute.sh" upgrade'
+    catch: *diagnostics
+
+  - name: firing-and-resolved-are-not-sent
+    try:
+    - script:
+        timeout: 600s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/onitiku-discord-mute/onitiku-discord-mute.sh" muted'
+    catch: *diagnostics
+
+  - name: restart-again-from-provisioned-state
+    try:
+    - script:
+        timeout: 300s
+        content: '"${REPO_ROOT}/tests/chainsaw/prometheus-operator/onitiku-discord-mute/onitiku-discord-mute.sh" restart'
+    catch: *diagnostics
+    cleanup:
+    - command:
+        timeout: 30s
+        entrypoint: kubectl
+        args: [delete, namespace, chainsaw-grafana-onitiku, --ignore-not-found, --wait=false]

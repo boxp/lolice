@@ -44,6 +44,10 @@ spec:
               name: grafana-dashboard-gemini-prepaid
             - mountPath: /grafana-dashboard-definitions/0/alert-entry
               name: grafana-dashboard-alert-entry
+            # BOXP-699: onitiku Discord 宛て通知の停止 (mute timing と対象ルール 2 件)
+            - mountPath: /etc/grafana/provisioning/alerting
+              name: grafana-alerting-provisioning
+              readOnly: true
       volumes:
         - name: grafana-storage
           persistentVolumeClaim:
@@ -63,3 +67,6 @@ spec:
         - name: grafana-dashboard-alert-entry
           configMap:
             name: grafana-dashboard-alert-entry
+        - name: grafana-alerting-provisioning
+          configMap:
+            name: grafana-alerting-provisioning
