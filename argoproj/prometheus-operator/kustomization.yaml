@@ -12,6 +12,7 @@ resources:
 - external-secret-langfuse-clickhouse.yaml
 - cloudflared-deployment.yaml
 - grafana-pvc.yaml
+- prometheus-k8s-db-pvc.yaml
 - control-plane-node-rules.yaml
 - longhorn-storage-rules.yaml
 - local-llm-gpu-observability-rules.yaml

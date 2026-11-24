@@ -8,6 +8,5 @@ resources:
   - settings.yaml
   - recurring-jobs.yaml
   - langfuse-replica-two.yaml
-  - prometheus-replica-move.yaml
   - filesystem-trim-migration.yaml
   - filesystem-trim-label-sync.yaml
