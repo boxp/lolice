@@ -39,7 +39,6 @@ rules:
       - monitoring.coreos.com
       - networking.k8s.io
       - node.k8s.io
-      - pingcap.com
       - policy
       - projectcalico.org
       - rbac.authorization.k8s.io

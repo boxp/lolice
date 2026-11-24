@@ -33,8 +33,7 @@ loliceプロジェクトは、オンプレミスのKubernetesクラスタを管�
 │   ├── palserver/           # PALサーバーのマニフェスト
 │   ├── prometheus-operator/ # Prometheus Operatorのマニフェスト
 │   ├── prometheus-operator-crd/ # Prometheus Operator CRDのマニフェスト
-│   ├── reloader/            # Reloaderのマニフェスト
-│   └── tidb-operator/       # TiDB Operatorのマニフェスト
+│   └── reloader/            # Reloaderのマニフェスト
 ├── cluster.jpg              # クラスタの構成図
 ├── docs/                    # ドキュメントディレクトリ
 │   ├── project-spec.md      # プロジェクト仕様書

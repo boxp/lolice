@@ -27,7 +27,7 @@ spec:
               - |-
                 ECR_TOKEN="$(aws ecr get-login-password --region ${AWS_REGION})"
                 # 除外するnamespaceリスト
-                EXCLUDE_NAMESPACES="default tigera-operator tidb-admin reloader observation monitoring longhorn-system kube-system kube-public kube-node-lease k8s-ecr-token-updater k8s-dashboard external-secrets calico-system calico-apiserver"
+                EXCLUDE_NAMESPACES="default tigera-operator reloader observation monitoring longhorn-system kube-system kube-public kube-node-lease k8s-ecr-token-updater k8s-dashboard external-secrets calico-system calico-apiserver"
                 
                 echo "Starting ECR credential update for all namespaces..."
                 for NAMESPACE_NAME in $(kubectl get namespaces -o jsonpath='{.items[*].metadata.name}')

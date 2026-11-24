@@ -25,7 +25,6 @@ loliceは、ArgoCDを使用して個人用オンプレミスKubernetesクラス�
   /longhorn/        # 分散ストレージ
   /prometheus-operator/  # モニタリング
   /external-secrets-operator/  # シークレット管理
-  /tidb-operator/   # 分散SQLデータベース
   # ... その他のアプリケーション
 
 /k8s/               # 基本的なKubernetesセットアップ
