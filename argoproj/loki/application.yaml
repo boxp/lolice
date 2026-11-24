@@ -3,6 +3,12 @@ kind: Application
 metadata:
   name: loki
   namespace: argocd
+  annotations:
+    # BOXP-689: Argo CD v3.6 は ServerSideApply=true のアプリを server-side diff で比較する。
+    # StatefulSet/loki の volumeClaimTemplates (Git 60Gi / live 50Gi、作成後変更不可) を dry-run が immutable と拒否し
+    # ComparisonError で Sync Unknown・自動同期停止になるため、client-side diff に戻して ignoreDifferences を効かせる
+    # (BOXP-501 / BOXP-533 / BOXP-619 と同じ対処)。適用は引き続き ServerSideApply=true。
+    argocd.argoproj.io/compare-options: ServerSideDiff=false
 spec:
   project: default
   sources:
