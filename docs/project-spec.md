@@ -53,9 +53,6 @@ arch プロジェクトと lolice プロジェクトは密接に連携してお�
   - Descheduler: ノード間のワークロードバランシング
   - Reloader: ConfigMap や Secret の変更時に自動リロード
   
-- **データベース**:
-  - TiDB Operator: 分散 SQL データベース管理
-  
 - **CI/CD**:
   - ArgoCD Image Updater: コンテナイメージの自動更新
 
@@ -85,7 +82,6 @@ lolice/
 │   ├── calico/              # Calico ネットワーク設定
 │   ├── descheduler/         # Descheduler 設定
 │   ├── kubernetes-dashboard/ # Kubernetes Dashboard 設定
-│   ├── tidb-operator/       # TiDB Operator 設定
 │   ├── external-secrets-operator/ # External Secrets Operator 設定
 │   ├── reloader/            # Reloader 設定
 │   └── ...
@@ -106,7 +102,6 @@ lolice プロジェクトでは、各サービスやアプリケーションが 
 - **longhorn**: 分散ストレージシステム
 - **calico**: ネットワークポリシーとルーティング
 - **kubernetes-dashboard**: クラスター可視化と管理
-- **tidb-operator**: 分散データベース管理
 - その他のアプリケーション
 
 ### 4.2 Kustomize による設定管理
