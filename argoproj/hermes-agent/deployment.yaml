@@ -23,6 +23,10 @@ spec:
         boxp.io/alertmanager-webhook-route-revision: "2026-11-14-BOXP-553-channel"
         # BOXP-501: bump when kohako_home_reminder_route.json / kohako_home_reminder.* change.
         boxp.io/kohako-home-reminder-route-revision: "2026-11-12-v1"
+        # BOXP-700: NATURE_REMO_TOKEN is an env var from Secret hermes-agent-nature-remo,
+        # so a new SSM value only reaches the process after a Pod restart. Bump this
+        # (after the ExternalSecret has refreshed) to roll the Pod via Argo CD.
+        boxp.io/nature-remo-token-revision: "2026-11-25-owner-token"
     spec:
       automountServiceAccountToken: false
       nodeSelector:
