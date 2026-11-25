@@ -30,6 +30,8 @@ kubectl port-forward svc/grafana -n monitoring 3000:3000
 
 配送は Alertmanager の `component="agent-auth"` route で Hermes（家の受信箱と Telegram）へ送り、同じ通知の再送は 1 日 1 回まで、解除（再ログイン後の回復）も送ります。severity は warning で、静音時間（02:00-09:00 JST）は送らず朝に届きます。72h の余裕は、週末や外出で 1 日以上ログインできない場合でも 24h 帯までにもう一度知らせるためです。閾値は暫定です。再ログイン後の確認は codex-workspace で `bb /opt/codex-workspace/task-board/agent_auth_expiry.bb status`。
 
+本人ログインで解消し得る通知（期限 72h/24h/期限切れ・更新停滞・run のログイン失敗・メタデータを読めない）には annotation `reauth_url` で BOXP-634 の本人専用ページ `https://codex-auth.b0xp.io/`（Cloudflare Access で Owner のみ）を付けます。Hermes の整形（`argoproj/hermes-agent/configmap.yaml` の `alertmanager_relay.clj`）は本文中の URL を省略するため、`reauth_url` が許可リストと完全一致するときだけ発生中の通知に「再認証: URL」行を出します。各 provider の公式ログイン URL は都度の一時コード入りなので通知には載せません（ページで CLI を選ぶと公式ログインが始まります）。観測停止（observation_stale）はログインで直らないため付けません。
+
 ## 利用枠の reset 前枯渇の予測（BOXP-462）
 
 `ai-subscription-forecast-rules.yaml` は、各 provider の利用枠（`provider`/`name`/`limit`/`window` ごと。共有枠と専用枠は足さない）が reset 前に尽きるかを予測します。定義は `quota-forecast/v1-draft` で、閾値はすべて暫定です。
