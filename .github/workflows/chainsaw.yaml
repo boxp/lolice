@@ -156,6 +156,10 @@ jobs:
       - name: Task Board webhook filter unit tests
         run: bb tests/hermes-agent/task-board-webhook-filter-test.bb
 
+      # BOXP-204 TD-02: 認証期限通知の再認証リンク（許可リスト完全一致のときだけ出す）。
+      - name: Alertmanager relay reauth link tests
+        run: bb tests/hermes-agent/alertmanager-relay-reauth-test.bb
+
       # BOXP-700: Nature Remo CLI の判定順（模擬 HTTP サーバ相手、実 API は呼ばない）。
       - name: Nature Remo CLI tests
         run: bb tests/hermes-agent/nature-remo-test.bb

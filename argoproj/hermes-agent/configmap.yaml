@@ -247,6 +247,13 @@ data:
       (let [u (str u)]
         (when (re-matches #"https://(grafana|alertmanager|prometheus)\.b0xp\.io(/[A-Za-z0-9_./?=&%:-]{0,200})?" u) u)))
 
+    ;; BOXP-204 TD-02: 認証期限通知の再認証入口。本文の URL は省略するが、annotation reauth_url が
+    ;; 固定の本人専用ページ（Cloudflare Access で Owner のみ）と完全一致するときだけリンクを出す。
+    ;; 一時コードや別ホストを含む URL は出さない（行ごと省く）。
+    (def reauth-urls #{"https://codex-auth.b0xp.io/"})
+
+    (defn safe-reauth-url [u] (reauth-urls (str u)))
+
     (defn jst-time [ts]
       (try (.format (ZonedDateTime/ofInstant (Instant/parse (str ts)) jst) (DateTimeFormatter/ofPattern "MM/dd HH:mm"))
            (catch Exception _ "?")))
@@ -268,6 +275,7 @@ data:
                                 " fp=" (subs (str (get a "fingerprint") "????????") 0 8))
                            (some-> (get an "summary") (clean 200) (#(str "  " %)))
                            (when firing? (some-> (get an "description") (clean 600) (#(str/replace % #"(?m)^" "  "))))
+                           (when firing? (some->> (safe-reauth-url (get an "reauth_url")) (str "  再認証: ")))
                            (when-let [u (safe-url (get an "dashboard"))] (str "  根拠: " u))]))))
 
     (let [p (try (json/parse-string (slurp *in*)) (catch Exception _ nil))

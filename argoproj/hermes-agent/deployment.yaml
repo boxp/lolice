@@ -20,7 +20,7 @@ spec:
         # so Argo CD rolls the Pod and the new route definitions take effect.
         boxp.io/task-board-webhook-route-revision: "2026-11-23-BOXP-667-all-tickets"
         # BOXP-462: bump when alertmanager_webhook_route.json / alertmanager_relay.* change.
-        boxp.io/alertmanager-webhook-route-revision: "2026-11-14-BOXP-553-channel"
+        boxp.io/alertmanager-webhook-route-revision: "2026-11-25-BOXP-204-reauth-link"
         # BOXP-501: bump when kohako_home_reminder_route.json / kohako_home_reminder.* change.
         boxp.io/kohako-home-reminder-route-revision: "2026-11-12-v1"
         # BOXP-700: NATURE_REMO_TOKEN is an env var from Secret hermes-agent-nature-remo,
