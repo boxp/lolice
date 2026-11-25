@@ -156,6 +156,10 @@ jobs:
       - name: Task Board webhook filter unit tests
         run: bb tests/hermes-agent/task-board-webhook-filter-test.bb
 
+      # BOXP-700: Nature Remo CLI の判定順（模擬 HTTP サーバ相手、実 API は呼ばない）。
+      - name: Nature Remo CLI tests
+        run: bb tests/hermes-agent/nature-remo-test.bb
+
       # BOXP-623: 監視入口ダッシュボードの生成再現性と、Grafana Alerting リンク等の不変条件。
       - name: Alert entry dashboard tests
         run: bash scripts/alert-entry-dashboard/test.sh
