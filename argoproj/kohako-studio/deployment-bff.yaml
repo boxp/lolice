@@ -85,6 +85,12 @@ spec:
             # audio is forwarded in memory only and never stored.
             - name: KOHAKO_STT_URL
               value: http://kohako-stt.even-g2-lab.svc.cluster.local:8080
+            # BOXP-706 M1: 本人の家の会話の run にだけ gpt-6.2-sol を指定する有限の試行（30 発言または期限の早い方、
+            # 指定を付けた発言が 2 回続けて失敗しても終了）。終わると Hermes の既定（gpt-6.1-sol）へ自動で戻る。
+            # 現場・通知返信・検証用の会話、Telegram・Webhook・cron には付かない。止める時はこの env を消す。
+            # 続ける・広げるには Owner の新しい選択が要る（until と maxTurns を延ばさない）。
+            - name: KOHAKO_MODEL_TRIAL
+              value: '{"id":"BOXP-706-m1","provider":"openai-codex","model":"gpt-6.2-sol","until":"2026-11-27T19:00:00Z","maxTurns":30}'
             # BOXP-657 段1: 眼鏡の入口（principal g2）を読み取りだけで有効にする。外すと無効（段0 と同じ）。
             # 通すのは「even-g2-lab の専用 ServiceAccount の token（audience kohako-bff-g2）」と
             # 「眼鏡の Access アプリ（下の AUD。家の AUD とは別）で本人が通った証明」の両方がそろった時だけ。
