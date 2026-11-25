@@ -73,6 +73,7 @@
       (http-failure resp ""))))
 
 ;; ---- 読み取り ----
+(defn seq-join [xs] (some->> (seq (remove str/blank? xs)) (str/join " ")))
 (defn allowed-note [allow id]
   (when-let [a (get-in allow [:appliances id])] (str "  ← 許可済み: " (:label a))))
 
@@ -87,7 +88,12 @@
                       " button=" (pr-str (get s "button")) " 更新=" (get s "updated_at")
                       "（実機の現在状態ではない）")))
       (when-let [modes (some-> (get-in a ["aircon" "range" "modes"]) keys seq)]
-        (println (str "  対応モード: " (str/join " " (sort modes)))))
+        (println (str "  対応モード: " (str/join " " (sort modes))))
+        (doseq [[m r] (sort-by key (get-in a ["aircon" "range" "modes"]))
+                :let [ts (remove str/blank? (get r "temp"))]]
+          (println (str "  " m ": 温度 " (if (seq ts) (str (first ts) "〜" (last ts)) "-")
+                        " / 風量 " (or (seq-join (get r "vol")) "-")
+                        " / 風向 " (or (seq-join (get r "dir")) "-")))))
       (doseq [sig (get a "signals")]
         (println (str "  - " (get sig "name") " (signal=" (get sig "id") ")"))))))
 
@@ -166,6 +172,27 @@
 (defn form-encode [m]
   (str/join "&" (for [[k v] m] (str k "=" (URLEncoder/encode (str v) "UTF-8")))))
 
+;; 機器対応範囲方式: 実 API の aircon.range.modes から写した値だけを許す（空文字は許可値に数えない）。
+;; --mode なしの値は、許可された全モードに共通する値だけ通す。戻り値は送る温度（一覧側の文字）。
+(defn- parse-num [x] (try (Double/parseDouble (str x)) (catch Exception _ nil)))
+(defn check-ranges! [ac mode temp vol dir reject]
+  (let [ranges (:ranges ac)
+        targets (if mode [(get ranges mode)] (vals ranges))
+        values (fn [r k] (remove str/blank? (get r k)))
+        pick (fn [k v same?]
+               (let [hits (map (fn [r] (first (filter #(same? % v) (values r k)))) targets)]
+                 (if (and (seq targets) (every? some? hits))
+                   (first hits)
+                   (reject (str ({:temp "温度 " :vol "風量 " :dir "風向 "} k) v
+                                (if mode (str " はモード " mode " の対応範囲外")
+                                    " は許可された全モードに共通の値ではない。モードも指定する"))))))]
+    (when (and mode (not (contains? ranges mode))) (reject (str "モード " mode " は許可外")))
+    (when vol (pick :vol vol =))
+    (when dir (pick :dir dir =))
+    (when temp
+      (when-not (parse-num temp) (reject (str "温度 " temp " は数ではない")))
+      (pick :temp temp #(= (parse-num %1) (parse-num %2))))))
+
 (defn cmd-aircon [args]
   (let [{:keys [appliance mode temp vol dir power execute]} (parse-opts args)
         _ (when (or (str/blank? appliance) (every? nil? [mode temp vol dir power]))
@@ -173,16 +200,17 @@
         allow (load-allowlist)
         a (get-in allow [:appliances appliance])
         ac (:aircon a)
-        reject #(die 4 (str "拒否: " % "（送信しない）。"))]
-    (when-not ac (reject (str "家電 " appliance " はエアコン操作の許可リストにない")))
-    (when (and mode (not (some #{mode} (:modes ac)))) (reject (str "モード " mode " は許可外")))
-    (when temp
+        reject #(die 4 (str "拒否: " % "（送信しない）。"))
+        _ (when-not ac (reject (str "家電 " appliance " はエアコン操作の許可リストにない")))
+        temp (if (:ranges ac) (check-ranges! ac mode temp vol dir reject) temp)]
+    (when (and mode (not (some #{mode} (if (:ranges ac) (keys (:ranges ac)) (:modes ac))))) (reject (str "モード " mode " は許可外")))
+    (when (and temp (not (:ranges ac)))
       (let [[lo hi] (:temp ac)
             t (try (Double/parseDouble temp) (catch Exception _ nil))]
         (when-not (and t lo hi (<= lo t hi)) (reject (str "温度 " temp " は許可範囲 " lo "〜" hi " の外")))))
     (when (and power (not (some #{power} (:power ac)))) (reject (str "電源 " power " は許可外")))
-    (when (and vol (not (:vol ac))) (reject "風量の変更は許可外"))
-    (when (and dir (not (:dir ac))) (reject "風向の変更は許可外"))
+    (when (and vol (not (:ranges ac)) (not (:vol ac))) (reject "風量の変更は許可外"))
+    (when (and dir (not (:ranges ac)) (not (:dir ac))) (reject "風向の変更は許可外"))
     (let [form (cond-> (array-map)
                  mode (assoc "operation_mode" mode)
                  temp (assoc "temperature" temp)
