@@ -1,27 +1,73 @@
 ;; BOXP-700: コハコが Nature Remo で送信してよい家電・信号・値の許可リスト。
 ;; Pod には /etc/nature-remo/allowlist.edn として読み取り専用でマウントされ、
 ;; コハコ自身は書き換えられない。変更は lolice への PR だけで行う。
-;; 空のあいだは send / aircon の --execute はすべて拒否される（読み取りの list / sensors は使える）。
-;; 形の例（id は nature_remo.sh list の出力から本人と確認して入れる）:
-;; {:cooldown-seconds 60
-;;  :appliances {"<家電id>" {:label "リビングのシーリングファン"
-;;                           :signals {"<信号id>" {:label "電源" :toggle true}}}
-;;               "<エアコンid>" {:label "リビングのエアコン"
-;;                               :aircon {:modes ["cool" "warm" "dry"] :temp [20 28]
-;;                                        :power ["on" "off"] :vol false :dir false}}}}
+;; ここに書かれていない家電・信号・モードは、Nature Remo に後から足されても拒否される
+;; （新しい家電は nature_remo.sh list で一覧を取り直し、PR で足す）。
+;; 形は Projects/kohako-nature-remo/spec.md 4 を参照。
 ;;
-;; 2026-11-25 (BOXP-700 TD-01): 本人の依頼「暖房とシーリングファンをつけたい」で拒否された 2 操作だけを許可。
-;; id は 2026-11-25 10:55 UTC 頃 に Pod 内 nature_remo.sh list（実 API）で照合済み。
-;; ほかの信号（Fan の off/中/強/冷房用on、暖房の首振り・風量など）やエアコンは許可していない。
-;; どちらも実機での送信テストはまだ（家電が実際に動くかは未確認）。
+;; 2026-11-25 (BOXP-700 TD-01): 暖房オン・Fan 暖房用on の 2 操作だけ許可。
+;; 2026-11-25 (BOXP-700 TD-02): 本人の「全部許可してほしい」を受け、Remo に登録済みの
+;;   全家電の全信号と、エアコンの機器対応範囲（電源・モード・温度・風量・風向）を許可。
+;;   id と範囲は 2026-11-25 11:10 UTC 頃に Pod 内から実 API GET /1/appliances で取得した値を
+;;   そのまま写した（ワイルドカードや「全部」指定は使わない）。
+;;   単独の信号（オン/on/掃除開始/首振り/風量切り替え）は off 信号が別にないため、
+;;   今の状態で結果が変わるトグルとして扱う（送る前に状態を確認、再送しない）。
+;;   実機での送信テストはまだ（家電が実際に動くかは未確認）。
 {:cooldown-seconds 60
- :appliances {;; [IR] 暖房（ベッドルーム）。「オン」1 信号だけで別の off 信号がないため、
-              ;; 電源ボタン式のトグル（点いているときに送ると消える）とみなす。
+ :appliances {;; [IR] 暖房
               "a4c327dd-f1f9-49d2-ba3e-4c0f032d7379"
               {:label "暖房"
-               :signals {"a1214a6d-d5c9-439d-a008-2a6e7af00ba8" {:label "オン" :toggle true}}}
-              ;; [IR] Fan = 寝室のシーリングファン（2026-11-25 本人確認）。
-              ;; on/off が別信号だが、実機の反応は未確認。
+               :signals {"a1214a6d-d5c9-439d-a008-2a6e7af00ba8" {:label "オン" :toggle true}
+                         "b4b916b6-9251-49e7-8631-2fcde9b8e366" {:label "首振り" :toggle true}
+                         "42761445-986d-447c-8c0f-815bff415a01" {:label "風量切り替え" :toggle true}}}
+              ;; [IR] 加湿器
+              "adf01bd9-86aa-4be3-a78a-edf59a215a1a"
+              {:label "加湿器"
+               :signals {"a9b55873-e098-4c19-a785-7a0708d5fb0e" {:label "オン" :toggle true}}}
+              ;; [IR] 空気清浄機
+              "ba12818b-84bf-46df-927a-8acefd4fb633"
+              {:label "空気清浄機"
+               :signals {"0aac1eb8-d6c7-4473-9b81-82a1fe0391fd" {:label "オン" :toggle true}}}
+              ;; [IR] Light
+              "0a9d4ba7-b668-424b-a1d8-528c77dac308"
+              {:label "Light"
+               :signals {"ab16044e-079e-437e-b01e-f8a09e2c4e4e" {:label "on" :toggle true}}}
+              ;; [IR] Fan = 寝室のシーリングファン（2026-11-25 本人確認）。on/off は別信号。
               "8f33d919-7c2a-457f-9cd4-7c9d2dafc7cb"
               {:label "シーリングファン(Fan)"
-               :signals {"c8d5fd9f-99bc-4354-b5f4-363581e5aef9" {:label "暖房用on"}}}}}
+               :signals {"c8d5fd9f-99bc-4354-b5f4-363581e5aef9" {:label "暖房用on"}
+                         "fca92cad-d3fa-42a8-a58d-21c7840ed35d" {:label "冷房用on"}
+                         "7ec885cc-200e-4558-8949-4fb6abb9c31a" {:label "off"}
+                         "f3aace1c-46c8-4a7a-bb50-411137fdfdf3" {:label "中"}
+                         "2397f674-9689-41cf-b688-fdadf6e7b785" {:label "強"}}}
+              ;; [IR] 掃除機
+              "0ec4f0f1-25bf-435e-b1a4-c4c1b3e9a999"
+              {:label "掃除機"
+               :signals {"6c087fbc-6976-4eb8-bdfc-6d897faf3d75" {:label "掃除開始" :toggle true}}}
+              ;; [AC] エアコン: 実 API の aircon.range.modes をそのまま写す（auto / dry の温度は相対値）。
+              ;; dirh（左右風向）は機器側が空のため扱わない。extras（Night Set Mode など）は CLI 未対応。
+              "e0d81682-5443-49e1-adbc-027647b8a562"
+              {:label "エアコン"
+               :aircon
+               {:power ["on" "off"]
+                :ranges
+                {"auto" {:temp ["-5" "-4.5" "-4" "-3.5" "-3" "-2.5" "-2" "-1.5" "-1" "-0.5" "0"
+                                "0.5" "1" "1.5" "2" "2.5" "3" "3.5" "4" "4.5" "5"]
+                         :vol ["1" "auto"]
+                         :dir ["1" "2" "3" "4" "5" "swing"]}
+                 "blow" {:temp [""]
+                         :vol ["1" "2" "3" "4" "5" "6" "auto"]
+                         :dir ["1" "2" "3" "4" "5" "swing"]}
+                 "cool" {:temp ["18" "18.5" "19" "19.5" "20" "20.5" "21" "21.5" "22" "22.5" "23" "23.5"
+                                "24" "24.5" "25" "25.5" "26" "26.5" "27" "27.5" "28" "28.5" "29" "29.5"
+                                "30" "30.5" "31" "31.5" "32"]
+                         :vol ["1" "2" "3" "4" "5" "6" "auto"]
+                         :dir ["1" "2" "3" "4" "5" "swing"]}
+                 "dry" {:temp ["-2" "-1.5" "-1" "-0.5" "0" "0.5" "1" "1.5" "2"]
+                        :vol [""]
+                        :dir ["1" "2" "3" "4" "5" "swing"]}
+                 "warm" {:temp ["14" "14.5" "15" "15.5" "16" "16.5" "17" "17.5" "18" "18.5" "19" "19.5"
+                                "20" "20.5" "21" "21.5" "22" "22.5" "23" "23.5" "24" "24.5" "25" "25.5"
+                                "26" "26.5" "27" "27.5" "28" "28.5" "29" "29.5" "30"]
+                         :vol ["1" "2" "3" "4" "5" "6" "auto"]
+                         :dir ["1" "2" "3" "4" "5" "swing"]}}}}}}

@@ -19,7 +19,9 @@ description: "Use when the Owner asks about home appliances (air conditioner, ce
 1. まず `--execute` なしで実行し、「未送信（確認用）」の内容を本人に見せて確認をもらう。
 2. 本人が了承したら、同じ命令に `--execute` を付けて **1 回だけ** 実行する。
    - `send --appliance <家電id> --signal <信号id>`（シーリングファンなどの赤外線信号）
-   - `aircon --appliance <家電id> [--power on|off] [--mode cool|warm|dry] [--temp 26]`
+   - `aircon --appliance <家電id> [--power on|off] [--mode auto|blow|cool|dry|warm] [--temp 26] [--vol 1..6|auto] [--dir 1..5|swing]`
+     - 使える値はモードごとに違う（`list` の「cool: 温度 18〜32 / 風量 … / 風向 …」の行）。auto と dry の温度は相対値（例 -2〜2）。
+     - 温度・風量・風向を変えるときは `--mode` も付ける（付けないと全モード共通の値しか通らない）。
 3. 結果の伝え方:
    - 「送信受付」= Remo API が受け付けただけ。家電が動いたかは未確認と必ず添える。
    - 「送信結果不明」(終了7) / 「拒否」(終了4/5/6) のときは **自分で再実行しない**。理由をそのまま本人に伝える。

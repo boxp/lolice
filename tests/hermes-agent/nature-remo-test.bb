@@ -16,6 +16,7 @@
 (def appliances
   [{"id" "a1" "nickname" "エアコン" "type" "AC" "device" {"id" "d1" "name" "Remo"}
     "settings" {"temp" "26" "temp_unit" "c" "mode" "cool" "vol" "auto" "dir" "" "button" "" "updated_at" "2026-11-24T10:00:00Z"}
+    "aircon" {"range" {"modes" {"cool" {"temp" ["18" "18.5" "32"] "vol" ["1" "2" "3" "auto"] "dir" ["1" "swing"] "dirh" [""]}}}}
     "signals" []}
    {"id" "f1" "nickname" "シーリングファン" "type" "IR" "device" {"id" "d1" "name" "Remo"}
     "signals" [{"id" "s1" "name" "電源" "image" "ico_on"} {"id" "s2" "name" "風量" "image" "ico_fan"}]}])
@@ -216,6 +217,38 @@
   (let [r (run ["send" "--appliance" "f1" "--signal" "s1" "--execute"] :state "state4")]
     (check (= 5 (:exit r)) "他の送信中は終了5")
     (check (empty? (posts)) "他の送信中は POST しない")))
+
+;; ---- 4. エアコンの機器対応範囲方式（:ranges, TD-02）----
+;; 期待値は spec.md 4 の例から。
+(reset-reqs!)
+(let [r (run ["list"])]
+  (check (str/includes? (:out r) "cool: 温度 18〜32 / 風量 1 2 3 auto / 風向 1 swing") "list: エアコンのモードごとの対応範囲"))
+(def allow-ranges
+  {:cooldown-seconds 0
+   :appliances {"a1" {:label "エアコン"
+                      :aircon {:power ["on" "off"]
+                               :ranges {"cool" {:temp ["18" "18.5" "26" "32"] :vol ["1" "2" "auto"] :dir ["1" "swing"]}
+                                        "dry" {:temp ["-2" "-1" "0" "1" "2"] :vol [""] :dir ["1" "swing"]}}}}}})
+(write-allow! allow-ranges)
+(reset-reqs!)
+(doseq [[args code msg] [[["--mode" "cool" "--temp" "26"] 0 "範囲内の冷房26℃は確認用 終了0"]
+                         [["--mode" "cool" "--temp" "33"] 4 "冷房の範囲外33℃は終了4"]
+                         [["--mode" "dry" "--temp" "26"] 4 "除湿(相対温度)に26は終了4"]
+                         [["--mode" "warm"] 4 "ranges にないモードは終了4"]
+                         [["--temp" "1"] 4 "モードなしで一部モードにしかない温度は終了4"]
+                         [["--dir" "1"] 0 "モードなしで全モード共通の風向は確認用 終了0"]
+                         [["--mode" "dry" "--vol" "auto"] 4 "除湿に風量(空文字のみ)は終了4"]
+                         [["--mode" "cool" "--vol" "3"] 4 "一覧にない風量は終了4"]
+                         [["--mode" "cool" "--vol" "auto" "--dir" "swing"] 0 "一覧にある風量・風向は確認用 終了0"]
+                         [["--power" "off"] 0 "電源off は確認用 終了0"]
+                         [["--temp" "abc" "--mode" "cool"] 4 "数でない温度は終了4"]]]
+  (let [r (run (into ["aircon" "--appliance" "a1"] args))]
+    (check (= code (:exit r)) (str "ranges: " msg))))
+(check (str/includes? (:all (run ["aircon" "--appliance" "a1" "--temp" "1"])) "モード") "ranges: モードなしの拒否はモード指定を案内")
+(check (empty? @reqs) "ranges: 確認用・拒否では通信しない")
+(reset-reqs!)
+(run ["aircon" "--appliance" "a1" "--mode" "cool" "--temp" "26.0" "--execute"])
+(check (= "operation_mode=cool&temperature=26" (:body (first (posts)))) "ranges: 温度は数で比べ一覧側の文字で送る")
 
 (srv/server-stop! server)
 (println (if (zero? @failures) "ALL PASS" (str @failures " FAILED")))
