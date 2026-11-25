@@ -9,5 +9,19 @@
 ;;               "<エアコンid>" {:label "リビングのエアコン"
 ;;                               :aircon {:modes ["cool" "warm" "dry"] :temp [20 28]
 ;;                                        :power ["on" "off"] :vol false :dir false}}}}
+;;
+;; 2026-11-25 (BOXP-700 TD-01): 本人の依頼「暖房とシーリングファンをつけたい」で拒否された 2 操作だけを許可。
+;; id は 2026-11-25 10:55 UTC 頃 に Pod 内 nature_remo.sh list（実 API）で照合済み。
+;; ほかの信号（Fan の off/中/強/冷房用on、暖房の首振り・風量など）やエアコンは許可していない。
+;; どちらも実機での送信テストはまだ（家電が実際に動くかは未確認）。
 {:cooldown-seconds 60
- :appliances {}}
+ :appliances {;; [IR] 暖房（ベッドルーム）。「オン」1 信号だけで別の off 信号がないため、
+              ;; 電源ボタン式のトグル（点いているときに送ると消える）とみなす。
+              "a4c327dd-f1f9-49d2-ba3e-4c0f032d7379"
+              {:label "暖房"
+               :signals {"a1214a6d-d5c9-439d-a008-2a6e7af00ba8" {:label "オン" :toggle true}}}
+              ;; [IR] Fan = 寝室のシーリングファン（2026-11-25 本人確認）。
+              ;; on/off が別信号だが、実機の反応は未確認。
+              "8f33d919-7c2a-457f-9cd4-7c9d2dafc7cb"
+              {:label "シーリングファン(Fan)"
+               :signals {"c8d5fd9f-99bc-4354-b5f4-363581e5aef9" {:label "暖房用on"}}}}}
