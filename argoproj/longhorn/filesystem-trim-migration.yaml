@@ -129,7 +129,7 @@ spec:
         - name: delete-jobs
           # 第三者イメージは digest 固定 (argoproj/argocd-image-updater/imageupdaters/README.md)。
           # このイメージはシェルを持たないため、kubectl を直接実行する。
-          image: registry.k8s.io/kubectl:v1.37.2@sha256:fe049faa65ae483ac200009a949a68fa4c9985daea12c9cb1195c9c7965301fc
+          image: registry.k8s.io/kubectl:v1.37.3@sha256:82f06779a0dcd86225ffdb96c005418b9716093a39907a5ecf686d7a22e6b788
           command: ["/bin/kubectl"]
           args:
             - --namespace=longhorn-system
@@ -171,7 +171,7 @@ spec:
           # pkg/cmd/wait/wait.go RunWait: `if visitCount == 0 && !isForDelete`）。v1.36.5 と v1.37.1 の
           # イメージで実クラスタに対して確認済み: 0 件は exit 0、残っている場合は timeout で exit 1。
           # kubectl のイメージを更新するときは、0 件で成功することを確認し直すこと。
-          image: registry.k8s.io/kubectl:v1.37.2@sha256:fe049faa65ae483ac200009a949a68fa4c9985daea12c9cb1195c9c7965301fc
+          image: registry.k8s.io/kubectl:v1.37.3@sha256:82f06779a0dcd86225ffdb96c005418b9716093a39907a5ecf686d7a22e6b788
           command: ["/bin/kubectl"]
           args:
             - --namespace=longhorn-system
@@ -196,7 +196,7 @@ spec:
             - name: tmp
               mountPath: /tmp
         - name: remove-labels
-          image: registry.k8s.io/kubectl:v1.37.2@sha256:fe049faa65ae483ac200009a949a68fa4c9985daea12c9cb1195c9c7965301fc
+          image: registry.k8s.io/kubectl:v1.37.3@sha256:82f06779a0dcd86225ffdb96c005418b9716093a39907a5ecf686d7a22e6b788
           command: ["/bin/kubectl"]
           args:
             - --namespace=longhorn-system
@@ -233,7 +233,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: report
-          image: registry.k8s.io/kubectl:v1.37.2@sha256:fe049faa65ae483ac200009a949a68fa4c9985daea12c9cb1195c9c7965301fc
+          image: registry.k8s.io/kubectl:v1.37.3@sha256:82f06779a0dcd86225ffdb96c005418b9716093a39907a5ecf686d7a22e6b788
           command: ["/bin/kubectl"]
           args:
             - --namespace=longhorn-system

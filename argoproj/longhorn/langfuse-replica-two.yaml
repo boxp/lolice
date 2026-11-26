@@ -84,7 +84,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: patch
-          image: registry.k8s.io/kubectl:v1.37.2@sha256:fe049faa65ae483ac200009a949a68fa4c9985daea12c9cb1195c9c7965301fc
+          image: registry.k8s.io/kubectl:v1.37.3@sha256:82f06779a0dcd86225ffdb96c005418b9716093a39907a5ecf686d7a22e6b788
           command: ["/bin/kubectl"]
           args:
             - --namespace=longhorn-system
@@ -113,7 +113,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: report
-          image: registry.k8s.io/kubectl:v1.37.2@sha256:fe049faa65ae483ac200009a949a68fa4c9985daea12c9cb1195c9c7965301fc
+          image: registry.k8s.io/kubectl:v1.37.3@sha256:82f06779a0dcd86225ffdb96c005418b9716093a39907a5ecf686d7a22e6b788
           command: ["/bin/kubectl"]
           args:
             - --namespace=longhorn-system
