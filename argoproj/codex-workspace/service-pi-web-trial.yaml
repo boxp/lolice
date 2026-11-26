@@ -1,0 +1,19 @@
+# BOXP-714: target of the k8s cloudflared ingress for pi-web.b0xp.io (arch
+# terraform/cloudflare/b0xp.io/k8s/pi_web_trial.tf). The Pi Web trial runs as a
+# user process in the workspace container (scripts/pi-web-trial in boxp/arch);
+# its gate re-verifies the Access JWT on port 4319. ClusterIP only;
+# NetworkPolicy admits just the k8s cloudflared Pods on this port.
+# targetPort is a number so no containerPort (and no Pod restart) is needed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: pi-web-trial
+  namespace: codex-workspace
+spec:
+  type: ClusterIP
+  selector:
+    app: codex-workspace
+  ports:
+    - name: pi-web-trial
+      port: 4319
+      targetPort: 4319
