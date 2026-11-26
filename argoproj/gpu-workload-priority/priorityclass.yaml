@@ -6,3 +6,13 @@ value: 100000
 globalDefault: false
 preemptionPolicy: PreemptLowerPriority
 description: Prefer golyat GPU workloads over opportunistic non-GPU workloads.
+---
+# BOXP-715: trial workloads that must give way to everything else (evicted first, never preempt).
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: opportunistic-trial
+value: -200
+globalDefault: false
+preemptionPolicy: Never
+description: Trial workloads that yield memory and CPU to every other workload.

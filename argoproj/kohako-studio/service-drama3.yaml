@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kohako-studio-drama3
+  namespace: kohako-studio
+spec:
+  type: ClusterIP
+  selector: {app: kohako-studio, component: drama3}
+  ports:
+    - {name: speech, port: 8080, targetPort: speech}

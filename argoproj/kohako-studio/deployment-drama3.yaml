@@ -1,0 +1,86 @@
+# BOXP-715: Owner-only trial voice "Drama-3-Japanese" for kohako-home, beside the default コハク (AivisSpeech).
+# Reached only from the BFF (Owner-authenticated). CPU only: the single iGPU stays with llama-server / image
+# generation under their switcher, so this never takes gpu.intel.com/i915.
+#
+# Memory coexistence: the full Q4_K model stays resident (~21GB weights + ~2.1GB caches, no mmap). golyat-4 had
+# 25GB available at its 7-day minimum, so this pod is the sacrificial one: a small request (Burstable, high OOM score),
+# negative priority without preemption, so under memory pressure the kubelet evicts / the kernel OOM-kills this pod
+# before llama-server, image generation or the default voice. The BFF then answers voice_unavailable and the home
+# falls back to the default voice. Rollback: revert this file set (the default voice is unaffected).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kohako-studio-drama3
+  namespace: kohako-studio
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: kohako-studio, component: drama3}
+  template:
+    metadata:
+      labels: {app: kohako-studio, component: drama3}
+    spec:
+      automountServiceAccountToken: false
+      priorityClassName: opportunistic-trial
+      terminationGracePeriodSeconds: 30
+      affinity:
+        nodeAffinity:
+          # Only golyat-4 has the memory (96GB) and cores (16) for a 35B-A3B model on CPU.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - {key: kubernetes.io/hostname, operator: In, values: [golyat-4]}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: speech
+          # Reuses the AivisSpeech image already on golyat-4 only for its Python + glibc; the engine itself is not run.
+          image: ghcr.io/aivis-project/aivisspeech-engine:cpu-1.2.0@sha256:5799c94c3594501be80eeda62106f15439a858c1630d25d1385576581433b192
+          imagePullPolicy: IfNotPresent
+          command: ["/opt/aivisspeech-engine/.venv/bin/python", "-I", "/launcher/launch.py"]
+          workingDir: /tmp
+          env:
+            - {name: HOME, value: /tmp}
+            - {name: SPEECH_THREADS, value: "8"}
+          ports:
+            - {name: speech, containerPort: 8080}
+          # First start downloads ~22GB, checks its sha256 and designs the voice once (up to ~2h on CPU).
+          startupProbe:
+            httpGet: {path: /health, port: speech}
+            periodSeconds: 30
+            failureThreshold: 240
+          readinessProbe:
+            httpGet: {path: /health, port: speech}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: speech}
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests: {cpu: 500m, memory: 2Gi}
+            limits: {cpu: "8", memory: 28Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+            - {name: launcher, mountPath: /launcher, readOnly: true}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: kohako-studio-drama3-data}
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        - name: launcher
+          configMap: {name: kohako-studio-drama3-launcher}
