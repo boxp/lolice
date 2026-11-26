@@ -25,6 +25,15 @@ Lean のバージョンは本と同じ `leanprover/lean4:v4.35.0`（`lean-toolch
      InfoView が画面いっぱいに出る。ファイルを開くときはもう一度押す。
    - AI チャット（Copilot）の欄は使わないので消してある。
 
+## Vim 操作
+
+- Vim 拡張（vscodevim）が入っている。画面下に `-- NORMAL --` が出ていれば効いている。
+- 使わないとき: 拡張（左端の四角いアイコン）→ Vim → Disable。
+- ブラウザが先に取るキーがある（例: Ctrl+W はタブを閉じる、Ctrl+T / Ctrl+N）。
+  PC では Chrome/Edge のメニュー「アプリとしてインストール」で開くと多くが VS Code に届く。
+- スマホのソフトウェアキーボードには Esc が無いことが多い。設定（Ctrl+,）で
+  "Vim: Insert Mode Key Bindings" に `jj` → `<Esc>` を足すと Esc の代わりになる。
+
 ## ターミナル（メニュー → Terminal → New Terminal）
 
 ```sh

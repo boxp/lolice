@@ -13,6 +13,9 @@ ELAN_VERSION="v4.4.0"
 ELAN_SHA256_X86_64="0e8250aa2be86c7af929ade68db617af9edc8b9ccf6eaf5ece228250d0d032e2"
 LEAN_TOOLCHAIN="leanprover/lean4:v4.35.0"
 LEAN_EXTENSION="leanprover.lean4@0.0.243"
+# Vim 操作。ブラウザ側（web 拡張）だけに入れると .lean で効かなかったため、
+# サーバー側に入れておく（BOXP-679 TD-01）。
+VIM_EXTENSION="vscodevim.vim@1.32.4"
 BOOK_REPO="https://github.com/y-taka-23/lean-verified-compiler.git"
 
 SEED_DIR="${SEED_DIR:-/seed}"
@@ -78,13 +81,22 @@ else
   log "keep  $WS/lean-verified-compiler"
 fi
 
-if [ "${SKIP_EXTENSION:-0}" != "1" ]; then
-  if code-server --list-extensions 2>/dev/null | grep -qx 'leanprover.lean4'; then
-    log "keep  extension leanprover.lean4"
-  else
-    log "install extension $LEAN_EXTENSION"
-    code-server --install-extension "$LEAN_EXTENSION"
+# 拡張を入れる。既に入っていれば版も含めて触らない（本人が更新・無効化したものを戻さない）。
+ensure_extension() {
+  spec="$1"
+  id="${spec%@*}"
+  if code-server --list-extensions 2>/dev/null | grep -qx "$id"; then
+    log "keep  extension $id"
+    return 0
   fi
+  log "install extension $spec"
+  code-server --install-extension "$spec"
+}
+
+if [ "${SKIP_EXTENSION:-0}" != "1" ]; then
+  ensure_extension "$LEAN_EXTENSION"
+  # Vim は無くても Lean は使えるので、失敗しても起動は止めない。
+  ensure_extension "$VIM_EXTENSION" || log "vim extension install failed (continue)"
 fi
 
 # 初回の build。失敗しても起動は止めない（InfoView を開けば拡張がやり直す）。
