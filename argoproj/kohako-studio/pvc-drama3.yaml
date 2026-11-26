@@ -1,0 +1,12 @@
+# BOXP-715: speech.cpp CPU release (~6MB), Drama-3-Japanese Q4_K (22.36GB) and the designed voice file.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kohako-studio-drama3-data
+  namespace: kohako-studio
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 30Gi

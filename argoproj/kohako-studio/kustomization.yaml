@@ -6,13 +6,17 @@ resources:
   - rbac.yaml
   - pvc.yaml
   - pvc-tts.yaml
+  - pvc-drama3.yaml
   - configmap-tts-launcher.yaml
+  - configmap-drama3-launcher.yaml
   - configmap-web-upstream.yaml
   - deployment-web.yaml
   - deployment-bff.yaml
   - deployment-tts.yaml
+  - deployment-drama3.yaml
   - pdb-web.yaml
   - service-bff.yaml
   - service-tts.yaml
+  - service-drama3.yaml
   - service.yaml
   - networkpolicy.yaml

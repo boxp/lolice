@@ -1,0 +1,108 @@
+# BOXP-715: Owner-only trial voice for kohako-home (Drama-3-Japanese on speech.cpp, CPU only).
+# Built with Fish Audio. Weights: Fish Audio Community License 1.0 (personal / non-commercial use; the server is
+# reached only from the Owner-authenticated BFF, so it is not a Hosted Service for third parties).
+# Runtime: speech.cpp v0.11.2 official linux-x64-cpu release (MIT), unpatched. Model: the unpatched full Q4_K file of
+# StudioYebisu-ship-it/Drama-3-Japanese-speech-cpp-gguf at a pinned revision. Every download is checked by sha256.
+# Reference voice: no third-party recording and no AivisSpeech output is cloned. The model designs a voice from a
+# Japanese description once (fixed seed), and that output of our own becomes the voice file, so every sentence
+# keeps the same voice.
+# Python (not bb/shell) because the AivisSpeech image already on golyat-4 ships Python and glibc but no curl/unzip.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kohako-studio-drama3-launcher
+  namespace: kohako-studio
+data:
+  launch.py: |
+    import hashlib, os, subprocess, sys, time, urllib.request, zipfile
+
+    DATA = "/data"
+    SPEECH_ZIP = ("https://github.com/nyosegawa/speech.cpp/releases/download/v0.11.2/speech-0.11.2-linux-x64-cpu.zip",
+                  "e04de4380d8a0f1bdd61b1c61b7075363a7cadc78d31d40f64187750b0c39a7d")
+    REV = "cca4c0d8cfab67a2bccbb634d52e544199ac5108"
+    HF = "https://huggingface.co/StudioYebisu-ship-it/Drama-3-Japanese-speech-cpp-gguf/resolve/" + REV + "/"
+    MODEL = "Drama-35B-A3B-Japanese-v3-Q4_K.gguf"
+    FILES = [(MODEL, "f624da9d84a5f133f2b0894aa8728ba8c560873d90c019a2bca2321daa8482dd"),
+             (MODEL + ".json", "eb2fd5c62cf0bc32bcca1977c5a5685c50b8baeacc3cb95e093a19f973487db7")]
+    # The voice is designed once; changing either string or the seed makes a new voice file.
+    VOICE_CUE = "[柔らかく可愛らしい若い女性の声。親しい相手に、明るく優しく、落ち着いた速さで話しかけている。]"
+    VOICE_TEXT = "おかえりなさい。今日もおつかれさま。お茶をいれておいたから、ゆっくり休んでね。"
+    VOICE_SEED = "715"
+    THREADS = os.environ.get("SPEECH_THREADS", "8")
+
+    def log(*a):
+        print("[drama3-launcher]", *a, flush=True)
+
+    def sha256(path):
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for b in iter(lambda: f.read(1 << 22), b""):
+                h.update(b)
+        return h.hexdigest()
+
+    def fetch(url, dest, digest):
+        stamp = dest + ".sha256"
+        if os.path.exists(dest) and os.path.exists(stamp) and open(stamp).read().strip() == digest:
+            return
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        for attempt in range(1, 6):
+            part = dest + ".part"
+            try:
+                log("fetch", url, "attempt", attempt)
+                h, n, t = hashlib.sha256(), 0, time.time()
+                req = urllib.request.Request(url, headers={"User-Agent": "kohako-studio-drama3"})
+                with urllib.request.urlopen(req, timeout=60) as r, open(part, "wb") as out:
+                    for b in iter(lambda: r.read(1 << 22), b""):
+                        out.write(b); h.update(b); n += len(b)
+                if h.hexdigest() != digest:
+                    raise RuntimeError("sha256 mismatch for " + url)
+                os.replace(part, dest)
+                with open(stamp, "w") as s:
+                    s.write(digest)
+                log("fetched", dest, n, "bytes in", round(time.time() - t), "s")
+                return
+            except Exception as e:
+                log("fetch failed:", e)
+                if os.path.exists(part):
+                    os.remove(part)
+                time.sleep(min(60, 10 * attempt))
+        sys.exit("download failed: " + url)
+
+    def run(*args):
+        log("run", " ".join(args[:3]), "...")
+        subprocess.run(args, check=True, env=dict(os.environ, LD_LIBRARY_PATH=DATA + "/bin"))
+
+    zip_path = DATA + "/dl/speech-cpu.zip"
+    fetch(SPEECH_ZIP[0], zip_path, SPEECH_ZIP[1])
+    speech = DATA + "/bin/speech"
+    os.makedirs(DATA + "/bin", exist_ok=True)
+    if not os.path.exists(DATA + "/bin/.ok-" + SPEECH_ZIP[1]):
+        with zipfile.ZipFile(zip_path) as z:
+            for name in ("speech", "libspeech.so.4"):
+                with z.open(name) as src, open(DATA + "/bin/" + name + ".new", "wb") as dst:
+                    dst.write(src.read())
+                os.chmod(DATA + "/bin/" + name + ".new", 0o755)
+                os.replace(DATA + "/bin/" + name + ".new", DATA + "/bin/" + name)
+        if os.path.lexists(DATA + "/bin/libspeech.so"):
+            os.remove(DATA + "/bin/libspeech.so")
+        os.symlink("libspeech.so.4", DATA + "/bin/libspeech.so")
+        open(DATA + "/bin/.ok-" + SPEECH_ZIP[1], "w").close()
+
+    for name, digest in FILES:
+        fetch(HF + name, DATA + "/model/" + name, digest)
+    model = DATA + "/model/" + MODEL
+
+    voice_id = hashlib.sha256((VOICE_CUE + VOICE_TEXT + VOICE_SEED + REV).encode()).hexdigest()[:12]
+    voice = DATA + "/voice/kohako-" + voice_id + ".voice.gguf"
+    if not os.path.exists(voice):
+        os.makedirs(DATA + "/voice", exist_ok=True)
+        ref = DATA + "/voice/kohako-" + voice_id + ".ref.wav"
+        run(speech, "tts", model, "--device", "cpu", "--threads", THREADS, "--voice", "none", "--seed", VOICE_SEED,
+            "-o", ref, VOICE_CUE + VOICE_TEXT)
+        run(speech, "voice", model, ref, "--transcript", VOICE_TEXT, voice + ".new")
+        os.replace(voice + ".new", voice)
+    log("voice", voice)
+
+    os.environ["LD_LIBRARY_PATH"] = DATA + "/bin"
+    os.execv(speech, [speech, "serve", model, "--host", "0.0.0.0", "--port", "8080", "--device", "cpu",
+                      "--threads", THREADS, "--add-voice", "kohako=" + voice])
