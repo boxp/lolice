@@ -59,6 +59,8 @@ Alertmanager は label `notify_hermes="true"` を持つアラートの写しを 
 
 取得から36時間を超えた場合、または `aws_cost_snapshot_available` が 0 の場合は不明として扱います。金額の欠測を 0 と読まないでください。`aws_cost_estimated` が 1 の期間は見込、0 は確定です。月末予測は見込です。
 
+S3 の使用タイプ別（BOXP-598）: `aws_cost_s3_usage_type_day_usd{usage_type,days_ago}` は直近 14 日の日額、`aws_cost_s3_usage_type_day_quantity` は同じ使用量（単位は使用タイプごと、例 `TimedStorage-ByteHrs` は GB-月）。`aws_cost_s3_usage_available` が 0 または系列が無いときは不明で、0 円ではありません。費用上位 10 種以外は `Other` にまとめ、`Other` の使用量は出しません。
+
 ## 監視の入口（BOXP-623）
 
 Grafana の `監視の入口：アラートと監視の健全性`（`/d/alert-entry/`）が運用の入口です。判定の正本は PrometheusRule、通知の正本は Alertmanager（メール / Hermes）のままで、この画面は読むだけです。Grafana が止まっても通知は届きます。
