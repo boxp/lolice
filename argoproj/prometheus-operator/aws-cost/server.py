@@ -77,6 +77,27 @@ def render(root=ROOT):
             for ago, value in zip(agos, row):
                 if 1 <= ago <= 14:
                     metric('day_usd', value, {'service': service, 'days_ago': ago})
+    # BOXP-598: S3 cost by usage type, same matrix form; only rows from this snapshot, null quantity (Other) is skipped.
+    s3 = read('s3_usage', root)
+    if s3.get('schema') == summary['schema'] and s3.get('snapshot_id') == summary['snapshot_id'] and isinstance(s3.get('available'), bool):
+        metric('s3_usage_available', int(s3['available']))
+        days, names, values = s3.get('days'), s3.get('usage_types'), s3.get('values')
+        quantities = s3.get('quantities')
+        if s3['available'] and all(isinstance(x, list) for x in (days, names, values)) and len(names) == len(values):
+            try:
+                agos = [(fetched - datetime.date.fromisoformat(d)).days for d in days]
+            except (ValueError, TypeError):
+                agos = []
+            if not (isinstance(quantities, list) and len(quantities) == len(names)):
+                quantities = [None] * len(names)
+            # One metric family at a time: the text format must not interleave families.
+            for kind, rows in (('usd', values), ('quantity', quantities)):
+                for usage_type, r in zip(names, rows):
+                    if not isinstance(r, list) or len(r) != len(agos):
+                        continue
+                    for ago, value in zip(agos, r):
+                        if 1 <= ago <= 14:
+                            metric('s3_usage_type_day_' + kind, value, {'usage_type': usage_type, 'days_ago': ago})
     return '\n'.join(lines) + '\n'
 
 

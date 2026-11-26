@@ -22,6 +22,8 @@ spec:
       remoteRef: {key: /lolice/aws-cost/daily}
     - secretKey: status.json
       remoteRef: {key: /lolice/aws-cost/status}
+    - secretKey: s3_usage.json
+      remoteRef: {key: /lolice/aws-cost/s3_usage}
 ---
 apiVersion: apps/v1
 kind: Deployment
