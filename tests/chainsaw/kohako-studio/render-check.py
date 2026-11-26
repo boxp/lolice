@@ -47,7 +47,9 @@ ws = get(workspace, 'Deployment', 'codex-workspace')['spec']['template']['spec']
 volume = next(x for x in ws['volumes'] if x['name'] == 'kohako-bff-verifier')
 assert volume['projected']['sources'] == [{'serviceAccountToken': {'audience': 'kohako-bff-verifier', 'expirationSeconds': 3600, 'path': 'token'}}]
 mounts = [(c['name'], m) for c in ws['containers'] for m in c.get('volumeMounts', []) if m['name'] == 'kohako-bff-verifier']
-assert mounts == [('workspace', {'name': 'kohako-bff-verifier', 'mountPath': '/var/run/secrets/kohako-bff-verifier', 'readOnly': True})]
+# BOXP-715 (Owner 承認・選択B): 検証用 token は workspace と task-board-runner の 2 つだけに渡す。ほかの container には渡さない。
+verifier_mount = {'name': 'kohako-bff-verifier', 'mountPath': '/var/run/secrets/kohako-bff-verifier', 'readOnly': True}
+assert mounts == [('workspace', verifier_mount), ('task-board-runner', verifier_mount)]
 # BOXP-501: notification ingest token is audience-bound and mounted only into the event dispatcher.
 volume = next(x for x in ws['volumes'] if x['name'] == 'kohako-bff-notifier')
 assert volume['projected']['sources'] == [{'serviceAccountToken': {'audience': 'kohako-bff-notifier', 'expirationSeconds': 3600, 'path': 'token'}}]
