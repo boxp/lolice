@@ -489,6 +489,11 @@ spec:
             - name: kubernetes-api-token
               mountPath: /var/run/secrets/codex-workspace/k8s
               readOnly: true
+            # BOXP-715 Owner承認(選択B): 検証用 audience kohako-bff-verifier の投影 token を runner にも渡す。
+            # BFF 側の verifier 権限(検証用会話・承認は拒否のみ・TTS/STT)はそのまま。値は表示/転記しない。
+            - name: kohako-bff-verifier
+              mountPath: /var/run/secrets/kohako-bff-verifier
+              readOnly: true
             # BOXP-367: llama.cpp provider config for the localllm-coder route
             # (pi). The runner copies only this file into a run-local HOME.
             - name: pi-config
