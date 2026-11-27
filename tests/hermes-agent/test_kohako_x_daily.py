@@ -122,6 +122,24 @@ class AcceptTest(unittest.TestCase):
                       answer=f"{url(a)} | RT の要約")
         self.assertEqual(self.mod.cited_ids(res, "2026-11-26", NOW), [a])
 
+    def test_i_status_without_b0xp2_in_answer_is_dropped(self):
+        # 規則 6 / 例: allowed_x_handles はスレッド取得に効かない。本文で b0xp2 の投稿と示されない i の出典は捨てる。
+        a = sid(datetime(2026, 11, 27, 8, 4, tzinfo=UTC))
+        parent = sid(datetime(2026, 11, 27, 7, 0, tzinfo=UTC))
+        other = sid(datetime(2026, 11, 27, 7, 30, tzinfo=UTC))
+        bare = sid(datetime(2026, 11, 27, 7, 45, tzinfo=UTC))
+        res = self.ok(inline_citations=[{"url": url(parent, "i")}, {"url": url(other, "i")},
+                                        {"url": url(bare, "i")}, {"url": url(a, "i")}],
+                      answer=(f"{url(a)} | 本人の返信\n{url(other, 'someone')} | 親投稿\n"
+                              f"{url(bare, 'i')} | どこかの投稿"))
+        self.assertEqual(self.mod.cited_ids(res, "2026-11-26", NOW), [a])
+
+    def test_query_excludes_other_accounts(self):
+        # 規則 6: 検索に「本人が書いた投稿だけ・スレッド等の他アカウントの投稿は挙げない」と頼む。
+        q = self.mod.QUERY
+        self.assertIn("authored by @b0xp2", q)
+        self.assertIn("other accounts", q)
+
     def test_new_ids_and_seen_cap(self):
         self.assertEqual(self.mod.new_ids([1, 2, 3], ["2"]), [1, 3])
         seen = self.mod.update_seen([str(i) for i in range(600)], [1000, 1001])
