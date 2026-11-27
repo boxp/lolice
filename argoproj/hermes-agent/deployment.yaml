@@ -30,7 +30,8 @@ spec:
     spec:
       automountServiceAccountToken: false
       # BOXP-721: DNS を agent 専用 resolver（観測専用、記録のみ）経由にする。resolver が
-      # 応答しないときは kube-dns へ退避するので名前解決は止まらない（その間は記録の欠測）。
+      # 応答しないときは kube-dns へ退避する（その間は記録の欠測。Go 製など短い deadline の
+      # client は退避前に失敗しうる: 2026-11-27 resolver 停止中に cloudflared が CrashLoop）。
       dnsPolicy: None
       dnsConfig:
         nameservers:

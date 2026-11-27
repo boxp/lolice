@@ -36,6 +36,24 @@ spec:
         - ip: 172.217.119.4
           hostnames: [oauth2.googleapis.com]
       automountServiceAccountToken: false
+      # BOXP-721: DNS を agent 専用 resolver（観測専用、記録のみ）経由にする。resolver が
+      # 応答しないときは kube-dns へ退避する（Go 製など短い deadline の client は失敗しうる）。
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 10.96.0.53
+          - 10.96.0.10
+        searches:
+          - codex-workspace.svc.cluster.local
+          - svc.cluster.local
+          - cluster.local
+        options:
+          - name: ndots
+            value: "5"
+          - name: timeout
+            value: "2"
+          - name: attempts
+            value: "2"
       terminationGracePeriodSeconds: 60
       initContainers:
         - name: fetch-ssh-keys
