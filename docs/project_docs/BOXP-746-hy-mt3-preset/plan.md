@@ -44,3 +44,13 @@ PR #1454 を受付閉で反映し、preset から 8 例中 7 例の実翻訳を�
 反映後の確認は前と同じ手順（受付閉→drain→merge/sync→hy-mt3 実翻訳と MemAvailable 監視→gemma 実推論→受付 open）。
 
 仕様・Lean: 設定値 1 行の変更で新しい規則はないため作らない。実機確認で代える。
+
+## 追補 2: ルーター CLI の `-c` を外す（PR #1455 反映後）
+
+PR #1455 を受付閉で反映したが、hy-mt3 の子プロセスは `--ctx-size 262144` で起動した（実機ログ）。b11669 ではルーターの CLI 引数が preset の値より優先されるため、deployment の `-c 262144` が preset の `ctx-size = 32768` を上書きしていた。確保が進む前に unload し、gemma の実推論「5」と受付 open まで戻した（MemAvailable 最低 26 GiB、HANG 0）。
+
+対処: deployment から `-c 262144` を外し、ctx-size を持たない全 preset に `ctx-size = 262144` を明示する。各モデルが今まで実際に動いていた ctx を変えないため、ornith-35b の `65536`（これまで一度も効いていなかった値）も 262144 にそろえる。hy-mt3 だけ 32768 にする。
+
+確認: 受付閉→drain→merge/sync→gemma の子プロセス引数が `--ctx-size 262144`、hy-mt3 が `32768` であることをログで確認→hy-mt3 実翻訳と MemAvailable 監視→gemma 実推論→受付 open。
+
+仕様・Lean: 設定値の変更で新しい規則はないため作らない。実機の起動引数とメモリ監視で代える。

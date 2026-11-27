@@ -6,6 +6,14 @@ data:
   models.ini: |
     version = 1
 
+    # BOXP-746: the Deployment no longer passes -c on the router CLI. In b11669
+    # router CLI args win over preset values, so -c 262144 there silently
+    # overrode every preset ctx-size (confirmed live: hy-mt3 child spawned with
+    # --ctx-size 262144 despite ctx-size = 32768 in its preset). Every preset
+    # therefore sets ctx-size itself; 262144 keeps the context each model
+    # actually ran with before this change (ornith-35b included: its old 65536
+    # was never applied). Only hy-mt3-30b-a3b uses a smaller value.
+
     [gemma4-26b]
     model = /models/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
     ctx-size = 262144
@@ -26,7 +34,7 @@ data:
 
     [ornith-35b]
     model = /models/Ornith-1.0-35B-uncensored-heretic-Q5_K_M.gguf
-    ctx-size = 65536
+    ctx-size = 262144
     batch-size = 512
     ubatch-size = 128
     threads = 12
@@ -37,14 +45,15 @@ data:
     # 993a5971, sha256 ba36dc3c…) as a selectable model next to gemma4-26b. The
     # default model is unchanged; with --models-max 1 the router loads this one
     # only when a request names it and unloads it again when another model is
-    # requested. No ctx-size here: in b11669 the router overlays its own CLI
-    # args (-c 262144, --parallel 1, -fa auto, --reasoning off, ...) on every
-    # preset, so a preset ctx-size would be ignored anyway. Measured on golyat-4
+    # requested. The router overlays its own CLI args (--parallel 1, -fa auto,
+    # --reasoning off, ...) on every preset; ctx comes from the preset (see the
+    # BOXP-746 note at the top). Measured on golyat-4
     # with the live image through the router at ctx 262144: ~36 GB RSS alone
     # (load ~2.5 min, decode ~3.5 tok/s, thinking off, Japanese ok).
     # Sampler = publisher non-thinking recommendation; callers may override.
     [qwen38-27b]
     model = /models/boxp294-qwen38/Qwen3.8-27B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf
+    ctx-size = 262144
     batch-size = 2048
     ubatch-size = 512
     threads = 14
@@ -69,6 +78,7 @@ data:
     # No sampler here (same as gemma4-26b); callers pass it.
     [gemma4-31b]
     model = /models/boxp337-gemma4-31b/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-Q4_K_M.gguf
+    ctx-size = 262144
     batch-size = 2048
     ubatch-size = 512
     threads = 14
@@ -83,6 +93,7 @@ data:
     # with ubatch 2048 on a dense model. Callers pass the sampler.
     [ornith15-35b-a3b]
     model = /models/boxp358/ornith15-35b/Ornith-1.5-35B-Q4_K_M.gguf
+    ctx-size = 262144
     batch-size = 2048
     ubatch-size = 512
     threads = 14
@@ -98,6 +109,7 @@ data:
     # Selectable only, same semantics as the presets above. Callers pass the sampler.
     [ornith15-35b-a3b-uncensored]
     model = /models/boxp358/ornith15-35b-uncensored/Ornith-1.5-35B-A3B-uncensored-Q8_0.gguf
+    ctx-size = 262144
     batch-size = 2048
     ubatch-size = 512
     threads = 14
@@ -112,6 +124,7 @@ data:
     # MemAvailable. Callers pass the sampler.
     [qwen35-122b-a10b]
     model = /models/boxp358/qwen35-122b-a10b/Qwen3.5-122B-A10B-UD-Q2_K_XL.gguf
+    ctx-size = 262144
     batch-size = 2048
     ubatch-size = 512
     threads = 14
@@ -126,6 +139,7 @@ data:
     # Callers pass the sampler.
     [qwen3-coder-next]
     model = /models/boxp358/qwen3-coder-next/Qwen3-Coder-Next-Q4_K_S.gguf
+    ctx-size = 262144
     batch-size = 2048
     ubatch-size = 512
     threads = 14
@@ -153,6 +167,7 @@ data:
     # memwatch and unloaded if MemAvailable falls below 12 GiB.
     [qwen38-flash-next]
     model = /models/boxp336-strata/flash-next-q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf
+    ctx-size = 262144
     load-mode = mmap
     batch-size = 2048
     ubatch-size = 512
@@ -161,6 +176,7 @@ data:
 
     [nex-n25-mini]
     model = /models/boxp358/nex-n25-mini/nex-agi_Nex-N2.5-mini-Q4_K_M.gguf
+    ctx-size = 262144
     batch-size = 2048
     ubatch-size = 512
     threads = 14
@@ -174,6 +190,7 @@ data:
     # ~24 GiB on paper, but the first live load at ctx 262144 (BOXP-746,
     # 2026-11-27) took MemAvailable from 54 GiB to 5.8 GiB, so the preset is
     # capped at ctx 32768, the TD-01 measured setup (23.0 GiB GPU-shared).
+    # This only takes effect because -c is no longer on the router CLI.
     # It still cannot share memory with gemma4-26b. Selectable only, for
     # explicit translation requests; gemma4-26b stays the default and
     # --models-max 1 swaps the two. batch / ubatch / threads are the values
