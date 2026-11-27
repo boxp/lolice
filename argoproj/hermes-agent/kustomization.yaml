@@ -60,6 +60,11 @@ configMapGenerator:
   - name: hermes-agent-kohako-navilog-script
     files:
       - scripts/kohako-navilog/kohako_navilog_source.py
+  # BOXP-735: @b0xp2 new public posts daily check (official x_search, no notification) and its skill.
+  - name: hermes-agent-kohako-x-daily
+    files:
+      - scripts/kohako-x-daily/kohako_x_daily.py
+      - scripts/kohako-x-daily/SKILL.md
   - name: hermes-agent-ai-ops-metrics
     files:
       - ai-ops-metrics/server.py

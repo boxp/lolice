@@ -632,6 +632,14 @@ spec:
               cp /bootstrap-scripts/nature-remo/SKILL.md /opt/data/skills/smart-home/nature-remo/SKILL.md
               chmod 0644 /opt/data/skills/smart-home/nature-remo/SKILL.md
               chown -R 1000:10000 /opt/data/skills/smart-home/nature-remo /opt/data/nature-remo
+              # BOXP-735: @b0xp2 の新着公開投稿の毎日確認（公式 x_search・通知なし）と、会話で控えを読むスキル。
+              cp /bootstrap-scripts/kohako-x-daily/kohako_x_daily.py /opt/data/scripts/kohako_x_daily.py
+              chmod 0644 /opt/data/scripts/kohako_x_daily.py
+              chown 1000:10000 /opt/data/scripts/kohako_x_daily.py
+              mkdir -p /opt/data/skills/social-media/kohako-x-read
+              cp /bootstrap-scripts/kohako-x-daily/SKILL.md /opt/data/skills/social-media/kohako-x-read/SKILL.md
+              chmod 0644 /opt/data/skills/social-media/kohako-x-read/SKILL.md
+              chown -R 1000:10000 /opt/data/skills/social-media/kohako-x-read
               cp /bootstrap/quiet_gate.sh /opt/data/scripts/quiet_gate.sh
               chmod 0755 /opt/data/scripts/quiet_gate.sh
               chown 1000:10000 /opt/data/scripts/quiet_gate.sh
@@ -701,6 +709,9 @@ spec:
               readOnly: true
             - name: nature-remo
               mountPath: /bootstrap-scripts/nature-remo
+              readOnly: true
+            - name: kohako-x-daily
+              mountPath: /bootstrap-scripts/kohako-x-daily
               readOnly: true
             - name: boxp-ai-ops-observer-plugin
               mountPath: /bootstrap-plugins/boxp-ai-ops-observer
@@ -1001,6 +1012,9 @@ spec:
         - name: nature-remo
           configMap:
             name: hermes-agent-nature-remo
+        - name: kohako-x-daily
+          configMap:
+            name: hermes-agent-kohako-x-daily
         - name: boxp-ai-ops-observer-plugin
           configMap:
             name: hermes-agent-boxp-ai-ops-observer-plugin
