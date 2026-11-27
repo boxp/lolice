@@ -7,7 +7,9 @@
 #
 # 区別:
 # - 正常な無通信: ノード上の (Alloy 以外の) コンテナのログが増えていなければ発報しない。
-#   ログが増えたかは Alloy と独立な kubelet の kubelet_container_log_filesystem_used_bytes で見る。
+#   ログが出たかは Alloy と独立な kubelet の kubelet_container_log_filesystem_used_bytes が
+#   直近 15 分に変化したか (changes) で見る。差分 (delta) だとローテーションで使用量が戻ると
+#   0 以下になり、ログが出続けていても発報しなくなるため。
 # - Loki の計画停止 (replicas 0): ノード単位は「他のノードは送れている」条件、
 #   全体は「Loki の desired replicas > 0」条件で発報しない。その他の計画作業は silence を使う。
 # - Alloy の Pod 自体がいない / metrics が取れない: 対象外 (TargetDown / KubeDaemonSet*)。
@@ -40,7 +42,7 @@ spec:
             and on (node)
             (
               count by (node) (
-                delta(kubelet_container_log_filesystem_used_bytes{job="kubelet", container!="alloy"}[15m]) > 0
+                changes(kubelet_container_log_filesystem_used_bytes{job="kubelet", container!="alloy"}[15m]) > 0
               )
             )
             and on ()
@@ -66,7 +68,7 @@ spec:
             )
             and on ()
             (
-              count(delta(kubelet_container_log_filesystem_used_bytes{job="kubelet", container!="alloy"}[15m]) > 0) > 0
+              count(changes(kubelet_container_log_filesystem_used_bytes{job="kubelet", container!="alloy"}[15m]) > 0) > 0
             )
             and on ()
             (

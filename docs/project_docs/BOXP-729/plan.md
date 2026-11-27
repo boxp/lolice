@@ -48,8 +48,8 @@ mutex を握ったまま tailer の停止を待っているので、どちらも
    - 副作用: DaemonSet が 1 台ずつ再起動し、読取位置 (/tmp/alloy) が消えるので、ノードに残っているログを先頭から読み直す
      （BOXP-728 と同じ。Loki は保存済みの古い重複を 400 で捨てる）。
 2. **欠測検知**（原因と独立に安全）: `argoproj/prometheus-operator/log-ingestion-gap-rules.yaml`
-   - `AlloyNodeLogDeliveryStalled`: そのノードのコンテナログ（kubelet 計測）が増えているのに、そのノードの Alloy の送信が 15 分 0 件で、他ノードは送れている。15 分続いたら warning。
-   - `AlloyLogDeliveryStalledClusterWide`: 全 Alloy が 15 分 0 件で、ログは増え、Loki は replicas 0（計画停止）ではない。
+   - `AlloyNodeLogDeliveryStalled`: そのノードのコンテナログ（kubelet 計測の使用量）が直近 15 分に変化（増加またはローテーション）しているのに、そのノードの Alloy の送信が 15 分 0 件で、他ノードは送れている。15 分続いたら warning。
+   - `AlloyLogDeliveryStalledClusterWide`: 全 Alloy が 15 分 0 件で、ログは出ていて（使用量が変化）、Loki は replicas 0（計画停止）ではない。
    - `AlloyConfigNotApplied`: 1 Pod だけ設定の hash が多数派と違うまま 30 分。
    - 仕様: Obsidian `Projects/log-ingestion-gap-alert/spec.md`。テストは仕様の例 1〜9 を promtool で。
    - 本番データでの後追い確認: 11-20〜11-24 07:55 の正常期間は誤検知 0、11-24 08:05 から golyat-2/3 だけ条件成立（for 15m で 08:20 ごろ発報相当）、復旧後 05:30 に解消。

@@ -1,5 +1,5 @@
 # BOXP-729: log-ingestion-gap-rules の単体テスト。
-# 期待値は Obsidian の現行仕様 Projects/log-ingestion-gap-alert/spec.md の例 1〜9 から手で決めた。
+# 期待値は Obsidian の現行仕様 Projects/log-ingestion-gap-alert/spec.md の例 1〜10 から手で決めた。
 # 実装の出力をコピーしていない。サンプルは 1 分ごと、時刻は分。
 # kubelet のログ使用量は 4KiB 単位なので「増える」= 毎分 4096 増える、で表す。
 rule_files:
@@ -256,3 +256,68 @@ tests:
       - eval_time: 45m
         alertname: AlloyConfigNotApplied
         exp_alerts: []
+
+  # 例 10: 例 1 と同じだが、golyat-2 のログは 5 分ごとにローテーションされ使用量が元に戻る
+  # （ログは出続けている）。15 分の始点と終点が同じ値になり差分は 0 だが、ログは出ているので
+  # 例 1 と同じく 39 分に発報する。全体側も同様（例 5 の形）。
+  - name: ex10 log rotation within the window still counts as logs written
+    interval: 1m
+    input_series:
+      - series: 'loki_write_sent_entries_total{job="grafana-alloy",namespace="monitoring",pod="grafana-alloy-g2"}'
+        values: '0+10x10 100+0x50'
+      - series: 'loki_write_sent_entries_total{job="grafana-alloy",namespace="monitoring",pod="grafana-alloy-g1"}'
+        values: '0+10x60'
+      - series: 'kube_pod_info{namespace="monitoring",pod="grafana-alloy-g2",node="golyat-2",uid="u2"}'
+        values: '1+0x60'
+      - series: 'kube_pod_info{namespace="monitoring",pod="grafana-alloy-g1",node="golyat-1",uid="u1"}'
+        values: '1+0x60'
+      - series: 'kubelet_container_log_filesystem_used_bytes{job="kubelet",node="golyat-2",namespace="langfuse",pod="langfuse-postgres-0",container="postgres"}'
+        values: '4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096'
+      - series: 'kube_statefulset_replicas{namespace="monitoring",statefulset="loki"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 37m
+        alertname: AlloyNodeLogDeliveryStalled
+        exp_alerts: []
+      - eval_time: 41m
+        alertname: AlloyNodeLogDeliveryStalled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              node: golyat-2
+            exp_annotations:
+              summary: Logs on a node are not reaching Loki
+              description: >-
+                Container logs on node golyat-2 kept growing for the last 15 minutes, but the
+                Grafana Alloy pod on that node sent no log entries to Loki, while other nodes are still
+                sending. Logs from this node are missing in Loki. A stuck loki.source.file (BOXP-728)
+                looks exactly like this: the pod stays up=1 and Ready.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-729/runbook.md#alloynodelogdeliverystalled
+
+  - name: ex10 cluster wide with log rotation
+    interval: 1m
+    input_series:
+      - series: 'loki_write_sent_entries_total{job="grafana-alloy",namespace="monitoring",pod="grafana-alloy-g2"}'
+        values: '0+10x10 100+0x50'
+      - series: 'kube_pod_info{namespace="monitoring",pod="grafana-alloy-g2",node="golyat-2",uid="u2"}'
+        values: '1+0x60'
+      - series: 'kubelet_container_log_filesystem_used_bytes{job="kubelet",node="golyat-2",namespace="langfuse",pod="langfuse-postgres-0",container="postgres"}'
+        values: '4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096 8192 12288 16384 20480 4096'
+      - series: 'kube_statefulset_replicas{namespace="monitoring",statefulset="loki"}'
+        values: '1+0x60'
+    alert_rule_test:
+      - eval_time: 37m
+        alertname: AlloyLogDeliveryStalledClusterWide
+        exp_alerts: []
+      - eval_time: 41m
+        alertname: AlloyLogDeliveryStalledClusterWide
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: No logs are reaching Loki from any node
+              description: >-
+                Container logs kept growing for the last 15 minutes, but no Grafana Alloy pod sent any log
+                entry to Loki, and the Loki StatefulSet is not scaled to 0 (not a planned stop). Check Loki
+                and loki-gateway first, then the Alloy pods.
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-729/runbook.md#alloylogdeliverystalledclusterwide
