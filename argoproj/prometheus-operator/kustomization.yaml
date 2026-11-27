@@ -15,6 +15,7 @@ resources:
 - prometheus-k8s-db-pvc.yaml
 - control-plane-node-rules.yaml
 - longhorn-storage-rules.yaml
+- node-failover-memory-rules.yaml
 - local-llm-gpu-observability-rules.yaml
 - ai-ops-outcome-rules.yaml
 - ai-provider-quota-rules.yaml
@@ -48,6 +49,13 @@ patchesJson6902:
       name: grafana
       namespace: monitoring
   path: patches/grafana-remove-empty-dir.yaml
+- target:
+      group: monitoring.coreos.com
+      version: v1
+      kind: PrometheusRule
+      name: kubernetes-monitoring-rules
+      namespace: monitoring
+  path: patches/remove-kube-memory-overcommit.yaml
 configMapGenerator:
 - name: aws-cost-metrics
   namespace: monitoring
