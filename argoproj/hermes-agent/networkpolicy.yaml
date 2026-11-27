@@ -60,6 +60,28 @@ spec:
         namespaceSelector: kubernetes.io/metadata.name == 'monitoring'
         ports:
           - 3000
+    # BOXP-721: agent 専用 DNS resolver（観測専用）。Service 53 -> Pod 1053。
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: app == 'agent-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'agent-egress-audit'
+        ports:
+          - 1053
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: app == 'agent-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'agent-egress-audit'
+        ports:
+          - 1053
+    # BOXP-721: cluster 外宛ての新しい接続を kernel log（prefix "calico-packet"）に
+    # 記録する。Log は判定を変えず次のルールへ進む（遮断なし）。Pod CIDR 宛ては対象外。
+    # 仕様: Obsidian Projects/agent-egress-audit/spec.md
+    - action: Log
+      destination:
+        notNets:
+          - 192.178.0.0/16
     - action: Allow
       protocol: TCP
       source: {}
