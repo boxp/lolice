@@ -9,7 +9,7 @@ Hermes（`hermes-agent`）と taskrunner（`codex-workspace`）の通信先を *
 |---|---|---|
 | agent 専用 DNS resolver（CoreDNS 2 台、`10.96.0.53`） | この app | cluster.local・逆引き以外の問合せ: 問合せ元 IP・種別・名前・応答コード・応答サイズ・所要時間 |
 | Calico NetworkPolicy の `action: Log` | `hermes-agent/networkpolicy.yaml`、`codex-workspace/networkpolicy.yaml` | broad allow（22/80/443 等）の直前に置くので、それより前の個別許可（kube-dns・Grafana・local-llm・kube API・kube-vip）に当たらない Pod CIDR 外宛ての新しい接続の最初のパケットのヘッダ（送信元/宛先 IP・port・protocol）。個別許可分は量を抑えるため意図的に対象外 |
-| Alloy | `grafana-alloy/configmap.yaml` | DNS 名の 24 文字以上のラベルを `<redacted-label-len=N>` に置換して Loki へ。ノードの `/var/log/kern.log`（rsyslog）から `calico-packet:` 行だけを Loki へ（ファイルが無いノードでは何もしない） |
+| Alloy | `grafana-alloy/configmap.yaml` | DNS 名の 24 文字以上のラベルを `<redacted-label-len=N>` に置換して Loki へ。ノードの `/var/log/kern.log`（rsyslog）から `calico-packet:` 行だけを Loki へ（ファイルが無いノードでは何もしない）。kern.log が無い golyat-1 だけは同じ行をノードの journal（`_TRANSPORT=kernel`）から読む（BOXP-726） |
 
 ## 見方（Grafana Explore → Loki）
 

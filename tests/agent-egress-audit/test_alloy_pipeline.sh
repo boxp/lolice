@@ -144,5 +144,103 @@ else
   pass "calico-packet 以外の kernel log は捨てる"
 fi
 
+# ---------------------------------------------------------------------------
+# BOXP-726: golyat-1 は kern.log が無いので journal から接続ログを読む。
+# 期待値は現行仕様「接続の読み元」の例から取っている。
+JOURNAL_BLOCK="$(sed -n '/\/\/ BEGIN BOXP-726 conn-journal/,/\/\/ END BOXP-726 conn-journal/p' "$WORK/config.alloy")"
+if [ -z "$JOURNAL_BLOCK" ]; then
+  fail "config.alloy に 'BEGIN BOXP-726 conn-journal' の source がある"
+  echo "RESULT: $PASS passed, $FAIL failed"; exit 1
+fi
+
+# 試験用の journal を systemd-journal-remote で作る（machine-id は Alloy の image と違う値。
+# 本番でもホストの machine-id は Alloy コンテナのものと違う）。
+JOURNAL_IMAGE="${JOURNAL_IMAGE:-docker.io/library/ubuntu:24.04}"
+MID=22222222222222222222222222222222
+NOW_US="$(date +%s)000000"
+mkdir -p "$WORK/journal-in"
+{
+  i=0
+  emit() { # transport hostname message
+    i=$((i + 1))
+    printf '__REALTIME_TIMESTAMP=%s\n__MONOTONIC_TIMESTAMP=%s\n_BOOT_ID=11111111111111111111111111111111\n_MACHINE_ID=%s\n_TRANSPORT=%s\n_HOSTNAME=%s\nSYSLOG_IDENTIFIER=kernel\n_COMM=secret-comm-name\nMESSAGE=%s\n\n' \
+      "$((NOW_US - 60000000 + i * 1000))" "$((i * 1000))" "$MID" "$1" "$2" "$3"
+  }
+  emit kernel golyat-1 'calico-packet: IN=cali1234 OUT=enp1s0 SRC=192.178.60.187 DST=203.0.113.20 LEN=60 PROTO=TCP SPT=43211 DPT=443 SYN URGP=0'
+  emit kernel golyat-1 'usb 1-1: new high-speed USB device number 3 using xhci_hcd'
+  emit syslog golyat-1 'calico-packet: forged-from-userspace SRC=192.0.2.1 DST=192.0.2.2'
+} > "$WORK/journal-in/in.export"
+JB="$(docker create "$JOURNAL_IMAGE" sh -c "apt-get update -qq >/dev/null && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq systemd-journal-remote >/dev/null 2>&1 && mkdir -p /out/journal/$MID && /lib/systemd/systemd-journal-remote --output=/out/journal/$MID/system.journal /in/in.export")"
+docker cp "$WORK/journal-in" "$JB:/in" >/dev/null
+if docker start -a "$JB" >/dev/null 2>&1 && docker cp "$JB:/out/journal" "$WORK/journal" >/dev/null 2>&1; then
+  docker rm -f "$JB" >/dev/null 2>&1 || true
+else
+  docker rm -f "$JB" >/dev/null 2>&1 || true
+  fail "試験用の journal を作れる（$JOURNAL_IMAGE と apt が必要）"
+  echo "RESULT: $PASS passed, $FAIL failed"; exit 1
+fi
+
+{
+  # 本番の kern.log の source と journal の source をそのまま入れ、抽出は本番の conn-filter。
+  echo "$CONN_SOURCE"
+  echo "$JOURNAL_BLOCK"
+  echo 'loki.process "agent_egress_conn" {'
+  echo '  forward_to = [loki.echo.out.receiver]'
+  echo "$CONN_BLOCK"
+  echo '}'
+  echo 'loki.echo "out" {}'
+} > "$WORK/journal-harness.alloy"
+
+# run_journal_case NODE WITH_JOURNAL -> $WORK/journal-NODE-WITH.log
+run_journal_case() {
+  local c out="$WORK/journal-$1-$2.log"
+  c="$(docker create -e HOSTNAME="$1" "$ALLOY_IMAGE" run /work/journal-harness.alloy --storage.path=/tmp/alloy)"
+  docker cp "$WORK/journal-harness.alloy" "$c:/work/journal-harness.alloy" >/dev/null 2>&1 || {
+    docker cp "$WORK/." "$c:/work" >/dev/null; }
+  if [ "$2" = yes ]; then docker cp "$WORK/journal" "$c:/var/log/journal" >/dev/null; fi
+  docker start "$c" >/dev/null
+  sleep 8
+  echo "running=$(docker inspect -f '{{.State.Running}}' "$c")" > "$out"
+  docker logs "$c" >> "$out" 2>&1 || true
+  docker rm -f "$c" >/dev/null 2>&1 || true
+}
+jentries() { grep 'component_id=loki.echo.out' "$1" | grep -o 'entry=.*'; }
+
+run_journal_case golyat-1 yes
+G1="$WORK/journal-golyat-1-yes.log"
+if grep -q '^running=true' "$G1" && ! grep -q 'level=error' "$G1"; then
+  pass "golyat-1: journal がある時は設定の読込に成功する"
+else
+  fail "golyat-1: journal がある時は設定の読込に成功する"; grep -E 'level=error|Error' "$G1" | head -3
+fi
+if jentries "$G1" | grep -qF 'entry="calico-packet: IN=cali1234 OUT=enp1s0 SRC=192.178.60.187 DST=203.0.113.20 LEN=60 PROTO=TCP SPT=43211 DPT=443 SYN URGP=0"'; then
+  pass "golyat-1: journal の kernel の calico-packet 行が入る"
+else
+  fail "golyat-1: journal の kernel の calico-packet 行が入る"
+fi
+if jentries "$G1" | grep -F 'DST=203.0.113.20' | grep -q 'node=\\"golyat-1\\"'; then
+  pass "golyat-1: journal の行に node=golyat-1 が付く"
+else
+  fail "golyat-1: journal の行に node=golyat-1 が付く"; jentries "$G1" | head -3
+fi
+if jentries "$G1" | grep -q 'usb 1-1'; then fail "golyat-1: calico-packet 以外の kernel 行は入らない"; else pass "golyat-1: calico-packet 以外の kernel 行は入らない"; fi
+if jentries "$G1" | grep -q 'forged-from-userspace'; then fail "golyat-1: kernel 以外（syslog）の calico-packet 行は入らない"; else pass "golyat-1: kernel 以外（syslog）の calico-packet 行は入らない"; fi
+if jentries "$G1" | grep -q 'secret-comm-name\|_COMM\|comm='; then fail "golyat-1: journal の他の項目は label に付かない"; else pass "golyat-1: journal の他の項目は label に付かない"; fi
+
+for J in yes no; do
+  run_journal_case golyat-4 "$J"
+  G4="$WORK/journal-golyat-4-$J.log"
+  if grep -q '^running=true' "$G4" && ! grep -q 'level=error' "$G4"; then
+    pass "golyat-4 (journal=$J): 設定の読込に成功する"
+  else
+    fail "golyat-4 (journal=$J): 設定の読込に成功する"; grep -E 'level=error|Error' "$G4" | head -3
+  fi
+  if jentries "$G4" | grep -q 'calico-packet'; then
+    fail "golyat-4 (journal=$J): journal からは何も入らない"
+  else
+    pass "golyat-4 (journal=$J): journal からは何も入らない"
+  fi
+done
+
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

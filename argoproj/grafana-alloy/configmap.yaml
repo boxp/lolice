@@ -155,6 +155,23 @@ data:
     }
     // END BOXP-721 conn-source
 
+    // BOXP-726: /var/log/kern.log が無いノード（golyat-1）だけ、同じ kernel log を
+    // ノードの journal から読む。対応表に無いノードは journal の無い /etc/alloy を
+    // 指して何も読まない（kern.log と二重に記録しないため）。
+    // - path を空にすると Alloy コンテナの machine-id がホストと違うためホストの journal を読めない。
+    // - "/var/log/journal" を全ノードで指すと、journal が無いノードで設定の読込全体が失敗する。
+    // 取り込むのは kernel の行（_TRANSPORT=kernel）の MESSAGE だけで、label は job と
+    // （conn-filter で付く）node のみ。max_age 内の過去分も読むので欠測分を後から埋める。
+    // BEGIN BOXP-726 conn-journal
+    loki.source.journal "agent_egress_conn" {
+      path       = coalesce({"golyat-1" = "/var/log/journal"}[sys.env("HOSTNAME")], "/etc/alloy")
+      matches    = "_TRANSPORT=kernel"
+      max_age    = "12h"
+      labels     = {job = "agent-egress-audit/conn"}
+      forward_to = [loki.process.agent_egress_conn.receiver]
+    }
+    // END BOXP-726 conn-journal
+
     loki.process "agent_egress_conn" {
       forward_to = [loki.write.default.receiver]
 
