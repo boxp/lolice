@@ -55,14 +55,14 @@ def search_range(last_success, now):
 
 
 def api_key_configured(env, env_file):
-    """環境変数か .env に空でない XAI_API_KEY があるか（規則 3）。"""
-    if str(env.get("XAI_API_KEY") or "").strip():
+    """環境変数に XAI_API_KEY があるか、.env に XAI_API_KEY= の代入行があるか（規則 3）。
+    値が空でも止める側に倒す。コメント行は数えない。"""
+    if "XAI_API_KEY" in env:
         return True
     try:
         with open(env_file, encoding="utf-8", errors="replace") as f:
             for line in f:
-                m = re.match(r"\s*(?:export\s+)?XAI_API_KEY\s*=\s*(.*)$", line)
-                if m and m.group(1).strip().strip("'\""):
+                if re.match(r"\s*(?:export\s+)?XAI_API_KEY\s*=", line):
                     return True
     except FileNotFoundError:
         pass

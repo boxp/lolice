@@ -68,9 +68,17 @@ class CredentialTest(unittest.TestCase):
         self.env_file.write_text("FOO=1\nexport XAI_API_KEY=abc\n")
         self.assertTrue(self.mod.api_key_configured({}, str(self.env_file)))
 
-    def test_empty_or_comment_is_not_configured(self):
-        self.env_file.write_text("# XAI_API_KEY=abc\nXAI_API_KEY=\n")
-        self.assertFalse(self.mod.api_key_configured({"XAI_API_KEY": ""}, str(self.env_file)))
+    def test_comment_only_is_not_configured(self):
+        self.env_file.write_text("# XAI_API_KEY=abc\n  #export XAI_API_KEY=abc\n")
+        self.assertFalse(self.mod.api_key_configured({}, str(self.env_file)))
+
+    def test_empty_env_file_line_is_configured(self):
+        # 規則 3: 値が空の代入行でも止める側に倒す
+        self.env_file.write_text("XAI_API_KEY=\n")
+        self.assertTrue(self.mod.api_key_configured({}, str(self.env_file)))
+
+    def test_empty_env_var_is_configured(self):
+        self.assertTrue(self.mod.api_key_configured({"XAI_API_KEY": ""}, str(self.env_file)))
 
     def test_missing_file(self):
         self.assertFalse(self.mod.api_key_configured({}, str(self.env_file)))
@@ -207,6 +215,13 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.run_once(self.good()), 1)
         self.assertEqual(self.calls, [])
         self.assertFalse((self.base / "state.json").exists())
+
+    def test_empty_api_key_line_blocks_call(self):
+        self.env_file.write_text("XAI_API_KEY=\n")
+        self.assertEqual(self.run_once(self.good()), 1)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.last_run()["status"], "error")
+        self.assertIn("XAI_API_KEY", self.last_run()["reason"])
 
     def test_api_key_overwrites_previous_ok_last_run(self):
         # 規則 11: 直前の成功の last_run を残さず、error と理由を書く
