@@ -21,6 +21,14 @@ spec:
             backupTarget: "s3://boxp-longhorn-backup@ap-northeast-1/"
             backupTargetCredentialSecret: "longhorn-backup-secret"
             taintToleration: "lolice.io/gpu-worker=true:NoSchedule"
+          # BOXP-719: バックアップ置き場 (BackupTarget default) の確認間隔を 5 分 (既定 300 秒) から 1 時間へ。
+          # S3 の LIST 等の Tier1 リクエスト費用を減らすため。バックアップの頻度・保持・復元対象は変えない。
+          # 影響: 新しいバックアップが一覧に出るのが最大 1 時間遅れる。
+          # chart 1.8 以降は defaultSettings.backupTarget* ではなく defaultBackupStore が
+          # longhorn-default-resource ConfigMap 経由で default BackupTarget を更新する。
+          # pollInterval だけ指定すると URL・認証 Secret は既存 BackupTarget の値を引き継ぐ。
+          defaultBackupStore:
+            pollInterval: 3600
           global:
             storageClass:
               reclaimPolicy: "Retain"
