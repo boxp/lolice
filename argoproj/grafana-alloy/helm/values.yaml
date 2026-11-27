@@ -7,6 +7,12 @@ alloy:
     varlog: true
 controller:
   type: daemonset
+  # BOXP-728: 2026-11-24 の Loki 再作成時に golyat-2/3 の Alloy (v1.7.0) が
+  # loki.source.file の更新で詰まり、全ログの読取・送信と設定再読込が止まった。
+  # kubectl での Pod 削除権限が無いため、この値を変えて DaemonSet を順次再起動する。
+  # 再起動したいときは値を更新する（設定内容は変えない）。
+  podAnnotations:
+    lolice.boxp.dev/restarted-for: "BOXP-728-20261127"
   tolerations:
     - effect: NoSchedule
       operator: Exists
