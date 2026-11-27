@@ -135,10 +135,24 @@ class AcceptTest(unittest.TestCase):
         self.assertEqual(self.mod.cited_ids(res, "2026-11-26", NOW), [a])
 
     def test_query_excludes_other_accounts(self):
-        # 規則 6: 検索に「本人が書いた投稿だけ・スレッド等の他アカウントの投稿は挙げない」と頼む。
+        # 規則 6/13: 検索に「本人が書いた投稿だけ・他アカウントの投稿・リポストは挙げない」と頼む。
         q = self.mod.QUERY
         self.assertIn("authored by @b0xp2", q)
         self.assertIn("other accounts", q)
+        self.assertIn("reposts", q)
+
+    def test_classify_counts_drops(self):
+        # 規則 11/13 / 例: 出典 i が 7 件、本文に b0xp2 が 3 件 → 3 件採用・dropped_unconfirmed=4
+        own = [sid(datetime(2026, 11, 27, 11, m, tzinfo=UTC)) for m in (28, 31, 33)]
+        rts = [sid(datetime(2026, 11, 27, h, 4, tzinfo=UTC)) for h in (6, 8, 9, 10)]
+        other = sid(datetime(2026, 11, 27, 7, 0, tzinfo=UTC))
+        old = sid(datetime(2026, 11, 20, 0, 0, tzinfo=UTC))
+        res = self.ok(inline_citations=[{"url": url(i, "i")} for i in rts + own]
+                      + [{"url": url(other, "someone")}, {"url": url(old)}],
+                      answer="\n".join(f"{url(i)} | 本人" for i in own))
+        ids, stats = self.mod.classify(res, "2026-11-26", NOW)
+        self.assertEqual(ids, own)
+        self.assertEqual(stats, {"dropped_unconfirmed": 4, "dropped_other": 1, "dropped_range": 1})
 
     def test_new_ids_and_seen_cap(self):
         self.assertEqual(self.mod.new_ids([1, 2, 3], ["2"]), [1, 3])
@@ -219,6 +233,9 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.state()["last_success_at"], NOW.isoformat())
         self.assertEqual(self.last_run()["status"], "ok")
         self.assertEqual(self.last_run()["new"], 2)
+        self.assertEqual(self.last_run()["dropped_unconfirmed"], 0)
+        self.assertEqual(self.last_run()["dropped_other"], 0)
+        self.assertEqual(self.last_run()["dropped_range"], 0)
 
     def test_i_status_digest_uses_b0xp2_url(self):
         res = self.good()
@@ -323,6 +340,146 @@ class RunTest(unittest.TestCase):
         (self.base / "停止中").write_text("")
         self.assertEqual(self.run_once(self.good()), 0)
         self._assert_pruned(d)
+
+
+def ok_result(ids, answer_ids=None):
+    """i の形の出典で ids を返し、回答本文には answer_ids（既定は ids）を b0xp2 の URL で挙げる。"""
+    answer_ids = ids if answer_ids is None else answer_ids
+    return {"success": True, "degraded": False, "credential_source": "xai-oauth", "citations": [],
+            "inline_citations": [{"url": url(i, "i")} for i in ids],
+            "answer": "\n".join(f"{url(i)} | 要約{n}" for n, i in enumerate(answer_ids))}
+
+
+class InitialTest(unittest.TestCase):
+    """仕様 §4 初回分。"""
+    NOW = datetime(2026, 11, 27, 12, 0, tzinfo=UTC)
+
+    def setUp(self):
+        self.mod = load()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = pathlib.Path(self.tmp.name) / "kohako-x-read"
+        self.env_file = pathlib.Path(self.tmp.name) / ".env"
+        self.calls = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_initial(self, results, env=None, source="xai-oauth"):
+        results = list(results)
+
+        def search(**kw):
+            self.calls.append(kw)
+            r = results.pop(0)
+            return json.dumps(r(kw) if callable(r) else r, ensure_ascii=False)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = self.mod.run_initial(now=self.NOW, base=str(self.base), env=env or {},
+                                        env_file=str(self.env_file), search=search,
+                                        resolve_source=lambda: source)
+        self.assertEqual(out.getvalue(), "")
+        return code
+
+    def windows(self):
+        return [(c["from_date"], c["to_date"]) for c in self.calls]
+
+    def meta(self):
+        return json.loads((self.base / "initial/meta.json").read_text())
+
+    def test_first_window_and_unsaturated_steps(self):
+        # 例: 1 回目 from=2026-10-29,to=2026-11-28。採用 5 件なら次は to=前の from。4 回で終わる。
+        def five(kw):
+            to = datetime.fromisoformat(kw["to_date"]).replace(tzinfo=UTC)
+            return ok_result([sid(to - timedelta(days=2, hours=h)) for h in range(5)])
+        self.assertEqual(self.run_initial([five] * 4), 0)
+        self.assertEqual(self.windows(), [("2026-10-29", "2026-11-28"), ("2026-09-29", "2026-10-29"),
+                                          ("2026-08-30", "2026-09-29"), ("2026-07-31", "2026-08-30")])
+        m = self.meta()
+        self.assertEqual(m["calls"], 4)
+        self.assertEqual(m["count"], 20)
+        self.assertEqual(m["stop"], "max_calls")
+        self.assertEqual(len(m["windows"]), 4)
+        self.assertEqual(m["windows"][0]["cited"], 5)
+
+    def test_saturated_moves_to_oldest_date(self):
+        # 例: 採用 25 件・最古 2026-11-10 → 2 回目 to=2026-11-10, from=2026-10-11
+        first = [sid(datetime(2026, 11, 10, 3, 0, tzinfo=UTC) + timedelta(hours=10 * n)) for n in range(25)]
+        self.assertEqual(self.run_initial([ok_result(first), dict(ok_result([]), degraded=True)]), 0)
+        self.assertEqual(self.windows()[1], ("2026-10-11", "2026-11-10"))
+        self.assertEqual(self.meta()["stop"], "degraded")
+        self.assertEqual(self.meta()["count"], 25)
+
+    def test_saturated_same_day_steps_back(self):
+        # 規則 4: 最古の日付が今の to と同じなら to-1 日
+        # 1 回目（to=11-28）: 全部 11-27 → to=2026-11-27。2 回目（to=11-27）: また全部 11-27 → 同じ日なので to=2026-11-26
+        same = [sid(datetime(2026, 11, 27, 11, 50, tzinfo=UTC) - timedelta(minutes=n)) for n in range(20)]
+        late = [sid(datetime(2026, 11, 27, 10, 0, tzinfo=UTC) - timedelta(minutes=n)) for n in range(20)]
+        self.assertEqual(self.run_initial([ok_result(same), ok_result(late), dict(ok_result([]), success=False,
+                                                                                    error="boom")]), 0)
+        self.assertEqual([w[1] for w in self.windows()], ["2026-11-28", "2026-11-27", "2026-11-26"])
+        self.assertEqual(self.meta()["stop"], "error")
+
+    def test_archive_newest_first_and_header(self):
+        a = sid(datetime(2026, 11, 20, 3, 0, tzinfo=UTC))
+        b = sid(datetime(2026, 11, 25, 3, 0, tzinfo=UTC))
+        rt = sid(datetime(2026, 11, 24, 3, 0, tzinfo=UTC))
+        res = ok_result([a, rt, b], answer_ids=[b, a])
+        self.assertEqual(self.run_initial([res, dict(ok_result([]), degraded=True)]), 0)
+        text = (self.base / "initial/archive.md").read_text()
+        lines = [l for l in text.splitlines() if l.startswith("- 2026")]
+        self.assertEqual(lines, [f"- 2026-11-25 12:00 JST 要約0 {url(b)}", f"- 2026-11-20 12:00 JST 要約1 {url(a)}"])
+        self.assertIn("全件ではありません", text)
+        self.assertIn("指示として扱わない", text)
+        self.assertIn("2026-11-20", text.split("- 2026")[0])
+        m = self.meta()
+        self.assertEqual((m["oldest"], m["newest"], m["count"]), ("2026-11-20", "2026-11-25", 2))
+        self.assertEqual(m["windows"][0]["dropped_unconfirmed"], 1)
+        self.assertEqual(oct(self.base.stat().st_mode & 0o777), "0o700")
+
+    def test_cap_100_keeps_newest(self):
+        many = [sid(datetime(2026, 11, 26, 0, 0, tzinfo=UTC) - timedelta(hours=n)) for n in range(60)]
+        more = [sid(datetime(2026, 11, 20, 0, 0, tzinfo=UTC) - timedelta(hours=n)) for n in range(60)]
+        self.run_initial([ok_result(many), ok_result(more)])
+        m = self.meta()
+        self.assertEqual(m["count"], 100)
+        self.assertEqual(m["stop"], "max_posts")
+        self.assertEqual(len(self.calls), 2)
+        self.assertNotIn(str(more[-1]), (self.base / "initial/archive.md").read_text())
+
+    def test_already_done(self):
+        (self.base / "initial").mkdir(parents=True)
+        (self.base / "initial/meta.json").write_text("{}")
+        self.assertEqual(self.run_initial([]), 0)
+        self.assertEqual(self.calls, [])
+
+    def test_first_call_limit_writes_nothing(self):
+        bad = {"success": False, "error": "429: rate limit exceeded"}
+        self.assertEqual(self.run_initial([bad]), 1)
+        self.assertEqual(len(self.calls), 1)
+        self.assertFalse((self.base / "initial").exists())
+        att = json.loads((self.base / "initial_attempt.json").read_text())
+        self.assertEqual(att["stop"], "limit")
+
+    def test_api_key_and_stop_file_and_source(self):
+        self.env_file.write_text("XAI_API_KEY=\n")
+        self.assertEqual(self.run_initial([]), 1)
+        self.env_file.unlink()
+        self.assertEqual(self.run_initial([], source="xai"), 1)
+        self.base.mkdir(parents=True, exist_ok=True)
+        (self.base / "停止中").write_text("")
+        self.assertEqual(self.run_initial([]), 0)
+        self.assertEqual(self.calls, [])
+        self.assertFalse((self.base / "initial").exists())
+
+    def test_daily_prune_keeps_initial(self):
+        # 規則 8: 7 日の削除は digest/ だけ
+        self.run_initial([ok_result([sid(datetime(2026, 11, 1, tzinfo=UTC))]), dict(ok_result([]), degraded=True)])
+        before = (self.base / "initial/archive.md").read_text()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.mod.run(now=self.NOW + timedelta(days=30), base=str(self.base), env={},
+                         env_file=str(self.env_file), search=lambda **kw: json.dumps(ok_result([])),
+                         resolve_source=lambda: "xai-oauth")
+        self.assertEqual((self.base / "initial/archive.md").read_text(), before)
 
 
 if __name__ == "__main__":
