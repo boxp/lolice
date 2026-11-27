@@ -5,6 +5,14 @@ alloy:
     key: config.alloy
   mounts:
     varlog: true
+# BOXP-729: chart 0.12.0 の既定 (Alloy v1.7.0) には、送信先 (Loki) が止まっている間に
+# 収集対象のファイルが消えると loki.source.file が詰まり、Loki が戻っても読取・送信・
+# 設定の再読込が止まったままになる不具合がある (grafana/alloy#3488、v1.8.3 で修正)。
+# 2026-11-24 の golyat-2/3 の 3 日間の欠測 (BOXP-728) はこれと判断した。
+# 再現と比較: docs/project_docs/BOXP-729/repro-alloy-stall.sh
+# chart は据え置き、image だけ上げる (chart 1.x は values の互換が別に要るため)。
+image:
+  tag: v1.22.0
 controller:
   type: daemonset
   # BOXP-728: 2026-11-24 の Loki 再作成時に golyat-2/3 の Alloy (v1.7.0) が

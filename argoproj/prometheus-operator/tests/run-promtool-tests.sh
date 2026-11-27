@@ -32,5 +32,6 @@ run_one agent-auth-expiry-rules.yaml agent-auth-expiry-rules.test.yaml
 
 run_one local-llm-gpu-observability-rules.yaml local-llm-gpu-observability-rules.test.yaml
 run_one node-failover-memory-rules.yaml node-failover-memory-rules.test.yaml
+run_one log-ingestion-gap-rules.yaml log-ingestion-gap-rules.test.yaml
 
 run_one aws-cost-rules.yaml aws-cost-rules.test.yaml

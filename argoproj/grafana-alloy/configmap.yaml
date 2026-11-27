@@ -25,7 +25,7 @@ data:
       // has the local node's /var/log mounted.
       rule {
         source_labels = ["__meta_kubernetes_pod_node_name"]
-        regex         = env("HOSTNAME")
+        regex         = sys.env("HOSTNAME")
         action        = "keep"
       }
 
@@ -184,7 +184,7 @@ data:
 
       stage.static_labels {
         values = {
-          node = env("HOSTNAME"),
+          node = sys.env("HOSTNAME"),
         }
       }
 
