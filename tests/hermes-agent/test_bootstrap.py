@@ -123,6 +123,107 @@ class BootstrapTest(unittest.TestCase):
             self.assertIn('already configured', self.run_block('PYWATCHDOG', prefix))
             self.assertEqual(path.read_text(), after)
 
+    def test_default_model_migration(self):
+        """BOXP-706 TD-08: expected results come from the vault spec
+        Projects/kohako-opus-migration/default-model-spec (examples 1-12)."""
+        path = self.root / 'data/config.yaml'
+        marker = self.root / 'data/.boxp-default-model-revision'
+        prefix = "python3 - <<'PYMODEL'\n"
+        revision = 'BOXP-706-u1-20261127'
+        head = '# top\nmodel:\n  provider: openai-codex\n'
+        tail = '  base_url: https://chatgpt.com/backend-api/codex\ndisplay:\n  tool_progress: new\n'
+
+        def start(text, mark=None):
+            path.write_text(text)
+            path.chmod(0o640)
+            if mark is None:
+                marker.unlink(missing_ok=True)
+            else:
+                marker.write_text(mark)
+            return self.run_block('PYMODEL', prefix)
+
+        # Example 1: only the value of model.default changes; the marker is written.
+        out = start(head + '  default: gpt-6.1-sol\n' + tail)
+        self.assertIn('[bootstrap] default model gpt-6.1-sol -> gpt-6.2-sol', out)
+        self.assertNotIn('WARNING', out)
+        changed = head + '  default: gpt-6.2-sol\n' + tail
+        self.assertEqual(path.read_text(), changed)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o640)
+        self.assertEqual(marker.read_text().strip(), revision)
+        self.assertFalse((self.root / 'data/config.yaml.tmp').exists())
+        # Example 2: a second start changes nothing.
+        out = self.run_block('PYMODEL', prefix)
+        self.assertNotIn('WARNING', out)
+        self.assertEqual(path.read_text(), changed)
+        # Example 3: a value the Owner chose by hand after the migration is not overwritten.
+        by_hand = head + '  default: gpt-6.1-sol\n' + tail
+        out = start(by_hand, mark=revision + '\n')
+        self.assertNotIn('->', out)
+        self.assertEqual(path.read_text(), by_hand)
+        self.assertEqual(marker.read_text().strip(), revision)
+        # Example 4: already on the target; config untouched, marker written.
+        out = start(changed)
+        self.assertNotIn('WARNING', out)
+        self.assertEqual(path.read_text(), changed)
+        self.assertEqual(marker.read_text().strip(), revision)
+        # Examples 5-7 and other unsupported shapes: warn, change neither config nor marker.
+        for kept in (head + '  default: gpt-5.6-terra\n' + tail,
+                     '# top\nmodel:\n  provider: custom\n  default: gpt-6.1-sol\n' + tail,
+                     'model:\n  default: gpt-6.1-sol\n' + tail,
+                     'model: gpt-6.1-sol\ndisplay: {}\n',
+                     'model: {provider: openai-codex, default: gpt-6.1-sol}\n',
+                     head + '  default: gpt-6.1-sol\n' + tail + 'model:\n  provider: openai-codex\n  default: gpt-6.1-sol\n',
+                     head + '  default: &m gpt-6.1-sol\n' + tail,
+                     head + '  default:\n    gpt-6.1-sol\n' + tail,
+                     # Example 12: the shape is checked before an already-migrated default is marked.
+                     'model: {provider: openai-codex, default: gpt-6.2-sol}\n',
+                     head + '  default: gpt-6.2-sol\n' + tail + 'model:\n  provider: openai-codex\n  default: gpt-6.2-sol\n',
+                     'display: {}\n',
+                     'model: [\n'):
+            out = start(kept)
+            self.assertIn('[bootstrap] WARNING', out, kept)
+            self.assertEqual(path.read_text(), kept)
+            self.assertFalse(marker.exists(), kept)
+        # Example 8: quotes and trailing comments stay; model.model with the same value follows.
+        out = start(head + '  default: "gpt-6.1-sol"  # main\n  model: gpt-6.1-sol\n' + tail)
+        self.assertEqual(path.read_text(), head + '  default: "gpt-6.2-sol"  # main\n  model: gpt-6.2-sol\n' + tail)
+        self.assertEqual(marker.read_text().strip(), revision)
+        out = start("model:   # note\n    # c\n\n    default: 'gpt-6.1-sol'\n    provider: openai-codex")
+        self.assertEqual(path.read_text(), "model:   # note\n    # c\n\n    default: 'gpt-6.2-sol'\n    provider: openai-codex")
+        # Example 11: model.model with another value is left alone; only default moves.
+        out = start(head + '  default: gpt-6.1-sol\n  model: gpt-5.6-terra\n' + tail)
+        self.assertNotIn('WARNING', out)
+        self.assertEqual(path.read_text(), head + '  default: gpt-6.2-sol\n  model: gpt-5.6-terra\n' + tail)
+        self.assertEqual(marker.read_text().strip(), revision)
+        # Example 9: the same key in other sections is not touched.
+        other = ('fallback:\n  default: gpt-6.1-sol\n  provider: openai-codex\n' + head + '  default: gpt-6.1-sol\n'
+                 '  nested:\n    default: gpt-6.1-sol\n' + tail + 'cron:\n  default: gpt-6.1-sol\n')
+        start(other)
+        self.assertEqual(path.read_text(), other.replace(head + '  default: gpt-6.1-sol\n', head + '  default: gpt-6.2-sol\n'))
+        # A marker from another revision does not stop this revision (example 10, forward direction).
+        out = start(head + '  default: gpt-6.1-sol\n' + tail, mark='BOXP-000-older\n')
+        self.assertEqual(path.read_text(), changed)
+        self.assertEqual(marker.read_text().strip(), revision)
+
+    def test_default_model_rollback(self):
+        """Spec example 10: swapping FROM/TO under a new REVISION returns the default to 6.1."""
+        path = self.root / 'data/config.yaml'
+        marker = self.root / 'data/.boxp-default-model-revision'
+        prefix = "python3 - <<'PYMODEL'\n"
+        script = type(self).script
+        for a, b in (('REVISION = "BOXP-706-u1-20261127"', 'REVISION = "BOXP-706-u1-rollback"'),
+                     ('FROM = "gpt-6.1-sol"', 'FROM = "gpt-6.2-sol"'), ('TO = "gpt-6.2-sol"', 'TO = "gpt-6.1-sol"')):
+            self.assertEqual(script.count(a), 1, a)
+            script = script.replace(a, b)
+        self.script = script
+        text = 'model:\n  provider: openai-codex\n  default: gpt-6.2-sol\n  base_url: x\n'
+        path.write_text(text)
+        marker.write_text('BOXP-706-u1-20261127\n')
+        out = self.run_block('PYMODEL', prefix)
+        self.assertIn('[bootstrap] default model gpt-6.2-sol -> gpt-6.1-sol', out)
+        self.assertEqual(path.read_text(), text.replace('gpt-6.2-sol', 'gpt-6.1-sol'))
+        self.assertEqual(marker.read_text().strip(), 'BOXP-706-u1-rollback')
+
 
 if __name__ == '__main__':
     unittest.main()

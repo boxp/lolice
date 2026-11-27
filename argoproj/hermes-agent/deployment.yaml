@@ -313,6 +313,85 @@ spec:
               except Exception as exc:
                   print(f"[bootstrap] WARNING gateway watchdog migration failed validation; not rewriting config.yaml: {exc}")
               PYWATCHDOG
+              # BOXP-706 TD-08 (Owner choice U1): move the persisted default model from 6.1 Sol to
+              # 6.2 Sol once. Spec: vault Projects/kohako-opus-migration/default-model-spec.
+              # A revision acts once (marker file), so a model the Owner picks later with
+              # `/model ... --global` survives Pod restarts. Roll back by giving REVISION a new
+              # name and swapping FROM and TO. Anything else in config.yaml is left alone, and an
+              # unexpected shape or model only logs a warning.
+              python3 - <<'PYMODEL'
+              import os, re
+              try:
+                  import yaml
+                  safe_load = yaml.safe_load
+              except ImportError:
+                  from ruamel.yaml import YAML
+                  safe_load = YAML(typ="safe", pure=True).load
+              REVISION = "BOXP-706-u1-20261127"
+              PROVIDER = "openai-codex"
+              FROM = "gpt-6.1-sol"
+              TO = "gpt-6.2-sol"
+              path = "/opt/data/config.yaml"
+              marker = "/opt/data/.boxp-default-model-revision"
+
+              def replace_file(target, content):
+                  tmp = target + ".tmp"
+                  with open(tmp, "w") as fh:
+                      fh.write(content)
+                  st = os.stat(path)
+                  os.chown(tmp, st.st_uid, st.st_gid)
+                  os.chmod(tmp, st.st_mode & 0o7777)
+                  os.replace(tmp, target)
+
+              try:
+                  try:
+                      with open(marker) as fh:
+                          applied = fh.read().strip()
+                  except FileNotFoundError:
+                      applied = ""
+                  with open(path) as fh:
+                      text = fh.read()
+                  cfg = safe_load(text)
+                  model = cfg.get("model") if isinstance(cfg, dict) else None
+                  provider = model.get("provider") if isinstance(model, dict) else None
+                  default = model.get("default") if isinstance(model, dict) else None
+                  seen = f"provider={provider!r} default={default!r}"
+                  lines = text.splitlines(keepends=True)
+                  headers = [i for i, line in enumerate(lines) if re.fullmatch(r"model:\s*(?:#.*)?\n?", line)]
+                  if applied == REVISION:
+                      print(f"[bootstrap] default model revision {REVISION} already applied; leaving {seen}")
+                  elif not isinstance(model, dict) or provider != PROVIDER:
+                      print(f"[bootstrap] WARNING default model not migrated: expected provider {PROVIDER}, found {seen}")
+                  elif len(headers) != 1 or sum(1 for line in lines if re.match(r"model\s*:", line)) != 1:
+                      # Checked before the marker is written: a flow mapping or a repeated section is
+                      # never recorded as applied, even when its default already equals TO.
+                      print(f"[bootstrap] WARNING default model not migrated: model section has an unsupported shape, found {seen}")
+                  elif default == TO:
+                      replace_file(marker, REVISION + "\n")
+                      print(f"[bootstrap] default model already {TO} (revision {REVISION})")
+                  elif default == FROM:
+                      start = headers[0] + 1
+                      end = next((i for i in range(start, len(lines)) if re.match(r"[^\s#]", lines[i])), len(lines))
+                      body = [i for i in range(start, end) if lines[i].strip() and not lines[i].lstrip().startswith("#")]
+                      indent = lines[body[0]][:len(lines[body[0]]) - len(lines[body[0]].lstrip())]
+                      # model.model follows only when it also holds FROM; any other value stays as it is.
+                      keys = ["default"] + (["model"] if model.get("model") == FROM else [])
+                      for key in keys:
+                          pattern = re.compile(rf"({re.escape(indent)}{key}:[ \t]+)(['\"]?){re.escape(FROM)}\2([ \t]*(?:#.*)?\n?)")
+                          hits = [i for i in body if pattern.fullmatch(lines[i])]
+                          if len(hits) != 1:
+                              raise ValueError(f"model.{key} line has an unsupported shape")
+                          lines[hits[0]] = pattern.sub(lambda m: m[1] + m[2] + TO + m[2] + m[3], lines[hits[0]])
+                      new = "".join(lines)
+                      assert safe_load(new) == {**cfg, "model": {**model, **{key: TO for key in keys}}}
+                      replace_file(path, new)
+                      replace_file(marker, REVISION + "\n")
+                      print(f"[bootstrap] default model {FROM} -> {TO} (revision {REVISION})")
+                  else:
+                      print(f"[bootstrap] WARNING default model not migrated: expected {FROM}, found {seen} model={model.get('model')!r}")
+              except Exception as exc:
+                  print(f"[bootstrap] WARNING default model migration failed validation; not rewriting config.yaml: {exc}")
+              PYMODEL
               # BOXP-332: install the managed user plugin on every bootstrap.
               plugin_dir=/opt/data/plugins/kohako-g2-context
               mkdir -p "$plugin_dir"
