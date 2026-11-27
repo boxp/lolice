@@ -79,6 +79,10 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
+              # image の /coredns には file capability (cap_net_bind_service) が付いており、
+              # これを許可しないと no_new_privs 下で exec が EPERM になる（kube-dns と同じ設定）。
+              add:
+                - NET_BIND_SERVICE
               drop:
                 - ALL
           volumeMounts:
