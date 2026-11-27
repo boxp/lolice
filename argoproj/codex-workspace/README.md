@@ -98,7 +98,7 @@ lock の手動削除は、Deployment が 1 replica、旧 owner UID の Pod が�
 - lock / heartbeat / planned shutdown は Task Board runner と同じ方式です（`CODEX_NOVEL_BOARD_OWNER_ID` = Pod UID、stale 180 秒、poll 30 秒、`preStop` で `prepare-shutdown`）。
 - SIGTERM 時も Task Board runner と同じです（BOXP-252）: entrypoint が `tini -- novel_board_runner.bb loop` を起動し、hook が cloud agent の process group を TERM → `CODEX_NOVEL_BOARD_SHUTDOWN_AGENT_GRACE_SECONDS`（既定 20 秒）→ KILL、localllm の stream は閉じて `work/NOVEL-N/manuscript.partial.md` に部分出力を残します。部分出力は `manuscript.md` に昇格せず、lane / assignee / lock は次 Pod の marker 回収に任せます。llama-server 側の生成は停止を確認できないため終了側は再要求しません。
 - local-llm は `--parallel 1` のため runner も localllm カードを同時に1件しか走らせません。llama-server は `codex-workspace` の NetworkPolicy で既に egress 許可済みです（`networkpolicy.yaml`）。
-- 挿絵は `GEMINI_API_KEY` と home PVC 上の `~/.claude/skills/generate-image/generate-image.bb` で runner が生成します。
+- 挿絵は home PVC 上の `~/.claude/skills/generate-image/generate-image.bb`（Codex 組込み image_gen）で runner が生成します。Gemini API キーは BOXP-718 で撤去済みです。
 - 確認: `kubectl -n codex-workspace logs deploy/codex-workspace -c novel-board-runner --tail=50`。起動時に `novel-board runner started, ... localllm=http://llama-server.local-llm.svc.cluster.local:8080/v1 model=gemma4-26b` が出ます。
 - rollback: この sidecar を deployment から削除するだけで停止します（`.novel-board` のデータは残す）。image の巻き戻しは不要です。
 
