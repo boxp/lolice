@@ -1,0 +1,12 @@
+# BOXP-724: kube-prometheus 同梱の KubeMemoryOvercommit を外し、
+# node-failover-memory-rules.yaml の LoliceNodeFailoverMemoryShortfall に置き換える。
+# test op で位置を確かめてから消すので、上流の更新でルールの並びが変わったら
+# kustomize build が失敗する (別のルールを黙って消さない)。KubeCPUOvercommit は残す。
+- op: test
+  path: /spec/groups/1/name
+  value: kubernetes-resources
+- op: test
+  path: /spec/groups/1/rules/1/alert
+  value: KubeMemoryOvercommit
+- op: remove
+  path: /spec/groups/1/rules/1

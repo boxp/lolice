@@ -1,0 +1,101 @@
+# BOXP-724: kube-prometheus 同梱の KubeMemoryOvercommit を置き換える。
+#
+# 上流のルールは「全 Pod の memory requests 合計 > allocatable 合計 − 最大ノード」で、
+# GPU ノードでしか動けない Pod や DaemonSet の Pod まで退避先が要るものとして数え、
+# control-plane taint のノードの空きも退避先に数えていた。lolice では GPU ノード
+# (golyat-4) の喪失は GPU ワークロードの停止として受け入れているため、上流のルールは
+# ほぼ常時発火し退避の判断に使えなかった (BOXP-720 の観測)。
+#
+# このルールはノードごとに「そのノードを失ったら他へ移すはずの Pod」の requests が
+# 「残りのスケジュール可能ノードの空き」に収まるかを見る。
+# 上流ルールの削除は patches/remove-kube-memory-overcommit.yaml。
+#
+# 区別 (このファイルの外、既存のまま):
+# - ノード / GPU サービス停止: KubeNodeNotReady, KubeNodeUnreachable, LocalLlm*, GpuBackend*
+# - 実メモリの逼迫: NodeMemoryHighUtilization, NodeMemoryMajorPagesFaults, KubeNodePressure, KubeNodeEviction
+#
+# 仕様: Obsidian Projects/node-failover-memory-alert/spec.md
+# 既知の限界: bin packing・退避先の affinity/arch・hostname の nodeAffinity で固定された Pod
+# (メトリクスで判別できないので退避可能として数える = 安全側) は見ない。
+#
+# テスト: tests/node-failover-memory-rules.test.yaml (tests/run-promtool-tests.sh)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: node-failover-memory-rules
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    release: prometheus
+spec:
+  groups:
+    - name: node-failover-memory.rules
+      rules:
+        # Pending / Running でノードに割り当て済みの Pod の memory requests (Pod 単位)。
+        - record: namespace_pod_node:lolice_memory_requests:sum
+          expr: |
+            sum by (namespace, pod, node) (
+              kube_pod_container_resource_requests{job="kube-state-metrics",resource="memory",node!=""}
+              * on (namespace, pod) group_left ()
+                max by (namespace, pod) (
+                  kube_pod_status_phase{job="kube-state-metrics",phase=~"Pending|Running"} == 1
+                )
+            )
+
+        - record: node:lolice_memory_requests:sum
+          expr: |
+            sum by (node) (namespace_pod_node:lolice_memory_requests:sum)
+
+        # ノードを失ったときに他ノードへ移すはずの Pod の requests。
+        # DaemonSet の Pod (ノードと一緒に消える) と GPU を要求する Pod (GPU ノードの喪失で止まる前提) は除く。
+        - record: node:lolice_relocatable_memory_requests:sum
+          expr: |
+            sum by (node) (
+              namespace_pod_node:lolice_memory_requests:sum
+              unless on (namespace, pod)
+                kube_pod_owner{job="kube-state-metrics",owner_kind="DaemonSet"}
+              unless on (namespace, pod)
+                (kube_pod_container_resource_requests{job="kube-state-metrics",resource=~"gpu_intel_com_i915|gpu_intel_com_xe|nvidia_com_gpu|amd_com_gpu"} > 0)
+            )
+
+        # 退避先になれるノードの空き requests。NoSchedule/NoExecute taint・cordon・NotReady のノードは除く。
+        - record: node:lolice_schedulable_memory_free:bytes
+          expr: |
+            clamp_min(
+              max by (node) (kube_node_status_allocatable{job="kube-state-metrics",resource="memory"})
+              - on (node) (
+                node:lolice_memory_requests:sum
+                or on (node)
+                0 * max by (node) (kube_node_status_allocatable{job="kube-state-metrics",resource="memory"})
+              ),
+              0
+            )
+            unless on (node) kube_node_spec_taint{job="kube-state-metrics",effect=~"NoSchedule|NoExecute"}
+            unless on (node) (kube_node_spec_unschedulable{job="kube-state-metrics"} == 1)
+            unless on (node) (kube_node_status_condition{job="kube-state-metrics",condition="Ready",status="true"} == 0)
+
+        # 不足量(N) = 退避可能 requests(N) − (退避先の空きの合計 − N 自身の空き)。正なら収まらない。
+        - record: node:lolice_failover_memory_shortfall:bytes
+          expr: |
+            (
+              node:lolice_relocatable_memory_requests:sum
+              + on (node) (
+                node:lolice_schedulable_memory_free:bytes
+                or on (node)
+                0 * node:lolice_relocatable_memory_requests:sum
+              )
+            )
+            - on () group_left ()
+              (sum(node:lolice_schedulable_memory_free:bytes) or vector(0))
+
+        - alert: LoliceNodeFailoverMemoryShortfall
+          expr: |
+            node:lolice_failover_memory_shortfall:bytes > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Relocatable Pods would not fit if a node failed
+            description: "If node {{ $labels.node }} fails, memory requests of Pods that could be rescheduled elsewhere exceed the free requestable memory of the remaining schedulable nodes by {{ $value | humanize1024 }}B. DaemonSet Pods and Pods requesting a GPU are not counted because they cannot move."
+            runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-724/plan.md

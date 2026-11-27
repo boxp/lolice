@@ -1,0 +1,580 @@
+# BOXP-724: LoliceNodeFailoverMemoryShortfall の単体テスト。
+# 期待値は Obsidian の現行仕様 Projects/node-failover-memory-alert/spec.md の例（GiB）から手で計算した。
+# 生成元: 手計算の値を並べただけの表。実装の出力をコピーしていない。
+rule_files:
+  - __RULE_FILE__
+evaluation_interval: 1m
+tests:
+  - name: ex1 GPU and DaemonSet pods are not counted (current lolice shape)
+    interval: 1m
+    input_series:
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-4",resource="memory",unit="byte"}'
+        values: '107374182400+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-4",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-4"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '42949672960+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="gpu_intel_com_i915",unit="integer"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",owner_kind="DaemonSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="ark",pod="ark-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '25769803776+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="ark",pod="ark-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="ark",pod="ark-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-1",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-1"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="palserver",pod="palserver-0",container="main",node="golyat-1",resource="memory",unit="byte"}'
+        values: '13958643712+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="palserver",pod="palserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="palserver",pod="palserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-3",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-3",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-3"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",container="main",node="golyat-3",resource="memory",unit="byte"}'
+        values: '10737418240+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '4294967296+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="shanghai-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="shanghai-1"}'
+        values: '0+0x30'
+      - series: 'kube_node_spec_taint{job="kube-state-metrics",node="shanghai-1",key="node-role.kubernetes.io/control-plane",value="",effect="NoSchedule"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",container="main",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: LoliceNodeFailoverMemoryShortfall
+        exp_alerts: []
+    promql_expr_test:
+      - expr: node:lolice_failover_memory_shortfall:bytes{node="golyat-4"}
+        eval_time: 20m
+        exp_samples:
+          - labels: 'node:lolice_failover_memory_shortfall:bytes{node="golyat-4"}'
+            value: -13958643712
+      - expr: node:lolice_failover_memory_shortfall:bytes{node="golyat-1"}
+        eval_time: 20m
+        exp_samples:
+          - labels: 'node:lolice_failover_memory_shortfall:bytes{node="golyat-1"}'
+            value: -45097156608
+
+  - name: ex2 relocatable requests exceed free capacity of the other nodes
+    interval: 1m
+    input_series:
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-4",resource="memory",unit="byte"}'
+        values: '107374182400+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-4",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-4"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '42949672960+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="gpu_intel_com_i915",unit="integer"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",owner_kind="DaemonSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="ark",pod="ark-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '48318382080+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="ark",pod="ark-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="ark",pod="ark-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-1",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-1"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="palserver",pod="palserver-0",container="main",node="golyat-1",resource="memory",unit="byte"}'
+        values: '13958643712+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="palserver",pod="palserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="palserver",pod="palserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-3",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-3",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-3"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",container="main",node="golyat-3",resource="memory",unit="byte"}'
+        values: '10737418240+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '4294967296+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="shanghai-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="shanghai-1"}'
+        values: '0+0x30'
+      - series: 'kube_node_spec_taint{job="kube-state-metrics",node="shanghai-1",key="node-role.kubernetes.io/control-plane",value="",effect="NoSchedule"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",container="main",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LoliceNodeFailoverMemoryShortfall
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: LoliceNodeFailoverMemoryShortfall
+        exp_alerts:
+          - exp_labels:
+              node: golyat-4
+              severity: warning
+            exp_annotations:
+              summary: Relocatable Pods would not fit if a node failed
+              description: "If node golyat-4 fails, memory requests of Pods that could be rescheduled elsewhere exceed the free requestable memory of the remaining schedulable nodes by 8GiB. DaemonSet Pods and Pods requesting a GPU are not counted because they cannot move."
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-724/plan.md
+    promql_expr_test:
+      - expr: node:lolice_failover_memory_shortfall:bytes{node="golyat-4"}
+        eval_time: 16m
+        exp_samples:
+          - labels: 'node:lolice_failover_memory_shortfall:bytes{node="golyat-4"}'
+            value: 8589934592
+
+  - name: ex3 tainted control-plane free memory is not counted
+    interval: 1m
+    input_series:
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-4",resource="memory",unit="byte"}'
+        values: '107374182400+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-4",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-4"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '42949672960+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="gpu_intel_com_i915",unit="integer"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",owner_kind="DaemonSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="ark",pod="ark-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '40802189312+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="ark",pod="ark-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="ark",pod="ark-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-1",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-1"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="palserver",pod="palserver-0",container="main",node="golyat-1",resource="memory",unit="byte"}'
+        values: '13958643712+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="palserver",pod="palserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="palserver",pod="palserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-3",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-3",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-3"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",container="main",node="golyat-3",resource="memory",unit="byte"}'
+        values: '10737418240+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '4294967296+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="shanghai-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="shanghai-1"}'
+        values: '0+0x30'
+      - series: 'kube_node_spec_taint{job="kube-state-metrics",node="shanghai-1",key="node-role.kubernetes.io/control-plane",value="",effect="NoSchedule"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",container="main",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: LoliceNodeFailoverMemoryShortfall
+        exp_alerts:
+          - exp_labels:
+              node: golyat-4
+              severity: warning
+            exp_annotations:
+              summary: Relocatable Pods would not fit if a node failed
+              description: "If node golyat-4 fails, memory requests of Pods that could be rescheduled elsewhere exceed the free requestable memory of the remaining schedulable nodes by 1GiB. DaemonSet Pods and Pods requesting a GPU are not counted because they cannot move."
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-724/plan.md
+
+  - name: ex4 cordoned node is not a failover target
+    interval: 1m
+    input_series:
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-4",resource="memory",unit="byte"}'
+        values: '107374182400+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-4",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-4"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '42949672960+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="gpu_intel_com_i915",unit="integer"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",owner_kind="DaemonSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="ark",pod="ark-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="ark",pod="ark-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="ark",pod="ark-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-1",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-1"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="palserver",pod="palserver-0",container="main",node="golyat-1",resource="memory",unit="byte"}'
+        values: '13958643712+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="palserver",pod="palserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="palserver",pod="palserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-3",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-3",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-3"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",container="main",node="golyat-3",resource="memory",unit="byte"}'
+        values: '10737418240+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '4294967296+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="shanghai-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="shanghai-1"}'
+        values: '0+0x30'
+      - series: 'kube_node_spec_taint{job="kube-state-metrics",node="shanghai-1",key="node-role.kubernetes.io/control-plane",value="",effect="NoSchedule"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",container="main",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: LoliceNodeFailoverMemoryShortfall
+        exp_alerts:
+          - exp_labels:
+              node: golyat-4
+              severity: warning
+            exp_annotations:
+              summary: Relocatable Pods would not fit if a node failed
+              description: "If node golyat-4 fails, memory requests of Pods that could be rescheduled elsewhere exceed the free requestable memory of the remaining schedulable nodes by 13GiB. DaemonSet Pods and Pods requesting a GPU are not counted because they cannot move."
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-724/plan.md
+
+  - name: ex4b NotReady node is not a failover target
+    interval: 1m
+    input_series:
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-4",resource="memory",unit="byte"}'
+        values: '107374182400+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-4",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-4"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '42949672960+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="gpu_intel_com_i915",unit="integer"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",owner_kind="DaemonSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="ark",pod="ark-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="ark",pod="ark-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="ark",pod="ark-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-1",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-1"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="palserver",pod="palserver-0",container="main",node="golyat-1",resource="memory",unit="byte"}'
+        values: '13958643712+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="palserver",pod="palserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="palserver",pod="palserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-3",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-3",condition="Ready",status="true"}'
+        values: '0+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-3"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",container="main",node="golyat-3",resource="memory",unit="byte"}'
+        values: '10737418240+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '4294967296+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="shanghai-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="shanghai-1"}'
+        values: '0+0x30'
+      - series: 'kube_node_spec_taint{job="kube-state-metrics",node="shanghai-1",key="node-role.kubernetes.io/control-plane",value="",effect="NoSchedule"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",container="main",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: LoliceNodeFailoverMemoryShortfall
+        exp_alerts:
+          - exp_labels:
+              node: golyat-4
+              severity: warning
+            exp_annotations:
+              summary: Relocatable Pods would not fit if a node failed
+              description: "If node golyat-4 fails, memory requests of Pods that could be rescheduled elsewhere exceed the free requestable memory of the remaining schedulable nodes by 13GiB. DaemonSet Pods and Pods requesting a GPU are not counted because they cannot move."
+              runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-724/plan.md
+
+  - name: ex5 finished pods are not counted
+    interval: 1m
+    input_series:
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-4",resource="memory",unit="byte"}'
+        values: '107374182400+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-4",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-4"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '42949672960+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="gpu_intel_com_i915",unit="integer"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",owner_kind="DaemonSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="ark",pod="ark-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="ark",pod="ark-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="ark",pod="ark-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="batch",pod="job-done",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '21474836480+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="batch",pod="job-done",phase="Succeeded"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="batch",pod="job-done",phase="Running"}'
+        values: '0+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="batch",pod="job-done",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-1",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-1"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="palserver",pod="palserver-0",container="main",node="golyat-1",resource="memory",unit="byte"}'
+        values: '13958643712+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="palserver",pod="palserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="palserver",pod="palserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-3",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-3",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-3"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",container="main",node="golyat-3",resource="memory",unit="byte"}'
+        values: '10737418240+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '4294967296+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="shanghai-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="shanghai-1"}'
+        values: '0+0x30'
+      - series: 'kube_node_spec_taint{job="kube-state-metrics",node="shanghai-1",key="node-role.kubernetes.io/control-plane",value="",effect="NoSchedule"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",container="main",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: LoliceNodeFailoverMemoryShortfall
+        exp_alerts: []
+    promql_expr_test:
+      - expr: node:lolice_failover_memory_shortfall:bytes{node="golyat-4"}
+        eval_time: 20m
+        exp_samples:
+          - labels: 'node:lolice_failover_memory_shortfall:bytes{node="golyat-4"}'
+            value: -7516192768
+
+  - name: ex6 short spike does not fire
+    interval: 1m
+    input_series:
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-4",resource="memory",unit="byte"}'
+        values: '107374182400+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-4",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-4"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '42949672960+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",container="main",node="golyat-4",resource="gpu_intel_com_i915",unit="integer"}'
+        values: '1+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="local-llm",pod="llama-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="kube-system",pod="kube-proxy-g4",owner_kind="DaemonSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="ark",pod="ark-server-0",container="main",node="golyat-4",resource="memory",unit="byte"}'
+        values: '48318382080x10 21474836480x20'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="ark",pod="ark-server-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="ark",pod="ark-server-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-1",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-1"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="palserver",pod="palserver-0",container="main",node="golyat-1",resource="memory",unit="byte"}'
+        values: '13958643712+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="palserver",pod="palserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="palserver",pod="palserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="golyat-3",resource="memory",unit="byte"}'
+        values: '32212254720+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="golyat-3",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="golyat-3"}'
+        values: '0+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",container="main",node="golyat-3",resource="memory",unit="byte"}'
+        values: '10737418240+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="langfuse",pod="langfuse-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_status_allocatable{job="kube-state-metrics",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '4294967296+0x30'
+      - series: 'kube_node_status_condition{job="kube-state-metrics",node="shanghai-1",condition="Ready",status="true"}'
+        values: '1+0x30'
+      - series: 'kube_node_spec_unschedulable{job="kube-state-metrics",node="shanghai-1"}'
+        values: '0+0x30'
+      - series: 'kube_node_spec_taint{job="kube-state-metrics",node="shanghai-1",key="node-role.kubernetes.io/control-plane",value="",effect="NoSchedule"}'
+        values: '1+0x30'
+      - series: 'kube_pod_container_resource_requests{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",container="main",node="shanghai-1",resource="memory",unit="byte"}'
+        values: '1073741824+0x30'
+      - series: 'kube_pod_status_phase{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",phase="Running"}'
+        values: '1+0x30'
+      - series: 'kube_pod_owner{job="kube-state-metrics",namespace="calico-system",pod="calico-apiserver-0",owner_kind="ReplicaSet",owner_name="x",owner_is_controller="true"}'
+        values: '1+0x30'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: LoliceNodeFailoverMemoryShortfall
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: LoliceNodeFailoverMemoryShortfall
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: LoliceNodeFailoverMemoryShortfall
+        exp_alerts: []
+
+

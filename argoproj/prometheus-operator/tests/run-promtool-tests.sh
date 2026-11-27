@@ -31,5 +31,6 @@ run_one ai-subscription-forecast-rules.yaml ai-subscription-forecast-rules.test.
 run_one agent-auth-expiry-rules.yaml agent-auth-expiry-rules.test.yaml
 
 run_one local-llm-gpu-observability-rules.yaml local-llm-gpu-observability-rules.test.yaml
+run_one node-failover-memory-rules.yaml node-failover-memory-rules.test.yaml
 
 run_one aws-cost-rules.yaml aws-cost-rules.test.yaml
