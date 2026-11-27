@@ -143,11 +143,6 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-grafana
                   key: service-account-token
-            - name: GEMINI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: codex-workspace-gemini
-                  key: GEMINI_API_KEY
             - name: PI_CODING_AGENT_DIR
               value: /home/boxp/.pi/agent
             - name: DOCKER_HOST
@@ -330,11 +325,6 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-grafana
                   key: service-account-token
-            - name: GEMINI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: codex-workspace-gemini
-                  key: GEMINI_API_KEY
             - name: KUBECONFIG
               value: /var/run/secrets/codex-workspace/kubeconfig/config
           securityContext:
@@ -456,11 +446,6 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-grafana
                   key: service-account-token
-            - name: GEMINI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: codex-workspace-gemini
-                  key: GEMINI_API_KEY
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -613,11 +598,6 @@ spec:
                 secretKeyRef:
                   name: codex-workspace-grafana
                   key: service-account-token
-            - name: GEMINI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: codex-workspace-gemini
-                  key: GEMINI_API_KEY
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
@@ -690,11 +670,6 @@ spec:
               value: gemma4-26b
             - name: CODEX_NOVEL_BOARD_LOCALLLM_TIMEOUT_SECONDS
               value: "1800"
-            - name: GEMINI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: codex-workspace-gemini
-                  key: GEMINI_API_KEY
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

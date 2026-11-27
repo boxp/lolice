@@ -28,7 +28,6 @@ jq -n --slurpfile d "$tmp/deploy.json" --rawfile exporter "$tmp/exporter.bb" --r
     .image = "docker.io/babashka/babashka:1.13.219" | .imagePullPolicy = "IfNotPresent" |
     .env |= map(if .name == "LANGFUSE_URL" then .value = "http://sink:8080"
                 elif .name == "LANGFUSE_POLL_SECONDS" then .value = "2"
-                elif .name == "GEMINI_API_KEY" then del(.valueFrom) | .value = "syntheticgeminivalue428"
                 elif .name == "GRAFANA_SERVICE_ACCOUNT_TOKEN" then del(.valueFrom) | .value = "syntheticgrafanavalue428"
                 else . end) |
     .volumeMounts += [{name:"scripts",mountPath:"/opt/codex-workspace/task-board",readOnly:true}]) as $c |
