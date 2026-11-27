@@ -139,15 +139,21 @@ data:
     }
 
     // BOXP-721: agent Pod の cluster 外宛て新規接続（Calico NetworkPolicy の
-    // action: Log が出す kernel log、prefix "calico-packet:"）をノードの journal から読む。
-    // 本文は含まれない（IP/TCP ヘッダ値のみ）。
-    loki.source.journal "agent_egress_conn" {
-      path       = "/var/log/journal"
-      matches    = "_TRANSPORT=kernel"
-      max_age    = "12h"
-      labels     = {job = "agent-egress-audit/conn"}
-      forward_to = [loki.process.agent_egress_conn.receiver]
+    // action: Log が出す kernel log、prefix "calico-packet:"）をノードの rsyslog 出力
+    // /var/log/kern.log から読む。本文は含まれない（IP/TCP ヘッダ値のみ）。
+    // loki.source.journal は journal ディレクトリが無いノードで設定全体の評価に失敗し
+    // 全ログ収集が止まるため使わない。local.file_match はファイルが無ければ target 0 件で済む。
+    // BEGIN BOXP-721 conn-source
+    local.file_match "agent_egress_conn" {
+      path_targets = [{"__path__" = "/var/log/kern.log", "job" = "agent-egress-audit/conn"}]
     }
+
+    loki.source.file "agent_egress_conn" {
+      targets       = local.file_match.agent_egress_conn.targets
+      forward_to    = [loki.process.agent_egress_conn.receiver]
+      tail_from_end = true
+    }
+    // END BOXP-721 conn-source
 
     loki.process "agent_egress_conn" {
       forward_to = [loki.write.default.receiver]

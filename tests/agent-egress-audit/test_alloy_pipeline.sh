@@ -32,8 +32,10 @@ extract() {
 }
 DNS_BLOCK="$(extract dns-redaction)"
 CONN_BLOCK="$(extract conn-filter)"
+CONN_SOURCE="$(extract conn-source)"
 if [ -z "$DNS_BLOCK" ]; then fail "config.alloy に 'BEGIN BOXP-721 dns-redaction' の stage がある"; fi
 if [ -z "$CONN_BLOCK" ]; then fail "config.alloy に 'BEGIN BOXP-721 conn-filter' の stage がある"; fi
+if [ -z "$CONN_SOURCE" ]; then fail "config.alloy に 'BEGIN BOXP-721 conn-source' の source がある"; fi
 if [ "$FAIL" -ne 0 ]; then echo "RESULT: $PASS passed, $FAIL failed"; exit 1; fi
 
 mkdir -p "$WORK/fixtures"
@@ -51,6 +53,7 @@ EOF
 # kernel log: calico-packet の行だけ残す
 cat > "$WORK/fixtures/kern.log" <<'EOF'
 calico-packet: IN=cali1234 OUT=enp1s0 MAC=aa:bb SRC=192.178.60.152 DST=203.0.113.10 LEN=60 TOS=0x00 PREC=0x00 TTL=63 ID=1 DF PROTO=TCP SPT=43210 DPT=443 WINDOW=64240 RES=0x00 SYN URGP=0
+Nov 27 02:00:00 golyat-1 kernel: [123456.789012] calico-packet: IN=cali1234 OUT=enp1s0 SRC=192.178.60.152 DST=198.51.100.7 LEN=60 PROTO=UDP SPT=40000 DPT=53 LEN=40
 usb 1-1: new high-speed USB device number 3 using xhci_hcd
 EOF
 
@@ -83,6 +86,14 @@ EOF
   echo "$CONN_BLOCK"
   cat <<'EOF'
 }
+EOF
+  # 本番の source 節（/var/log/kern.log。コンテナ内には無い）をそのまま入れ、
+  # ファイルが無くても設定の評価に失敗しないことを確かめる。
+  echo "$CONN_SOURCE"
+  cat <<'EOF'
+loki.process "agent_egress_conn" {
+  forward_to = [loki.echo.out.receiver]
+}
 loki.echo "out" {}
 EOF
 } > "$WORK/harness.alloy"
@@ -113,6 +124,13 @@ check "複数の長いラベルはそれぞれ伏字" \
   '[INFO] 192.178.60.152 udp TXT <redacted-label-len=24>.<redacted-label-len=28>.example. NXDOMAIN 110 0.020s'
 check "他の Pod のログは伏字にしない" \
   'other-app Ym94cDYzMS1jYW5hcnktc2VjcmV0LXZhbHVl unchanged'
+check "rsyslog 形式（時刻・host 付き）の calico-packet 行も残す" \
+  'Nov 27 02:00:00 golyat-1 kernel: [123456.789012] calico-packet: IN=cali1234 OUT=enp1s0 SRC=192.178.60.152 DST=198.51.100.7 LEN=60 PROTO=UDP SPT=40000 DPT=53 LEN=40'
+if grep -q 'loki.source.file.agent_egress_conn' "$WORK/out.log" && ! grep -q 'level=error' "$WORK/out.log"; then
+  pass "kern.log が無いノードでも設定の評価に失敗しない"
+else
+  fail "kern.log が無いノードでも設定の評価に失敗しない"
+fi
 if entries | grep -q 'Ym94cDYzMS1jYW5hcnktc2VjcmV0LXZhbHVl.canary'; then
   fail "伏字前の canary ラベルが DNS の出力に残らない"
 else
