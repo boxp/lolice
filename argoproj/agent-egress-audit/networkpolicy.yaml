@@ -1,0 +1,39 @@
+# resolver 自身の通信: cluster 内からの DNS・probe・metrics を受け、kube-dns へだけ転送する。
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: agent-dns-network-policy
+spec:
+  selector: app == 'agent-dns'
+  types:
+    - Ingress
+    - Egress
+  ingress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports:
+          - 1053
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports:
+          - 1053
+          - 8080
+          - 8181
+          - 9153
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53
+    - action: Allow
+      protocol: TCP
+      destination:
+        selector: k8s-app == 'kube-dns'
+        namespaceSelector: kubernetes.io/metadata.name == 'kube-system'
+        ports:
+          - 53

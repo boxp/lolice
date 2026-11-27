@@ -29,6 +29,24 @@ spec:
         boxp.io/nature-remo-token-revision: "2026-11-25-owner-token"
     spec:
       automountServiceAccountToken: false
+      # BOXP-721: DNS を agent 専用 resolver（観測専用、記録のみ）経由にする。resolver が
+      # 応答しないときは kube-dns へ退避するので名前解決は止まらない（その間は記録の欠測）。
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 10.96.0.53
+          - 10.96.0.10
+        searches:
+          - hermes-agent.svc.cluster.local
+          - svc.cluster.local
+          - cluster.local
+        options:
+          - name: ndots
+            value: "5"
+          - name: timeout
+            value: "2"
+          - name: attempts
+            value: "2"
       nodeSelector:
         kubernetes.io/arch: amd64
       securityContext:

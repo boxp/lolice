@@ -132,7 +132,8 @@ alloy_self_metrics() {
   for entry in "${alloy_pods[@]}"; do
     pod="${entry%%=*}"; ip="${entry#*=}"
     metrics="$(incurl "http://${ip}:12345/metrics")"
-    files_active="$(awk '/^loki_source_file_files_active_total/ {print $2}' <<<"$metrics" | head -n1)"
+    # BOXP-721: kern.log 用の source（kind には kern.log が無く 0 件）と区別し、pods の source だけを見る。
+    files_active="$(awk '/^loki_source_file_files_active_total\{.*component_id="loki\.source\.file\.pods"/ {print $2}' <<<"$metrics" | head -n1)"
     sent="$(awk '/^loki_write_sent_entries_total/ {sum += $2} END {print sum + 0}' <<<"$metrics")"
     echo "${pod}: loki_source_file_files_active_total=${files_active:-<missing>} loki_write_sent_entries_total=${sent}"
     test -n "$files_active" && awk -v v="$files_active" 'BEGIN { exit !(v > 0) }' \

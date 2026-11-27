@@ -113,6 +113,73 @@ data:
         drop_counter_reason = "empty_line"
         expression          = "^\\s*$"
       }
+
+      // BEGIN BOXP-721 dns-redaction
+      // agent 専用 DNS resolver の query log。DNS 名にも秘密が混ざりうる前提で、
+      // "." と空白を含まない 24 文字以上の連続を長さだけ残して伏字にする。
+      // 仕様: Obsidian Projects/agent-egress-audit/spec.md
+      stage.match {
+        selector = "{namespace=\"agent-egress-audit\", container=\"coredns\"}"
+
+        stage.replace {
+          expression = "([^\\s.]{24,})"
+          replace    = "<redacted-label-len={{ len .Value }}>"
+        }
+
+        stage.metrics {
+          metric.counter {
+            name        = "agent_egress_dns_log_lines_total"
+            description = "BOXP-721: agent DNS audit log lines forwarded to Loki"
+            match_all   = true
+            action      = "inc"
+          }
+        }
+      }
+      // END BOXP-721 dns-redaction
+    }
+
+    // BOXP-721: agent Pod の cluster 外宛て新規接続（Calico NetworkPolicy の
+    // action: Log が出す kernel log、prefix "calico-packet:"）をノードの rsyslog 出力
+    // /var/log/kern.log から読む。本文は含まれない（IP/TCP ヘッダ値のみ）。
+    // loki.source.journal は journal ディレクトリが無いノードで設定全体の評価に失敗し
+    // 全ログ収集が止まるため使わない。local.file_match はファイルが無ければ target 0 件で済む。
+    // BEGIN BOXP-721 conn-source
+    local.file_match "agent_egress_conn" {
+      path_targets = [{"__path__" = "/var/log/kern.log", "job" = "agent-egress-audit/conn"}]
+    }
+
+    loki.source.file "agent_egress_conn" {
+      targets       = local.file_match.agent_egress_conn.targets
+      forward_to    = [loki.process.agent_egress_conn.receiver]
+      tail_from_end = true
+    }
+    // END BOXP-721 conn-source
+
+    loki.process "agent_egress_conn" {
+      forward_to = [loki.write.default.receiver]
+
+      // BEGIN BOXP-721 conn-filter
+      stage.match {
+        selector = "{job=\"agent-egress-audit/conn\"} !~ \"calico-packet:\""
+        action   = "drop"
+        drop_counter_reason = "not_calico_packet"
+      }
+
+      stage.static_labels {
+        values = {
+          node = env("HOSTNAME"),
+        }
+      }
+
+      stage.metrics {
+        metric.counter {
+          name        = "agent_egress_conn_log_lines_total"
+          description = "BOXP-721: agent egress connection log lines forwarded to Loki"
+          match_all   = true
+          action      = "inc"
+        }
+      }
+      // END BOXP-721 conn-filter
     }
 
     // Send logs to Loki

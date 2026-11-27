@@ -1,0 +1,29 @@
+# BOXP-721: Hermes / codex-workspace 専用の DNS resolver（観測専用）。
+# 問い合わせを kube-dns へそのまま転送し、cluster.local と逆引き以外の問い合わせを
+# メタデータ（問合せ元 IP・種別・名前・応答コード・応答サイズ・所要時間）だけ記録する。
+# 応答の中身は記録しない。長いラベルの伏字は grafana-alloy 側で行う。
+# 仕様: Obsidian Projects/agent-egress-audit/spec.md
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-dns-corefile
+data:
+  Corefile: |
+    cluster.local:1053 in-addr.arpa:1053 ip6.arpa:1053 {
+        errors
+        forward . 10.96.0.10
+        prometheus :9153
+    }
+    .:1053 {
+        errors
+        health :8080 {
+            lameduck 5s
+        }
+        ready :8181
+        log . "{remote} {proto} {type} {name} {rcode} {rsize} {duration}"
+        forward . 10.96.0.10 {
+            max_concurrent 1000
+        }
+        prometheus :9153
+        reload
+    }
