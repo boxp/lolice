@@ -60,7 +60,7 @@ spec:
             - name: KOHAKO_ACCESS_TEAM_DOMAIN
               value: https://boxp.cloudflareaccess.com
             - name: KOHAKO_ACCESS_AUD
-              value: c98ec040b98358a12ac478984c00ded11e85e9336f2acb768c5f772351fbcbcb
+              value: c98ec040b98358a12ac478984c00ded11e85e9336f2acb768c5f772351fbcbcb,8a7b87fcb927ca37ef303bdc5c00e47be29992509a267984e194f814d8b5e710
             - name: KOHAKO_OWNER_EMAILS
               value: tiyotiyouda@gmail.com
             - name: KOHAKO_BOARD_URL
@@ -109,7 +109,7 @@ spec:
             - name: KOHAKO_REALTIME
               value: "1"
             - name: KOHAKO_REALTIME_ORIGIN
-              value: https://kohako-g2.b0xp.io
+              value: https://kohako-g2.b0xp.io,https://kohako-g2-trial.b0xp.io
             - name: KOHAKO_REALTIME_MAX_MS
               value: "unlimited"
             # BOXP-657 段1: 家の BFF（会話・履歴の正本）から共有履歴を読む。読むだけで、送信・停止・許可は今までどおり。
