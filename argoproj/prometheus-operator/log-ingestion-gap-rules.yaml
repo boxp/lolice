@@ -1,0 +1,106 @@
+# BOXP-729: 「Pod は動いていてログも出ているのに Loki に届いていない」を知らせる。
+#
+# 2026-11-24 07:50〜11-27 05:29 UTC、golyat-2/3 の Alloy (v1.7.0) が up=1 のまま
+# 全ログの読取・送信と設定の再読込を止めていたのに、3 日間どこにも通知されなかった
+# (BOXP-728)。原因は Loki 停止中に収集対象の Pod が消えると loki.source.file が
+# 詰まる Alloy の不具合 (grafana/alloy#3488、v1.8.3 で修正) と判断している。
+#
+# 区別:
+# - 正常な無通信: ノード上の (Alloy 以外の) コンテナのログが増えていなければ発報しない。
+#   ログが出たかは Alloy と独立な kubelet の kubelet_container_log_filesystem_used_bytes が
+#   直近 15 分に変化したか (changes) で見る。差分 (delta) だとローテーションで使用量が戻ると
+#   0 以下になり、ログが出続けていても発報しなくなるため。
+#   この系列の node ラベルは ServiceMonitor ではなく Prometheus Operator が付ける (kubelet の
+#   Endpoints は target kind=Node なので、生成される scrape 設定が
+#   __meta_kubernetes_endpoint_address_target_name を node に入れる)。2026-11-27 に本番で
+#   7 ノードすべての系列に node があることを確認済み。
+# - Loki の計画停止 (replicas 0): ノード単位は「他のノードは送れている」条件、
+#   全体は「Loki の desired replicas > 0」条件で発報しない。その他の計画作業は silence を使う。
+# - Alloy の Pod 自体がいない / metrics が取れない: 対象外 (TargetDown / KubeDaemonSet*)。
+#
+# 仕様: Obsidian Projects/log-ingestion-gap-alert/spec.md
+# テスト: tests/log-ingestion-gap-rules.test.yaml (tests/run-promtool-tests.sh)
+# 対応手順: docs/project_docs/BOXP-729/runbook.md
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: log-ingestion-gap-rules
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+    release: prometheus
+spec:
+  groups:
+    - name: log-ingestion-gap.rules
+      rules:
+        - alert: AlloyNodeLogDeliveryStalled
+          expr: |
+            (
+              sum by (node) (
+                rate(loki_write_sent_entries_total{job="grafana-alloy"}[15m])
+                * on (namespace, pod) group_left (node)
+                max by (namespace, pod, node) (kube_pod_info{namespace="monitoring", pod=~"grafana-alloy-.*"})
+              ) == 0
+            )
+            and on (node)
+            (
+              count by (node) (
+                changes(kubelet_container_log_filesystem_used_bytes{job="kubelet", container!="alloy"}[15m]) > 0
+              )
+            )
+            and on ()
+            (
+              sum(rate(loki_write_sent_entries_total{job="grafana-alloy"}[15m])) > 0
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Logs on a node are not reaching Loki
+            description: >-
+              Container logs on node {{ $labels.node }} kept growing for the last 15 minutes, but the
+              Grafana Alloy pod on that node sent no log entries to Loki, while other nodes are still
+              sending. Logs from this node are missing in Loki. A stuck loki.source.file (BOXP-728)
+              looks exactly like this: the pod stays up=1 and Ready.
+            runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-729/runbook.md#alloynodelogdeliverystalled
+
+        - alert: AlloyLogDeliveryStalledClusterWide
+          expr: |
+            (
+              sum(rate(loki_write_sent_entries_total{job="grafana-alloy"}[15m])) == 0
+            )
+            and on ()
+            (
+              count(changes(kubelet_container_log_filesystem_used_bytes{job="kubelet", container!="alloy"}[15m]) > 0) > 0
+            )
+            and on ()
+            (
+              max(kube_statefulset_replicas{namespace="monitoring", statefulset="loki"}) > 0
+            )
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: No logs are reaching Loki from any node
+            description: >-
+              Container logs kept growing for the last 15 minutes, but no Grafana Alloy pod sent any log
+              entry to Loki, and the Loki StatefulSet is not scaled to 0 (not a planned stop). Check Loki
+              and loki-gateway first, then the Alloy pods.
+            runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-729/runbook.md#alloylogdeliverystalledclusterwide
+
+        - alert: AlloyConfigNotApplied
+          expr: |
+            count by (pod, sha256) (alloy_config_hash{job="grafana-alloy"})
+            unless on (sha256)
+            topk(1, count by (sha256) (alloy_config_hash{job="grafana-alloy"}))
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: A Grafana Alloy pod is running an old configuration
+            description: >-
+              Grafana Alloy pod {{ $labels.pod }} has kept configuration {{ $labels.sha256 }} for 30 minutes
+              while most Alloy pods loaded a different one. Its config reload is failing or stuck; in
+              BOXP-728 the stuck pods also stopped collecting logs.
+            runbook_url: https://github.com/boxp/lolice/blob/main/docs/project_docs/BOXP-729/runbook.md#alloyconfignotapplied
