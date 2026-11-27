@@ -171,13 +171,16 @@ data:
     # ~3B active, 48 layers, 4 KV heads x 128). Reuses the weights fetched and
     # measured in BOXP-746 TD-01 with this image (b11669, SYCL0): ~12 tok/s,
     # 23.0 GiB GPU-shared at ctx 32768. f16 KV at the router ctx 262144 is
-    # ~24 GiB, so the resident total is ~44 GiB (within the 55 GB per-candidate
-    # budget) and it cannot share memory with gemma4-26b. Selectable only, for
+    # ~24 GiB on paper, but the first live load at ctx 262144 (BOXP-746,
+    # 2026-11-27) took MemAvailable from 54 GiB to 5.8 GiB, so the preset is
+    # capped at ctx 32768, the TD-01 measured setup (23.0 GiB GPU-shared).
+    # It still cannot share memory with gemma4-26b. Selectable only, for
     # explicit translation requests; gemma4-26b stays the default and
     # --models-max 1 swaps the two. batch / ubatch / threads are the values
     # used in TD-01. Callers pass the sampler and the Hy-MT3 prompt template.
     [hy-mt3-30b-a3b]
     model = /models/boxp746/Hy-MT3-30B-A3B-Q4_K_M.gguf
+    ctx-size = 32768
     batch-size = 2048
     ubatch-size = 2048
     threads = 14
