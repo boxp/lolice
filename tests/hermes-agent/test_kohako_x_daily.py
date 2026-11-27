@@ -114,6 +114,14 @@ class AcceptTest(unittest.TestCase):
             answer=f"{url(only_answer)} | 本文だけ")
         self.assertEqual(self.mod.cited_ids(res, "2026-11-26", NOW), [a, b])
 
+    def test_handleless_i_status_is_adopted(self):
+        # 規則 6 / 例: 公式 x_search は出典を https://x.com/i/status/<ID> で返すことがある（2026-11-27 本番実呼出）。
+        a = sid(datetime(2026, 11, 27, 8, 4, tzinfo=UTC))
+        old = sid(datetime(2026, 11, 25, 23, 0, tzinfo=UTC))
+        res = self.ok(inline_citations=[{"url": url(a, "i")}, {"url": url(old, "i")}],
+                      answer=f"{url(a)} | RT の要約")
+        self.assertEqual(self.mod.cited_ids(res, "2026-11-26", NOW), [a])
+
     def test_new_ids_and_seen_cap(self):
         self.assertEqual(self.mod.new_ids([1, 2, 3], ["2"]), [1, 3])
         seen = self.mod.update_seen([str(i) for i in range(600)], [1000, 1001])
@@ -193,6 +201,15 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.state()["last_success_at"], NOW.isoformat())
         self.assertEqual(self.last_run()["status"], "ok")
         self.assertEqual(self.last_run()["new"], 2)
+
+    def test_i_status_digest_uses_b0xp2_url(self):
+        res = self.good()
+        res["inline_citations"] = [{"url": url(self.a, "i")}]
+        res["answer"] = f"{url(self.a)} | 古い方"
+        self.assertEqual(self.run_once(res), 0)
+        text = (self.base / "digest/2026-11-28.md").read_text()
+        self.assertIn(f"- 2026-11-27 17:04 JST 古い方 {url(self.a)}", text)
+        self.assertEqual(self.last_run()["new"], 1)
 
     def test_second_run_dedupes(self):
         self.run_once(self.good())
