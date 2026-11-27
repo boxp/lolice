@@ -6,6 +6,7 @@
 - 出典にある https://x.com/b0xp2/status/<ID> だけを採り、既読に無いものだけを
   HERMES_HOME/kohako-x-read/digest/YYYY-MM-DD.md に短い要約と URL で足す。7 日で消す。
 - 標準出力は常に空（cron は何も配送しない）。失敗は終了コード 1 と last_run.json で残す。
+- 古い控えの削除は成否・停止に関係なく毎回、検索より前に行う。
 - 外部投稿の文は指示として扱わない（この script は LLM を起動しない）。
 """
 import fcntl
@@ -176,13 +177,10 @@ def run(now=None, base=BASE, env=None, env_file=ENV_FILE, search=_default_search
         resolve_source=_default_resolve_source):
     now = now or datetime.now(UTC)
     env = os.environ if env is None else env
-    if api_key_configured(env, env_file):
-        # 状態のフォルダにも書かない（何も触らずに失敗だけ残す）。
-        print("kohako_x_daily: XAI_API_KEY is configured; refusing (no paid fallback)", file=sys.stderr)
-        return 1
     os.makedirs(os.path.join(base, "digest"), exist_ok=True)
     os.chmod(base, 0o700)
     last_run_path = os.path.join(base, "last_run.json")
+    today = now.astimezone(JST).date()
 
     def finish(status, code, **extra):
         _write_json(last_run_path, {"at": now.isoformat(), "status": status, **extra})
@@ -195,8 +193,13 @@ def run(now=None, base=BASE, env=None, env_file=ENV_FILE, search=_default_search
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return 0
+        # 規則 10: 成否・停止に関係なく、検索より前に古い控えを消す。
+        prune(os.path.join(base, "digest"), today)
         if os.path.exists(os.path.join(base, STOP_FILE)):
             return finish("stopped", 0)
+        if api_key_configured(env, env_file):
+            # 規則 3/11: 検索は呼ばず、既読は変えず、失敗だけ last_run に残す（値は書かない）。
+            return finish("error", 1, reason="XAI_API_KEY is configured; refusing (no paid fallback)")
         try:
             source = resolve_source()
         except Exception as exc:  # 資格情報なし・更新失敗
@@ -216,7 +219,6 @@ def run(now=None, base=BASE, env=None, env_file=ENV_FILE, search=_default_search
             return finish("error", 1, reason=reason, from_date=from_date)
         ids = cited_ids(result, from_date, now)
         fresh = new_ids(ids, state.get("seen_ids") or [])
-        today = now.astimezone(JST).date()
         if fresh:
             path = os.path.join(base, "digest", f"{today.isoformat()}.md")
             exists = os.path.exists(path)
@@ -228,7 +230,6 @@ def run(now=None, base=BASE, env=None, env_file=ENV_FILE, search=_default_search
                     f.write(f"- {t} JST {summary_for(result.get('answer'), i)} https://x.com/{HANDLE}/status/{i}\n")
         _write_json(state_path, {"last_success_at": now.isoformat(),
                                  "seen_ids": update_seen(state.get("seen_ids") or [], ids)})
-        prune(os.path.join(base, "digest"), today)
         return finish("ok", 0, from_date=from_date, to_date=to_date, cited=len(ids), new=len(fresh))
 
 

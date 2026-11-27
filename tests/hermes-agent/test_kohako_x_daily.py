@@ -208,6 +208,18 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertFalse((self.base / "state.json").exists())
 
+    def test_api_key_overwrites_previous_ok_last_run(self):
+        # 規則 11: 直前の成功の last_run を残さず、error と理由を書く
+        self.assertEqual(self.run_once(self.good()), 0)
+        before = self.state()
+        self.env_file.write_text("XAI_API_KEY=abc\n")
+        self.assertEqual(self.run_once(self.good(), now=NOW + timedelta(days=1)), 1)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.last_run()["status"], "error")
+        self.assertIn("XAI_API_KEY", self.last_run()["reason"])
+        self.assertNotIn("abc", json.dumps(self.last_run()))
+        self.assertEqual(self.state(), before)
+
     def test_non_oauth_source_blocks_call(self):
         self.assertEqual(self.run_once(self.good(), source="xai"), 1)
         self.assertEqual(self.calls, [])
@@ -227,6 +239,40 @@ class RunTest(unittest.TestCase):
         self.run_once(self.good())
         self.assertFalse((d / "2026-11-20.md").exists())
         self.assertTrue((d / "2026-11-21.md").exists())
+
+    def _old_digest(self):
+        d = self.base / "digest"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "2026-11-20.md").write_text("old")
+        (d / "2026-11-21.md").write_text("keep")
+        return d
+
+    def _assert_pruned(self, d):
+        self.assertFalse((d / "2026-11-20.md").exists())
+        self.assertTrue((d / "2026-11-21.md").exists())
+
+    def test_prunes_on_search_failure(self):
+        # 規則 10: 検索が失敗し続けても 7 日を超えて控えを残さない
+        d = self._old_digest()
+        self.assertEqual(self.run_once(dict(self.good(), success=False, error="x")), 1)
+        self._assert_pruned(d)
+
+    def test_prunes_on_credential_error(self):
+        d = self._old_digest()
+        self.assertEqual(self.run_once(self.good(), source="xai"), 1)
+        self._assert_pruned(d)
+
+    def test_prunes_on_api_key(self):
+        d = self._old_digest()
+        self.env_file.write_text("XAI_API_KEY=abc\n")
+        self.assertEqual(self.run_once(self.good()), 1)
+        self._assert_pruned(d)
+
+    def test_prunes_when_stopped(self):
+        d = self._old_digest()
+        (self.base / "停止中").write_text("")
+        self.assertEqual(self.run_once(self.good()), 0)
+        self._assert_pruned(d)
 
 
 if __name__ == "__main__":
