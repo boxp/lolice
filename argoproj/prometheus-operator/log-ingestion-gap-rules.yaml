@@ -10,6 +10,10 @@
 #   ログが出たかは Alloy と独立な kubelet の kubelet_container_log_filesystem_used_bytes が
 #   直近 15 分に変化したか (changes) で見る。差分 (delta) だとローテーションで使用量が戻ると
 #   0 以下になり、ログが出続けていても発報しなくなるため。
+#   この系列の node ラベルは ServiceMonitor ではなく Prometheus Operator が付ける (kubelet の
+#   Endpoints は target kind=Node なので、生成される scrape 設定が
+#   __meta_kubernetes_endpoint_address_target_name を node に入れる)。2026-11-27 に本番で
+#   7 ノードすべての系列に node があることを確認済み。
 # - Loki の計画停止 (replicas 0): ノード単位は「他のノードは送れている」条件、
 #   全体は「Loki の desired replicas > 0」条件で発報しない。その他の計画作業は silence を使う。
 # - Alloy の Pod 自体がいない / metrics が取れない: 対象外 (TargetDown / KubeDaemonSet*)。
