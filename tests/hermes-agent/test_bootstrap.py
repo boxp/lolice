@@ -125,7 +125,7 @@ class BootstrapTest(unittest.TestCase):
 
     def test_default_model_migration(self):
         """BOXP-706 TD-08: expected results come from the vault spec
-        Projects/kohako-opus-migration/default-model-spec (examples 1-10)."""
+        Projects/kohako-opus-migration/default-model-spec (examples 1-12)."""
         path = self.root / 'data/config.yaml'
         marker = self.root / 'data/.boxp-default-model-revision'
         prefix = "python3 - <<'PYMODEL'\n"
@@ -175,7 +175,9 @@ class BootstrapTest(unittest.TestCase):
                      head + '  default: gpt-6.1-sol\n' + tail + 'model:\n  provider: openai-codex\n  default: gpt-6.1-sol\n',
                      head + '  default: &m gpt-6.1-sol\n' + tail,
                      head + '  default:\n    gpt-6.1-sol\n' + tail,
-                     head + '  default: gpt-6.1-sol\n  model: gpt-5.6-terra\n' + tail,
+                     # Example 12: the shape is checked before an already-migrated default is marked.
+                     'model: {provider: openai-codex, default: gpt-6.2-sol}\n',
+                     head + '  default: gpt-6.2-sol\n' + tail + 'model:\n  provider: openai-codex\n  default: gpt-6.2-sol\n',
                      'display: {}\n',
                      'model: [\n'):
             out = start(kept)
@@ -188,6 +190,11 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual(marker.read_text().strip(), revision)
         out = start("model:   # note\n    # c\n\n    default: 'gpt-6.1-sol'\n    provider: openai-codex")
         self.assertEqual(path.read_text(), "model:   # note\n    # c\n\n    default: 'gpt-6.2-sol'\n    provider: openai-codex")
+        # Example 11: model.model with another value is left alone; only default moves.
+        out = start(head + '  default: gpt-6.1-sol\n  model: gpt-5.6-terra\n' + tail)
+        self.assertNotIn('WARNING', out)
+        self.assertEqual(path.read_text(), head + '  default: gpt-6.2-sol\n  model: gpt-5.6-terra\n' + tail)
+        self.assertEqual(marker.read_text().strip(), revision)
         # Example 9: the same key in other sections is not touched.
         other = ('fallback:\n  default: gpt-6.1-sol\n  provider: openai-codex\n' + head + '  default: gpt-6.1-sol\n'
                  '  nested:\n    default: gpt-6.1-sol\n' + tail + 'cron:\n  default: gpt-6.1-sol\n')

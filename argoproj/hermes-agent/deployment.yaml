@@ -356,23 +356,26 @@ spec:
                   provider = model.get("provider") if isinstance(model, dict) else None
                   default = model.get("default") if isinstance(model, dict) else None
                   seen = f"provider={provider!r} default={default!r}"
+                  lines = text.splitlines(keepends=True)
+                  headers = [i for i, line in enumerate(lines) if re.fullmatch(r"model:\s*(?:#.*)?\n?", line)]
                   if applied == REVISION:
                       print(f"[bootstrap] default model revision {REVISION} already applied; leaving {seen}")
                   elif not isinstance(model, dict) or provider != PROVIDER:
                       print(f"[bootstrap] WARNING default model not migrated: expected provider {PROVIDER}, found {seen}")
-                  elif default == TO and model.get("model", TO) == TO:
+                  elif len(headers) != 1 or sum(1 for line in lines if re.match(r"model\s*:", line)) != 1:
+                      # Checked before the marker is written: a flow mapping or a repeated section is
+                      # never recorded as applied, even when its default already equals TO.
+                      print(f"[bootstrap] WARNING default model not migrated: model section has an unsupported shape, found {seen}")
+                  elif default == TO:
                       replace_file(marker, REVISION + "\n")
                       print(f"[bootstrap] default model already {TO} (revision {REVISION})")
-                  elif default == FROM and model.get("model", FROM) == FROM:
-                      lines = text.splitlines(keepends=True)
-                      headers = [i for i, line in enumerate(lines) if re.fullmatch(r"model:\s*(?:#.*)?\n?", line)]
-                      if len(headers) != 1:
-                          raise ValueError("model section has an unsupported shape")
+                  elif default == FROM:
                       start = headers[0] + 1
                       end = next((i for i in range(start, len(lines)) if re.match(r"[^\s#]", lines[i])), len(lines))
                       body = [i for i in range(start, end) if lines[i].strip() and not lines[i].lstrip().startswith("#")]
                       indent = lines[body[0]][:len(lines[body[0]]) - len(lines[body[0]].lstrip())]
-                      keys = [key for key in ("default", "model") if key in model]
+                      # model.model follows only when it also holds FROM; any other value stays as it is.
+                      keys = ["default"] + (["model"] if model.get("model") == FROM else [])
                       for key in keys:
                           pattern = re.compile(rf"({re.escape(indent)}{key}:[ \t]+)(['\"]?){re.escape(FROM)}\2([ \t]*(?:#.*)?\n?)")
                           hits = [i for i in body if pattern.fullmatch(lines[i])]
