@@ -41,7 +41,7 @@ spec:
                     app: agent-dns
       containers:
         - name: coredns
-          image: registry.k8s.io/coredns/coredns:v1.14.6
+          image: registry.k8s.io/coredns/coredns:v1.15.0
           imagePullPolicy: IfNotPresent
           args:
             - -conf
