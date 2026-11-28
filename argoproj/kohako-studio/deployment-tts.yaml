@@ -55,6 +55,9 @@ spec:
             - {name: HF_HUB_DISABLE_TELEMETRY, value: "1"}
             # One synthesis at a time uses all 8 CPUs of the limit (real-time ratio ~0.68 per request).
             - {name: OMP_NUM_THREADS, value: "8"}
+            # BOXP-767: ONNX Runtime intra-op threads = CPU limit, spinning off (applied by launch.py). Without this
+            # ORT spawns one thread per node core (16) and the 8-CPU quota throttles synthesis.
+            - {name: ORT_INTRA_OP_NUM_THREADS, value: "8"}
           ports:
             - {name: tts, containerPort: 10101}
           startupProbe:
