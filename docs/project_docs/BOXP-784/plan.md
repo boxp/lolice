@@ -15,7 +15,7 @@
 codex-workspace SA に golyat-3 node CR と上記 4 volume CR だけの patch 権限を、正規 GitOps で作業中のみ付与。
 
 ## 手順
-1. 本 PR: `argoproj/codex-workspace/rbac-boxp784-temp.yaml` で longhorn-system に resourceNames 限定 Role/RoleBinding を追加。
+1. 本 PR: `argoproj/codex-workspace/rbac-boxp784-temp.yaml` で resourceNames 限定 ClusterRole/ClusterRoleBinding (kustomize namespace 上書き回避のため cluster-scoped。対象 CR は longhorn-system のみに存在) を追加。
 2. 適用後 `kubectl auth can-i` で対象内は yes、対象外 (他 node / 復元 volume / 他 verb) は no を照合。
 3. golyat-3 usb-ssd に一時タグ `boxp784-target` を追加。
 4. 4 volume に `spec.diskSelector: [boxp784-target]` を設定 (既存副本は再配置されない)。
