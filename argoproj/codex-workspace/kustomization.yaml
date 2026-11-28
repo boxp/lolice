@@ -22,6 +22,7 @@ resources:
   - service-auth-gateway.yaml
   - service-pi-web-trial.yaml
   - servicemonitor-ai-ops-metrics.yaml
+  - restore-boxp759.yaml
 
 configMapGenerator:
   - name: codex-workspace-ai-ops-metrics
