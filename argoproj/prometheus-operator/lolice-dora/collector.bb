@@ -104,16 +104,17 @@
     (:chart s) (assoc :chart (:chart s))
     (and (not (:path s)) (:ref s)) (assoc :paths (get refs (:ref s) []))))
 
-(defn app-records [app]
-  (let [uid (get-in app [:metadata :uid]) nm (get-in app [:metadata :name])
-        spec-sources (or (seq (get-in app [:spec :sources])) [(get-in app [:spec :source])])
-        refs (ref-paths spec-sources)]
-    (for [h (get-in app [:status :history]) :let [t (epoch (:deployedAt h))] :when t]
+(defn app-records
+  "仕様 1 の 6: 記録の source（path・values file）はその同期記録が持つ source だけから求める。
+  今の spec で補うと、後で spec を変えた時に過去の記録の分類が変わるため。source が無い記録は
+  :sources nil（分類は unknown）。"
+  [app]
+  (let [uid (get-in app [:metadata :uid]) nm (get-in app [:metadata :name])]
+    (for [h (get-in app [:status :history]) :let [t (epoch (:deployedAt h))] :when t
+          :let [srcs (or (seq (:sources h)) (when (seq (get-in h [:source :repoURL])) [(:source h)]))]]
       {:uid uid :app nm :id (:id h) :t t
        :revisions (vec (or (seq (:revisions h)) [(:revision h)]))
-       :sources (mapv (partial norm-source refs) (or (seq (:sources h))
-                                      (when (seq (get-in h [:source :repoURL])) [(:source h)])
-                                      spec-sources))})))
+       :sources (when srcs (mapv (partial norm-source (ref-paths srcs)) srcs))})))
 
 (defn read-ledger [] (if (fs/exists? ledger-file) (edn/read-string (slurp ledger-file)) {:records {}}))
 
@@ -121,6 +122,11 @@
   (let [tmp (str ledger-file ".tmp")]
     (spit tmp (pr-str l))
     (fs/move tmp ledger-file {:replace-existing true :atomic-move true})))
+
+(defn merge-records
+  "仕様 1 の 7: 台帳は追記だけ。既にある [uid id] の記録は、後から見えた記録で書き換えない。"
+  [ledger kvs]
+  (update ledger :records (fn [rs] (reduce (fn [rs [k r]] (if (contains? rs k) rs (assoc rs k r))) (or rs {}) kvs))))
 
 (def state (atom {:body "" :last-success nil :apps nil :records 0}))
 
@@ -132,8 +138,7 @@
 (defn cycle! []
   (sync-mirror!)
   (let [apps (:items (json/parse-string (sh "kubectl" "get" "applications.argoproj.io" "-n" "argocd" "-o" "json") true))
-        ledger (update (read-ledger) :records
-                       into (for [a apps r (app-records a)] [[(:uid r) (:id r)] r]))
+        ledger (merge-records (read-ledger) (for [a apps r (app-records a)] [[(:uid r) (:id r)] r]))
         _ (write-ledger! ledger)
         by-app (group-by :app (vals (:records ledger)))
         now (quot (System/currentTimeMillis) 1000)

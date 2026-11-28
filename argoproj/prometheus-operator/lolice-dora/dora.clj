@@ -23,8 +23,12 @@
     (mapv #(or ((:tree git) rev %) ::unknown) (source-paths src))
     rev))
 
-(defn- state [git {:keys [revisions sources]}]
-  (mapv (partial source-state git) revisions sources))
+(defn- state
+  "source が無い・revision と数が合わない記録は、何と比べるか分からないので unknown（仕様 1 の 4・6）。"
+  [git {:keys [revisions sources]}]
+  (if (and (seq sources) (= (count revisions) (count sources)))
+    (mapv (partial source-state git) revisions sources)
+    [::unknown]))
 
 (defn- lolice-rev [{:keys [revisions sources]}]
   (some (fn [[r s]] (when (lolice-source? s) r)) (map vector revisions sources)))

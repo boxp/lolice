@@ -51,5 +51,33 @@
       (is (= [:baseline :deployment :deployment]
              (mapv :class (dora/analyze [(rec 1 100 A) (rec 2 200 B) (rec 3 300 C)] git-fns)))))))
 
+
+;; 仕様 1 の 6・7: 記録を分類する材料はその記録自身（同期時の source）だけから取り、台帳の記録は書き換えない。
+(def lolice "https://github.com/boxp/lolice")
+(defn app [spec-sources history]
+  {:metadata {:uid "u1" :name "a"} :spec {:sources spec-sources} :status {:history history}})
+
+(deftest record-facts-come-from-the-record
+  (let [spec-now [{:repoURL lolice :ref "lolice"}
+                  {:repoURL "https://charts.example" :helm {:valueFiles ["$lolice/argoproj/a/new.yaml"]}}]
+        h1 {:id 1 :deployedAt "2026-11-01T00:00:00Z" :revisions ["A" "1.0.0"]
+            :sources [{:repoURL lolice :ref "lolice"}
+                      {:repoURL "https://charts.example" :helm {:valueFiles ["$lolice/argoproj/a/old.yaml"]}}]}]
+    (testing "Helm ref source の values file は、今の spec ではなく同期記録の source から求める"
+      (is (= [{:repo lolice :paths ["argoproj/a/old.yaml"]} {:repo "https://charts.example"}]
+             (:sources (first (app-records (app spec-now [h1])))))))
+    (testing "同期記録に source が無い → 今の spec で補わず :sources nil（分類は unknown）"
+      (is (nil? (:sources (first (app-records (app spec-now [(dissoc h1 :sources)])))))))
+    (testing "台帳に入った記録は、後から見えた同じ [uid id] の記録で上書きしない"
+      (let [old {:records {["u1" 1] {:id 1 :sources [:old]}}}]
+        (is (= {:id 1 :sources [:old]}
+               (get-in (merge-records old [[["u1" 1] {:id 1 :sources [:new]}]
+                                           [["u1" 2] {:id 2}]]) [:records ["u1" 1]])))
+        (is (= {:id 2} (get-in (merge-records old [[["u1" 2] {:id 2}]]) [:records ["u1" 2]])))))
+    (testing "source の無い記録は unknown（数えない）"
+      (is (= [:baseline :unknown]
+             (mapv :class (dora/analyze [{:uid "u1" :app "a" :id 1 :t 1 :revisions ["A"] :sources [{:repo lolice :path "x"}]}
+                                         {:uid "u1" :app "a" :id 2 :t 2 :revisions ["B"] :sources nil}]
+                                        {:tree (fn [r _] r)})))))))
 (let [{:keys [fail error]} (try (run-tests) (finally (fs/delete-tree work)))]
   (System/exit (if (zero? (+ fail error)) 0 1)))
