@@ -170,6 +170,18 @@
 
 ;; ---- commands ----
 
+(defn resolved?
+  "解消済み（仕様 3 章、収集側の recovered と同じ）: impact_resolved が時刻として読め、根拠が空でない。"
+  [m]
+  (and (some? (parse-time (m "impact_resolved"))) (not (str/blank? (m "impact_resolved_evidence")))))
+
+(defn refuse-if-duplicate!
+  "重複として閉じた記録には recover・confirm を書かない（仕様 3 章）。"
+  [inc id]
+  (let [of ((:fm inc) "duplicate_of")]
+    (when-not (str/blank? of)
+      (die id "は" of "の重複として閉じている（duplicate_of）。先に correct" id "duplicate_of \"\" --reason R で外す"))))
+
 (defn ids-in [dir prefix]
   (if (fs/exists? dir)
     (keep #(some->> (re-matches (re-pattern (str prefix "-(\\d+)\\.md")) (fs/file-name %)) second parse-long) (fs/list-dir dir))
@@ -191,7 +203,7 @@
               :let [m (fm-map (first (split-doc (slurp (str f)))))]
               :when (and (= "incident/v1" (m "schema")) (= key (m "dedupe_key"))
                          (str/blank? (m "duplicate_of"))
-                         (or (str/blank? (m "impact_resolved")) (str/blank? (m "impact_resolved_evidence"))))]
+                         (not (resolved? m)))]
         (die "同じ dedupe_key の未解消の記録がある:" (str/replace (fs/file-name f) #"\.md$" "")
              "（同じ障害ならそちらに追記する。別の障害なら --force）")))
     (let [n (inc (reduce max 0 (ids-in dir prefix))) id (str prefix "-" n)
@@ -240,14 +252,14 @@
   (move-card! vault id status nil))
 
 (defn recover! [vault id opts]
-  (let [inc (read-incident vault id) action (need opts :action "復旧操作") evidence (need opts :evidence "復旧操作の根拠")
+  (let [inc (doto (read-incident vault id) (refuse-if-duplicate! id)) action (need opts :action "復旧操作") evidence (need opts :evidence "復旧操作の根拠")
         at (time-arg (:at opts) "--at")]
     (when-not (recovery-kinds action) (die "復旧操作の種類が違う:" action (sort recovery-kinds)))
     (set-status inc id vault "mitigating" [["recovery" action] ["recovery_at" at] ["recovery_evidence" (q evidence)]]
                 :timeline (str at ": 復旧操作 " action "（" (one-line evidence) "）。利用者影響の解消は未確認"))))
 
 (defn confirm! [vault id opts]
-  (let [inc (read-incident vault id) evidence (need opts :evidence "利用者影響の解消を確かめた根拠")
+  (let [inc (doto (read-incident vault id) (refuse-if-duplicate! id)) evidence (need opts :evidence "利用者影響の解消を確かめた根拠")
         at (time-arg (:at opts) "--at")]
     (set-status inc id vault "monitoring" [["impact_resolved" at] ["impact_resolved_evidence" (q evidence)]]
                 :timeline (str at ": 利用者影響の解消を確認（" (one-line evidence) "）"))))
@@ -289,7 +301,7 @@
 (defn status-from-fields
   "重複を外したときの status（仕様 3 章）: 確認と根拠あり → monitoring、復旧操作あり → mitigating、他 → reported。"
   [m]
-  (cond (and (not (str/blank? (m "impact_resolved"))) (not (str/blank? (m "impact_resolved_evidence")))) "monitoring"
+  (cond (resolved? m) "monitoring"
         (not (str/blank? (m "recovery_at"))) "mitigating"
         :else "reported"))
 

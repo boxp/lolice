@@ -218,6 +218,8 @@
       (is (= "resolved" ((fm v "INC-3") "status")))
       (is (= "Resolved" (lane-of v "INC-3"))))
     (testing "復旧操作だけある記録の解除 → mitigating"
+      ;; 重複中の recover は拒否される（仕様 3 章）ので、外してから復旧操作を書き、もう一度重複にする
+      (run v "2026-11-28T10:09:30Z" "correct" "INC-3" "duplicate_of" "" "--reason" "別")
       (run v "2026-11-28T10:10:00Z" "recover" "INC-3" "--action" "restart" "--evidence" "再起動")
       (run v "2026-11-28T10:11:00Z" "correct" "INC-3" "duplicate_of" "INC-2" "--reason" "同じ")
       (run v "2026-11-28T10:12:00Z" "correct" "INC-3" "duplicate_of" "" "--reason" "別")
@@ -240,5 +242,45 @@
     (let [r (run v "2026-11-28T10:06:00Z" "open" "--service" "svc-a" "--title" "本番" "--evidence" "alert")]
       (is (zero? (:exit r)) (:err r)))
     (is (not (zero? (:exit (run v "2026-11-28T10:07:00Z" "open" "--service" "svc-a" "--title" "合成2" "--evidence" "合成" "--synthetic")))) "合成同士は重複拒否")))
+
+(deftest recover-and-confirm-refuse-duplicate
+  ;; 仕様 3 章: 重複として閉じた記録には recover・confirm を書かずに止まる
+  (let [v (vault)]
+    (run v "2026-11-28T10:05:00Z" "open" "--service" "svc-a" "--title" "t" "--evidence" "alert")
+    (run v "2026-11-28T10:06:00Z" "open" "--service" "svc-a" "--title" "t2" "--evidence" "alert" "--force")
+    (run v "2026-11-28T10:07:00Z" "duplicate" "INC-3" "--of" "INC-2" "--reason" "同じ通知")
+    (let [before (body v "INC-3")]
+      (doseq [args [["recover" "INC-3" "--action" "restart" "--evidence" "再起動"]
+                    ["confirm" "INC-3" "--evidence" "外形監視 200"]]]
+        (let [r (apply run v "2026-11-28T10:08:00Z" args)]
+          (is (not (zero? (:exit r))) (str (first args) " は拒否"))
+          (is (str/includes? (:err r) "duplicate_of"))))
+      (is (= before (body v "INC-3")) "記録は書き換えない"))
+    (is (= "resolved" ((fm v "INC-3") "status")))
+    (is (= "Resolved" (lane-of v "INC-3")))
+    (testing "外してからなら書ける"
+      (run v "2026-11-28T10:09:00Z" "correct" "INC-3" "duplicate_of" "" "--reason" "別")
+      (is (zero? (:exit (run v "2026-11-28T10:10:00Z" "recover" "INC-3" "--action" "restart" "--evidence" "再起動"))))
+      (is (= "Mitigating" (lane-of v "INC-3"))))))
+
+(defn hand-edit! [v id field value]
+  (let [f (str (fs/path v "Incidents/Tickets" (str id ".md")))]
+    (spit f (str/replace-first (slurp f) (re-pattern (str "(?m)^" field ":.*$")) (str field ": " value)))))
+
+(deftest unreadable-impact-resolved-is-not-resolved
+  ;; 仕様 3 章: 解消済み = impact_resolved が時刻として読め、根拠が空でない（収集側の recovered と同じ）
+  (let [v (vault)]
+    (run v "2026-11-28T10:05:00Z" "open" "--service" "svc-a" "--title" "t" "--evidence" "alert")
+    (hand-edit! v "INC-2" "impact_resolved" "明日")
+    (hand-edit! v "INC-2" "impact_resolved_evidence" "\"手で書いた\"")
+    (let [r (run v "2026-11-28T10:06:00Z" "open" "--service" "svc-a" "--title" "t2" "--evidence" "alert")]
+      (is (not (zero? (:exit r))) "読めない時刻の記録は未解消として重複を拒否")
+      (is (str/includes? (:err r) "INC-2")))
+    (testing "重複から外したとき monitoring にしない"
+      (run v "2026-11-28T10:07:00Z" "open" "--service" "svc-a" "--title" "t3" "--evidence" "alert" "--force")
+      (run v "2026-11-28T10:08:00Z" "duplicate" "INC-2" "--of" "INC-3" "--reason" "同じ")
+      (hand-edit! v "INC-2" "impact_resolved" "明日")
+      (run v "2026-11-28T10:09:00Z" "correct" "INC-2" "duplicate_of" "" "--reason" "別")
+      (is (= "reported" ((fm v "INC-2") "status"))))))
 
 (let [{:keys [fail error]} (run-tests)] (System/exit (if (zero? (+ fail error)) 0 1)))
