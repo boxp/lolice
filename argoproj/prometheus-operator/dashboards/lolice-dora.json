@@ -1185,13 +1185,14 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "count(lolice_incident_info{state=\"counted\",recovery_state=~\"unrecovered|unconfirmed\",synthetic=~\"$synthetic\"}) or vector(0)",
+      "expr" : "(count(lolice_incident_info{state=\"counted\",recovery_state=~\"unrecovered|unconfirmed\",synthetic=~\"$synthetic\"}) or vector(0)) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)",
       "instant" : true,
       "range" : false,
       "format" : "time_series"
     } ],
     "fieldConfig" : {
       "defaults" : {
+        "noValue" : "不明（収集停止・置き場を読めない）",
         "thresholds" : {
           "mode" : "absolute",
           "steps" : [ {
@@ -1231,13 +1232,14 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "count(count by (incident) (lolice_incident_record_problem{synthetic=~\"$synthetic\"})) or vector(0)",
+      "expr" : "(count(count by (incident) (lolice_incident_record_problem{synthetic=~\"$synthetic\"})) or vector(0)) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)",
       "instant" : true,
       "range" : false,
       "format" : "time_series"
     } ],
     "fieldConfig" : {
       "defaults" : {
+        "noValue" : "不明（収集停止・置き場を読めない）",
         "thresholds" : {
           "mode" : "absolute",
           "steps" : [ {
@@ -1383,14 +1385,14 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "count(lolice_incident_failed_deployment_recovery_seconds{synthetic=~\"$synthetic\"} and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - 28 * 86400)) or vector(0)",
+      "expr" : "(count(lolice_incident_failed_deployment_recovery_seconds{synthetic=~\"$synthetic\"} and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - 28 * 86400)) or vector(0)) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)",
       "instant" : true,
       "range" : false,
       "format" : "time_series"
     } ],
     "fieldConfig" : {
       "defaults" : {
-        "noValue" : "0"
+        "noValue" : "不明（収集停止・置き場を読めない）"
       },
       "overrides" : [ ]
     },
@@ -1456,14 +1458,14 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "count(lolice_incident_restore_seconds{synthetic=~\"$synthetic\"} and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - 28 * 86400)) or vector(0)",
+      "expr" : "(count(lolice_incident_info{state=\"counted\",recovery_state=\"recovered\",synthetic=~\"$synthetic\"} and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - 28 * 86400)) or vector(0)) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)",
       "instant" : true,
       "range" : false,
       "format" : "time_series"
     } ],
     "fieldConfig" : {
       "defaults" : {
-        "noValue" : "0"
+        "noValue" : "不明（収集停止・置き場を読めない）"
       },
       "overrides" : [ ]
     },
@@ -1492,14 +1494,14 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "count(lolice_incident_info{state=\"counted\",cause_state=~\"unknown|deployment_unconfirmed\",synthetic=~\"$synthetic\"}) or vector(0)",
+      "expr" : "(count(lolice_incident_info{state=\"counted\",cause_state=~\"unknown|deployment_unconfirmed\",synthetic=~\"$synthetic\"}) or vector(0)) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)",
       "instant" : true,
       "range" : false,
       "format" : "time_series"
     } ],
     "fieldConfig" : {
       "defaults" : {
-        "noValue" : "0"
+        "noValue" : "不明（収集停止・置き場を読めない）"
       },
       "overrides" : [ ]
     },

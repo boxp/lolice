@@ -152,6 +152,11 @@
    :fieldConfig {:defaults (cond-> {:noValue novalue} unit (assoc :unit unit)) :overrides []}
    :options {:reduceOptions {:calcs ["lastNotNull"]}}})
 
+;; 件数の「0」は収集が新しく本番の置き場を読めたときだけ出す。収集が止まった・読めないときは値なし（= 不明）にして、障害なしと区別する。
+(def collected " and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)")
+(defn guarded-count [expr] (str "(count(" expr ") or vector(0))" collected))
+(def unknown-count "不明（収集停止・置き場を読めない）")
+
 (defn resolved-within [days] (str " and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - " days " * 86400)"))
 
 (def incident-panels
@@ -170,12 +175,12 @@
                   :overrides []}
     :options {:reduceOptions {:calcs ["lastNotNull"]} :colorMode "background"}}
    {:id 43 :type "stat" :title "未復旧・解消の根拠なし" :gridPos {:h 3 :w 4 :x 16 :y 49} :datasource ds
-    :targets [(q "A" (str "count(lolice_incident_info{state=\"counted\",recovery_state=~\"unrecovered|unconfirmed\"," isel "}) or vector(0)") :format "time_series")]
-    :fieldConfig {:defaults {:thresholds {:mode "absolute" :steps [{:color "green" :value nil} {:color "red" :value 1}]}} :overrides []}
+    :targets [(q "A" (guarded-count (str "lolice_incident_info{state=\"counted\",recovery_state=~\"unrecovered|unconfirmed\"," isel "}")) :format "time_series")]
+    :fieldConfig {:defaults {:noValue unknown-count :thresholds {:mode "absolute" :steps [{:color "green" :value nil} {:color "red" :value 1}]}} :overrides []}
     :options {:reduceOptions {:calcs ["lastNotNull"]} :colorMode "background"}}
    {:id 44 :type "stat" :title "記録の問題（誤り・重複の疑い・原因未確認）" :gridPos {:h 3 :w 4 :x 20 :y 49} :datasource ds
-    :targets [(q "A" (str "count(count by (incident) (lolice_incident_record_problem{" isel "})) or vector(0)") :format "time_series")]
-    :fieldConfig {:defaults {:thresholds {:mode "absolute" :steps [{:color "green" :value nil} {:color "orange" :value 1}]}} :overrides []}
+    :targets [(q "A" (guarded-count (str "count by (incident) (lolice_incident_record_problem{" isel "})")) :format "time_series")]
+    :fieldConfig {:defaults {:noValue unknown-count :thresholds {:mode "absolute" :steps [{:color "green" :value nil} {:color "orange" :value 1}]}} :overrides []}
     :options {:reduceOptions {:calcs ["lastNotNull"]} :colorMode "background"}}
    {:id 45 :type "stat" :title "記録の内訳（v1 より前 = 集計外）" :gridPos {:h 3 :w 8 :x 16 :y 52} :datasource ds
     :targets [(q "A" "max by (state) (lolice_incident_records)" :format "time_series" :legendFormat "{{state}}")]
@@ -185,13 +190,14 @@
    (window-stat 47 4 "DORA 復旧時間 中央値（28 日以内）"
                 (str "quantile(0.5, lolice_incident_failed_deployment_recovery_seconds{" isel "}" (resolved-within 28) ")") "s" "対象0件")
    (window-stat 48 8 "配備起因の復旧確認済み（28 日）"
-                (str "count(lolice_incident_failed_deployment_recovery_seconds{" isel "}" (resolved-within 28) ") or vector(0)") nil "0")
+                (guarded-count (str "lolice_incident_failed_deployment_recovery_seconds{" isel "}" (resolved-within 28))) nil unknown-count)
    (window-stat 49 12 "一般の復旧時間 中央値（28 日）"
                 (str "quantile(0.5, lolice_incident_restore_seconds{" isel "}" (resolved-within 28) ")") "s" "対象0件")
    (window-stat 50 16 "復旧確認済み（28 日、原因を問わず）"
-                (str "count(lolice_incident_restore_seconds{" isel "}" (resolved-within 28) ") or vector(0)") nil "0")
+                ;; 影響開始を省いた記録（open の既定）も数えるため、restore_seconds ではなく復旧状態から数える。
+                (guarded-count (str "lolice_incident_info{state=\"counted\",recovery_state=\"recovered\"," isel "}" (resolved-within 28))) nil unknown-count)
    (window-stat 51 20 "原因 不明・配備（未確認）"
-                (str "count(lolice_incident_info{state=\"counted\",cause_state=~\"unknown|deployment_unconfirmed\"," isel "}) or vector(0)") nil "0")
+                (guarded-count (str "lolice_incident_info{state=\"counted\",cause_state=~\"unknown|deployment_unconfirmed\"," isel "}")) nil unknown-count)
    {:id 52 :type "table" :title "障害記録（v1、重複・誤りも表示）" :gridPos {:h 12 :w 24 :x 0 :y 59} :datasource ds
     :targets [(q "A" (str "max by (incident, service, state, recovery_state, cause_state, recovery, redeploy) (lolice_incident_info{state!=\"legacy\"," isel "})"))
               (q "B" (str "max by (incident) (lolice_incident_timestamp_seconds{point=\"started\"," isel "}) * 1000"))
