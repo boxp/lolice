@@ -1,0 +1,177 @@
+# BOXP-762: lolice 本番デリバリーの DORA 指標の収集器（仕様: Obsidian Projects/lolice-dora-metrics/spec.md）。
+# Argo CD Application の同期記録を read-only で読み、lolice の公開 git（main と PR head）を blob なしで
+# 自分の PVC へ fetch して、5 指標を /metrics で出す。書き込むのは自分の PVC だけで、外部へ送るものはない。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lolice-dora-metrics
+  namespace: monitoring
+---
+# 読むのは Application の get/list だけ（Secret・他の資源・書き込みは持たない）。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: lolice-dora-metrics-read-applications
+  namespace: argocd
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: lolice-dora-metrics-read-applications
+  namespace: argocd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lolice-dora-metrics-read-applications
+subjects:
+  - kind: ServiceAccount
+    name: lolice-dora-metrics
+    namespace: monitoring
+---
+# 台帳（Argo CD は 1 app 10 件しか残さないので、ここに写して観測期間を伸ばす）と git mirror。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lolice-dora-metrics
+  namespace: monitoring
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lolice-dora-metrics
+  namespace: monitoring
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: lolice-dora-metrics}
+  template:
+    metadata:
+      labels: {app: lolice-dora-metrics}
+    spec:
+      serviceAccountName: lolice-dora-metrics
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: lolice.io/gpu-worker
+                    operator: DoesNotExist
+      containers:
+        - name: collector
+          # Already deployed workspace digest (same as argoproj/local-llm/runtime-worker.yaml), used only
+          # for bb / git / kubectl. No workspace volume, no API keys, no GitHub credentials.
+          image: ghcr.io/boxp/arch/codex-workspace@sha256:801a301b6f02b7fcedfc29c550aa89f4edb10dd6fc4b0fd3b321fe4a034e2944
+          command: [bb, /app/collector.bb]
+          env:
+            - {name: HOME, value: /data}
+            - {name: DATA_DIR, value: /data}
+            - {name: GIT_TERMINAL_PROMPT, value: "0"}
+            - {name: INTERVAL_SECONDS, value: "600"}
+            - {name: PORT, value: "9466"}
+            # Hotfix-For trailer の記録を始めた時刻（BOXP-762）。これより前の hotfix は「記録開始前」。
+            - {name: HOTFIX_RECORD_SINCE, value: "2026-11-28T00:00:00Z"}
+          ports:
+            - {name: metrics, containerPort: 9466}
+          readinessProbe:
+            httpGet: {path: /healthz, port: metrics}
+            periodSeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 20m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 768Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+            - {name: app, mountPath: /app, readOnly: true}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: lolice-dora-metrics}
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        - name: app
+          configMap: {name: lolice-dora-metrics}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lolice-dora-metrics
+  namespace: monitoring
+  labels: {app: lolice-dora-metrics}
+spec:
+  selector: {app: lolice-dora-metrics}
+  ports:
+    - {name: metrics, port: 9466, targetPort: metrics}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: lolice-dora-metrics
+  namespace: monitoring
+  labels: {app.kubernetes.io/part-of: kube-prometheus}
+spec:
+  selector:
+    matchLabels: {app: lolice-dora-metrics}
+  endpoints:
+    - {port: metrics, interval: 60s}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lolice-dora-metrics
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels: {app: lolice-dora-metrics}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: prometheus}
+      ports:
+        - {protocol: TCP, port: 9466}
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # kube-apiserver（Service の DNAT 後の control-plane と kube-vip VIP）
+    - to:
+        - ipBlock: {cidr: 192.168.10.99/32}
+        - ipBlock: {cidr: 192.168.10.102/32}
+        - ipBlock: {cidr: 192.168.10.103/32}
+        - ipBlock: {cidr: 192.168.10.104/32}
+      ports:
+        - {protocol: TCP, port: 6443}
+    # github.com（公開 repo の git fetch だけ。認証情報は持たない）
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16]
+      ports:
+        - {protocol: TCP, port: 443}

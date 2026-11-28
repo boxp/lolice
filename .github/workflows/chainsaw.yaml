@@ -164,6 +164,13 @@ jobs:
       - name: Nature Remo CLI tests
         run: bb tests/hermes-agent/nature-remo-test.bb
 
+      # BOXP-762: lolice DORA 指標の判定（仕様の例から書いた期待値）と、ダッシュボード JSON の生成再現性。
+      - name: lolice DORA collector tests
+        run: |
+          bb tests/lolice-dora/dora-test.bb
+          bb tests/lolice-dora/collector-git-test.bb
+          bb argoproj/prometheus-operator/lolice-dora/dashboard.bb | diff -u argoproj/prometheus-operator/dashboards/lolice-dora.json -
+
       # BOXP-623: 監視入口ダッシュボードの生成再現性と、Grafana Alerting リンク等の不変条件。
       - name: Alert entry dashboard tests
         run: bash scripts/alert-entry-dashboard/test.sh
