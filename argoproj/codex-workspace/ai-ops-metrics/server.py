@@ -355,7 +355,9 @@ def incident_metrics(root, now=None):
         d = os.path.join(root, sub)
         try:
             names = sorted(e.name for e in os.scandir(d))
-            present = 1
+            # 本番の Tickets が読めたときだけ収集成功（Synthetic だけでは障害ゼロと誤表示する）
+            if sub == "Tickets":
+                present = 1
         except OSError:
             continue
         for name in names:

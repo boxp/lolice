@@ -82,10 +82,15 @@
   (into {} (for [l lines :let [[_ k v] (re-matches #"([A-Za-z_]+):\s?(.*)" l)] :when k]
              [k (if (str/starts-with? v "\"") (try (json/parse-string v) (catch Exception _ v)) v)])))
 
-(defn read-incident [vault id]
+(defn read-incident
+  "書き換える記録を読む。incident/v1 以外（INC-1〜5 などの legacy）は書き換えない。"
+  [vault id]
   (let [f (file-of vault id)]
     (when-not (fs/exists? f) (die "記録が無い:" id))
-    (let [[lines body] (split-doc (slurp (str f)))] {:file f :lines lines :body body :fm (fm-map lines)})))
+    (let [[lines body] (split-doc (slurp (str f))) m (fm-map lines)]
+      (when-not (= "incident/v1" (m "schema"))
+        (die "incident/v1 ではない記録は書き換えない（legacy）:" id))
+      {:file f :lines lines :body body :fm m})))
 
 (defn set-fields [lines kvs]
   (reduce (fn [lines [k v]]
@@ -163,8 +168,9 @@
         started (when (:started-at opts) (time-arg (:started-at opts) "--started-at"))
         severity (or (:severity opts) "sev3")]
     (when-not (:force opts)
-      (doseq [d [tickets synthetic] :when (fs/exists? d) f (fs/list-dir d)
-              :when (re-matches #"(INC|SYN)-\d+\.md" (fs/file-name f))
+      ;; 本番と合成事例は別々に重複を確かめる（合成事例が本番の記録を妨げない）
+      (doseq [f (if (fs/exists? dir) (fs/list-dir dir) [])
+              :when (re-matches (re-pattern (str prefix "-\\d+\\.md")) (fs/file-name f))
               :let [m (fm-map (first (split-doc (slurp (str f)))))]
               :when (and (= "incident/v1" (m "schema")) (= key (m "dedupe_key"))
                          (str/blank? (m "duplicate_of"))
@@ -246,7 +252,7 @@
 (defn duplicate! [vault id opts]
   (let [of (need opts :of "重複先") reason (need opts :reason "重複の理由")]
     (when (= of id) (die "自分自身は重複先にできない"))
-    (read-incident vault of)
+    (when-not (fs/exists? (file-of vault of)) (die "重複先の記録が無い:" of))
     (let [inc (read-incident vault id)]
       (set-status inc id vault "resolved" [["duplicate_of" of]]
                   :timeline (str (now-str) ": " of " の重複として閉じる（" (one-line reason) "）")))))

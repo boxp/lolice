@@ -144,4 +144,24 @@
     (is (not (str/includes? (board v) "SYN-1")))
     (is (zero? (:exit (run v "2026-11-28T10:30:00Z" "confirm" "SYN-1" "--evidence" "合成の確認"))))))
 
+(deftest legacy-records-are-not-written
+  (let [v (vault)]
+    (doseq [args [["confirm" "INC-1" "--evidence" "x"]
+                  ["recover" "INC-1" "--action" "restart" "--evidence" "x"]
+                  ["cause" "INC-1" "--kind" "unknown" "--evidence" "x"]
+                  ["correct" "INC-1" "started" "2026-11-28T09:00:00Z" "--reason" "x"]
+                  ["duplicate" "INC-1" "--of" "INC-1" "--reason" "x"]]]
+      (is (not (zero? (:exit (apply run v "2026-11-28T10:00:00Z" args)))) (first args)))
+    (is (= legacy-text (slurp (str (fs/path v "Incidents/Tickets/INC-1.md")))) "legacy は書き換えない")
+    (testing "legacy を重複先に指すのは可"
+      (run v "2026-11-28T10:05:00Z" "open" "--service" "k8s" "--title" "t" "--evidence" "alert")
+      (is (zero? (:exit (run v "2026-11-28T10:06:00Z" "duplicate" "INC-2" "--of" "INC-1" "--reason" "同じ")))))))
+
+(deftest synthetic-and-real-dedupe-are-separate
+  (let [v (vault)]
+    (is (zero? (:exit (run v "2026-11-28T10:05:00Z" "open" "--service" "svc-a" "--title" "合成" "--evidence" "合成" "--synthetic"))))
+    (let [r (run v "2026-11-28T10:06:00Z" "open" "--service" "svc-a" "--title" "本番" "--evidence" "alert")]
+      (is (zero? (:exit r)) (:err r)))
+    (is (not (zero? (:exit (run v "2026-11-28T10:07:00Z" "open" "--service" "svc-a" "--title" "合成2" "--evidence" "合成" "--synthetic")))) "合成同士は重複拒否")))
+
 (let [{:keys [fail error]} (run-tests)] (System/exit (if (zero? (+ fail error)) 0 1)))

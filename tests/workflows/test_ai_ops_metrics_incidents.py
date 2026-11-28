@@ -192,6 +192,12 @@ class IncidentMetricsTest(unittest.TestCase):
         self.assertIn('lolice_incident_dir_present 1', out)
         self.assertIn('lolice_incident_metrics_generated_timestamp_seconds', out)
 
+    def test_tickets_unreadable_is_not_present(self):
+        # 合成事例だけ読めても本番の Tickets が読めなければ収集失敗
+        (self.root / 'Tickets').rmdir()
+        self.write('SYN-1', **V1, started='2026-11-28T10:00:00Z')
+        self.assertIn('lolice_incident_dir_present 0', self.out())
+
 
 if __name__ == '__main__':
     unittest.main()
