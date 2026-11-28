@@ -56,7 +56,11 @@
   (memo (fn [rev path]
           (let [spec (if (str/blank? path) (str rev "^{tree}") (str rev ":" (str/replace path #"/+$" "")))
                 r (git "rev-parse" "--verify" "-q" spec)]
-            (when (zero? (:exit r)) (str/trim (:out r)))))))
+            (cond (zero? (:exit r)) (str/trim (:out r))
+                  ;; revision はあるが path が無い（作成前・削除後）は既知の「無し」。仕様 1 の 3a
+                  (zero? (:exit (git "cat-file" "-e" (str rev "^{commit}")))) :absent
+                  ;; revision 自体が無い・git の失敗は nil（unknown、覚えない）
+                  :else nil)))))
 
 (def ancestor?
   (memo (fn [a b] (case (int (:exit (git "merge-base" "--is-ancestor" a b))) 0 true 1 false nil))))

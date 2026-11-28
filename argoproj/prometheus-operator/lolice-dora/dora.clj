@@ -1,7 +1,7 @@
 (ns lolice.dora
   "BOXP-762: lolice 本番配備の DORA 5 指標（仕様: Obsidian Projects/lolice-dora-metrics/spec.md）。
   入出力を持たない純粋な判定だけを置く。git の問い合わせは引数の関数で受け取る:
-    {:tree      (fn [rev path] tree-sha-or-nil)
+    {:tree      (fn [rev path] tree-sha / :absent（revision はあるが path が無い）/ nil（revision が無い）)
      :changes   (fn [from to paths] [{:sha :subject :body :time} ...])  ; :time は仕様 3.1 の変更時刻
      :ancestor? (fn [a b] bool)}                                      ; a が b の祖先か"
   (:require [clojure.string :as str]))

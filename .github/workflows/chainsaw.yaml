@@ -168,6 +168,7 @@ jobs:
       - name: lolice DORA collector tests
         run: |
           bb tests/lolice-dora/dora-test.bb
+          bb tests/lolice-dora/collector-git-test.bb
           bb argoproj/prometheus-operator/lolice-dora/dashboard.bb | diff -u argoproj/prometheus-operator/dashboards/lolice-dora.json -
 
       # BOXP-623: 監視入口ダッシュボードの生成再現性と、Grafana Alerting リンク等の不変条件。
