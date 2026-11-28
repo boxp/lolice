@@ -153,9 +153,34 @@
                   ["duplicate" "INC-1" "--of" "INC-1" "--reason" "x"]]]
       (is (not (zero? (:exit (apply run v "2026-11-28T10:00:00Z" args)))) (first args)))
     (is (= legacy-text (slurp (str (fs/path v "Incidents/Tickets/INC-1.md")))) "legacy は書き換えない")
-    (testing "legacy を重複先に指すのは可"
+    (testing "legacy は数えない記録なので重複先にできない（指すと障害が 1 件も数えられなくなる）"
       (run v "2026-11-28T10:05:00Z" "open" "--service" "k8s" "--title" "t" "--evidence" "alert")
-      (is (zero? (:exit (run v "2026-11-28T10:06:00Z" "duplicate" "INC-2" "--of" "INC-1" "--reason" "同じ")))))))
+      (is (not (zero? (:exit (run v "2026-11-28T10:06:00Z" "duplicate" "INC-2" "--of" "INC-1" "--reason" "同じ")))))
+      (is (str/blank? ((fm v "INC-2") "duplicate_of"))))))
+
+(deftest duplicate-target-must-be-same-population
+  (let [v (vault)]
+    (run v "2026-11-28T10:01:00Z" "open" "--service" "svc-a" "--title" "合成" "--evidence" "合成" "--synthetic")
+    (run v "2026-11-28T10:02:00Z" "open" "--service" "svc-a" "--title" "本番" "--evidence" "alert")
+    (run v "2026-11-28T10:03:00Z" "open" "--service" "svc-a" "--title" "合成2" "--evidence" "合成" "--synthetic" "--force")
+    ;; SYN-1, INC-2, SYN-2
+    (is (not (zero? (:exit (run v "2026-11-28T10:07:00Z" "duplicate" "INC-2" "--of" "SYN-1" "--reason" "r")))) "本番→合成")
+    (is (not (zero? (:exit (run v "2026-11-28T10:07:00Z" "duplicate" "SYN-2" "--of" "INC-2" "--reason" "r")))) "合成→本番")
+    (is (not (zero? (:exit (run v "2026-11-28T10:07:00Z" "correct" "INC-2" "duplicate_of" "SYN-1" "--reason" "r")))) "correct でも")
+    (is (zero? (:exit (run v "2026-11-28T10:07:00Z" "duplicate" "SYN-2" "--of" "SYN-1" "--reason" "同じ"))))))
+
+(deftest yaml-empty-values-are-blank
+  (let [v (vault)]
+    (run v "2026-11-28T10:01:00Z" "open" "--service" "svc-a" "--title" "t" "--evidence" "alert")
+    ;; 手で null / '' に書き換えられた未解消の記録も、同じ dedupe_key の二重起票を止める
+    (let [f (str (fs/path v "Incidents/Tickets/INC-2.md"))]
+      (spit f (-> (slurp f)
+                  (str/replace "impact_resolved: \n" "impact_resolved: null\n")
+                  (str/replace "impact_resolved_evidence: \n" "impact_resolved_evidence: ''\n")
+                  (str/replace "duplicate_of: \n" "duplicate_of: ~\n"))))
+    (is (not (zero? (:exit (run v "2026-11-28T10:02:00Z" "open" "--service" "svc-a" "--title" "t" "--evidence" "alert")))))
+    (run v "2026-11-28T10:03:00Z" "open" "--service" "svc-a" "--title" "t" "--evidence" "alert" "--force")
+    (is (zero? (:exit (run v "2026-11-28T10:04:00Z" "duplicate" "INC-3" "--of" "INC-2" "--reason" "同じ"))) "~ は重複ではない")))
 
 
 (deftest duplicate-refuses-chains-and-cycles

@@ -283,6 +283,38 @@ def parse_incident_time(value):
     return int(d.timestamp())
 
 
+YAML_NULL = {"", "~", "null", "Null", "NULL"}
+UNSUPPORTED = object()
+UNSUPPORTED_KEYS = "\0unsupported"
+
+
+def yaml_scalar(raw):
+    """One frontmatter value -> str (spec 2 章 0). fail-closed: only a plain scalar, a '...' or "..." string is read;
+    YAML null forms and comment-only values are blank; any other YAML syntax (block scalar, flow collection,
+    anchor/alias/tag, unterminated quote) is UNSUPPORTED, never taken as a non-empty value."""
+    v = raw.strip()
+    if v.startswith('"'):
+        try:
+            end = json.JSONDecoder().raw_decode(v)
+        except ValueError:
+            return UNSUPPORTED
+        rest = v[end[1]:].strip()
+        if not isinstance(end[0], str) or (rest and not rest.startswith("#")):
+            return UNSUPPORTED
+        return end[0].strip()
+    if v.startswith("'"):
+        m = re.fullmatch(r"'((?:[^']|'')*)'\s*(#.*)?", v)
+        return m.group(1).replace("''", "'").strip() if m else UNSUPPORTED
+    if v.startswith("#"):
+        return ""
+    v = re.split(r"\s#", v, maxsplit=1)[0].strip()
+    if v in YAML_NULL:
+        return ""
+    if v[0] in "|>[]{}&*!%@`" or v.startswith(("- ", "? ")):
+        return UNSUPPORTED
+    return v
+
+
 def read_frontmatter(path):
     try:
         with open(path, "rb") as fh:
@@ -300,13 +332,11 @@ def read_frontmatter(path):
         if line[:1] in (" ", "\t", "-") or ":" not in line:
             continue
         k, v = line.split(":", 1)
-        v = v.strip()
-        if v.startswith('"'):
-            try:
-                v = json.loads(v)
-            except ValueError:
-                v = v.strip('"')
-        out[k.strip()] = str(v).strip() if v is not None else ""
+        v = yaml_scalar(v)
+        if v is UNSUPPORTED:
+            out.setdefault(UNSUPPORTED_KEYS, set()).add(k.strip())
+            v = ""
+        out[k.strip()] = v
     else:
         # 閉じの --- が先頭 64KiB に無い: 途中で切れた可能性があり、正しく読めたとは言えない
         return UNTERMINATED
@@ -338,7 +368,7 @@ def classify_incident(iid, f):
                 r["problems"].add("bad_time")
             else:
                 r["times"][point] = t
-    if bad_enum:
+    if bad_enum or f.get(UNSUPPORTED_KEYS):
         r["problems"].add("bad_value")
     t = r["times"]
     # 4: recovered only with a confirmed time AND evidence; an alert resolved / recovery action is not the end
@@ -411,6 +441,9 @@ def incident_metrics(root, now=None):
     by_id = {r["id"]: r for r in recs}
     # 3: duplicates. 集計から外すのは除外の根拠が確かなときだけ（fail-closed）: 重複先が存在し、自分ではなく、
     # それ自体が重複を指していない（1 段だけ）。そうでなければ数えたまま問題を付ける（循環で両方消えない）
+    # 外してよいのは次を全部満たすときだけ（許可リスト）: 重複先が自分でなく、同じ母集団（本番↔本番・合成↔合成）、
+    # それ自体が数える対象（counted、legacy/invalid でない）、かつそれ自体が重複を指していない
+    countable = {r["id"] for r in recs if r["state"] == "counted"}
     for r in recs:
         dup = r.get("duplicate_of")
         if r["state"] != "counted" or not dup:
@@ -418,10 +451,11 @@ def incident_metrics(root, now=None):
         target = by_id.get(dup)
         if target is None:
             r["problems"].add("duplicate_target_missing")
-        elif dup == r["id"] or target.get("duplicate_of"):
-            r["problems"].add("duplicate_target_invalid")
-        else:
+        elif (dup != r["id"] and dup in countable and target["synthetic"] == r["synthetic"]
+              and not target.get("duplicate_of")):
             r["state"] = "duplicate"
+        else:
+            r["problems"].add("duplicate_target_invalid")
     # 7: overlapping open intervals with the same dedupe_key -> possible_duplicate on the later one
     counted = [r for r in recs if r["state"] == "counted"]
     def span(r):

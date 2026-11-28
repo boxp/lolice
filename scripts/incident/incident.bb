@@ -78,9 +78,26 @@
     [(str/split-lines head) rest]
     (die "frontmatter が読めない")))
 
+(defn yaml-scalar
+  "frontmatter の値 1 つを読む（仕様 2 章 0、収集側 server.py yaml_scalar と同じ決まり）。
+  YAML の空値（'' \"\" null ~ コメントだけ）は空欄。それ以外の解釈しない書き方は元の文字列のまま（空とは見なさない）。"
+  [raw]
+  (let [v (str/trim raw)]
+    (cond
+      (str/starts-with? v "\"") (or (try (let [x (json/parse-string (str/replace v #"\s+#.*$" ""))]
+                                           (when (string? x) (str/trim x)))
+                                         (catch Exception _ nil))
+                                       v)
+      (str/starts-with? v "'") (if-let [[_ x] (re-matches #"'((?:[^']|'')*)'\s*(?:#.*)?" v)]
+                                 (str/trim (str/replace x "''" "'"))
+                                 v)
+      (str/starts-with? v "#") ""
+      :else (let [v (str/trim (first (str/split v #"\s#" 2)))]
+              (if (#{"" "~" "null" "Null" "NULL"} v) "" v)))))
+
 (defn fm-map [lines]
   (into {} (for [l lines :let [[_ k v] (re-matches #"([A-Za-z_]+):\s?(.*)" l)] :when k]
-             [k (if (str/starts-with? v "\"") (try (json/parse-string v) (catch Exception _ v)) v)])))
+             [k (yaml-scalar v)])))
 
 (defn read-incident
   "書き換える記録を読む。incident/v1 以外（INC-1〜5 などの legacy）は書き換えない。"
@@ -249,8 +266,14 @@
   (when (= of id) (die "自分自身は重複先にできない"))
   (let [target (file-of vault of)]
     (when-not (fs/exists? target) (die "重複先の記録が無い:" of))
+    ;; 外してよい重複先だけを許す（仕様 3 章、収集側と同じ許可リスト）: 同じ母集団（本番↔本番・合成↔合成）、
+    ;; incident/v1（legacy は数えない記録なので指すと障害が 1 件も数えられなくなる）、それ自体が重複でない
+    (when-not (= (subs id 0 3) (subs of 0 3)) (die "本番と合成事例をまたいで重複にはできない:" id "→" of))
     (let [m (fm-of-file target)]
       (when (nil? m) (die "重複先の記録が読めない:" of))
+      (when-not (= "incident/v1" (m "schema")) (die "重複先が incident/v1 の記録ではない（legacy は数えないため指せない）:" of))
+      (when-not (= (= "true" (m "synthetic")) (str/starts-with? id "SYN-"))
+        (die "重複先の synthetic が この記録と違う:" of))
       (when-not (str/blank? (m "duplicate_of"))
         (die "重複先がそれ自体重複:" of "→" (m "duplicate_of") "（大もとの記録を重複先にする）"))))
   (let [{:keys [tickets synthetic]} (paths vault)

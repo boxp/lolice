@@ -160,6 +160,69 @@ class IncidentMetricsTest(unittest.TestCase):
         self.assertEqual(self.info(out, 'INC-33')['state'], 'duplicate')
         self.assertEqual(self.value(out, 'lolice_incident_records', state='duplicate'), 1)
 
+    # 例 6 の続き: 重複先が数える対象でない（本番→合成、合成→本番、invalid、legacy）→ 除外の根拠が無いので数えたまま
+    def test_duplicate_target_must_be_countable_same_population(self):
+        done = dict(started='2026-11-28T10:00:00Z', impact_resolved='2026-11-28T10:30:00Z',
+                    impact_resolved_evidence='"確認"')
+        self.write('SYN-50', **V1, **done)
+        self.write('INC-51', **V1, **done)
+        self.write('INC-52', **V1, started='bad-time')
+        self.write('INC-1', type='incident', status='resolved')
+        self.write('INC-53', **V1, **done, synthetic='true')
+        self.write('INC-60', **V1, **done, duplicate_of='SYN-50')   # 本番 → 合成
+        self.write('SYN-61', **V1, **done, duplicate_of='INC-51')   # 合成 → 本番
+        self.write('INC-62', **V1, **done, duplicate_of='INC-52')   # → invalid
+        self.write('INC-63', **V1, **done, duplicate_of='INC-1')    # → legacy
+        self.write('INC-64', **V1, **done, duplicate_of='INC-53')   # → synthetic=true の INC
+        self.write('INC-65', **V1, **done, duplicate_of='INC-51')   # 正しい重複
+        out = self.out()
+        for inc in ('INC-60', 'SYN-61', 'INC-62', 'INC-63', 'INC-64'):
+            self.assertEqual(self.info(out, inc)['state'], 'counted', inc)
+            self.assertEqual(self.value(out, 'lolice_incident_record_problem', incident=inc,
+                                        problem='duplicate_target_invalid'), 1, inc)
+            self.assertEqual(self.value(out, 'lolice_incident_restore_seconds', incident=inc), 1800, inc)
+        self.assertEqual(self.info(out, 'INC-65')['state'], 'duplicate')
+        self.assertEqual(self.value(out, 'lolice_incident_records', state='duplicate'), 1)
+
+    # 2 章 0: YAML の空値（'' / "" / null / ~ / コメントだけ / 何も無い）は空欄。根拠が無いので復旧確認済みにしない
+    def test_yaml_empty_values_are_blank(self):
+        empties = ["''", '""', 'null', 'Null', 'NULL', '~', '# 未確認', '']
+        for n, v in enumerate(empties):
+            self.write(f'INC-{70 + n}', **V1, started='2026-11-28T10:00:00Z', impact_resolved='2026-11-28T10:30:00Z',
+                       impact_resolved_evidence=v, cause='deployment', cause_app='app-x',
+                       cause_deployed_at='2026-11-28T09:00:00Z', cause_evidence=v, duplicate_of=v)
+        out = self.out()
+        for n, v in enumerate(empties):
+            inc = f'INC-{70 + n}'
+            i = self.info(out, inc)
+            self.assertEqual((i['state'], i['recovery_state'], i['cause_state']),
+                             ('counted', 'unconfirmed', 'deployment_unconfirmed'), v)
+            self.assertIsNone(self.value(out, 'lolice_incident_restore_seconds', incident=inc), v)
+            self.assertIsNone(self.value(out, 'lolice_incident_failed_deployment_recovery_seconds', incident=inc), v)
+            self.assertIsNone(self.value(out, 'lolice_incident_record_problem', incident=inc,
+                                         problem='duplicate_target_missing'), v)
+
+    # 2 章 0: 単引用符の文字列と行末コメントは YAML どおりに読む
+    def test_yaml_single_quote_and_comment(self):
+        self.write('INC-80', **V1, started="'2026-11-28T10:00:00Z'", impact_resolved='2026-11-28T10:30:00Z # 確認',
+                   impact_resolved_evidence="'外形監視 ''200'' を確認'")
+        out = self.out()
+        self.assertEqual(self.info(out, 'INC-80')['recovery_state'], 'recovered')
+        self.assertEqual(self.value(out, 'lolice_incident_restore_seconds', incident='INC-80'), 1800)
+
+    # 2 章 0: 解釈しない YAML の書き方（複数行・リスト・辞書・アンカー・タグ・閉じない引用符）は空と見なさず不正な値
+    def test_yaml_unsupported_syntax_is_bad_value(self):
+        odd = ['|', '>-', '[a]', '{a: b}', '&x foo', '*x', '!!str x', "'閉じない", '"閉じない']
+        for n, v in enumerate(odd):
+            self.write(f'INC-{90 + n}', **V1, started='2026-11-28T10:00:00Z', impact_resolved='2026-11-28T10:30:00Z',
+                       impact_resolved_evidence=v)
+        out = self.out()
+        for n, v in enumerate(odd):
+            inc = f'INC-{90 + n}'
+            self.assertEqual(self.info(out, inc)['state'], 'invalid', v)
+            self.assertEqual(self.value(out, 'lolice_incident_record_problem', incident=inc, problem='bad_value'), 1, v)
+            self.assertIsNone(self.value(out, 'lolice_incident_restore_seconds', incident=inc), v)
+
     # 例 7: schema 無し（INC-1〜5 のような既存記録）→ legacy、数えない
     def test_legacy(self):
         self.write('INC-1', type='incident', status='resolved', started='2026-08-19 02:10', resolved='2026-08-19 11:30')
