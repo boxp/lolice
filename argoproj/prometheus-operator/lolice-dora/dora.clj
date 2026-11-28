@@ -100,13 +100,18 @@
                                           (apply merge-with concat {:revert [] :hotfix []}))
              find-f (fn [ts] (filter (fn [j] (some #(contains-target? (v j) %) ts)) earlier))
              erev (lolice-rev e) prev-rev (some-> (:prev e) lolice-rev)
-             rollback? (boolean (and erev prev-rev (not= erev prev-rev) ((:ancestor? git) erev prev-rev)))
+             ;; 祖先関係を git が答えられない（nil）ときは「rollback でない」とせず不明にする（仕様 3.1 の 5）
+             rb (when (and erev prev-rev (not= erev prev-rev)) ((:ancestor? git) erev prev-rev))
+             rollback? (true? rb)
+             newer (when rollback?
+                     (for [j earlier :let [r (lolice-rev (v j))]
+                           :when (and r (not= r erev))]
+                       [j ((:ancestor? git) r erev)]))
+             unknown? (or (and erev prev-rev (not= erev prev-rev) (nil? rb)) (some (comp nil? second) newer))
              fs (distinct (concat (find-f revert) (find-f hotfix)
-                                  (when rollback?
-                                    (remove (fn [j] (let [r (lolice-rev (v j))]
-                                                      (or (nil? r) (= r erev) ((:ancestor? git) r erev))))
-                                            earlier))))
-             kind (cond (seq revert) :revert (seq hotfix) :hotfix rollback? :rollback)]
+                                  (for [[j a] newer :when (false? a)] j)))
+             kind (cond (seq revert) :revert (seq hotfix) :hotfix rollback? :rollback)
+             v (cond-> v unknown? (assoc-in [i :changes-unknown?] true))]
          (if-not kind
            v
            (reduce (fn [v j]
@@ -204,7 +209,7 @@
    "observed_days" "Days of the window that were actually observed."
    "deployments" "Production deployments (changed successful syncs) in the window."
    "deployments_per_day" "Production deployments per observed day."
-   "changes_unknown_deployments" "Deployments in the window whose change list could not be read from git (makes change-based metrics incomplete)."
+   "changes_unknown_deployments" "Deployments in the window whose change list or rollback ancestry could not be read from git (makes change-based metrics incomplete)."
    "syncs_excluded" "Sync records not counted as deployments, by reason."
    "lead_time_seconds" "Change lead time (commit to production deployment), nearest-rank quantile."
    "lead_time_changes" "Changes behind the lead time quantiles."

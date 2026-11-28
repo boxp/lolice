@@ -223,6 +223,17 @@
       (is (= 0 (:changes-unknown m)))
       (is (= :partial (get-in m [:status :change-fail-rate]))))))
 
+(deftest ancestor-unknown
+  (testing "仕様 3.1 の 5: rollback の判定で git が祖先関係を答えられない（nil）なら、rollback でないとせず不明にする"
+    (let [git (assoc (fake-git {:trees {["A" "argoproj/x"] "t1" ["B" "argoproj/x"] "t2"}})
+                     :ancestor? (fn [_ _] nil))
+          ev (dora/analyze [(rec 1 (- t0 D) "A") (rec 2 t0 "B")] git)
+          m (dora/window-metrics ev {:now (+ t0 D) :window-s (* 7 D) :lead-measurable? true})]
+      (is (= :deployment (:class (last ev))))
+      (is (= 1 (:changes-unknown m)))
+      (is (= :incomplete (get-in m [:status :change-fail-rate])))
+      (is (= :incomplete (get-in m [:status :rework-rate]))))))
+
 (deftest exposition
   (testing "対象 0 件の割合の行は出さず、状態の行は出す"
     (let [txt (dora/render {:now 1000 :last-success 1000 :ok true :records 1 :hotfix-since 900
