@@ -1,0 +1,39 @@
+# BOXP-784 一時権限: golyat-3 内蔵ディスクの Longhorn 副本を同ノード USB SSD へ退避するためだけの patch 権限。
+# 対象は golyat-3 の Longhorn node CR と移設対象 4 volume CR の正確な名前に限定する。
+# 作業・検証完了後に本ファイルごと撤去する (撤去 PR で prune)。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: codex-workspace-boxp784-longhorn-evict
+  namespace: longhorn-system
+  labels:
+    boxp.tk/temporary: boxp-784
+rules:
+  - apiGroups: ["longhorn.io"]
+    resources: ["nodes"]
+    resourceNames: ["golyat-3"]
+    verbs: ["patch"]
+  - apiGroups: ["longhorn.io"]
+    resources: ["volumes"]
+    resourceNames:
+      - pvc-948d20d3-2c85-4fb2-92c1-a058fe44912c
+      - pvc-cad21c5b-f44a-41e6-b7a2-3add70976c11
+      - pvc-9d4507a5-ad0f-47d4-9317-87b8a0c489f9
+      - pvc-2c18da1d-1286-4a8e-ad21-d5a5e9833efb
+    verbs: ["patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: codex-workspace-boxp784-longhorn-evict
+  namespace: longhorn-system
+  labels:
+    boxp.tk/temporary: boxp-784
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: codex-workspace-boxp784-longhorn-evict
+subjects:
+  - kind: ServiceAccount
+    name: codex-workspace
+    namespace: codex-workspace
