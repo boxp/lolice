@@ -30,3 +30,12 @@ codex-workspace SA に golyat-3 node CR と上記 4 volume CR だけの patch �
 
 ## 仕様先行開発について
 権限設定 (RBAC マニフェスト) と運用手順のみで、状態機械として検証すべき新規ロジックがないため Lean/テスト先行は適用しない。
+
+## 実施結果 (2026-11-28)
+- 17:0xZ can-i 照合: golyat-3 node / 対象4volume の patch=yes、golyat-1・復元volume pvc-439ec09c・delete/update・replicas=no。
+- 17:04Z 退避開始 → 17:05:39Z 旧副本4本消滅。新副本は全て golyat-3 usb-ssd (diskID 6d9037dd) で running、4volume とも attached/healthy、副本数 (2/3/2/3) 維持。
+- 一時設定を戻し、golyat-3 node spec が事前スナップショットと完全一致することを diff で確認。
+- default-disk: 空き 59.87GB→64.59GB、Schedulable False(DiskPressure)→True。usb-ssd: 空き 728.7GB→723.9GB。
+- LonghornDiskNotSchedulable (default-disk-a3398d1eaba7a55e) は 17:05:40Z を最後に解消。
+- BOXP-759 復元 volume は副本 golyat-1 のまま、復元進行 73%→84% で継続。
+- 本 PR で一時 ClusterRole/ClusterRoleBinding を撤去する。

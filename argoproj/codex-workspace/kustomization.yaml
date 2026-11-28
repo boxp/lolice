@@ -6,7 +6,6 @@ resources:
   - namespace.yaml
   - service-account.yaml
   - rbac.yaml
-  - rbac-boxp784-temp.yaml
   - storageclass.yaml
   - pvc.yaml
   - configmap.yaml
