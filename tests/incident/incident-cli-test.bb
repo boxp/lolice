@@ -200,6 +200,40 @@
       (is (zero? (:exit (run v "2026-11-28T10:09:00Z" "correct" "INC-3" "duplicate_of" "" "--reason" "別の障害"))))
       (is (zero? (:exit (run v "2026-11-28T10:10:00Z" "correct" "INC-4" "duplicate_of" "INC-2" "--reason" "同じ")))))))
 
+(deftest undoing-duplicate-restores-status-and-card
+  ;; 仕様 3 章「重複と status・カードは常に揃える」の例から
+  (let [v (vault)]
+    (run v "2026-11-28T10:05:00Z" "open" "--service" "svc-a" "--title" "t" "--evidence" "alert")
+    (run v "2026-11-28T10:06:00Z" "open" "--service" "svc-a" "--title" "t2" "--evidence" "alert" "--force")
+    (run v "2026-11-28T10:07:00Z" "duplicate" "INC-3" "--of" "INC-2" "--reason" "同じ通知")
+    (is (= "Resolved" (lane-of v "INC-3")))
+    (testing "確認も復旧操作も無い記録の解除 → reported・Reported"
+      (let [r (run v "2026-11-28T10:08:00Z" "correct" "INC-3" "duplicate_of" "" "--reason" "別の障害")]
+        (is (zero? (:exit r)) (:err r)))
+      (let [f (fm v "INC-3")] (is (str/blank? (f "duplicate_of"))) (is (= "reported" (f "status"))))
+      (is (= "Reported" (lane-of v "INC-3")))
+      (is (str/includes? (body v "INC-3") "重複を解除")))
+    (testing "correct で重複にする（空→値）→ resolved・Resolved"
+      (is (zero? (:exit (run v "2026-11-28T10:09:00Z" "correct" "INC-3" "duplicate_of" "INC-2" "--reason" "やはり同じ"))))
+      (is (= "resolved" ((fm v "INC-3") "status")))
+      (is (= "Resolved" (lane-of v "INC-3"))))
+    (testing "復旧操作だけある記録の解除 → mitigating"
+      (run v "2026-11-28T10:10:00Z" "recover" "INC-3" "--action" "restart" "--evidence" "再起動")
+      (run v "2026-11-28T10:11:00Z" "correct" "INC-3" "duplicate_of" "INC-2" "--reason" "同じ")
+      (run v "2026-11-28T10:12:00Z" "correct" "INC-3" "duplicate_of" "" "--reason" "別")
+      (is (= "mitigating" ((fm v "INC-3") "status")))
+      (is (= "Mitigating" (lane-of v "INC-3"))))
+    (testing "confirm 済みの記録の解除 → monitoring"
+      (run v "2026-11-28T10:13:00Z" "confirm" "INC-3" "--evidence" "外形監視 200")
+      (run v "2026-11-28T10:14:00Z" "duplicate" "INC-3" "--of" "INC-2" "--reason" "同じ")
+      (run v "2026-11-28T10:15:00Z" "correct" "INC-3" "duplicate_of" "" "--reason" "別")
+      (is (= "monitoring" ((fm v "INC-3") "status")))
+      (is (= "Monitoring" (lane-of v "INC-3"))))
+    (testing "空の duplicate_of を空に直しても status は変えない"
+      (run v "2026-11-28T10:16:00Z" "recover" "INC-2" "--action" "restart" "--evidence" "再起動")
+      (run v "2026-11-28T10:17:00Z" "correct" "INC-2" "duplicate_of" "" "--reason" "念のため")
+      (is (= "mitigating" ((fm v "INC-2") "status"))))))
+
 (deftest synthetic-and-real-dedupe-are-separate
   (let [v (vault)]
     (is (zero? (:exit (run v "2026-11-28T10:05:00Z" "open" "--service" "svc-a" "--title" "合成" "--evidence" "合成" "--synthetic"))))

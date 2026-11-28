@@ -286,6 +286,13 @@
     (when (seq pointing)
       (die "この記録を重複先にしている記録がある:" (str/join "," pointing) "（先にそちらの duplicate_of を直す）"))))
 
+(defn status-from-fields
+  "重複を外したときの status（仕様 3 章）: 確認と根拠あり → monitoring、復旧操作あり → mitigating、他 → reported。"
+  [m]
+  (cond (and (not (str/blank? (m "impact_resolved"))) (not (str/blank? (m "impact_resolved_evidence")))) "monitoring"
+        (not (str/blank? (m "recovery_at"))) "mitigating"
+        :else "reported"))
+
 (defn correct! [vault id [field value] opts]
   (let [inc (read-incident vault id) reason (need opts :reason "訂正の理由")]
     (when-not (correctable field) (die "直せない欄:" field (sort correctable)))
@@ -298,10 +305,20 @@
                                                  v)
                       :else (one-line value))
           old (str ((:fm inc) field))
-          stored (if (str/ends-with? field "_evidence") (q value) value)]
-      (write-incident! inc [[field stored]]
-                       :notes (str (now-str) ": 訂正: " field " " (if (str/blank? old) "（空）" old) " → "
-                                   (if (str/blank? value) "（空）" value) "（" (one-line reason) "）")))))
+          stored (if (str/ends-with? field "_evidence") (q value) value)
+          note (str (now-str) ": 訂正: " field " " (if (str/blank? old) "（空）" old) " → "
+                    (if (str/blank? value) "（空）" value) "（" (one-line reason) "）")
+          ;; 重複と status・カードを揃える（仕様 3 章）: 付ける → resolved、外す → 欄から決め直す
+          status (when (= field "duplicate_of")
+                   (cond (and (str/blank? old) (not (str/blank? value))) "resolved"
+                         (and (not (str/blank? old)) (str/blank? value)) (status-from-fields (:fm inc))))]
+      (if status
+        (set-status inc id vault status [[field stored]] :notes note
+                    :timeline (str (now-str) ": " (if (str/blank? value)
+                                                     (str "重複を解除（" old " の重複ではない）、status を " status " に戻す")
+                                                     (str value " の重複として閉じる"))
+                                   "（" (one-line reason) "）"))
+        (write-incident! inc [[field stored]] :notes note)))))
 
 (defn duplicate! [vault id opts]
   (let [of (need opts :of "重複先") reason (need opts :reason "重複の理由")]
