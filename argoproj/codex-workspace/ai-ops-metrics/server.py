@@ -351,6 +351,7 @@ def incident_metrics(root, now=None):
     now = int(time.time() if now is None else now)
     recs = []
     present = 0
+    unreadable = {"false": 0, "true": 0}
     for sub in ("Tickets", "Synthetic"):
         d = os.path.join(root, sub)
         try:
@@ -366,6 +367,14 @@ def incident_metrics(root, now=None):
                 continue
             f = read_frontmatter(os.path.join(d, name))
             if f is None:
+                # 読めない記録は黙って除外しない: 問題として出し、本番なら収集失敗（件数を「不明」にする）
+                syn = sub == "Synthetic"
+                unreadable["true" if syn else "false"] += 1
+                if not syn:
+                    present = 0
+                recs.append({"id": iid, "service": "", "problems": {"unreadable"}, "times": {}, "synthetic": syn,
+                             "cause": "unknown", "recovery": "unknown", "key": "", "app": "", "state": "invalid",
+                             "recovery_state": "unknown", "cause_state": "unknown", "duplicate_of": ""})
                 continue
             recs.append(classify_incident(iid, f))
     recs = recs[:INCIDENT_LIMIT]
@@ -427,7 +436,10 @@ def incident_metrics(root, now=None):
     states = ("counted", "legacy", "duplicate", "invalid")
     metric("lolice_incident_records", "Incident records by state.",
            [(f'state="{s}"', sum(1 for r in recs if r["state"] == s)) for s in states])
-    metric("lolice_incident_dir_present", "1 when the incident directory could be read.", [("", present)])
+    metric("lolice_incident_unreadable_records", "Incident record files that could not be read.",
+           [(f'synthetic="{k}"', v) for k, v in sorted(unreadable.items())])
+    metric("lolice_incident_dir_present", "1 when the production incident directory and every record in it could be read.",
+           [("", present)])
     metric("lolice_incident_metrics_generated_timestamp_seconds", "When the incident metrics were generated.", [("", now)])
     return ("\n".join(lines) + "\n").encode()
 

@@ -198,6 +198,23 @@ class IncidentMetricsTest(unittest.TestCase):
         self.write('SYN-1', **V1, started='2026-11-28T10:00:00Z')
         self.assertIn('lolice_incident_dir_present 0', self.out())
 
+    def test_unreadable_record_is_not_silent(self):
+        # 仕様 4 章: 本番の記録が 1 件でも読めなければ収集失敗（件数は「不明」）。黙って除外しない。
+        self.write('INC-10', **V1, started='2026-11-28T10:00:00Z')
+        (self.root / 'Tickets' / 'INC-11.md').mkdir()  # 読めない記録（open で OSError）
+        out = self.out()
+        self.assertIn('lolice_incident_dir_present 0', out)
+        self.assertEqual(self.value(out, 'lolice_incident_unreadable_records', synthetic='false'), 1)
+        self.assertEqual(self.value(out, 'lolice_incident_record_problem', incident='INC-11', problem='unreadable'), 1)
+
+    def test_unreadable_synthetic_keeps_production_present(self):
+        # 合成事例の読み取り失敗は問題として出すが、本番の収集成否は変えない
+        (self.root / 'Synthetic' / 'SYN-2.md').mkdir()
+        out = self.out()
+        self.assertIn('lolice_incident_dir_present 1', out)
+        self.assertEqual(self.value(out, 'lolice_incident_unreadable_records', synthetic='true'), 1)
+        self.assertEqual(self.value(out, 'lolice_incident_unreadable_records', synthetic='false'), 0)
+
 
 if __name__ == '__main__':
     unittest.main()

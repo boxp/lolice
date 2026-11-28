@@ -149,13 +149,15 @@
 (defn window-stat [id x title expr unit novalue]
   {:id id :type "stat" :title title :gridPos {:h 4 :w 4 :x x :y 55} :datasource ds
    :targets [(q "A" expr :format "time_series")]
-   :fieldConfig {:defaults (cond-> {:noValue novalue} unit (assoc :unit unit)) :overrides []}
+   :fieldConfig {:defaults (cond-> {:noValue novalue} unit (assoc :unit unit :mappings [{:type "value" :options {"-1" {:text "対象0件"}}}])) :overrides []}
    :options {:reduceOptions {:calcs ["lastNotNull"]}}})
 
 ;; 件数の「0」は収集が新しく本番の置き場を読めたときだけ出す。収集が止まった・読めないときは値なし（= 不明）にして、障害なしと区別する。
 (def collected " and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)")
 (defn guarded-count [expr] (str "(count(" expr ") or vector(0))" collected))
-(def unknown-count "不明（収集停止・置き場を読めない）")
+(def unknown-count "不明（収集停止・置き場や記録を読めない）")
+;; 中央値も同じ: 収集が健全で対象が無いときだけ -1 を返し「対象0件」と表示する。値なし = 不明（収集停止・読めない記録あり）。
+(defn guarded-median [expr] (str "(quantile(0.5, " expr ")" collected ") or (vector(-1)" collected ")"))
 
 (defn resolved-within [days] (str " and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - " days " * 86400)"))
 
@@ -186,13 +188,13 @@
     :targets [(q "A" "max by (state) (lolice_incident_records)" :format "time_series" :legendFormat "{{state}}")]
     :options {:reduceOptions {:calcs ["lastNotNull"]} :textMode "value_and_name"}}
    (window-stat 46 0 "DORA 復旧時間 中央値（解消確認が 7 日以内）"
-                (str "quantile(0.5, lolice_incident_failed_deployment_recovery_seconds{" isel "}" (resolved-within 7) ")") "s" "対象0件")
+                (guarded-median (str "lolice_incident_failed_deployment_recovery_seconds{" isel "}" (resolved-within 7))) "s" unknown-count)
    (window-stat 47 4 "DORA 復旧時間 中央値（28 日以内）"
-                (str "quantile(0.5, lolice_incident_failed_deployment_recovery_seconds{" isel "}" (resolved-within 28) ")") "s" "対象0件")
+                (guarded-median (str "lolice_incident_failed_deployment_recovery_seconds{" isel "}" (resolved-within 28))) "s" unknown-count)
    (window-stat 48 8 "配備起因の復旧確認済み（28 日）"
                 (guarded-count (str "lolice_incident_failed_deployment_recovery_seconds{" isel "}" (resolved-within 28))) nil unknown-count)
    (window-stat 49 12 "一般の復旧時間 中央値（28 日）"
-                (str "quantile(0.5, lolice_incident_restore_seconds{" isel "}" (resolved-within 28) ")") "s" "対象0件")
+                (guarded-median (str "lolice_incident_restore_seconds{" isel "}" (resolved-within 28))) "s" unknown-count)
    (window-stat 50 16 "復旧確認済み（28 日、原因を問わず）"
                 ;; 影響開始を省いた記録（open の既定）も数えるため、restore_seconds ではなく復旧状態から数える。
                 (guarded-count (str "lolice_incident_info{state=\"counted\",recovery_state=\"recovered\"," isel "}" (resolved-within 28))) nil unknown-count)
