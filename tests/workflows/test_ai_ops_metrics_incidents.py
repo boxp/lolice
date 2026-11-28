@@ -22,6 +22,8 @@ def fm(**kv):
     return '\n'.join(lines) + '\n'
 
 
+SAMPLE = r'^[a-z_]+(\{([a-z_]+="(?:[^"\\\n]|\\.)*",?)*\})? -?\d+(\.\d+)?$'
+
 V1 = {'schema': 'incident/v1', 'type': 'incident', 'service': 'svc-a'}
 
 
@@ -38,7 +40,13 @@ class IncidentMetricsTest(unittest.TestCase):
         (self.root / sub / f'{name}.md').write_text(fm(**kv))
 
     def out(self):
-        return server.incident_metrics(str(self.root), NOW).decode()
+        out = server.incident_metrics(str(self.root), NOW).decode()
+        # どの出力も Prometheus のテキスト形式として読めること（1 行でも壊れるとスクレイプ全体が失敗する）
+        for line in out.splitlines():
+            if line.startswith("#"):
+                continue
+            self.assertRegex(line, SAMPLE)
+        return out
 
     def value(self, out, metric, **labels):
         for line in out.splitlines():
@@ -225,6 +233,51 @@ class IncidentMetricsTest(unittest.TestCase):
         self.assertIn('lolice_incident_dir_present 1', out)
         self.assertEqual(self.value(out, 'lolice_incident_unreadable_records', synthetic='true'), 1)
         self.assertEqual(self.value(out, 'lolice_incident_unreadable_records', synthetic='false'), 0)
+
+
+    # 仕様 4 章 fail-closed: 本番の記録を正しく数えられたと言えないときは理由にかかわらず dir_present 0
+    def test_unterminated_frontmatter_is_incomplete(self):
+        (self.root / "Tickets" / "INC-12.md").write_text("---\nschema: incident/v1\nservice: svc-a\n")
+        out = self.out()
+        self.assertIn("lolice_incident_dir_present 0", out)
+        self.assertEqual(self.value(out, "lolice_incident_incomplete", reason="unterminated", synthetic="false"), 1)
+
+    def test_unterminated_synthetic_keeps_production_present(self):
+        (self.root / "Synthetic" / "SYN-3.md").write_text("---\nschema: incident/v1\n")
+        out = self.out()
+        self.assertIn("lolice_incident_dir_present 1", out)
+        self.assertEqual(self.value(out, "lolice_incident_incomplete", reason="unterminated", synthetic="true"), 1)
+
+    def test_bad_name_is_incomplete(self):
+        (self.root / "Tickets" / "INC-1234567.md").write_text(fm(**V1))
+        (self.root / "Tickets" / "README.md").write_text("# 置き場の説明\n")
+        out = self.out()
+        self.assertIn("lolice_incident_dir_present 0", out)
+        self.assertEqual(self.value(out, "lolice_incident_incomplete", reason="bad_name", synthetic="false"), 1)
+
+    def test_readme_alone_keeps_present(self):
+        (self.root / "Tickets" / "README.md").write_text("# 置き場の説明\n")
+        self.assertIn("lolice_incident_dir_present 1", self.out())
+
+    def test_over_limit_is_incomplete_and_counts_all(self):
+        old = server.INCIDENT_LIMIT
+        server.INCIDENT_LIMIT = 2
+        self.addCleanup(setattr, server, "INCIDENT_LIMIT", old)
+        for i in (1, 2, 3):
+            self.write(f"INC-{i}", **V1, started="2026-11-28T10:00:00Z")
+        out = self.out()
+        self.assertIn("lolice_incident_dir_present 0", out)
+        self.assertEqual(self.value(out, "lolice_incident_incomplete", reason="over_limit", synthetic="false"), 1)
+        self.assertEqual(self.value(out, "lolice_incident_records", state="counted"), 3)
+
+    def test_label_values_are_escaped(self):
+        self.assertEqual(server.label_value("a\"b\\c\nd"), "a\\\"b\\\\c\\nd")
+
+    def test_complete_reports_zero_incomplete(self):
+        self.write("INC-1", **V1, started="2026-11-28T10:00:00Z")
+        out = self.out()
+        self.assertIn("lolice_incident_dir_present 1", out)
+        self.assertEqual(self.value(out, "lolice_incident_incomplete", reason="over_limit", synthetic="false"), 0)
 
 
 if __name__ == '__main__':

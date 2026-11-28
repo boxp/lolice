@@ -254,6 +254,16 @@ INCIDENT_ENUMS = {
 REDEPLOY = {"rollback", "revert", "hotfix", "forward_fix"}
 NO_REDEPLOY = {"restart", "manual_op", "self_healed", "external"}
 SAFE_LABEL = re.compile(r"[^A-Za-z0-9_.:/-]")
+INCOMPLETE_REASONS = ("unreadable", "unterminated", "bad_name", "over_limit")
+
+
+def label_value(v):
+    """Prometheus text-format escaping, applied to every label value right before output (fail-closed)."""
+    return str(v).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def labels(**kv):
+    return ",".join(f'{k}="{label_value(v)}"' for k, v in kv.items())
 
 
 def parse_incident_time(value):
@@ -296,7 +306,13 @@ def read_frontmatter(path):
             except ValueError:
                 v = v.strip('"')
         out[k.strip()] = str(v).strip() if v is not None else ""
+    else:
+        # 閉じの --- が先頭 64KiB に無い: 途中で切れた可能性があり、正しく読めたとは言えない
+        return UNTERMINATED
     return out
+
+
+UNTERMINATED = object()
 
 
 def classify_incident(iid, f):
@@ -354,6 +370,8 @@ def incident_metrics(root, now=None):
     recs = []
     present = 0
     unreadable = {"false": 0, "true": 0}
+    # fail-closed（仕様 4 章）: 記録を正しく数えられたと言えない理由はすべてここに数え、本番に 1 件でもあれば収集失敗
+    incomplete = {(reason, s): 0 for reason in INCOMPLETE_REASONS for s in ("false", "true")}
     for sub in ("Tickets", "Synthetic"):
         d = os.path.join(root, sub)
         try:
@@ -363,23 +381,31 @@ def incident_metrics(root, now=None):
                 present = 1
         except OSError:
             continue
+        syn = sub == "Synthetic"
+        skey = "true" if syn else "false"
         for name in names:
             iid = name[:-3] if name.endswith(".md") else ""
             if not INCIDENT_FILE.fullmatch(iid):
+                if name.endswith(".md") and name.startswith(("INC-", "SYN-")):
+                    incomplete[("bad_name", skey)] += 1  # 記録らしいのに ID の形でない: 黙って捨てない
                 continue
             f = read_frontmatter(os.path.join(d, name))
-            if f is None:
-                # 読めない記録は黙って除外しない: 問題として出し、本番なら収集失敗（件数を「不明」にする）
-                syn = sub == "Synthetic"
-                unreadable["true" if syn else "false"] += 1
-                if not syn:
-                    present = 0
-                recs.append({"id": iid, "service": "", "problems": {"unreadable"}, "times": {}, "synthetic": syn,
+            if f is None or f is UNTERMINATED:
+                # 読めない・途中で切れた記録は黙って除外しない: 問題として出し、本番なら収集失敗（件数を「不明」にする）
+                reason = "unreadable" if f is None else "unterminated"
+                incomplete[(reason, skey)] += 1
+                if f is None:
+                    unreadable[skey] += 1
+                recs.append({"id": iid, "service": "", "problems": {reason}, "times": {}, "synthetic": syn,
                              "cause": "unknown", "recovery": "unknown", "key": "", "app": "", "state": "invalid",
                              "recovery_state": "unknown", "cause_state": "unknown", "duplicate_of": ""})
                 continue
             recs.append(classify_incident(iid, f))
-    recs = recs[:INCIDENT_LIMIT]
+    # 上限は記録ごとの系列の数だけに効かせる。集計は全件から数え、上限超えは収集失敗として出す
+    if len(recs) > INCIDENT_LIMIT:
+        incomplete[("over_limit", "false")] = 1
+    if any(v for (_, s), v in incomplete.items() if s == "false"):
+        present = 0
     ids = {r["id"] for r in recs}
     # 3: duplicates
     for r in recs:
@@ -413,34 +439,39 @@ def incident_metrics(root, now=None):
     def metric(name, help_text, samples):
         lines.append(f"# HELP {name} {help_text}")
         lines.append(f"# TYPE {name} gauge")
-        for labels, v in samples:
-            lines.append(f"{name}{{{labels}}} {v}" if labels else f"{name} {v}")
+        for lbl, v in samples:
+            lines.append(f"{name}{{{lbl}}} {v}" if lbl else f"{name} {v}")
     syn = lambda r: "true" if r["synthetic"] else "false"
     def redeploy(r):
         return "true" if r["recovery"] in REDEPLOY else "false" if r["recovery"] in NO_REDEPLOY else "unknown"
+    # 記録ごとの系列だけ上限で切る（超えたら over_limit で収集失敗になり、パネルは「不明」）
+    shown = recs[:INCIDENT_LIMIT]
     metric("lolice_incident_info", "Incident record (state: counted, legacy, duplicate, invalid).",
-           [(f'incident="{r["id"]}",service="{r["service"]}",state="{r["state"]}",recovery_state="{r["recovery_state"]}",'
-             f'cause_state="{r["cause_state"]}",recovery="{r["recovery"]}",redeploy="{redeploy(r)}",synthetic="{syn(r)}"', 1)
-            for r in recs])
-    live = [r for r in recs if r["state"] in ("counted", "duplicate", "invalid")]
+           [(labels(incident=r["id"], service=r["service"], state=r["state"], recovery_state=r["recovery_state"],
+                    cause_state=r["cause_state"], recovery=r["recovery"], redeploy=redeploy(r), synthetic=syn(r)), 1)
+            for r in shown])
+    live = [r for r in shown if r["state"] in ("counted", "duplicate", "invalid")]
     metric("lolice_incident_timestamp_seconds", "Recorded incident time points (UTC epoch).",
-           [(f'incident="{r["id"]}",point="{p}",synthetic="{syn(r)}"', t) for r in live for p, t in sorted(r["times"].items())])
-    ok = [r for r in counted if r["state"] == "counted" and r["recovery_state"] == "recovered"]
+           [(labels(incident=r["id"], point=p, synthetic=syn(r)), t) for r in live for p, t in sorted(r["times"].items())])
+    ok = [r for r in shown if r["state"] == "counted" and r["recovery_state"] == "recovered"]
     metric("lolice_incident_restore_seconds", "Impact start to confirmed impact resolution (all causes).",
-           [(f'incident="{r["id"]}",service="{r["service"]}",synthetic="{syn(r)}"', r["times"]["impact_resolved"] - r["times"]["started"])
+           [(labels(incident=r["id"], service=r["service"], synthetic=syn(r)), r["times"]["impact_resolved"] - r["times"]["started"])
             for r in ok if "started" in r["times"]])
     metric("lolice_incident_failed_deployment_recovery_seconds",
            "DORA failed deployment recovery time: causing deployment deployedAt to confirmed impact resolution.",
-           [(f'incident="{r["id"]}",app="{r["app"]}",synthetic="{syn(r)}"', r["times"]["impact_resolved"] - r["times"]["cause_deployed"])
+           [(labels(incident=r["id"], app=r["app"], synthetic=syn(r)), r["times"]["impact_resolved"] - r["times"]["cause_deployed"])
             for r in ok if r["cause_state"] == "deployment"])
     metric("lolice_incident_record_problem", "Problems found in an incident record.",
-           [(f'incident="{r["id"]}",problem="{p}",synthetic="{syn(r)}"', 1) for r in recs for p in sorted(r["problems"])])
+           [(labels(incident=r["id"], problem=p, synthetic=syn(r)), 1) for r in shown for p in sorted(r["problems"])])
     states = ("counted", "legacy", "duplicate", "invalid")
-    metric("lolice_incident_records", "Incident records by state.",
-           [(f'state="{s}"', sum(1 for r in recs if r["state"] == s)) for s in states])
+    metric("lolice_incident_records", "Incident records by state (all records, not capped).",
+           [(labels(state=s), sum(1 for r in recs if r["state"] == s)) for s in states])
     metric("lolice_incident_unreadable_records", "Incident record files that could not be read.",
-           [(f'synthetic="{k}"', v) for k, v in sorted(unreadable.items())])
-    metric("lolice_incident_dir_present", "1 when the production incident directory and every record in it could be read.",
+           [(labels(synthetic=k), v) for k, v in sorted(unreadable.items())])
+    metric("lolice_incident_incomplete", "Reasons the records could not all be counted correctly (fail-closed).",
+           [(labels(reason=k, synthetic=s), v) for (k, s), v in sorted(incomplete.items())])
+    metric("lolice_incident_dir_present",
+           "1 when the production incident directory and every record in it could be read and counted.",
            [("", present)])
     metric("lolice_incident_metrics_generated_timestamp_seconds", "When the incident metrics were generated.", [("", now)])
     return ("\n".join(lines) + "\n").encode()
