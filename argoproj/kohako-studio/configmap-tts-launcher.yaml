@@ -2,6 +2,11 @@
 # The engine installs AivisHub's default models (コハク + まお) on every start and sends a startup
 # event. We only need コハク (model 22e8ed77-..., ACML 1.0), so restrict the default list to it and
 # make startup events a no-op. Sentry is disabled with --disable_sentry. Pinned to engine 1.2.0.
+# BOXP-767: AivisSpeech 1.2.0 does not set ONNX Runtime thread counts, so ORT sizes its intra-op pool to
+# the node's cores (16 on golyat-4) with spin-waiting, and the 8-CPU quota throttles it hard during synthesis.
+# Size the pool from ORT_INTRA_OP_NUM_THREADS (set in the Deployment) and disable spinning. Isolated
+# measurement in BOXP-754/761 with the same image: short sentence 11.0s -> 5.5s, 105 chars -15%, throttling 0.
+# Unset ORT_INTRA_OP_NUM_THREADS restores the ORT defaults (previous behaviour).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,8 +14,20 @@ metadata:
   namespace: kohako-studio
 data:
   launch.py: |
-    import runpy, sys, uuid
+    import os, runpy, sys, uuid
     sys.path.insert(0, "/opt/aivisspeech-engine")
+    import onnxruntime as ort
+    intra = os.environ.get("ORT_INTRA_OP_NUM_THREADS")
+    if intra:
+        _Base = ort.SessionOptions
+        class _Opts(_Base):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                self.intra_op_num_threads = int(intra)
+                self.inter_op_num_threads = 1
+                self.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        ort.SessionOptions = _Opts
+        print(f"[launcher] ONNX Runtime intra_op_num_threads={intra} spinning=off", flush=True)
     from voicevox_engine.utility import aivishub_client as c
     KOHAKU = c.AivisSpeechDefaultModelProperty(model_uuid=uuid.UUID("22e8ed77-94fe-4ef2-871f-a86f94e9a579"), latest_version="1.1.0")
     c.AivisHubClient.fetch_default_models = lambda self: [KOHAKU]
