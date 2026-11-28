@@ -11,8 +11,9 @@
     :options {"measured" {:text "計測済み" :color "green" :index 0}
               "partial" {:text "観測が期間の一部" :color "yellow" :index 1}
               "no_target" {:text "対象0件" :color "blue" :index 2}
-              "unmeasured" {:text "未計測（方法なし）" :color "orange" :index 3}
-              "unobserved" {:text "未観測" :color "red" :index 4}}}])
+              "incomplete" {:text "変更一覧の取得失敗" :color "purple" :index 3}
+              "unmeasured" {:text "未計測（方法なし）" :color "orange" :index 4}
+              "unobserved" {:text "未観測" :color "red" :index 5}}}])
 
 (defn q [ref expr & {:as o}]
   (merge {:refId ref :datasource ds :expr expr :instant true :range false :format "table"} o))
@@ -27,7 +28,7 @@
     "- **本番配備** = Argo CD の成功した同期のうち、revision が変わり、その app の source path（Helm の ref は values file）の git tree が変わったもの。PR の merge だけ・同じ revision の再同期・自分の path が変わらない同期は数えません（下の「除外した同期」）。"
     "- **変更リードタイム** = 配備に含まれる commit ごとに、PR の最初の commit（なければ commit）の author 時刻から配備まで。image-updater の commit はアプリ側 repo の build 時間を含みません。"
     "- **変更失敗率 / 復旧時間 / 手直し率** = 7 日以内の revert（`Revert \"… (#N)\"`・`This reverts commit`）、古い commit への rollback、`Hotfix-For: #N` trailer で配備どうしを関連づけたもの。障害記録（INC-*）には配備との関連欄がないため使っていません。hotfix は記録開始（下の時刻）より前は数えられません。"
-    "- 空欄は 0 ではありません。状態列が **対象0件**（配備や失敗がない）/ **未計測**（外部 chart だけの app のリードタイム等）/ **観測が期間の一部**（台帳の観測起点が期間の途中）/ **未観測** を示します。Argo CD は 1 app 10 件しか履歴を残さないので、観測起点より前は分かりません。"]))
+    "- 空欄は 0 ではありません。状態列が **対象0件**（配備や失敗がない）/ **変更一覧の取得失敗**（git から変更が読めなかった配備が期間内にあり、次の収集で再取得）/ **未計測**（外部 chart だけの app のリードタイム等）/ **観測が期間の一部**（台帳の観測起点が期間の途中）/ **未観測** を示します。Argo CD は 1 app 10 件しか履歴を残さないので、観測起点より前は分かりません。"]))
 
 (def panels
   [{:id 1 :type "text" :title "この画面の読み方" :gridPos {:h 9 :w 16 :x 0 :y 0}

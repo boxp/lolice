@@ -193,6 +193,36 @@
       (is (not-any? :failed? ev) "u1 の B は u2 の revert と関連づけない")
       (is (= :revert (:rework (last ev))) "revert 自体は手直しとして残る"))))
 
+(deftest changes-unknown
+  (testing "仕様 3.1 の 5: source の 1 つでも git log が失敗したら、変更一覧は空でなく不明（部分的な一覧で計測済みにしない）"
+    (let [srcs [{:repo lolice :path "argoproj/x"} {:repo lolice :path "argoproj/y"}]
+          git (assoc (fake-git {:trees {["A" "argoproj/x"] "t1" ["B" "argoproj/x"] "t2"
+                                        ["A" "argoproj/y"] "u1" ["B" "argoproj/y"] "u2"}})
+                     :changes (fn [from to [p]]
+                                (when (= p "argoproj/x")
+                                  (vec (for [h [1 2 3]] {:sha (str "s" h) :subject "c" :body "" :time (- t0 (* h H))})))))
+          ev (dora/analyze [(rec 1 (- t0 D) ["A" "A"] :sources srcs) (rec 2 t0 ["B" "B"] :sources srcs)] git)
+          d (last ev)
+          m (dora/window-metrics ev {:now (+ t0 D) :window-s (* 7 D) :lead-measurable? true})]
+      (is (= :deployment (:class d)) "配備としては数える")
+      (is (nil? (:changes d)) "部分的な 3 commit を変更一覧にしない")
+      (is (= 1 (:deployments m)))
+      (is (= 1 (:changes-unknown m)))
+      (is (nil? (:lead m)))
+      (is (nil? (:change-fail-ratio m)))
+      (is (nil? (:rework-ratio m)))
+      (is (= {:deployment-frequency :partial :lead-time :incomplete :change-fail-rate :incomplete
+              :recovery-time :incomplete :rework-rate :incomplete} (:status m)))
+      (is (re-find #"(?m)^lolice_dora_changes_unknown_deployments\{app=\"x\",window=\"7d\"\} 1$"
+                   (dora/render {:now 1 :last-success 1 :ok true :records 2 :hotfix-since 0
+                                 :apps [{:app "x" :source-kind "lolice_git" :origin 0 :windows {"7d" m}}]})))))
+  (testing "取得できた配備しかなければ incomplete にしない（空の一覧 = 本当に変更 commit なし）"
+    (let [git (fake-git {:trees {["A" "argoproj/x"] "t1" ["B" "argoproj/x"] "t2"}})
+          m (dora/window-metrics (dora/analyze [(rec 1 (- t0 D) "A") (rec 2 t0 "B")] git)
+                                 {:now (+ t0 D) :window-s (* 7 D) :lead-measurable? true})]
+      (is (= 0 (:changes-unknown m)))
+      (is (= :partial (get-in m [:status :change-fail-rate]))))))
+
 (deftest exposition
   (testing "対象 0 件の割合の行は出さず、状態の行は出す"
     (let [txt (dora/render {:now 1000 :last-success 1000 :ok true :records 1 :hotfix-since 900

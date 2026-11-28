@@ -33,11 +33,15 @@
 (defn- lolice-rev [{:keys [revisions sources]}]
   (some (fn [[r s]] (when (lolice-source? s) r)) (map vector revisions sources)))
 
-(defn- changes [git p e]
-  (->> (map vector (:revisions p) (:revisions e) (:sources e))
-       (filter (fn [[_ _ s]] (lolice-source? s)))
-       (mapcat (fn [[from to s]] (when (seq (source-paths s)) ((:changes git) from to (source-paths s)))))
-       (reduce (fn [acc c] (if (some #(= (:sha %) (:sha c)) acc) acc (conj acc c))) [])))
+(defn- changes
+  "配備の変更一覧。lolice source のどれか 1 つでも git log が取れない（nil）なら nil = 不明（仕様 3.1 の 5）。
+  空の一覧（本当に commit なし）と取れなかったことを分ける。"
+  [git p e]
+  (let [per (for [[from to s] (map vector (:revisions p) (:revisions e) (:sources e))
+                  :when (lolice-source? s)]
+              ((:changes git) from to (source-paths s)))]
+    (when (every? some? per)
+      (reduce (fn [acc c] (if (some #(= (:sha %) (:sha c)) acc) acc (conj acc c))) [] (apply concat per)))))
 
 (defn- classify-segment [git recs]
   (loop [[e & more] (sort-by :id recs) p nil out []]
@@ -51,7 +55,8 @@
                                 (= se sp) :no-change
                                 :else :deployment)))
             ev (cond-> (assoc e :class cls :prev p)
-                 (= cls :deployment) (assoc :changes (changes git p e)))]
+                 (= cls :deployment) (as-> ev (let [cs (changes git p e)]
+                                      (if (nil? cs) (assoc ev :changes nil :changes-unknown? true) (assoc ev :changes cs)))))]
         (recur more e (conj out ev))))))
 
 (def ^:private pr-suffix #"\(#(\d+)\)\s*$")
@@ -149,34 +154,39 @@
             in-window (filter #(and (> (:t %) start) (<= (:t %) now)) events)
             deps (filter #(= :deployment (:class %)) in-window)
             n (count deps)
-            lts (when lead-measurable?
+            ;; 仕様 3.1 の 5: 変更一覧が不明の配備があると、変更・手当て由来の 4 指標は出さない
+            unknown-n (count (filter :changes-unknown? deps))
+            inc? (pos? unknown-n)
+            lts (when (and lead-measurable? (not inc?))
                   (for [d deps c (:changes d) :when (:time c)] (max 0 (- (:t d) (:time c)))))
             lead (when (seq lts) {:n (count lts) :p50 (nearest-rank 0.5 lts) :p90 (nearest-rank 0.9 lts)})
             failed (count (filter :failed? deps))
             rework (merge {:revert 0 :hotfix 0 :rollback 0} (frequencies (keep :rework deps)))
             recs (keep :recovery-s (filter :failed? deps))
             recovery (if (seq recs) {:n (count recs) :p50 (nearest-rank 0.5 recs)} {:n 0})
-            ratio (fn [x] (when (pos? n) (/ (double x) n)))]
+            ratio (fn [x] (when (and (pos? n) (not inc?)) (/ (double x) n)))]
         {:coverage coverage
          :observed-days observed-days
          :deployments n
+         :changes-unknown unknown-n
          :per-day (when (pos? observed-days) (/ (double n) observed-days))
          :excluded (merge {:resync 0 :no-change 0 :unknown 0}
                           (frequencies (keep #(#{:resync :no-change :unknown} (:class %)) in-window)))
          :lead lead
-         :failed failed
+         :failed (when-not inc? failed)
          :change-fail-ratio (ratio failed)
-         :rework rework
+         :rework (when-not inc? rework)
          :rework-ratio (ratio (reduce + (vals rework)))
-         :recovery recovery
+         :recovery (when-not inc? recovery)
          :status {:deployment-frequency base
                   :lead-time (cond (not lead-measurable?) :unmeasured
                                    (zero? n) :no-target
+                                   inc? :incomplete
                                    (nil? lead) :unmeasured
                                    :else base)
-                  :change-fail-rate (if (zero? n) :no-target base)
-                  :recovery-time (if (zero? (:n recovery)) :no-target base)
-                  :rework-rate (if (zero? n) :no-target base)}}))))
+                  :change-fail-rate (cond (zero? n) :no-target inc? :incomplete :else base)
+                  :recovery-time (cond inc? :incomplete (zero? (:n recovery)) :no-target :else base)
+                  :rework-rate (cond (zero? n) :no-target inc? :incomplete :else base)}}))))
 
 ;; ---- Prometheus exposition ----
 
@@ -194,6 +204,7 @@
    "observed_days" "Days of the window that were actually observed."
    "deployments" "Production deployments (changed successful syncs) in the window."
    "deployments_per_day" "Production deployments per observed day."
+   "changes_unknown_deployments" "Deployments in the window whose change list could not be read from git (makes change-based metrics incomplete)."
    "syncs_excluded" "Sync records not counted as deployments, by reason."
    "lead_time_seconds" "Change lead time (commit to production deployment), nearest-rank quantile."
    "lead_time_changes" "Changes behind the lead time quantiles."
@@ -203,7 +214,7 @@
    "rework_ratio" "Rework deployments / deployments (absent when there is no deployment)."
    "recovery_time_seconds" "Failed deployment recovery time, nearest-rank median."
    "recoveries" "Failed deployments with a linked remediation deployment."
-   "metric_status" "Status of each DORA metric (measured, partial, no_target, unmeasured, unobserved)."})
+   "metric_status" "Status of each DORA metric (measured, partial, no_target, incomplete, unmeasured, unobserved)."})
 
 (defn render [{:keys [now last-success ok records hotfix-since apps]}]
   (let [rows (transient [])
@@ -223,6 +234,7 @@
         (add! "observed_days" l (:observed-days m))
         (add! "deployments" l (:deployments m))
         (add! "deployments_per_day" l (:per-day m))
+        (add! "changes_unknown_deployments" l (:changes-unknown m))
         (doseq [[r c] (sort-by key (:excluded m))] (add! "syncs_excluded" (conj l ["reason" (snake r)]) c))
         (when-let [{:keys [n p50 p90]} (:lead m)]
           (add! "lead_time_seconds" (conj l ["quantile" "0.5"]) p50)
