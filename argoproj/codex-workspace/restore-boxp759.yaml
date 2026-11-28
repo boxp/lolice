@@ -1,0 +1,70 @@
+# BOXP-759 TD-03 (Owner承認: 誤削除4runの隔離復元1回のみ、転送料概算0〜16 USD)
+# codex-workspace-home の 2026-11-28T00:00Z バックアップを S3 から一時別ボリュームに復元し、
+# 読み取り専用で4runの有無と内容を確認するための一時資源。本番PVC(codex-workspace-home)には触れない。
+# 確認後、このファイルと kustomization.yaml の参照を削除する撤去PRで消す(SC/PVCは reclaimPolicy Delete)。
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: codex-workspace-restore-boxp759
+provisioner: driver.longhorn.io
+allowVolumeExpansion: false
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "1"
+  staleReplicaTimeout: "30"
+  fromBackup: "s3://boxp-longhorn-backup@ap-northeast-1/?backup=backup-4f644d97a4bc40d2&volume=pvc-f81b80fe-11e7-4539-b36a-dbe28416f524"
+  fsType: ext4
+  dataLocality: disabled
+  dataEngine: v1
+  backupTargetName: default
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: codex-workspace-restore-boxp759
+  namespace: codex-workspace
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: codex-workspace-restore-boxp759
+  resources:
+    requests:
+      # バックアップ元 volumeSize 161061273600 (=150Gi) と同じ
+      storage: 150Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: codex-workspace-restore-boxp759
+  namespace: codex-workspace
+  labels:
+    app: codex-workspace-restore-boxp759
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  terminationGracePeriodSeconds: 5
+  containers:
+    - name: reader
+      image: docker.io/curlimages/curl:8.23.0
+      command: ["sleep"]
+      args: ["infinity"]
+      securityContext:
+        runAsUser: 0
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 256Mi
+      volumeMounts:
+        - name: restored
+          mountPath: /restored
+          readOnly: true
+  volumes:
+    - name: restored
+      persistentVolumeClaim:
+        claimName: codex-workspace-restore-boxp759
+        readOnly: true
