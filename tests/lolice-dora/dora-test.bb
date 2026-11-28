@@ -182,6 +182,17 @@
         (is (= {:resync 1 :no-change 1 :unknown 1} (:excluded m)))
         (is (= 0 (:deployments m)))))))
 
+(deftest no-link-across-baseline
+  (testing "仕様 2: 観測起点（baseline）より前の配備は、後の手当ての相手にしない（Application 再作成・履歴欠落）"
+    (let [git (chain-git ["A" "B" "C"]
+                         {["A" "B"] [{:sha "b1" :subject "feat: x (#10)" :body "" :time t0}]
+                          ["B" "C"] [{:sha "c1" :subject "Revert \"feat: x (#10)\" (#11)" :body "Reverts boxp/lolice#10" :time (+ t0 (* 3 H))}]})
+          ev (dora/analyze [(rec 1 t0 "A") (rec 2 (+ t0 H) "B")
+                            (rec 1 (+ t0 (* 2 H)) "B" :uid "u2") (rec 2 (+ t0 (* 4 H)) "C" :uid "u2")] git)]
+      (is (= [:baseline :deployment :baseline :deployment] (classes ev)))
+      (is (not-any? :failed? ev) "u1 の B は u2 の revert と関連づけない")
+      (is (= :revert (:rework (last ev))) "revert 自体は手直しとして残る"))))
+
 (deftest exposition
   (testing "対象 0 件の割合の行は出さず、状態の行は出す"
     (let [txt (dora/render {:now 1000 :last-success 1000 :ok true :records 1 :hotfix-since 900

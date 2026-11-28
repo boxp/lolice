@@ -41,7 +41,16 @@
                "+refs/heads/main:refs/heads/main" "+refs/pull/*/head:refs/pull/*/head")]
     (when-not (zero? (:exit r)) (throw (ex-info "git fetch failed" {:err (:err r)})))))
 
-(defn memo [f] (let [c (atom {})] (fn [& a] (if (contains? @c a) (@c a) (let [v (apply f a)] (swap! c assoc a v) v)))))
+(defn memo
+  "成功した結果だけ覚える。nil（未取得 revision・git の失敗）は覚えず、次の fetch 後に問い直す。"
+  [f]
+  (let [c (atom {})]
+    (fn [& a]
+      (if (contains? @c a)
+        (@c a)
+        (let [v (apply f a)]
+          (when (some? v) (swap! c assoc a v))
+          v)))))
 
 (def tree
   (memo (fn [rev path]
@@ -50,7 +59,7 @@
             (when (zero? (:exit r)) (str/trim (:out r)))))))
 
 (def ancestor?
-  (memo (fn [a b] (zero? (:exit (git "merge-base" "--is-ancestor" a b))))))
+  (memo (fn [a b] (case (int (:exit (git "merge-base" "--is-ancestor" a b))) 0 true 1 false nil))))
 
 (def pr-earliest
   (memo (fn [n sha]
@@ -65,8 +74,7 @@
   (memo (fn [from to paths]
           (let [r (apply git "log" "--format=%H%x1f%at%x1f%s%x1f%b%x1e" (str from ".." to) "--"
                          (map #(if (str/blank? %) "." %) paths))]
-            (if-not (zero? (:exit r))
-              []
+            (when (zero? (:exit r))
               (vec (for [chunk (str/split (:out r) #"\x1e") :let [chunk (str/triml chunk)]
                          :when (not (str/blank? chunk))
                          :let [[sha at subject body] (str/split chunk #"\x1f" 4)

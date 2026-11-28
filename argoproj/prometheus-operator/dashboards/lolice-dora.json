@@ -346,7 +346,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "lolice_dora_deployments{app=~\"$app\",window=\"$window\"}",
+      "expr" : "max by (app) (lolice_dora_deployments{app=~\"$app\",window=\"$window\"})",
       "instant" : true,
       "range" : false,
       "format" : "table"
@@ -356,7 +356,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "lolice_dora_deployments_per_day{app=~\"$app\",window=\"$window\"}",
+      "expr" : "max by (app) (lolice_dora_deployments_per_day{app=~\"$app\",window=\"$window\"})",
       "instant" : true,
       "range" : false,
       "format" : "table"
@@ -376,7 +376,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "lolice_dora_lead_time_seconds{app=~\"$app\",window=\"$window\",quantile=\"0.5\"}",
+      "expr" : "max by (app) (lolice_dora_lead_time_seconds{app=~\"$app\",window=\"$window\",quantile=\"0.5\"})",
       "instant" : true,
       "range" : false,
       "format" : "table"
@@ -386,7 +386,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "lolice_dora_lead_time_seconds{app=~\"$app\",window=\"$window\",quantile=\"0.9\"}",
+      "expr" : "max by (app) (lolice_dora_lead_time_seconds{app=~\"$app\",window=\"$window\",quantile=\"0.9\"})",
       "instant" : true,
       "range" : false,
       "format" : "table"
@@ -406,7 +406,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "lolice_dora_change_fail_ratio{app=~\"$app\",window=\"$window\"}",
+      "expr" : "max by (app) (lolice_dora_change_fail_ratio{app=~\"$app\",window=\"$window\"})",
       "instant" : true,
       "range" : false,
       "format" : "table"
@@ -416,7 +416,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "lolice_dora_failed_deployments{app=~\"$app\",window=\"$window\"}",
+      "expr" : "max by (app) (lolice_dora_failed_deployments{app=~\"$app\",window=\"$window\"})",
       "instant" : true,
       "range" : false,
       "format" : "table"
@@ -436,7 +436,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "lolice_dora_recovery_time_seconds{app=~\"$app\",window=\"$window\",quantile=\"0.5\"}",
+      "expr" : "max by (app) (lolice_dora_recovery_time_seconds{app=~\"$app\",window=\"$window\",quantile=\"0.5\"})",
       "instant" : true,
       "range" : false,
       "format" : "table"
@@ -456,7 +456,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "lolice_dora_rework_ratio{app=~\"$app\",window=\"$window\"}",
+      "expr" : "max by (app) (lolice_dora_rework_ratio{app=~\"$app\",window=\"$window\"})",
       "instant" : true,
       "range" : false,
       "format" : "table"
@@ -476,7 +476,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "lolice_dora_observed_days{app=~\"$app\",window=\"$window\"}",
+      "expr" : "max by (app) (lolice_dora_observed_days{app=~\"$app\",window=\"$window\"})",
       "instant" : true,
       "range" : false,
       "format" : "table"

@@ -55,20 +55,20 @@
     :targets [(q "A" (str "sum(lolice_dora_deployments{" sel "})") :format "time_series")]
     :options {:reduceOptions {:calcs ["lastNotNull"]}}}
    {:id 10 :type "table" :title "サービス別 DORA 5 指標（期間 $window）" :gridPos {:h 16 :w 24 :x 0 :y 9} :datasource ds
-    :targets [(q "A" (str "lolice_dora_deployments{" sel "}"))
-              (q "B" (str "lolice_dora_deployments_per_day{" sel "}"))
+    :targets [(q "A" (str "max by (app) (lolice_dora_deployments{" sel "})"))
+              (q "B" (str "max by (app) (lolice_dora_deployments_per_day{" sel "})"))
               (status-q "C" "deployment_frequency" "df_status")
-              (q "D" (str "lolice_dora_lead_time_seconds{" sel ",quantile=\"0.5\"}"))
-              (q "E" (str "lolice_dora_lead_time_seconds{" sel ",quantile=\"0.9\"}"))
+              (q "D" (str "max by (app) (lolice_dora_lead_time_seconds{" sel ",quantile=\"0.5\"})"))
+              (q "E" (str "max by (app) (lolice_dora_lead_time_seconds{" sel ",quantile=\"0.9\"})"))
               (status-q "F" "lead_time" "lt_status")
-              (q "G" (str "lolice_dora_change_fail_ratio{" sel "}"))
-              (q "H" (str "lolice_dora_failed_deployments{" sel "}"))
+              (q "G" (str "max by (app) (lolice_dora_change_fail_ratio{" sel "})"))
+              (q "H" (str "max by (app) (lolice_dora_failed_deployments{" sel "})"))
               (status-q "I" "change_fail_rate" "cfr_status")
-              (q "J" (str "lolice_dora_recovery_time_seconds{" sel ",quantile=\"0.5\"}"))
+              (q "J" (str "max by (app) (lolice_dora_recovery_time_seconds{" sel ",quantile=\"0.5\"})"))
               (status-q "K" "recovery_time" "rt_status")
-              (q "L" (str "lolice_dora_rework_ratio{" sel "}"))
+              (q "L" (str "max by (app) (lolice_dora_rework_ratio{" sel "})"))
               (status-q "M" "rework_rate" "rw_status")
-              (q "N" (str "lolice_dora_observed_days{" sel "}"))]
+              (q "N" (str "max by (app) (lolice_dora_observed_days{" sel "})"))]
     :transformations [{:id "merge" :options {}}
                       {:id "organize"
                        :options {:excludeByName {"Time" true "__name__" true "window" true "quantile" true

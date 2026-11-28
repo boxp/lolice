@@ -80,7 +80,10 @@
     (reduce
      (fn [v i]
        (let [e (v i)
-             earlier (filter #(and (< % i)
+             ;; 仕様 2: 直前の baseline（観測起点）より前の配備は相手にしない。
+             ;; baseline は履歴の欠落・Application 再作成の境目で、その前後は続いていると言えない。
+             since (or (last (filter #(= :baseline (:class (v %))) (range i))) -1)
+             earlier (filter #(and (< since % i)
                                    (= :deployment (:class (v %)))
                                    (>= (:t (v %)) (- (:t e) rework-window)))
                              idx-of-deps)
