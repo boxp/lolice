@@ -309,6 +309,30 @@ class IncidentMetricsTest(unittest.TestCase):
         self.assertEqual(self.value(out, 'lolice_incident_unreadable_records', synthetic='false'), 1)
         self.assertEqual(self.value(out, 'lolice_incident_record_problem', incident='INC-11', problem='unreadable'), 1)
 
+    # 仕様 4 章: 収集成否は母集団ごと（collection_ok{synthetic}）。合成を含む表示は合成側の成否も見る
+    def test_collection_ok_per_population(self):
+        out = self.out()
+        self.assertEqual(self.value(out, 'lolice_incident_collection_ok', synthetic='false'), 1)
+        self.assertEqual(self.value(out, 'lolice_incident_collection_ok', synthetic='true'), 1)
+
+    def test_synthetic_unreadable_record_fails_synthetic_collection(self):
+        (self.root / 'Synthetic' / 'SYN-2.md').mkdir()
+        out = self.out()
+        self.assertEqual(self.value(out, 'lolice_incident_collection_ok', synthetic='false'), 1)
+        self.assertEqual(self.value(out, 'lolice_incident_collection_ok', synthetic='true'), 0)
+
+    def test_synthetic_dir_unreadable_fails_synthetic_collection(self):
+        (self.root / 'Synthetic').rmdir()
+        out = self.out()
+        self.assertEqual(self.value(out, 'lolice_incident_collection_ok', synthetic='false'), 1)
+        self.assertEqual(self.value(out, 'lolice_incident_collection_ok', synthetic='true'), 0)
+
+    def test_production_incomplete_fails_production_collection_only(self):
+        (self.root / 'Tickets' / 'INC-11.md').mkdir()
+        out = self.out()
+        self.assertEqual(self.value(out, 'lolice_incident_collection_ok', synthetic='false'), 0)
+        self.assertEqual(self.value(out, 'lolice_incident_collection_ok', synthetic='true'), 1)
+
     def test_unreadable_synthetic_keeps_production_present(self):
         # 合成事例の読み取り失敗は問題として出すが、本番の収集成否は変えない
         (self.root / 'Synthetic' / 'SYN-2.md').mkdir()

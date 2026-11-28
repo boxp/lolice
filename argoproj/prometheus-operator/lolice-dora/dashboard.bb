@@ -152,8 +152,10 @@
    :fieldConfig {:defaults (cond-> {:noValue novalue} unit (assoc :unit unit :mappings [{:type "value" :options {"-1" {:text "対象0件"}}}])) :overrides []}
    :options {:reduceOptions {:calcs ["lastNotNull"]}}})
 
-;; 件数の「0」は収集が新しく本番の置き場を読めたときだけ出す。収集が止まった・読めないときは値なし（= 不明）にして、障害なしと区別する。
-(def collected " and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)")
+;; 件数の「0」は収集が新しく、選んだ母集団（本番、合成を含むなら合成も）の置き場と記録を全部読めたときだけ出す。収集が止まった・読めないときは値なし（= 不明）にして、障害なしと区別する。
+;; 「合成事例を含む」表示では合成側の収集成否も見る（選んだ母集団すべてが collection_ok == 1 のときだけ値を出す。系列が無ければ値なし = 不明）。
+(def collected (str " and on () (min(lolice_incident_collection_ok{" isel "}) == 1) and on () (max(lolice_incident_dir_present) == 1)"
+                    " and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)"))
 (defn guarded-count [expr] (str "(count(" expr ") or vector(0))" collected))
 (def unknown-count "不明（収集停止・置き場や記録を読めない）")
 ;; 中央値も同じ: 収集が健全で対象が無いときだけ -1 を返し「対象0件」と表示する。値なし = 不明（収集停止・読めない記録あり）。

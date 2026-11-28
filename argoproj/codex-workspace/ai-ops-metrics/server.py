@@ -401,6 +401,8 @@ def incident_metrics(root, now=None):
     now = int(time.time() if now is None else now)
     recs = []
     present = 0
+    # 母集団ごとの収集成否（仕様 4 章）: 置き場が読めて、正しく数えられない記録が 1 件もないときだけ 1
+    dir_ok = {"false": 0, "true": 0}
     unreadable = {"false": 0, "true": 0}
     # fail-closed（仕様 4 章）: 記録を正しく数えられたと言えない理由はすべてここに数え、本番に 1 件でもあれば収集失敗
     incomplete = {(reason, s): 0 for reason in INCOMPLETE_REASONS for s in ("false", "true")}
@@ -415,6 +417,7 @@ def incident_metrics(root, now=None):
             continue
         syn = sub == "Synthetic"
         skey = "true" if syn else "false"
+        dir_ok[skey] = 1
         for name in names:
             iid = name[:-3] if name.endswith(".md") else ""
             if not INCIDENT_FILE.fullmatch(iid):
@@ -438,6 +441,7 @@ def incident_metrics(root, now=None):
         incomplete[("over_limit", "false")] = 1
     if any(v for (_, s), v in incomplete.items() if s == "false"):
         present = 0
+    collection_ok = {k: int(dir_ok[k] and not any(v for (_, s), v in incomplete.items() if s == k)) for k in dir_ok}
     by_id = {r["id"]: r for r in recs}
     # 3: duplicates. 集計から外すのは除外の根拠が確かなときだけ（fail-closed）: 重複先が存在し、自分ではなく、
     # それ自体が重複を指していない（1 段だけ）。そうでなければ数えたまま問題を付ける（循環で両方消えない）
@@ -510,6 +514,9 @@ def incident_metrics(root, now=None):
            [(labels(synthetic=k), v) for k, v in sorted(unreadable.items())])
     metric("lolice_incident_incomplete", "Reasons the records could not all be counted correctly (fail-closed).",
            [(labels(reason=k, synthetic=s), v) for (k, s), v in sorted(incomplete.items())])
+    metric("lolice_incident_collection_ok",
+           "1 when the population's directory and every record in it could be read and counted (per synthetic).",
+           [(labels(synthetic=k), v) for k, v in sorted(collection_ok.items())])
     metric("lolice_incident_dir_present",
            "1 when the production incident directory and every record in it could be read and counted.",
            [("", present)])
