@@ -203,7 +203,7 @@
    (window-stat 51 20 "原因 不明・配備（未確認）"
                 (guarded-count (str "lolice_incident_info{state=\"counted\",cause_state=~\"unknown|deployment_unconfirmed\"," isel "}")) nil unknown-count)
    {:id 52 :type "table" :title "障害記録（v1、重複・誤りも表示）" :gridPos {:h 12 :w 24 :x 0 :y 59} :datasource ds
-    :targets [(q "A" (str "max by (incident, service, state, recovery_state, cause_state, recovery, redeploy) (lolice_incident_info{state!=\"legacy\"," isel "})"))
+    :targets [(q "A" (str "max by (incident, service, state, recovery_state, cause_state, recovery, redeploy) (label_replace(lolice_incident_info{state!=\"legacy\"," isel "}, \"service\", \"$1\", \"exported_service\", \"(.+)\"))"))
               (q "B" (str "max by (incident) (lolice_incident_timestamp_seconds{point=\"started\"," isel "}) * 1000"))
               (q "C" (str "max by (incident) (lolice_incident_timestamp_seconds{point=\"detected\"," isel "}) * 1000"))
               (q "D" (str "max by (incident) (lolice_incident_timestamp_seconds{point=\"cause_deployed\"," isel "}) * 1000"))
