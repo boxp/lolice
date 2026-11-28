@@ -1600,7 +1600,7 @@
         "type" : "prometheus",
         "uid" : "${datasource}"
       },
-      "expr" : "max by (incident, service, state, recovery_state, cause_state, recovery, redeploy) (lolice_incident_info{state!=\"legacy\",synthetic=~\"$synthetic\"})",
+      "expr" : "max by (incident, service, state, recovery_state, cause_state, recovery, redeploy) (label_replace(lolice_incident_info{state!=\"legacy\",synthetic=~\"$synthetic\"}, \"service\", \"$1\", \"exported_service\", \"(.+)\"))",
       "instant" : true,
       "range" : false,
       "format" : "table"
