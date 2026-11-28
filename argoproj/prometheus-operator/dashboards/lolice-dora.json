@@ -52,9 +52,28 @@
         "refId" : "app"
       },
       "includeAll" : true
+    }, {
+      "name" : "synthetic",
+      "label" : "障害記録",
+      "type" : "custom",
+      "query" : "false,true|false",
+      "current" : {
+        "selected" : true,
+        "text" : "本番のみ",
+        "value" : "false"
+      },
+      "options" : [ {
+        "selected" : true,
+        "text" : "本番のみ",
+        "value" : "false"
+      }, {
+        "selected" : false,
+        "text" : "合成事例を含む",
+        "value" : "true|false"
+      } ]
     } ]
   },
-  "tags" : [ "dora", "lolice", "boxp-762" ],
+  "tags" : [ "dora", "lolice", "boxp-762", "boxp-769" ],
   "timezone" : "browser",
   "refresh" : "5m",
   "editable" : false,
@@ -77,7 +96,7 @@
     },
     "options" : {
       "mode" : "markdown",
-      "content" : "**lolice 本番デリバリーの DORA 5 指標（サービス = Argo CD Application）**。仕様: Obsidian `Projects/lolice-dora-metrics/spec.md`（BOXP-762）。AI Ops の票指標・Lean 比較とは別物です。\n\n- **本番配備** = Argo CD の成功した同期のうち、revision が変わり、その app の source path（Helm の ref は values file）の git tree が変わったもの。PR の merge だけ・同じ revision の再同期・自分の path が変わらない同期は数えません（下の「除外した同期」）。\n- **変更リードタイム** = 配備に含まれる commit ごとに、PR の最初の commit（なければ commit）の author 時刻から配備まで。image-updater の commit はアプリ側 repo の build 時間を含みません。\n- **変更失敗率 / 復旧時間 / 手直し率** = 7 日以内の revert（`Revert \"… (#N)\"`・`This reverts commit`）、古い commit への rollback、`Hotfix-For: #N` trailer で配備どうしを関連づけたもの。障害記録（INC-*）には配備との関連欄がないため使っていません。hotfix は記録開始（下の時刻）より前は数えられません。\n- 空欄は 0 ではありません。状態列が **対象0件**（配備や失敗がない）/ **変更一覧の取得失敗**（git から変更が読めなかった配備が期間内にあり、次の収集で再取得）/ **未計測**（外部 chart だけの app のリードタイム等）/ **観測が期間の一部**（台帳の観測起点が期間の途中）/ **未観測** を示します。Argo CD は 1 app 10 件しか履歴を残さないので、観測起点より前は分かりません。"
+      "content" : "**lolice 本番デリバリーの DORA 5 指標（サービス = Argo CD Application）**。仕様: Obsidian `Projects/lolice-dora-metrics/spec.md`（BOXP-762）。AI Ops の票指標・Lean 比較とは別物です。\n\n- **本番配備** = Argo CD の成功した同期のうち、revision が変わり、その app の source path（Helm の ref は values file）の git tree が変わったもの。PR の merge だけ・同じ revision の再同期・自分の path が変わらない同期は数えません（下の「除外した同期」）。\n- **変更リードタイム** = 配備に含まれる commit ごとに、PR の最初の commit（なければ commit）の author 時刻から配備まで。image-updater の commit はアプリ側 repo の build 時間を含みません。\n- **変更失敗率 / 復旧時間 / 手直し率** = 7 日以内の revert（`Revert \"… (#N)\"`・`This reverts commit`）、古い commit への rollback、`Hotfix-For: #N` trailer で配備どうしを関連づけたもの。障害記録（INC-*）からの復旧時間は下の「障害記録と復旧時間」に別に出します。hotfix は記録開始（下の時刻）より前は数えられません。\n- 空欄は 0 ではありません。状態列が **対象0件**（配備や失敗がない）/ **変更一覧の取得失敗**（git から変更が読めなかった配備が期間内にあり、次の収集で再取得）/ **未計測**（外部 chart だけの app のリードタイム等）/ **観測が期間の一部**（台帳の観測起点が期間の途中）/ **未観測** を示します。Argo CD は 1 app 10 件しか履歴を残さないので、観測起点より前は分かりません。"
     }
   }, {
     "id" : 2,
@@ -1033,6 +1052,910 @@
       "tooltip" : {
         "mode" : "multi"
       }
+    }
+  }, {
+    "id" : 40,
+    "type" : "text",
+    "title" : "障害記録の読み方",
+    "gridPos" : {
+      "h" : 9,
+      "w" : 16,
+      "x" : 0,
+      "y" : 46
+    },
+    "options" : {
+      "mode" : "markdown",
+      "content" : "**障害記録と復旧時間（BOXP-769）**。源は Obsidian `Incidents/Tickets/INC-*.md`（合成事例は `Incidents/Synthetic/SYN-*.md`）の `schema: incident/v1` の記録で、上の表（配備どうしの revert・rollback・hotfix の関連づけ）とは別の源です。足さずに並べて見ます。仕様: `Projects/lolice-incident-recovery/spec.md`、手順: `Incidents/Runbooks/incident-response-dora.md`。\n\n- **失敗配備からの復旧時間（DORA）** = 原因の配備の deployedAt → 利用者影響の解消を**確かめた**時刻。原因 = 配備を根拠つきで確かめた記録だけ。再配備を伴わない復旧（再起動・手作業）も含みます。\n- **障害の復旧時間（一般）** = 影響開始 → 解消の確認。原因を問いません（DORA 外）。\n- アラートの resolved・rollback の実行は終点にしません（「復旧操作」列）。確認の根拠がない記録は **未確認**、解消の記録がない記録は **未復旧** で、どちらも値を出しません。v1 より前の記録（INC-1〜5）は集計外です。空欄は 0 ではありません。"
+    }
+  }, {
+    "id" : 41,
+    "type" : "stat",
+    "title" : "障害記録の収集からの経過",
+    "gridPos" : {
+      "h" : 3,
+      "w" : 4,
+      "x" : 16,
+      "y" : 46
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "time() - max(lolice_incident_metrics_generated_timestamp_seconds)",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "unit" : "s",
+        "noValue" : "未取得（値を信じない）",
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "red",
+            "value" : 900
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      },
+      "colorMode" : "background"
+    }
+  }, {
+    "id" : 42,
+    "type" : "stat",
+    "title" : "障害記録の置き場",
+    "gridPos" : {
+      "h" : 3,
+      "w" : 4,
+      "x" : 20,
+      "y" : 46
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max(lolice_incident_dir_present)",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "収集なし",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "1" : {
+              "text" : "読めた",
+              "color" : "green"
+            },
+            "0" : {
+              "text" : "読めない",
+              "color" : "red"
+            }
+          }
+        } ]
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      },
+      "colorMode" : "background"
+    }
+  }, {
+    "id" : 43,
+    "type" : "stat",
+    "title" : "未復旧・解消の根拠なし",
+    "gridPos" : {
+      "h" : 3,
+      "w" : 4,
+      "x" : 16,
+      "y" : 49
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "(count(lolice_incident_info{state=\"counted\",recovery_state=~\"unrecovered|unconfirmed\",synthetic=~\"$synthetic\"}) or vector(0)) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "不明（収集停止・置き場や記録を読めない）",
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "red",
+            "value" : 1
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      },
+      "colorMode" : "background"
+    }
+  }, {
+    "id" : 44,
+    "type" : "stat",
+    "title" : "記録の問題（誤り・重複の疑い・原因未確認）",
+    "gridPos" : {
+      "h" : 3,
+      "w" : 4,
+      "x" : 20,
+      "y" : 49
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "(count(count by (incident) (lolice_incident_record_problem{synthetic=~\"$synthetic\"})) or vector(0)) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "不明（収集停止・置き場や記録を読めない）",
+        "thresholds" : {
+          "mode" : "absolute",
+          "steps" : [ {
+            "color" : "green",
+            "value" : null
+          }, {
+            "color" : "orange",
+            "value" : 1
+          } ]
+        }
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      },
+      "colorMode" : "background"
+    }
+  }, {
+    "id" : 45,
+    "type" : "stat",
+    "title" : "記録の内訳（v1 より前 = 集計外）",
+    "gridPos" : {
+      "h" : 3,
+      "w" : 8,
+      "x" : 16,
+      "y" : 52
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (state) (lolice_incident_records)",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series",
+      "legendFormat" : "{{state}}"
+    } ],
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      },
+      "textMode" : "value_and_name"
+    }
+  }, {
+    "id" : 46,
+    "type" : "stat",
+    "title" : "DORA 復旧時間 中央値（解消確認が 7 日以内）",
+    "gridPos" : {
+      "h" : 4,
+      "w" : 4,
+      "x" : 0,
+      "y" : 55
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "(quantile(0.5, lolice_incident_failed_deployment_recovery_seconds{synthetic=~\"$synthetic\"} and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - 7 * 86400)) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)) or (vector(-1) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900))",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "不明（収集停止・置き場や記録を読めない）",
+        "unit" : "s",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "-1" : {
+              "text" : "対象0件"
+            }
+          }
+        } ]
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      }
+    }
+  }, {
+    "id" : 47,
+    "type" : "stat",
+    "title" : "DORA 復旧時間 中央値（28 日以内）",
+    "gridPos" : {
+      "h" : 4,
+      "w" : 4,
+      "x" : 4,
+      "y" : 55
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "(quantile(0.5, lolice_incident_failed_deployment_recovery_seconds{synthetic=~\"$synthetic\"} and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - 28 * 86400)) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)) or (vector(-1) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900))",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "不明（収集停止・置き場や記録を読めない）",
+        "unit" : "s",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "-1" : {
+              "text" : "対象0件"
+            }
+          }
+        } ]
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      }
+    }
+  }, {
+    "id" : 48,
+    "type" : "stat",
+    "title" : "配備起因の復旧確認済み（28 日）",
+    "gridPos" : {
+      "h" : 4,
+      "w" : 4,
+      "x" : 8,
+      "y" : 55
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "(count(lolice_incident_failed_deployment_recovery_seconds{synthetic=~\"$synthetic\"} and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - 28 * 86400)) or vector(0)) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "不明（収集停止・置き場や記録を読めない）"
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      }
+    }
+  }, {
+    "id" : 49,
+    "type" : "stat",
+    "title" : "一般の復旧時間 中央値（28 日）",
+    "gridPos" : {
+      "h" : 4,
+      "w" : 4,
+      "x" : 12,
+      "y" : 55
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "(quantile(0.5, lolice_incident_restore_seconds{synthetic=~\"$synthetic\"} and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - 28 * 86400)) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)) or (vector(-1) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900))",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "不明（収集停止・置き場や記録を読めない）",
+        "unit" : "s",
+        "mappings" : [ {
+          "type" : "value",
+          "options" : {
+            "-1" : {
+              "text" : "対象0件"
+            }
+          }
+        } ]
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      }
+    }
+  }, {
+    "id" : 50,
+    "type" : "stat",
+    "title" : "復旧確認済み（28 日、原因を問わず）",
+    "gridPos" : {
+      "h" : 4,
+      "w" : 4,
+      "x" : 16,
+      "y" : 55
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "(count(lolice_incident_info{state=\"counted\",recovery_state=\"recovered\",synthetic=~\"$synthetic\"} and on (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\"} > time() - 28 * 86400)) or vector(0)) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "不明（収集停止・置き場や記録を読めない）"
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      }
+    }
+  }, {
+    "id" : 51,
+    "type" : "stat",
+    "title" : "原因 不明・配備（未確認）",
+    "gridPos" : {
+      "h" : 4,
+      "w" : 4,
+      "x" : 20,
+      "y" : 55
+    },
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "(count(lolice_incident_info{state=\"counted\",cause_state=~\"unknown|deployment_unconfirmed\",synthetic=~\"$synthetic\"}) or vector(0)) and on () (min(lolice_incident_collection_ok{synthetic=~\"$synthetic\"}) == 1) and on () (max(lolice_incident_dir_present) == 1) and on () (time() - max(lolice_incident_metrics_generated_timestamp_seconds) < 900)",
+      "instant" : true,
+      "range" : false,
+      "format" : "time_series"
+    } ],
+    "fieldConfig" : {
+      "defaults" : {
+        "noValue" : "不明（収集停止・置き場や記録を読めない）"
+      },
+      "overrides" : [ ]
+    },
+    "options" : {
+      "reduceOptions" : {
+        "calcs" : [ "lastNotNull" ]
+      }
+    }
+  }, {
+    "datasource" : {
+      "type" : "prometheus",
+      "uid" : "${datasource}"
+    },
+    "gridPos" : {
+      "h" : 12,
+      "w" : 24,
+      "x" : 0,
+      "y" : 59
+    },
+    "transformations" : [ {
+      "id" : "merge",
+      "options" : { }
+    }, {
+      "id" : "organize",
+      "options" : {
+        "excludeByName" : {
+          "Time" : true,
+          "Value #A" : true
+        },
+        "indexByName" : {
+          "Value #D" : 10,
+          "Value #E" : 11,
+          "Value #G" : 13,
+          "cause_state" : 4,
+          "redeploy" : 7,
+          "recovery_state" : 3,
+          "recovery" : 6,
+          "incident" : 0,
+          "app" : 5,
+          "state" : 2,
+          "Value #F" : 12,
+          "service" : 1,
+          "Value #I" : 15,
+          "Value #B" : 8,
+          "Value #C" : 9,
+          "Value #H" : 14
+        },
+        "renameByName" : {
+          "Value #D" : "原因の配備",
+          "Value #E" : "復旧操作の時刻",
+          "Value #G" : "一般の復旧時間",
+          "cause_state" : "原因",
+          "redeploy" : "再配備",
+          "recovery_state" : "復旧",
+          "recovery" : "復旧操作",
+          "incident" : "記録",
+          "app" : "原因の app",
+          "state" : "集計",
+          "Value #F" : "解消の確認",
+          "service" : "サービス",
+          "Value #I" : "記録の問題",
+          "Value #B" : "影響開始",
+          "Value #C" : "検知",
+          "Value #H" : "DORA 復旧時間"
+        }
+      }
+    } ],
+    "type" : "table",
+    "targets" : [ {
+      "refId" : "A",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (incident, service, state, recovery_state, cause_state, recovery, redeploy) (lolice_incident_info{state!=\"legacy\",synthetic=~\"$synthetic\"})",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    }, {
+      "refId" : "B",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (incident) (lolice_incident_timestamp_seconds{point=\"started\",synthetic=~\"$synthetic\"}) * 1000",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    }, {
+      "refId" : "C",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (incident) (lolice_incident_timestamp_seconds{point=\"detected\",synthetic=~\"$synthetic\"}) * 1000",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    }, {
+      "refId" : "D",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (incident) (lolice_incident_timestamp_seconds{point=\"cause_deployed\",synthetic=~\"$synthetic\"}) * 1000",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    }, {
+      "refId" : "E",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (incident) (lolice_incident_timestamp_seconds{point=\"recovery_action\",synthetic=~\"$synthetic\"}) * 1000",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    }, {
+      "refId" : "F",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (incident) (lolice_incident_timestamp_seconds{point=\"impact_resolved\",synthetic=~\"$synthetic\"}) * 1000",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    }, {
+      "refId" : "G",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (incident) (lolice_incident_restore_seconds{synthetic=~\"$synthetic\"})",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    }, {
+      "refId" : "H",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "max by (incident, app) (lolice_incident_failed_deployment_recovery_seconds{synthetic=~\"$synthetic\"})",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    }, {
+      "refId" : "I",
+      "datasource" : {
+        "type" : "prometheus",
+        "uid" : "${datasource}"
+      },
+      "expr" : "count by (incident) (lolice_incident_record_problem{synthetic=~\"$synthetic\"})",
+      "instant" : true,
+      "range" : false,
+      "format" : "table"
+    } ],
+    "title" : "障害記録（v1、重複・誤りも表示）",
+    "fieldConfig" : {
+      "defaults" : { },
+      "overrides" : [ {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "集計"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "deployment_unconfirmed" : {
+                "text" : "配備（未確認）",
+                "color" : "orange"
+              },
+              "recovered" : {
+                "text" : "復旧確認済み",
+                "color" : "green"
+              },
+              "invalid" : {
+                "text" : "記録の誤り",
+                "color" : "red"
+              },
+              "duplicate" : {
+                "text" : "重複",
+                "color" : "text"
+              },
+              "counted" : {
+                "text" : "集計対象",
+                "color" : "green"
+              },
+              "unconfirmed" : {
+                "text" : "解消の根拠なし",
+                "color" : "orange"
+              },
+              "deployment" : {
+                "text" : "配備（確認済み）",
+                "color" : "purple"
+              },
+              "non_deployment" : {
+                "text" : "配備以外",
+                "color" : "blue"
+              },
+              "unknown" : {
+                "text" : "不明",
+                "color" : "yellow"
+              },
+              "unrecovered" : {
+                "text" : "未復旧",
+                "color" : "red"
+              }
+            }
+          } ]
+        }, {
+          "id" : "custom.cellOptions",
+          "value" : {
+            "type" : "color-text"
+          }
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "復旧"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "deployment_unconfirmed" : {
+                "text" : "配備（未確認）",
+                "color" : "orange"
+              },
+              "recovered" : {
+                "text" : "復旧確認済み",
+                "color" : "green"
+              },
+              "invalid" : {
+                "text" : "記録の誤り",
+                "color" : "red"
+              },
+              "duplicate" : {
+                "text" : "重複",
+                "color" : "text"
+              },
+              "counted" : {
+                "text" : "集計対象",
+                "color" : "green"
+              },
+              "unconfirmed" : {
+                "text" : "解消の根拠なし",
+                "color" : "orange"
+              },
+              "deployment" : {
+                "text" : "配備（確認済み）",
+                "color" : "purple"
+              },
+              "non_deployment" : {
+                "text" : "配備以外",
+                "color" : "blue"
+              },
+              "unknown" : {
+                "text" : "不明",
+                "color" : "yellow"
+              },
+              "unrecovered" : {
+                "text" : "未復旧",
+                "color" : "red"
+              }
+            }
+          } ]
+        }, {
+          "id" : "custom.cellOptions",
+          "value" : {
+            "type" : "color-text"
+          }
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "原因"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "deployment_unconfirmed" : {
+                "text" : "配備（未確認）",
+                "color" : "orange"
+              },
+              "recovered" : {
+                "text" : "復旧確認済み",
+                "color" : "green"
+              },
+              "invalid" : {
+                "text" : "記録の誤り",
+                "color" : "red"
+              },
+              "duplicate" : {
+                "text" : "重複",
+                "color" : "text"
+              },
+              "counted" : {
+                "text" : "集計対象",
+                "color" : "green"
+              },
+              "unconfirmed" : {
+                "text" : "解消の根拠なし",
+                "color" : "orange"
+              },
+              "deployment" : {
+                "text" : "配備（確認済み）",
+                "color" : "purple"
+              },
+              "non_deployment" : {
+                "text" : "配備以外",
+                "color" : "blue"
+              },
+              "unknown" : {
+                "text" : "不明",
+                "color" : "yellow"
+              },
+              "unrecovered" : {
+                "text" : "未復旧",
+                "color" : "red"
+              }
+            }
+          } ]
+        }, {
+          "id" : "custom.cellOptions",
+          "value" : {
+            "type" : "color-text"
+          }
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "影響開始"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "dateTimeAsIso"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "検知"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "dateTimeAsIso"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "原因の配備"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "dateTimeAsIso"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "復旧操作の時刻"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "dateTimeAsIso"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "解消の確認"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "dateTimeAsIso"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "一般の復旧時間"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "s"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "DORA 復旧時間"
+        },
+        "properties" : [ {
+          "id" : "unit",
+          "value" : "s"
+        } ]
+      }, {
+        "matcher" : {
+          "id" : "byName",
+          "options" : "再配備"
+        },
+        "properties" : [ {
+          "id" : "mappings",
+          "value" : [ {
+            "type" : "value",
+            "options" : {
+              "true" : {
+                "text" : "あり"
+              },
+              "false" : {
+                "text" : "なし"
+              },
+              "unknown" : {
+                "text" : "不明"
+              }
+            }
+          } ]
+        } ]
+      } ]
+    },
+    "id" : 52,
+    "options" : {
+      "showHeader" : true,
+      "sortBy" : [ {
+        "displayName" : "検知",
+        "desc" : true
+      } ]
     }
   } ],
   "schemaVersion" : 39

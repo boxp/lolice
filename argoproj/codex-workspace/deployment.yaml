@@ -802,6 +802,10 @@ spec:
               value: /home/boxp/.codex-task-board/runs
             - name: TICKETS_DIR
               value: /home/boxp/Documents/obsidian-headless/BOXP/Tickets
+            # BOXP-769: incident records (Incidents/Tickets/INC-N.md, Incidents/Synthetic/SYN-N.md)
+            # -> lolice_incident_* (IDs and enums only; no titles or evidence text)
+            - name: INCIDENTS_DIR
+              value: /home/boxp/Documents/obsidian-headless/BOXP/Incidents
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
