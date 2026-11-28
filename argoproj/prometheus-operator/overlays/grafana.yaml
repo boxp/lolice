@@ -36,6 +36,8 @@ spec:
           volumeMounts:
             - mountPath: /grafana-dashboard-definitions/0/local-llm-gpu-overview
               name: grafana-dashboard-local-llm-gpu-overview
+            - mountPath: /grafana-dashboard-definitions/0/lolice-dora
+              name: grafana-dashboard-lolice-dora
             - mountPath: /grafana-dashboard-definitions/0/ai-ops-quality
               name: grafana-dashboard-ai-ops-quality
             - mountPath: /grafana-dashboard-definitions/0/ai-ops-ticket-usage
@@ -55,6 +57,9 @@ spec:
         - name: grafana-dashboard-local-llm-gpu-overview
           configMap:
             name: grafana-dashboard-local-llm-gpu-overview
+        - name: grafana-dashboard-lolice-dora
+          configMap:
+            name: grafana-dashboard-lolice-dora
         - name: grafana-dashboard-ai-ops-quality
           configMap:
             name: grafana-dashboard-ai-ops-quality
