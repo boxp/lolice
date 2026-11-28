@@ -78,7 +78,7 @@ spec:
         - name: collector
           # Already deployed workspace digest (same as argoproj/local-llm/runtime-worker.yaml), used only
           # for bb / git / kubectl. No workspace volume, no API keys, no GitHub credentials.
-          image: ghcr.io/boxp/arch/codex-workspace@sha256:801a301b6f02b7fcedfc29c550aa89f4edb10dd6fc4b0fd3b321fe4a034e2944
+          image: ghcr.io/boxp/arch/codex-workspace@sha256:e9c08029ee171397aefae5a4a10b15568974305cb47154dfcc82d482ffbcdb76
           command: [bb, /app/collector.bb]
           env:
             - {name: HOME, value: /data}
