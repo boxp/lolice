@@ -141,6 +141,17 @@ class IncidentMetricsTest(unittest.TestCase):
         self.assertIsNone(self.value(out, 'lolice_incident_restore_seconds', incident='INC-1'))
         self.assertEqual(self.value(out, 'lolice_incident_records', state='legacy'), 1)
 
+    # 例 7 の続き: legacy でも列挙外の cause/recovery はそのままラベルに出さない（"" を含むとスクレイプ全体が壊れる）
+    def test_legacy_out_of_enum_values_are_not_emitted(self):
+        self.write('INC-2', type='incident', recovery='"a\\"b"', cause='x"y')
+        out = self.out()
+        i = self.info(out, 'INC-2')
+        self.assertEqual(i['state'], 'legacy')
+        self.assertEqual((i['recovery'], i['cause_state'], i['redeploy']), ('unknown', 'legacy', 'unknown'))
+        line = next(l for l in out.splitlines() if l.startswith('lolice_incident_info{') and 'INC-2' in l)
+        labels = line[line.index('{') + 1:line.rindex('}')]
+        self.assertRegex(labels, r'^(\w+="[^"\\\n]*",)*\w+="[^"\\\n]*"$')
+
     # 2 章の 2: 読めない時刻・列挙外の値 → invalid
     def test_invalid_values(self):
         self.write('INC-18', **V1, started='きのう')

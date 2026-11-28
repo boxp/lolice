@@ -306,6 +306,10 @@ def classify_incident(iid, f):
          "synthetic": iid.startswith("SYN-") or g("synthetic").lower() == "true",
          "cause": g("cause") or "unknown", "recovery": g("recovery") or "unknown",
          "key": g("dedupe_key") or g("service"), "app": SAFE_LABEL.sub("_", g("cause_app"))[:60]}
+    # 列挙外の値はラベルに出さない（legacy でも。引用符などでスクレイプ全体が壊れるため）
+    bad_enum = [k for k, allowed in INCIDENT_ENUMS.items() if g(k) not in allowed]
+    for k in bad_enum:
+        r[k] = "unknown"
     if g("schema") != "incident/v1":
         r.update(state="legacy", recovery_state="legacy", cause_state="legacy")
         return r
@@ -316,10 +320,8 @@ def classify_incident(iid, f):
                 r["problems"].add("bad_time")
             else:
                 r["times"][point] = t
-    for field, allowed in INCIDENT_ENUMS.items():
-        if g(field) not in allowed:
-            r["problems"].add("bad_value")
-            r[field] = "unknown"
+    if bad_enum:
+        r["problems"].add("bad_value")
     t = r["times"]
     # 4: recovered only with a confirmed time AND evidence; an alert resolved / recovery action is not the end
     if "impact_resolved" in t and g("impact_resolved_evidence"):
