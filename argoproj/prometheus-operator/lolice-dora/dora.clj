@@ -38,8 +38,10 @@
   空の一覧（本当に commit なし）と取れなかったことを分ける。"
   [git p e]
   (let [per (for [[from to s] (map vector (:revisions p) (:revisions e) (:sources e))
-                  :when (lolice-source? s)]
-              ((:changes git) from to (source-paths s)))]
+                  :let [ps (source-paths s)]
+                  ;; 比べる path が 0 個（values file を渡さない ref source）は lolice の変更なし（仕様 3.1 の 6）
+                  :when (and (lolice-source? s) (seq ps))]
+              ((:changes git) from to ps))]
     (when (every? some? per)
       (reduce (fn [acc c] (if (some #(= (:sha %) (:sha c)) acc) acc (conj acc c))) [] (apply concat per)))))
 

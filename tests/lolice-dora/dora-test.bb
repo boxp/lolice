@@ -243,5 +243,19 @@
       (is (not (re-find #"lolice_dora_change_fail_ratio\{" txt)))
       (is (re-find #"(?m)^lolice_dora_collector_last_run_ok 1$" txt)))))
 
+(deftest ref-source-without-values-file
+  (testing "仕様 3.1 の 6: values file を渡さない ref source は lolice の変更を持たない（repo 全体の git log をしない）"
+    (let [asked (atom [])
+          srcs [{:repo lolice :paths []} {:repo "https://charts.example/" :chart "x"}]
+          git {:tree (fn [_ _] "t") :ancestor? (fn [_ _] false)
+               :changes (fn [from to paths] (swap! asked conj paths)
+                          [{:sha "s1" :subject "unrelated" :body "" :time 50}])}
+          ev (dora/analyze [(rec 1 100 ["A" "1.0"] :sources srcs) (rec 2 200 ["B" "2.0"] :sources srcs)] git)
+          d (second ev)]
+      (is (= :deployment (:class d)))
+      (is (= [] (:changes d)))
+      (is (not (:changes-unknown? d)))
+      (is (not-any? empty? @asked)))))
+
 (let [{:keys [fail error]} (run-tests)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

@@ -79,5 +79,11 @@
              (mapv :class (dora/analyze [{:uid "u1" :app "a" :id 1 :t 1 :revisions ["A"] :sources [{:repo lolice :path "x"}]}
                                          {:uid "u1" :app "a" :id 2 :t 2 :revisions ["B"] :sources nil}]
                                         {:tree (fn [r _] r)})))))))
+(deftest changes-without-paths
+  (with-redefs [mirror (str (fs/path repo ".git"))]
+    (testing "仕様 3.1 の 6: 比べる path が 0 個なら変更は空（git log -- で repo 全体を返さない）"
+      (is (= [] (changes A C [])))
+      (is (= 2 (count (changes A C [""])))))))
+
 (let [{:keys [fail error]} (try (run-tests) (finally (fs/delete-tree work)))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

@@ -76,15 +76,18 @@
 
 (def changes
   (memo (fn [from to paths]
-          (let [r (apply git "log" "--format=%H%x1f%at%x1f%s%x1f%b%x1e" (str from ".." to) "--"
-                         (map #(if (str/blank? %) "." %) paths))]
-            (when (zero? (:exit r))
-              (vec (for [chunk (str/split (:out r) #"\x1e") :let [chunk (str/triml chunk)]
-                         :when (not (str/blank? chunk))
-                         :let [[sha at subject body] (str/split chunk #"\x1f" 4)
-                               c {:sha sha :subject subject :body (or body "") :author-time (parse-long at)}
-                               n (some->> (re-find #"\(#(\d+)\)\s*$" subject) second parse-long)]]
-                     (assoc c :time (dora/change-time c (if n {n (pr-earliest n sha)} {}))))))))))
+          ;; path 0 個で `git log --` にすると repo 全体が返るので、変更なしとする（仕様 3.1 の 6）
+          (if (empty? paths)
+            []
+            (let [r (apply git "log" "--format=%H%x1f%at%x1f%s%x1f%b%x1e" (str from ".." to) "--"
+                           (map #(if (str/blank? %) "." %) paths))]
+              (when (zero? (:exit r))
+                (vec (for [chunk (str/split (:out r) #"\x1e") :let [chunk (str/triml chunk)]
+                           :when (not (str/blank? chunk))
+                           :let [[sha at subject body] (str/split chunk #"\x1f" 4)
+                                 c {:sha sha :subject subject :body (or body "") :author-time (parse-long at)}
+                                 n (some->> (re-find #"\(#(\d+)\)\s*$" subject) second parse-long)]]
+                       (assoc c :time (dora/change-time c (if n {n (pr-earliest n sha)} {})))))))))))
 
 (def git-fns {:tree tree :changes changes :ancestor? ancestor?})
 
