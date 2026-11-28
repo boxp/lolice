@@ -88,15 +88,25 @@ spec:
             # audio is forwarded in memory only and never stored.
             - name: KOHAKO_STT_URL
               value: http://kohako-stt.even-g2-lab.svc.cluster.local:8080
-            # BOXP-657 段1: 眼鏡の入口（principal g2）を読み取りだけで有効にする。外すと無効（段0 と同じ）。
+            # BOXP-657 段2: 眼鏡の入口（principal g2）で、読み取りに加えて送信・停止・許可も受ける（会話は家と同じ 1 つ）。
+            # read に戻すと段1（読み取りだけ）、外すと無効（段0 と同じ）。戻す時は even-g2-lab の KOHAKO_SHARED_BACKEND も read に戻す。
             # 通すのは「even-g2-lab の専用 ServiceAccount の token（audience kohako-bff-g2）」と
             # 「眼鏡の Access アプリ（下の AUD。家の AUD とは別）で本人が通った証明」の両方がそろった時だけ。
             - name: KOHAKO_G2_MODE
-              value: read
+              value: write
             - name: KOHAKO_G2_USERNAME
               value: system:serviceaccount:even-g2-lab:kohako-g2-bff
             - name: KOHAKO_G2_ACCESS_AUD
               value: c98ec040b98358a12ac478984c00ded11e85e9336f2acb768c5f772351fbcbcb
+            # 眼鏡から出した発言の指示文にだけ添える参照（今まで G2 の BFF が添えていたものと同じ: Board 要約と、
+            # 本人の Telegram DM の直近を読むだけ）。家から出した発言の指示文は変わらない。新しい通信先・資格は無い
+            # （Board は上の status と同じ 8090、Telegram DM は既存の Hermes API）。
+            - name: KOHAKO_G2_BOARD_CONTEXT
+              value: summary
+            - name: KOHAKO_G2_SHARED_CONTEXT
+              value: telegram-dm
+            - name: KOHAKO_G2_TELEGRAM_USER_ID
+              value: "8202126858"
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -112,10 +112,12 @@ spec:
               value: https://kohako-g2.b0xp.io,https://kohako-g2-trial.b0xp.io
             - name: KOHAKO_REALTIME_MAX_MS
               value: "unlimited"
-            # BOXP-657 段1: 家の BFF（会話・履歴の正本）から共有履歴を読む。読むだけで、送信・停止・許可は今までどおり。
-            # 対応する image（boxp/even-g2-lab #102 以降）だけがこの 3 つを読む。KOHAKO_SHARED_BACKEND を外すと入口ごと無効。
+            # BOXP-657 段2: 送信・状態・停止・許可・リアルタイムの委任も家の BFF（会話・履歴の正本）へ渡す（on）。
+            # on の間は上の KOHAKO_HOME_CONTEXT を読まない（家と同じ会話になるので参照が要らない）。
+            # read に戻すと段1（共有履歴を読むだけ・送信は今までの kohako-g2-* session）、外すと入口ごと無効。
+            # 戻す時は kohako-studio の KOHAKO_G2_MODE も read に戻す。家の履歴と受信箱はどちらでも失われない。
             - name: KOHAKO_SHARED_BACKEND
-              value: read
+              value: "on"
             - name: KOHAKO_SHARED_BACKEND_URL
               value: http://kohako-studio-bff.kohako-studio.svc.cluster.local:8787
             - name: KOHAKO_SHARED_BACKEND_TOKEN_FILE

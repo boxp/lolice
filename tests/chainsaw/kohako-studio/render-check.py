@@ -86,13 +86,20 @@ assert not permits(get(workspace, 'NetworkPolicy', 'codex-workspace-network-poli
 secret_role = get(hermes, 'Role', 'kohako-api-server-key-reader')
 assert secret_role['rules'] == [{'apiGroups': [''], 'resources': ['secrets'], 'resourceNames': ['hermes-agent-api-server-key'], 'verbs': ['get']}]
 assert {'kind': 'ServiceAccount', 'name': 'kohako-api-server-key-reader', 'namespace': 'kohako-studio'} in get(hermes, 'RoleBinding', 'kohako-api-server-key-reader')['subjects']
-# BOXP-657: principal g2 is read-only, bound to the dedicated G2 ServiceAccount and to the glasses' Access AUD (not the home AUD).
-assert env['KOHAKO_G2_MODE'] == 'read' and env['KOHAKO_G2_USERNAME'] == 'system:serviceaccount:even-g2-lab:kohako-g2-bff'
+# BOXP-657 段2: principal g2 may read and write the shared conversation, bound to the dedicated G2 ServiceAccount and to the glasses' Access AUD (not the home AUD).
+assert env['KOHAKO_G2_MODE'] == 'write' and env['KOHAKO_G2_USERNAME'] == 'system:serviceaccount:even-g2-lab:kohako-g2-bff'
+# The G2 reference is the same as what the G2 BFF attached before: the Board summary and the Owner's own Telegram DM (read-only). The inbox stays closed to g2 (段3).
+assert (env['KOHAKO_G2_BOARD_CONTEXT'], env['KOHAKO_G2_SHARED_CONTEXT'], env['KOHAKO_G2_TELEGRAM_USER_ID']) == ('summary', 'telegram-dm', '8202126858')
+assert 'KOHAKO_G2_INBOX' not in env
 assert env['KOHAKO_G2_ACCESS_AUD'] and env['KOHAKO_G2_ACCESS_AUD'] != env['KOHAKO_ACCESS_AUD']
 g2 = objects('even-g2-lab')
 assert get(g2, 'ServiceAccount', 'kohako-g2-bff').get('automountServiceAccountToken') is False
 assert not any(s.get('name') == 'kohako-g2-bff' and s.get('namespace') == 'even-g2-lab' for x in g2 + studio if x.get('kind') in ('RoleBinding', 'ClusterRoleBinding') for s in x.get('subjects', []))  # no RBAC
 g2_spec = get(g2, 'Deployment', 'even-g2-main')['spec']['template']['spec']
+# The two switches move together: the G2 BFF hands writes to the home BFF (on) only while the home BFF accepts them (write).
+g2_env = {x['name']: x.get('value') for c in g2_spec['containers'] if c['name'] == 'kohako-bff' for x in c.get('env', [])}
+assert g2_env['KOHAKO_SHARED_BACKEND'] == 'on' and g2_env['KOHAKO_SHARED_BACKEND_URL'] == 'http://kohako-studio-bff.kohako-studio.svc.cluster.local:8787'
+assert g2_env['KOHAKO_TELEGRAM_USER_ID'] == env['KOHAKO_G2_TELEGRAM_USER_ID']
 assert g2_spec['serviceAccountName'] == 'kohako-g2-bff' and g2_spec.get('automountServiceAccountToken') is False
 volume = next(x for x in g2_spec['volumes'] if x['name'] == 'kohako-home-token')
 assert volume['projected']['sources'] == [{'serviceAccountToken': {'audience': 'kohako-bff-g2', 'expirationSeconds': 600, 'path': 'token'}}]
