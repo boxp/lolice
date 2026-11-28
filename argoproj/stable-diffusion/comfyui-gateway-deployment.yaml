@@ -69,7 +69,7 @@ spec:
               mountPath: /comfy-switch
               readOnly: true
         - name: intake
-          image: docker.io/library/python:3.15-slim@sha256:63bb298d2b7b88f176f51b5189f54ce6535c997682ea70885d2132f5d473a8a5
+          image: docker.io/library/python:3.15-slim@sha256:08a4c22c92b79ec821a7ad49768480039ee5b7accac3955228e75366e30abc8e
           imagePullPolicy: IfNotPresent
           command: [python3, -B, /code/comfy_intake.py]
           env:
