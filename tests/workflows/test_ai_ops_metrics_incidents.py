@@ -135,9 +135,29 @@ class IncidentMetricsTest(unittest.TestCase):
         out = self.out()
         self.assertEqual(self.info(out, 'INC-16')['state'], 'duplicate')
         self.assertIsNone(self.value(out, 'lolice_incident_restore_seconds', incident='INC-16'))
-        self.assertEqual(self.info(out, 'INC-17')['state'], 'invalid')
+        # 重複先が無い → 除外の根拠が無いので数えたまま問題を付ける（fail-closed）
+        self.assertEqual(self.info(out, 'INC-17')['state'], 'counted')
         self.assertEqual(self.value(out, 'lolice_incident_record_problem', incident='INC-17',
                                     problem='duplicate_target_missing'), 1)
+        self.assertEqual(self.value(out, 'lolice_incident_records', state='duplicate'), 1)
+
+    # 例 6 の続き: 重複先がそれ自体重複（循環・連鎖）→ どちらも数えたまま duplicate_target_invalid
+    def test_duplicate_cycle_and_chain_are_counted(self):
+        done = dict(started='2026-11-28T10:00:00Z', impact_resolved='2026-11-28T10:30:00Z',
+                    impact_resolved_evidence='"確認"')
+        self.write('INC-30', **V1, **done, duplicate_of='INC-31')
+        self.write('INC-31', **V1, **done, duplicate_of='INC-30')
+        self.write('INC-32', **V1, **done)
+        self.write('INC-33', **V1, **done, duplicate_of='INC-32')
+        self.write('INC-34', **V1, **done, duplicate_of='INC-33')
+        self.write('INC-35', **V1, **done, duplicate_of='INC-35')
+        out = self.out()
+        for inc in ('INC-30', 'INC-31', 'INC-34', 'INC-35'):
+            self.assertEqual(self.info(out, inc)['state'], 'counted', inc)
+            self.assertEqual(self.value(out, 'lolice_incident_record_problem', incident=inc,
+                                        problem='duplicate_target_invalid'), 1, inc)
+            self.assertEqual(self.value(out, 'lolice_incident_restore_seconds', incident=inc), 1800, inc)
+        self.assertEqual(self.info(out, 'INC-33')['state'], 'duplicate')
         self.assertEqual(self.value(out, 'lolice_incident_records', state='duplicate'), 1)
 
     # 例 7: schema 無し（INC-1〜5 のような既存記録）→ legacy、数えない
@@ -247,6 +267,28 @@ class IncidentMetricsTest(unittest.TestCase):
         out = self.out()
         self.assertIn("lolice_incident_dir_present 1", out)
         self.assertEqual(self.value(out, "lolice_incident_incomplete", reason="unterminated", synthetic="true"), 1)
+
+    # 4 章: frontmatter の開始区切りが無い記録は legacy と見なさず収集失敗（破損で黙って 0 件にしない）
+    def test_missing_frontmatter_is_incomplete(self):
+        (self.root / 'Tickets' / 'INC-40.md').write_text('# INC-40: 区切りが消えた\nschema: incident/v1\n')
+        (self.root / 'Tickets' / 'INC-41.md').write_text('')
+        out = self.out()
+        self.assertEqual(self.value(out, 'lolice_incident_incomplete', reason='no_frontmatter', synthetic='false'), 2)
+        self.assertIn('lolice_incident_dir_present 0', out)
+        self.assertNotEqual(self.info(out, 'INC-40')['state'], 'legacy')
+        self.assertEqual(self.value(out, 'lolice_incident_records', state='legacy'), 0)
+
+    def test_missing_frontmatter_synthetic_keeps_production_present(self):
+        (self.root / 'Synthetic' / 'SYN-9.md').write_text('壊れた合成事例\n')
+        out = self.out()
+        self.assertEqual(self.value(out, 'lolice_incident_incomplete', reason='no_frontmatter', synthetic='true'), 1)
+        self.assertIn('lolice_incident_dir_present 1', out)
+
+    def test_bom_frontmatter_is_read(self):
+        (self.root / 'Tickets' / 'INC-42.md').write_text('\ufeff' + fm(type='incident', status='resolved'))
+        out = self.out()
+        self.assertEqual(self.info(out, 'INC-42')['state'], 'legacy')
+        self.assertIn('lolice_incident_dir_present 1', out)
 
     def test_bad_name_is_incomplete(self):
         (self.root / "Tickets" / "INC-1234567.md").write_text(fm(**V1))

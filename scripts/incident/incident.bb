@@ -235,6 +235,34 @@
     (set-status inc id vault "monitoring" [["impact_resolved" at] ["impact_resolved_evidence" (q evidence)]]
                 :timeline (str at ": 利用者影響の解消を確認（" (one-line evidence) "）"))))
 
+(defn fm-of-file
+  "重複の確認用に frontmatter だけ読む。読めなければ nil（書き換えには使わない）。"
+  [f]
+  (when (fs/exists? f)
+    (when-let [[_ head] (re-matches #"(?s)﻿?---\n(.*?)\n---\n?.*" (slurp (str f)))]
+      (fm-map (str/split-lines head)))))
+
+(defn check-duplicate-target!
+  "重複は 1 段だけ（仕様 3 章）: 重複先は存在し、自分ではなく、それ自体が重複ではない。
+  さらに、この記録を重複先にしている記録があれば、この記録は重複にできない（連鎖・循環を作らない）。"
+  [vault id of]
+  (when (= of id) (die "自分自身は重複先にできない"))
+  (let [target (file-of vault of)]
+    (when-not (fs/exists? target) (die "重複先の記録が無い:" of))
+    (let [m (fm-of-file target)]
+      (when (nil? m) (die "重複先の記録が読めない:" of))
+      (when-not (str/blank? (m "duplicate_of"))
+        (die "重複先がそれ自体重複:" of "→" (m "duplicate_of") "（大もとの記録を重複先にする）"))))
+  (let [{:keys [tickets synthetic]} (paths vault)
+        pointing (for [dir [tickets synthetic] :when (fs/exists? dir)
+                       f (fs/list-dir dir)
+                       :when (re-matches #"(INC|SYN)-\d+\.md" (fs/file-name f))
+                       :let [m (fm-of-file f)]
+                       :when (and m (= id (str/trim (str (m "duplicate_of"))))) ]
+                   (str/replace (fs/file-name f) #"\.md$" ""))]
+    (when (seq pointing)
+      (die "この記録を重複先にしている記録がある:" (str/join "," pointing) "（先にそちらの duplicate_of を直す）"))))
+
 (defn correct! [vault id [field value] opts]
   (let [inc (read-incident vault id) reason (need opts :reason "訂正の理由")]
     (when-not (correctable field) (die "直せない欄:" field (sort correctable)))
@@ -242,6 +270,9 @@
     (let [value (cond (time-fields field) (if (str/blank? value) "" (time-arg value field))
                       (= field "cause") (if (cause-kinds value) value (die "原因の種類が違う:" value))
                       (= field "recovery") (if (recovery-kinds value) value (die "復旧操作の種類が違う:" value))
+                      (= field "duplicate_of") (let [v (str/trim value)]
+                                                 (when-not (str/blank? v) (check-duplicate-target! vault id v))
+                                                 v)
                       :else (one-line value))
           old (str ((:fm inc) field))
           stored (if (str/ends-with? field "_evidence") (q value) value)]
@@ -251,9 +282,8 @@
 
 (defn duplicate! [vault id opts]
   (let [of (need opts :of "重複先") reason (need opts :reason "重複の理由")]
-    (when (= of id) (die "自分自身は重複先にできない"))
-    (when-not (fs/exists? (file-of vault of)) (die "重複先の記録が無い:" of))
     (let [inc (read-incident vault id)]
+      (check-duplicate-target! vault id of)
       (set-status inc id vault "resolved" [["duplicate_of" of]]
                   :timeline (str (now-str) ": " of " の重複として閉じる（" (one-line reason) "）")))))
 

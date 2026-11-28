@@ -254,7 +254,7 @@ INCIDENT_ENUMS = {
 REDEPLOY = {"rollback", "revert", "hotfix", "forward_fix"}
 NO_REDEPLOY = {"restart", "manual_op", "self_healed", "external"}
 SAFE_LABEL = re.compile(r"[^A-Za-z0-9_.:/-]")
-INCOMPLETE_REASONS = ("unreadable", "unterminated", "bad_name", "over_limit")
+INCOMPLETE_REASONS = ("unreadable", "unterminated", "no_frontmatter", "bad_name", "over_limit")
 
 
 def label_value(v):
@@ -289,9 +289,10 @@ def read_frontmatter(path):
             text = fh.read(64 * 1024).decode("utf-8", "replace")
     except OSError:
         return None
-    lines = text.split("\n")
-    if not lines or lines[0].strip() != "---":
-        return {}
+    lines = text.lstrip("\ufeff").split("\n")
+    if lines[0].strip() != "---":
+        # 開始区切りが無い（空ファイル・破損）: legacy と見なすと黙って集計外になるため、読めない記録として扱う
+        return NO_FRONTMATTER
     out = {}
     for line in lines[1:]:
         if line.strip() == "---":
@@ -313,6 +314,7 @@ def read_frontmatter(path):
 
 
 UNTERMINATED = object()
+NO_FRONTMATTER = object()
 
 
 def classify_incident(iid, f):
@@ -390,9 +392,9 @@ def incident_metrics(root, now=None):
                     incomplete[("bad_name", skey)] += 1  # 記録らしいのに ID の形でない: 黙って捨てない
                 continue
             f = read_frontmatter(os.path.join(d, name))
-            if f is None or f is UNTERMINATED:
-                # 読めない・途中で切れた記録は黙って除外しない: 問題として出し、本番なら収集失敗（件数を「不明」にする）
-                reason = "unreadable" if f is None else "unterminated"
+            if f is None or f is UNTERMINATED or f is NO_FRONTMATTER:
+                # 読めない・途中で切れた・区切りの無い記録は黙って除外しない: 問題として出し、本番なら収集失敗（件数を「不明」にする）
+                reason = "unreadable" if f is None else "unterminated" if f is UNTERMINATED else "no_frontmatter"
                 incomplete[(reason, skey)] += 1
                 if f is None:
                     unreadable[skey] += 1
@@ -406,16 +408,20 @@ def incident_metrics(root, now=None):
         incomplete[("over_limit", "false")] = 1
     if any(v for (_, s), v in incomplete.items() if s == "false"):
         present = 0
-    ids = {r["id"] for r in recs}
-    # 3: duplicates
+    by_id = {r["id"]: r for r in recs}
+    # 3: duplicates. 集計から外すのは除外の根拠が確かなときだけ（fail-closed）: 重複先が存在し、自分ではなく、
+    # それ自体が重複を指していない（1 段だけ）。そうでなければ数えたまま問題を付ける（循環で両方消えない）
     for r in recs:
         dup = r.get("duplicate_of")
-        if r["state"] == "counted" and dup:
-            if dup in ids and dup != r["id"]:
-                r["state"] = "duplicate"
-            else:
-                r["state"] = "invalid"
-                r["problems"].add("duplicate_target_missing")
+        if r["state"] != "counted" or not dup:
+            continue
+        target = by_id.get(dup)
+        if target is None:
+            r["problems"].add("duplicate_target_missing")
+        elif dup == r["id"] or target.get("duplicate_of"):
+            r["problems"].add("duplicate_target_invalid")
+        else:
+            r["state"] = "duplicate"
     # 7: overlapping open intervals with the same dedupe_key -> possible_duplicate on the later one
     counted = [r for r in recs if r["state"] == "counted"]
     def span(r):

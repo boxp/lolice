@@ -157,6 +157,24 @@
       (run v "2026-11-28T10:05:00Z" "open" "--service" "k8s" "--title" "t" "--evidence" "alert")
       (is (zero? (:exit (run v "2026-11-28T10:06:00Z" "duplicate" "INC-2" "--of" "INC-1" "--reason" "同じ")))))))
 
+
+(deftest duplicate-refuses-chains-and-cycles
+  (let [v (vault)]
+    (doseq [t ["10:01" "10:02" "10:03"]]
+      (run v (str "2026-11-28T" t ":00Z") "open" "--service" "svc-a" "--title" "t" "--evidence" "alert" "--force"))
+    ;; INC-2, INC-3, INC-4
+    (is (zero? (:exit (run v "2026-11-28T10:07:00Z" "duplicate" "INC-3" "--of" "INC-2" "--reason" "同じ"))))
+    (is (not (zero? (:exit (run v "2026-11-28T10:08:00Z" "duplicate" "INC-2" "--of" "INC-3" "--reason" "r")))) "循環")
+    (is (not (zero? (:exit (run v "2026-11-28T10:08:00Z" "duplicate" "INC-4" "--of" "INC-3" "--reason" "r")))) "重複先が重複")
+    (is (not (zero? (:exit (run v "2026-11-28T10:08:00Z" "duplicate" "INC-2" "--of" "INC-4" "--reason" "r")))) "重複先にされている記録")
+    (is (not (zero? (:exit (run v "2026-11-28T10:08:00Z" "correct" "INC-2" "duplicate_of" "INC-3" "--reason" "r")))) "correct でも循環")
+    (is (not (zero? (:exit (run v "2026-11-28T10:08:00Z" "correct" "INC-4" "duplicate_of" "INC-9" "--reason" "r")))) "correct でも先が無い")
+    (is (str/blank? ((fm v "INC-2") "duplicate_of")))
+    (is (str/blank? ((fm v "INC-4") "duplicate_of")))
+    (testing "重複を外す訂正（空）はできる"
+      (is (zero? (:exit (run v "2026-11-28T10:09:00Z" "correct" "INC-3" "duplicate_of" "" "--reason" "別の障害"))))
+      (is (zero? (:exit (run v "2026-11-28T10:10:00Z" "correct" "INC-4" "duplicate_of" "INC-2" "--reason" "同じ")))))))
+
 (deftest synthetic-and-real-dedupe-are-separate
   (let [v (vault)]
     (is (zero? (:exit (run v "2026-11-28T10:05:00Z" "open" "--service" "svc-a" "--title" "合成" "--evidence" "合成" "--synthetic"))))
