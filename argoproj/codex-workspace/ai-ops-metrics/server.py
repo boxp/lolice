@@ -18,6 +18,10 @@ at most TICKET_TITLE_LIMIT (newest IDs first), with the title from the ticket fi
 "# BOXP-N: title" heading. A missing file or heading gives title="" (the dashboard then shows the ID only);
 nothing is guessed. Titles stay inside the cluster (Prometheus, Grafana); no body is read
 beyond the heading.
+
+BOXP-769: also serves lolice_incident_* from the incident records (Incidents/Tickets/INC-N.md,
+Incidents/Synthetic/SYN-N.md frontmatter, schema incident/v1). Labels are IDs and enums only;
+titles and evidence text are never exported.
 """
 import os
 import json
@@ -234,6 +238,206 @@ def cached_ticket_titles():
     return _title_cache["body"]
 
 
+# ---- BOXP-769: incident records -> lolice_incident_* (spec: Obsidian Projects/lolice-incident-recovery/spec.md) ----
+INCIDENTS_DIR = os.environ.get("INCIDENTS_DIR", "")
+INCIDENT_LIMIT = 2000
+INCIDENT_TTL = 60
+_incident_cache = {"at": 0.0, "body": b""}
+INCIDENT_FILE = re.compile(r"(INC|SYN)-\d{1,6}")
+INCIDENT_TIME_FIELDS = (("started", "started"), ("detected", "detected"), ("cause_deployed_at", "cause_deployed"),
+                        ("recovery_at", "recovery_action"), ("impact_resolved", "impact_resolved"))
+INCIDENT_ENUMS = {
+    "cause": {"", "deployment", "non_deployment", "unknown"},
+    "recovery": {"", "rollback", "revert", "hotfix", "forward_fix", "restart", "manual_op", "self_healed", "external",
+                 "unknown"},
+}
+REDEPLOY = {"rollback", "revert", "hotfix", "forward_fix"}
+NO_REDEPLOY = {"restart", "manual_op", "self_healed", "external"}
+SAFE_LABEL = re.compile(r"[^A-Za-z0-9_.:/-]")
+
+
+def parse_incident_time(value):
+    """UTC. ISO-8601 ('...Z' / offset) or the older 'YYYY-MM-DD HH:mm' (taken as UTC). None if unreadable."""
+    v = value.strip()
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return int(datetime.strptime(v, fmt).replace(tzinfo=timezone.utc).timestamp())
+        except ValueError:
+            pass
+    try:
+        d = datetime.fromisoformat(v.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return int(d.timestamp())
+
+
+def read_frontmatter(path):
+    try:
+        with open(path, "rb") as fh:
+            text = fh.read(64 * 1024).decode("utf-8", "replace")
+    except OSError:
+        return None
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return {}
+    out = {}
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line[:1] in (" ", "\t", "-") or ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        v = v.strip()
+        if v.startswith('"'):
+            try:
+                v = json.loads(v)
+            except ValueError:
+                v = v.strip('"')
+        out[k.strip()] = str(v).strip() if v is not None else ""
+    return out
+
+
+def classify_incident(iid, f):
+    """One record -> dict (spec 2 章 1-6). Problems are a set of enum names."""
+    g = lambda k: (f.get(k) or "").strip()
+    r = {"id": iid, "service": SAFE_LABEL.sub("_", g("service"))[:60], "problems": set(), "times": {},
+         "synthetic": iid.startswith("SYN-") or g("synthetic").lower() == "true",
+         "cause": g("cause") or "unknown", "recovery": g("recovery") or "unknown",
+         "key": g("dedupe_key") or g("service"), "app": SAFE_LABEL.sub("_", g("cause_app"))[:60]}
+    if g("schema") != "incident/v1":
+        r.update(state="legacy", recovery_state="legacy", cause_state="legacy")
+        return r
+    for field, point in INCIDENT_TIME_FIELDS:
+        if g(field):
+            t = parse_incident_time(g(field))
+            if t is None:
+                r["problems"].add("bad_time")
+            else:
+                r["times"][point] = t
+    for field, allowed in INCIDENT_ENUMS.items():
+        if g(field) not in allowed:
+            r["problems"].add("bad_value")
+            r[field] = "unknown"
+    t = r["times"]
+    # 4: recovered only with a confirmed time AND evidence; an alert resolved / recovery action is not the end
+    if "impact_resolved" in t and g("impact_resolved_evidence"):
+        rs = "recovered"
+        if any(p in t and t["impact_resolved"] < t[p] for p in ("started", "cause_deployed")):
+            r["problems"].add("time_order")
+    elif "impact_resolved" in t:
+        rs = "unconfirmed"
+        r["problems"].add("resolved_without_evidence")
+    else:
+        rs = "unrecovered"
+    # 5
+    if r["cause"] == "deployment":
+        if r["app"] and "cause_deployed" in t and g("cause_evidence"):
+            cs = "deployment"
+        else:
+            cs = "deployment_unconfirmed"
+            r["problems"].add("cause_incomplete")
+    elif r["cause"] == "non_deployment":
+        cs = "non_deployment"
+    else:
+        cs = "unknown"
+    r.update(recovery_state=rs, cause_state=cs, duplicate_of=g("duplicate_of"))
+    r["state"] = "invalid" if r["problems"] & {"bad_time", "bad_value", "time_order"} else "counted"
+    return r
+
+
+def incident_metrics(root, now=None):
+    now = int(time.time() if now is None else now)
+    recs = []
+    present = 0
+    for sub in ("Tickets", "Synthetic"):
+        d = os.path.join(root, sub)
+        try:
+            names = sorted(e.name for e in os.scandir(d))
+            present = 1
+        except OSError:
+            continue
+        for name in names:
+            iid = name[:-3] if name.endswith(".md") else ""
+            if not INCIDENT_FILE.fullmatch(iid):
+                continue
+            f = read_frontmatter(os.path.join(d, name))
+            if f is None:
+                continue
+            recs.append(classify_incident(iid, f))
+    recs = recs[:INCIDENT_LIMIT]
+    ids = {r["id"] for r in recs}
+    # 3: duplicates
+    for r in recs:
+        dup = r.get("duplicate_of")
+        if r["state"] == "counted" and dup:
+            if dup in ids and dup != r["id"]:
+                r["state"] = "duplicate"
+            else:
+                r["state"] = "invalid"
+                r["problems"].add("duplicate_target_missing")
+    # 7: overlapping open intervals with the same dedupe_key -> possible_duplicate on the later one
+    counted = [r for r in recs if r["state"] == "counted"]
+    def span(r):
+        t = r["times"]
+        s = t.get("started", t.get("detected"))
+        e = t["impact_resolved"] if r["recovery_state"] == "recovered" else now
+        return s, e
+    for r in counted:
+        s, e = span(r)
+        if s is None or not r["key"]:
+            continue
+        for o in counted:
+            if o is r or o["key"] != r["key"]:
+                continue
+            os_, oe = span(o)
+            if os_ is None:
+                continue
+            if (os_, o["id"]) < (s, r["id"]) and os_ <= e and s <= oe:
+                r["problems"].add("possible_duplicate")
+    lines = []
+    def metric(name, help_text, samples):
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} gauge")
+        for labels, v in samples:
+            lines.append(f"{name}{{{labels}}} {v}" if labels else f"{name} {v}")
+    syn = lambda r: "true" if r["synthetic"] else "false"
+    def redeploy(r):
+        return "true" if r["recovery"] in REDEPLOY else "false" if r["recovery"] in NO_REDEPLOY else "unknown"
+    metric("lolice_incident_info", "Incident record (state: counted, legacy, duplicate, invalid).",
+           [(f'incident="{r["id"]}",service="{r["service"]}",state="{r["state"]}",recovery_state="{r["recovery_state"]}",'
+             f'cause_state="{r["cause_state"]}",recovery="{r["recovery"]}",redeploy="{redeploy(r)}",synthetic="{syn(r)}"', 1)
+            for r in recs])
+    live = [r for r in recs if r["state"] in ("counted", "duplicate", "invalid")]
+    metric("lolice_incident_timestamp_seconds", "Recorded incident time points (UTC epoch).",
+           [(f'incident="{r["id"]}",point="{p}",synthetic="{syn(r)}"', t) for r in live for p, t in sorted(r["times"].items())])
+    ok = [r for r in counted if r["state"] == "counted" and r["recovery_state"] == "recovered"]
+    metric("lolice_incident_restore_seconds", "Impact start to confirmed impact resolution (all causes).",
+           [(f'incident="{r["id"]}",service="{r["service"]}",synthetic="{syn(r)}"', r["times"]["impact_resolved"] - r["times"]["started"])
+            for r in ok if "started" in r["times"]])
+    metric("lolice_incident_failed_deployment_recovery_seconds",
+           "DORA failed deployment recovery time: causing deployment deployedAt to confirmed impact resolution.",
+           [(f'incident="{r["id"]}",app="{r["app"]}",synthetic="{syn(r)}"', r["times"]["impact_resolved"] - r["times"]["cause_deployed"])
+            for r in ok if r["cause_state"] == "deployment"])
+    metric("lolice_incident_record_problem", "Problems found in an incident record.",
+           [(f'incident="{r["id"]}",problem="{p}",synthetic="{syn(r)}"', 1) for r in recs for p in sorted(r["problems"])])
+    states = ("counted", "legacy", "duplicate", "invalid")
+    metric("lolice_incident_records", "Incident records by state.",
+           [(f'state="{s}"', sum(1 for r in recs if r["state"] == s)) for s in states])
+    metric("lolice_incident_dir_present", "1 when the incident directory could be read.", [("", present)])
+    metric("lolice_incident_metrics_generated_timestamp_seconds", "When the incident metrics were generated.", [("", now)])
+    return ("\n".join(lines) + "\n").encode()
+
+
+def cached_incidents():
+    now = time.time()
+    if now - _incident_cache["at"] > INCIDENT_TTL:
+        _incident_cache["body"] = incident_metrics(INCIDENTS_DIR, now)
+        _incident_cache["at"] = now
+    return _incident_cache["body"]
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/healthz":
@@ -252,6 +456,8 @@ class Handler(BaseHTTPRequestHandler):
             out += prepaid_metrics(PREPAID_DIR)
         if TICKETS_DIR:
             out += cached_ticket_titles()
+        if INCIDENTS_DIR:
+            out += cached_incidents()
         self._send(200, out, "text/plain; version=0.0.4")
 
     def _send(self, code, body, ctype="text/plain"):

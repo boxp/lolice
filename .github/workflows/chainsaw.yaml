@@ -165,10 +165,12 @@ jobs:
         run: bb tests/hermes-agent/nature-remo-test.bb
 
       # BOXP-762: lolice DORA 指標の判定（仕様の例から書いた期待値）と、ダッシュボード JSON の生成再現性。
+      # BOXP-769: 障害記録 CLI（一時 vault だけを使う）。
       - name: lolice DORA collector tests
         run: |
           bb tests/lolice-dora/dora-test.bb
           bb tests/lolice-dora/collector-git-test.bb
+          bb tests/incident/incident-cli-test.bb
           bb argoproj/prometheus-operator/lolice-dora/dashboard.bb | diff -u argoproj/prometheus-operator/dashboards/lolice-dora.json -
 
       # BOXP-623: 監視入口ダッシュボードの生成再現性と、Grafana Alerting リンク等の不変条件。
